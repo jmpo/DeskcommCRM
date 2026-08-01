@@ -80,4 +80,20 @@ export interface ChannelAdapter {
    * de `lib/channels/`. Quem chama escreve o que o adapter disser.
    */
   readonly codes: { notConfigured: string; sendFailed: string; unknownError: string };
+
+  /**
+   * URL da foto de perfil do contato, ou null quando não há (sem foto,
+   * privacidade fechada, canal fora do ar).
+   *
+   * OPCIONAL de propósito: nem todo canal expõe isso. Quem chama testa a
+   * presença do método antes de usar, em vez de perguntar QUAL provider é —
+   * que é justamente o que o lint de canal proíbe fora daqui.
+   *
+   * A URL devolvida costuma ser ASSINADA E TEMPORÁRIA (no WhatsApp, ~9 dias
+   * medidos). Quem chama deve BAIXAR e persistir, nunca guardar a URL.
+   */
+  fetchProfilePictureUrl?(input: {
+    sessionRef: string;
+    recipient: string;
+  }): Promise<string | null>;
 }

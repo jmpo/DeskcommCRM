@@ -34,6 +34,17 @@ export const wahaAdapter: ChannelAdapter = {
     unknownError: "waha_unknown",
   },
 
+  // A URL vem assinada pelo CDN do WhatsApp e EXPIRA (~9 dias, medido). Quem
+  // chama baixa e persiste; guardar a URL faria a foto sumir sozinha depois.
+  async fetchProfilePictureUrl(input: {
+    sessionRef: string;
+    recipient: string;
+  }): Promise<string | null> {
+    const client = getWahaClient();
+    if (!client) return null;
+    return client.getProfilePictureUrl(input.sessionRef, input.recipient);
+  },
+
   async send(envelope: OutboundEnvelope): Promise<{ externalId: string | null }> {
     const client = getWahaClient();
     // Sem env de WAHA o comportamento atual é NOOP, não erro: a UI mostra o

@@ -2,13 +2,13 @@
  * contact-avatars — baixa e mantém atualizada a foto de perfil dos contatos.
  *
  * POR QUE UM CRON, E NÃO NA INGESTÃO
- * O webhook do WAHA precisa responder rápido: baixar e subir uma imagem no meio
- * dele atrasaria a gravação da mensagem e, num pico, faria o WAHA reenfileirar.
+ * O webhook de entrada precisa responder rápido: baixar e subir uma imagem no meio
+ * dele atrasaria a gravação da mensagem e, num pico, faria o canal reenfileirar.
  * Aqui vale a mesma regra do resto do repo — trabalho pesado sai do caminho
  * quente e vira varredura periódica.
  *
  * POR QUE O ARQUIVO, E NÃO A URL
- * O WAHA devolve uma URL assinada do CDN do WhatsApp, com `oe=<expiração>` no
+ * O canal devolve uma URL assinada do CDN do WhatsApp, com `oe=<expiração>` no
  * fim. Medido numa instalação real: 9 dias. Guardar a URL faria todo avatar
  * sumir da tela em pouco mais de uma semana, sem erro nenhum. Então o arquivo
  * vai para o bucket privado `whatsapp-media`, como já se faz com a mídia das
@@ -24,6 +24,7 @@ import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
+import { DEFAULT_CHANNEL_PROVIDER, getAdapter } from "@/lib/channels";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -44,7 +45,7 @@ interface ContactRow {
   avatar_storage_path: string | null;
 }
 
-/** `lid:123…` / `phone:+55…` → o chatId que o WAHA espera. */
+/** `lid:123…` / `phone:+55…` → o chatId que o adapter espera. */
 function chatIdFromIdentity(identity: string): string | null {
   if (identity.startsWith("lid:")) return `${identity.slice(4)}@lid`;
   if (identity.startsWith("phone:")) return `${identity.slice(6).replace(/\D/g, "")}@c.us`;
@@ -93,7 +94,7 @@ async function handle(req: NextRequest): Promise<Response> {
   for (const c of rows) {
     const chatId = c.wa_identity ? chatIdFromIdentity(c.wa_identity) : null;
     // Carimba mesmo sem conseguir resolver o chatId: sem isso o contato voltaria
-    // em TODA rodada do cron, para sempre, batendo no WAHA à toa.
+    // em TODA rodada do cron, para sempre, batendo no canal à toa.
     const carimbar = async (path: string | null) => {
       await admin
         .from("contacts")
@@ -114,29 +115,35 @@ async function handle(req: NextRequest): Promise<Response> {
     try {
       const { data: sessao } = await admin
         .from("channel_sessions")
-        .select("waha_session_name")
+        .select("waha_session_name, provider")
         .eq("organization_id", c.organization_id)
         .eq("status", "WORKING")
         .limit(1)
         .maybeSingle();
-      if (!sessao?.waha_session_name) {
+      const ref = (sessao as { waha_session_name?: string | null } | null)?.waha_session_name;
+      if (!ref) {
         await carimbar(null);
         semFoto++;
         continue;
       }
 
-      const base = env.WAHA_API_BASE_URL || "http://waha:3000";
-      const url =
-        `${base}/api/contacts/profile-picture` +
-        `?session=${encodeURIComponent(sessao.waha_session_name)}` +
-        `&contactId=${encodeURIComponent(chatId)}`;
-      const resp = await fetch(url, { headers: { "X-Api-Key": env.WAHA_API_KEY ?? "" } });
-      if (!resp.ok) {
+      // Pelo adapter, nunca falando com o canal direto: a doutrina
+      // `restricao-de-canal` proíbe nomear provider fora de lib/channels/, e o
+      // `pnpm lint:channels` reprova o build se acontecer (foi o que pegou a
+      // primeira versão desta rota). Testar a PRESENÇA do método é como se
+      // pergunta "este canal sabe fazer isso?" sem perguntar qual canal é.
+      const adapter = getAdapter(
+        (sessao as { provider?: string | null } | null)?.provider ?? DEFAULT_CHANNEL_PROVIDER,
+      );
+      if (!adapter.fetchProfilePictureUrl) {
         await carimbar(null);
         semFoto++;
         continue;
       }
-      const { profilePictureURL } = (await resp.json()) as { profilePictureURL?: string | null };
+      const profilePictureURL = await adapter.fetchProfilePictureUrl({
+        sessionRef: ref,
+        recipient: chatId,
+      });
       if (!profilePictureURL) {
         // Contato sem foto ou com privacidade fechada: estado normal, não erro.
         await carimbar(null);
