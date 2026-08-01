@@ -11,7 +11,15 @@
  * Only model strings via the gateway-shaped `ai` SDK calls.
  */
 
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
+import type { LanguageModel } from "ai";
+
 import { env } from "@/lib/env";
+
+/** Endpoint da OpenRouter. Compatível com a API da OpenAI, então o provider
+ *  `@ai-sdk/openai` fala com ela sem dependência nova. */
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 export type ModelId =
   | "anthropic/claude-sonnet-4-6"
@@ -25,7 +33,61 @@ export const DEFAULT_CLASSIFIER_MODEL: ModelId = "anthropic/claude-haiku-4-5";
 export const DEFAULT_EMBEDDING_MODEL: ModelId = "openai/text-embedding-3-small";
 
 export function isAiGatewayConfigured(): boolean {
-  return Boolean(env.AI_GATEWAY_API_KEY) || Boolean(env.ANTHROPIC_API_KEY);
+  return (
+    Boolean(env.AI_GATEWAY_API_KEY) ||
+    Boolean(env.OPENROUTER_API_KEY) ||
+    Boolean(env.ANTHROPIC_API_KEY)
+  );
+}
+
+/**
+ * Resolve o modelo de CHAT para algo que o `ai` SDK saiba executar.
+ *
+ * Existe porque `isAiGatewayConfigured()` e a execução real estavam
+ * desalinhados: a checagem dizia "tem IA" com a `ANTHROPIC_API_KEY` (a única
+ * que o install.sh exige), mas quem executava passava o id como STRING, e no
+ * AI SDK string com barra é roteada pelo gateway da Vercel — que sem
+ * `AI_GATEWAY_API_KEY` cai no plano anônimo e devolve
+ *
+ *     Unauthenticated. Configure AI_GATEWAY_API_KEY or use a provider module.
+ *
+ * Ou seja: em TODA instalação self-host padrão o worker de sentimento falhava
+ * em loop. Mesma armadilha que o `embed.ts` já documentava e resolvia para
+ * embeddings; aqui o caminho de chat ficou sem o equivalente.
+ *
+ * Ordem de resolução, do mais específico ao mais genérico:
+ *   1. Gateway da Vercel  -> devolve a string; o gateway roteia e fatura
+ *   2. OpenRouter         -> provider OpenAI-compatível apontado ao endpoint
+ *      dela. Os ids da OpenRouter já são `provider/modelo`, então o mesmo id
+ *      canônico serve sem tradução.
+ *   3. Provider direto     -> Anthropic ou OpenAI, conforme o prefixo do id
+ *
+ * Devolve null quando nada está configurado, para o chamador PULAR com motivo
+ * claro em vez de estourar com erro de rede lá dentro.
+ */
+export function resolveLanguageModel(model: ModelId): LanguageModel | null {
+  const id = String(model);
+
+  if (gatewayConfig()) return id as LanguageModel;
+
+  if (env.OPENROUTER_API_KEY) {
+    return createOpenAI({
+      apiKey: env.OPENROUTER_API_KEY,
+      baseURL: env.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL,
+    })(id);
+  }
+
+  if (id.startsWith("anthropic/") && env.ANTHROPIC_API_KEY) {
+    return createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })(
+      id.slice("anthropic/".length),
+    );
+  }
+
+  if (id.startsWith("openai/") && env.OPENAI_API_KEY) {
+    return createOpenAI({ apiKey: env.OPENAI_API_KEY })(id.slice("openai/".length));
+  }
+
+  return null;
 }
 
 export function isEmbeddingProviderConfigured(): boolean {

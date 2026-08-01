@@ -17,7 +17,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 
 import { computeCost } from "@/lib/ai/cost";
-import { DEFAULT_CLASSIFIER_MODEL, isAiGatewayConfigured } from "@/lib/ai/gateway";
+import { DEFAULT_CLASSIFIER_MODEL, isAiGatewayConfigured, resolveLanguageModel } from "@/lib/ai/gateway";
 import { logInvocation } from "@/lib/ai/log-invocation";
 import { SENTIMENT_SYSTEM_PROMPT } from "@/lib/ai/prompts/sentiment";
 import type { EventRow } from "@/lib/event-log/dispatcher";
@@ -42,6 +42,16 @@ export async function processSentiment(event: EventRow): Promise<SentimentResult
   try {
     // ── Guard: AI Gateway configured ────────────────────────────────────────
     if (!isAiGatewayConfigured()) {
+      return { skipped: true, reason: "ai_gateway_key_missing" };
+    }
+
+    // Passar SENTIMENT_MODEL como string cai no gateway da Vercel mesmo sem
+    // chave (plano anônimo) e devolve "Unauthenticated ... Configure
+    // AI_GATEWAY_API_KEY" — o que quebrava este worker em toda instalação que
+    // só tem ANTHROPIC_API_KEY, ou seja, o padrão do install.sh. O resolver
+    // devolve o provider certo para a chave que existir.
+    const sentimentModel = resolveLanguageModel(SENTIMENT_MODEL);
+    if (!sentimentModel) {
       return { skipped: true, reason: "ai_gateway_key_missing" };
     }
 
@@ -104,7 +114,7 @@ export async function processSentiment(event: EventRow): Promise<SentimentResult
 
     try {
       const generated = await generateObject({
-        model: SENTIMENT_MODEL,
+        model: sentimentModel,
         schema: sentimentSchema,
         system: SENTIMENT_SYSTEM_PROMPT,
         prompt: body,

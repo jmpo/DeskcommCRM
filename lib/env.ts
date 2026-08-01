@@ -87,6 +87,11 @@ const schema = z.object({
   // when AI_GATEWAY_API_KEY is absent, so production boot must not be fatal.
   AI_GATEWAY_API_KEY: z.string().optional().default(""),
   AI_GATEWAY_BASE_URL: z.string().optional().default(""),
+  // OpenRouter: alternativa ao gateway da Vercel, compatível com a API da
+  // OpenAI. Opcional — sem ela nada muda; com ela o chat passa a ser roteado
+  // por lá. Ver resolveLanguageModel() em lib/ai/gateway.ts.
+  OPENROUTER_API_KEY: z.string().optional().default(""),
+  OPENROUTER_BASE_URL: z.string().optional().default(""),
   VERCEL_AI_GATEWAY_URL: z.string().optional().default(""),
   ANTHROPIC_API_KEY: z.string().optional().default(""),
   OPENAI_API_KEY: z.string().optional().default(""),
