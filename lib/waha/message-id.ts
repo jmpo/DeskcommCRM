@@ -37,3 +37,29 @@ export function bareWaMessageId(id: string): string {
   const cut = id.lastIndexOf('_');
   return cut === -1 ? id : id.slice(cut + 1);
 }
+
+/**
+ * Extrai o chatId do id composto do WAHA (`{fromMe}_{chatId}_{bareId}`).
+ *
+ * Existe porque o NOWEB **não manda `to`** no payload de mensagem `fromMe=true`
+ * (a que o dono digitou no celular): o chat vai em `from`, e `to` simplesmente
+ * não vem. Payload real capturado numa instalação:
+ *
+ *   { "id": "true_250302204792918@lid_2A1B890FB8AA87730CBC",
+ *     "from": "250302204792918@lid", "fromMe": true, "source": "app" }
+ *
+ * Como o id JÁ carrega o chatId, dá para recuperá-lo sem depender do engine.
+ * Mesmo raciocínio de `bareWaMessageId`: chatId (`@c.us`/`@lid`) e o serializado
+ * WA não contêm `_`, então as fatias entre o primeiro e o último `_` são o chat.
+ *
+ * Devolve null quando o id não é composto (id "bare" do envio) ou quando o
+ * miolo não parece um chatId — assim quem chama cai no próximo fallback em vez
+ * de inventar um contato a partir de lixo.
+ */
+export function chatIdFromWaMessageId(id: string): string | null {
+  const first = id.indexOf('_');
+  const last = id.lastIndexOf('_');
+  if (first === -1 || last === first) return null;
+  const chat = id.slice(first + 1, last);
+  return chat.includes('@') ? chat : null;
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bareWaMessageId, parseWahaMessageId } from "@/lib/waha/message-id";
+import { bareWaMessageId, chatIdFromWaMessageId, parseWahaMessageId } from "@/lib/waha/message-id";
 
 describe("parseWahaMessageId", () => {
   it("string plana não é uma shape reconhecida (guard exige objeto) → null", () => {
@@ -51,5 +51,35 @@ describe("bareWaMessageId", () => {
     const candidates = [ackFull, bareWaMessageId(ackFull)];
     expect(candidates).toContain(webjsStored); // WEBJS: casa pela forma full
     expect(candidates).toContain("3EB0ABC"); // NOWEB: casa pela cauda
+  });
+});
+
+describe("chatIdFromWaMessageId", () => {
+  it("recupera o chat de uma mensagem fromMe do NOWEB (payload real)", () => {
+    // Capturado numa instalação Hostinger: o dono digitou no celular e o CRM
+    // não mostrou. O payload NÃO tem `to` — sem este helper o chatId ficava
+    // vazio e a mensagem era descartada em silêncio (webhook devolvia 200).
+    expect(chatIdFromWaMessageId("true_250302204792918@lid_2A1B890FB8AA87730CBC")).toBe(
+      "250302204792918@lid",
+    );
+  });
+
+  it("funciona com @c.us (numero classico) e com inbound (false_)", () => {
+    expect(chatIdFromWaMessageId("true_5511999999999@c.us_3EB0ABC")).toBe("5511999999999@c.us");
+    expect(chatIdFromWaMessageId("false_5511999999999@c.us_3EB0ABC")).toBe("5511999999999@c.us");
+  });
+
+  it("id já-bare (do envio) não tem chat embutido → null, não lixo", () => {
+    expect(chatIdFromWaMessageId("3EB02714A82A56A80702CE")).toBeNull();
+  });
+
+  it("miolo sem @ não é chatId → null (não inventa contato)", () => {
+    expect(chatIdFromWaMessageId("true_naoehchat_3EB0ABC")).toBeNull();
+  });
+
+  it("convive com bareWaMessageId: um pega o chat, o outro o id", () => {
+    const id = "true_250302204792918@lid_2A1B890FB8AA87730CBC";
+    expect(chatIdFromWaMessageId(id)).toBe("250302204792918@lid");
+    expect(bareWaMessageId(id)).toBe("2A1B890FB8AA87730CBC");
   });
 });

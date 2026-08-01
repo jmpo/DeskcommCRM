@@ -14,7 +14,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { audit } from "@/lib/audit";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { ackToStatus } from "@/lib/types/messaging";
-import { bareWaMessageId } from "@/lib/waha/message-id";
+import { bareWaMessageId, chatIdFromWaMessageId } from "@/lib/waha/message-id";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -426,7 +426,19 @@ async function handleOutboundFromUserPhone(
   p: WahaPayload,
   requestId: string,
 ): Promise<void> {
-  const chatId = p.to ?? "";
+  // De onde sai o chat, em ordem de confiança:
+  //   1. `to`  — o WEBJS manda; é o destinatário explícito.
+  //   2. o id  — `{fromMe}_{chatId}_{bareId}` carrega o chat em qualquer engine.
+  //   3. `from`— no NOWEB, mensagem fromMe traz o CHAT em `from` (não o número
+  //              do operador, como acontece no WEBJS).
+  //
+  // O NOWEB (engine padrão do kit) **não manda `to`** aqui. Com `p.to ?? ""` o
+  // chatId ficava vazio e a guarda abaixo descartava a mensagem em silêncio —
+  // toda mensagem que o dono digitava no celular sumia do CRM, enquanto as
+  // enviadas pelo composer e pela IA apareciam (essas nascem no banco antes do
+  // webhook, então não dependiam deste caminho). O sintoma era "respondi pelo
+  // celular e o CRM não mostra", sem nenhum erro em log: o webhook devolvia 200.
+  const chatId = p.to ?? chatIdFromWaMessageId(p.id ?? "") ?? p.from ?? "";
   const parsed = parseChatId(chatId);
   if (parsed.kind === "group") return;
   if (!p.id || !chatId) return;
