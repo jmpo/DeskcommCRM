@@ -3,6 +3,36 @@
 set -euo pipefail
 
 COMPOSE="docker-compose.prod.yml"
+COMPOSE_TRAEFIK="docker-compose.traefik.yml"
+
+# Proxy reverso desta instalação. Vem do .env (load_env), com default 'caddy' —
+# ou seja, toda instalação que já existe continua exatamente como está.
+#
+#   caddy   → o kit sobe o próprio Caddy nas portas 80/443 (VPS "cru")
+#   traefik → a VPS JÁ tem um Traefik nessas portas (Hostinger, Coolify,
+#             Dokploy...). Entra o override, que desliga o Caddy e publica o app
+#             por labels. Ver o cabeçalho de docker-compose.traefik.yml.
+#
+# Todo `docker compose` do kit passa por aqui: com proxy externo, um comando sem
+# o override subiria o Caddy e ele iria bater de frente com o Traefik.
+dc() {
+  if [ "${REVERSE_PROXY:-caddy}" = "traefik" ]; then
+    docker compose -f "$COMPOSE" -f "$COMPOSE_TRAEFIK" "$@"
+  else
+    docker compose -f "$COMPOSE" "$@"
+  fi
+}
+
+# A mesma lista de -f, como texto, para as mensagens que ensinam o comando ao
+# dono. Se a mensagem omitisse o override numa instalação com proxy externo, o
+# próprio dono derrubaria o site seguindo a instrução do kit.
+dc_files() {
+  if [ "${REVERSE_PROXY:-caddy}" = "traefik" ]; then
+    printf -- '-f %s -f %s' "$COMPOSE" "$COMPOSE_TRAEFIK"
+  else
+    printf -- '-f %s' "$COMPOSE"
+  fi
+}
 
 c_red() { printf '\033[31m%s\033[0m\n' "$*"; }
 c_grn() { printf '\033[32m%s\033[0m\n' "$*"; }

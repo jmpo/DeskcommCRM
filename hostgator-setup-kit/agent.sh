@@ -184,7 +184,7 @@ report() { post "{\"kind\":\"run_progress\",\"run_id\":\"${RUN_ID}\",\"step\":\"
 # permissão — coisas normais numa VPS rodando isso a cada 5 minutos, pra
 # sempre; sem o "|| true" isso já derrubava o agente ANTES de sequer chamar o
 # update.sh (achado só rodando de propósito com o comando falhando).
-PREV_IMAGE="$(docker compose -f "$COMPOSE" images -q app 2>/dev/null | head -1)" || true
+PREV_IMAGE="$(dc images -q app 2>/dev/null | head -1)" || true
 if [ -z "$PREV_IMAGE" ]; then
   # Registrado, não ignorado: sem imagem anterior conhecida, se o update.sh
   # falhar mais adiante NÃO HÁ como voltar — o status vai sair "failed", nunca
@@ -230,7 +230,7 @@ elif [ $RC -ne 0 ]; then
   STATUS="failed"
   if [ -n "$PREV_IMAGE" ]; then
     if APP_IMAGE="$PREV_IMAGE" APP_PULL_POLICY=missing \
-         docker compose -f "$COMPOSE" up -d app >>"$LOG" 2>&1; then
+         dc up -d app >>"$LOG" 2>&1; then
       STATUS="failed_rolled_back"
       # Persiste a volta: o update.sh já gravou a imagem NOVA (quebrada) no
       # .env antes do pull. Sem reescrever aqui, o próximo `up -d` — o do

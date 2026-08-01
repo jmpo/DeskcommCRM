@@ -95,6 +95,16 @@ Quando terminar, diga à pessoa para:
 Estes pontos já foram descobertos e corrigidos no `install.sh` / `docker-compose.prod.yml`.
 Se mesmo assim aparecerem, aqui está o diagnóstico pronto:
 
+0. **O VPS já tem um proxy (Traefik) nas portas 80/443** — acontece na Hostinger, Coolify,
+   Dokploy e afins: o painel entrega a VPS com um Traefik próprio, que é quem dá o HTTPS
+   automático a tudo que ele instala. O Caddy do kit quer as MESMAS portas, então o
+   `up -d` falha no bind e a instalação morre no meio. O `install.sh` **detecta isso
+   sozinho** (procura um contêiner Traefik rodando), grava `REVERSE_PROXY=traefik` no
+   `.env` e passa a subir com o override `docker-compose.traefik.yml` — que desliga o
+   Caddy e publica o app por labels do Traefik. **Nunca desligue o Traefik da hospedagem**
+   para "liberar" as portas: isso quebra as automações do painel dela. Se precisar rodar
+   compose na mão nessa instalação, inclua sempre os dois arquivos:
+   `docker compose -f docker-compose.prod.yml -f docker-compose.traefik.yml ...`
 1. **Firewall te tranca fora do VPS** — o `ufw` padrão libera a porta **22**, mas alguns
    VPS da HostGator usam SSH em porta **custom** (ex.: `22022`). SEMPRE confira a porta do
    SSH atual (`ss -tlnp | grep sshd` ou o número que você usou pra conectar) e libere ELA

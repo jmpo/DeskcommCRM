@@ -163,8 +163,8 @@ set_env_var .env APP_IMAGE "$APP_IMAGE"
 # sempre. Aqui o alvo é uma tag do registro de novo, então "always" volta a ser
 # o certo.
 set_env_var .env APP_PULL_POLICY always
-docker compose -f "$COMPOSE" pull
-docker compose -f "$COMPOSE" up -d
+dc pull
+dc up -d
 
 # O Caddyfile entra no container por bind mount de UM ARQUIVO, e bind mount de
 # arquivo fica preso ao inode. O `git pull` não edita o arquivo: escreve outro e
@@ -175,15 +175,26 @@ docker compose -f "$COMPOSE" up -d
 # Sem este force-recreate, TODA mudança de proxy enviada numa atualização
 # (inclusive correção de segurança na borda) some em silêncio: o update diz
 # "concluída" e a configuração antiga segue valendo.
-docker compose -f "$COMPOSE" up -d --force-recreate --no-deps caddy >/dev/null 2>&1 \
-  && c_grn "✓ proxy recarregado com a configuração desta versão" \
-  || c_ylw "⚠ não consegui recriar o proxy — rode: docker compose -f $COMPOSE up -d --force-recreate caddy"
+#
+# Com proxy externo não há Caddy para recriar — e não basta o profile inativo
+# do override: nomear o serviço explicitamente (`up -d ... caddy`) ATIVA o
+# profile dele no Compose e sobe o contêiner assim mesmo, indo bater de frente
+# com o Traefik nas portas 80/443. O resultado era um "⚠ não consegui recriar o
+# proxy" em TODA atualização de quem usa proxy externo: alarme falso, num
+# momento em que o dono precisa confiar no que está lendo.
+if [ "${REVERSE_PROXY:-caddy}" = "traefik" ]; then
+  c_grn "✓ proxy externo (Traefik): o Caddy não é usado aqui — nada a recarregar"
+else
+  dc up -d --force-recreate --no-deps caddy >/dev/null 2>&1 \
+    && c_grn "✓ proxy recarregado com a configuração desta versão" \
+    || c_ylw "⚠ não consegui recriar o proxy — rode: docker compose $(dc_files) up -d --force-recreate caddy"
+fi
 
 # ── 6. O app voltou no ar? ───────────────────────────────────────────────────
 step "Conferindo se o app voltou no ar"
 ok=""
 for _ in $(seq 1 20); do
-  out="$(docker compose -f "$COMPOSE" exec -T app node -e \
+  out="$(dc exec -T app node -e \
     "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>r.text()).then(t=>{console.log(t);process.exit(0)}).catch(()=>process.exit(1))" \
     2>/dev/null || echo '')"
   printf '%s' "$out" | grep -q '"status":"ok"' && { ok=1; break; }
@@ -193,7 +204,7 @@ if [ -n "$ok" ]; then
   c_grn "✓ Atualização concluída — app no ar e saudável."
 else
   c_ylw "⚠ Atualizei, mas o app não respondeu 'ok'. Veja os logs:"
-  c_ylw "  docker compose -f $COMPOSE logs --tail=50 app"
+  c_ylw "  docker compose $(dc_files) logs --tail=50 app"
   # Código de saída != 0: é o que o agent.sh usa pra saber que precisa voltar
   # pra imagem anterior (guardada por ele ANTES do pull). Sem isso, não existe
   # rede de proteção — o app novo, quebrado, ficaria no ar sem ninguém saber.

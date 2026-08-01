@@ -18,8 +18,27 @@ KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_URL="${REPO_URL:-https://github.com/melgarafael/DeskcommCRM.git}"
 REPO_DIR="${REPO_DIR:-deskcommcrm}"
 COMPOSE="docker-compose.prod.yml"
+COMPOSE_TRAEFIK="docker-compose.traefik.yml"
 NONINTERACTIVE=0
 [ "${1:-}" = "--yes" ] && NONINTERACTIVE=1
+
+# Este script é standalone de propósito (roda antes do clone, então não dá para
+# usar o _common.sh). As duas funções abaixo são gêmeas das de lá — se mexer
+# numa, mexa na outra.
+dc() {
+  if [ "${REVERSE_PROXY:-caddy}" = "traefik" ]; then
+    docker compose -f "$COMPOSE" -f "$COMPOSE_TRAEFIK" "$@"
+  else
+    docker compose -f "$COMPOSE" "$@"
+  fi
+}
+dc_files() {
+  if [ "${REVERSE_PROXY:-caddy}" = "traefik" ]; then
+    printf -- '-f %s -f %s' "$COMPOSE" "$COMPOSE_TRAEFIK"
+  else
+    printf -- '-f %s' "$COMPOSE"
+  fi
+}
 
 c_red() { printf '\033[31m%s\033[0m\n' "$*"; }
 c_grn() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -43,7 +62,7 @@ show_recovery() {
   printf '\n%s\n\n' "Como voltar atrás e recomeçar do zero:"
   printf '  %s\n' "cd ${dir}"
   printf '  %s\n' "rm -f .env                                    # apaga a configuração digitada"
-  printf '  %s\n' "docker compose -f ${COMPOSE} down -v          # derruba o que subiu"
+  printf '  %s\n' "docker compose $(dc_files) down -v          # derruba o que subiu"
   printf '  %s\n' "bash ${KIT_DIR:-hostgator-setup-kit}/install.sh   # começa de novo"
   printf '\n%s\n' "Se o schema chegou a ser aplicado e você quer o banco limpo de novo,"
   printf '%s\n'   "abra o Supabase > SQL Editor e rode (ATENÇÃO: apaga todos os dados):"
@@ -433,6 +452,27 @@ UPSTASH_REDIS_REST_TOKEN="$SRH_TOKEN"
 c_grn "✓ segredos prontos"
 
 # ── 5. Escreve .env (600) ───────────────────────────────────────────────────
+# ── Proxy reverso: o VPS já tem um? ─────────────────────────────────────────
+# Várias hospedagens entregam a VPS com um Traefik próprio já ocupando 80/443
+# (Hostinger, Coolify, Dokploy...). Nesse caso o Caddy do kit não consegue subir
+# — falha no bind da porta e a instalação morre no meio, com um erro que não diz
+# nada a quem não é técnico. Detectar isso sozinho é o que separa "instalou" de
+# "desistiu". Quem já tem REVERSE_PROXY no .env manda: a detecção não sobrescreve.
+if [ -z "${REVERSE_PROXY:-}" ]; then
+  if docker ps --format '{{.Image}} {{.Names}}' 2>/dev/null | grep -qi traefik; then
+    REVERSE_PROXY=traefik
+    c_ylw "⚠ Detectei um Traefik já rodando neste VPS (ele é quem responde nas portas 80/443)."
+    c_ylw "  Vou publicar o CRM através dele em vez de subir um proxy próprio —"
+    c_ylw "  desligar o Traefik quebraria o que a sua hospedagem instalou."
+  else
+    REVERSE_PROXY=caddy
+  fi
+fi
+# Nome da rede deste projeto, como o Traefik precisa vê-la: "<projeto>_internal",
+# onde <projeto> é a pasta onde o compose roda (varia por instalação). Mesma
+# normalização que o Compose faz no nome do projeto.
+TRAEFIK_DOCKER_NETWORK="${TRAEFIK_DOCKER_NETWORK:-$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')_internal}"
+
 step "Escrevendo .env"
 umask 077
 
@@ -449,6 +489,14 @@ envq() { printf "%s='%s'\n" "$1" "$(printf '%s' "${2-}" | sed "s/'/'\\\\''/g")";
   envq APP_PULL_POLICY "always"
   envq DOMAIN "$DOMAIN"
   envq ACME_EMAIL "$ACME_EMAIL"
+  printf '# Proxy reverso: "caddy" (o kit sobe o dele nas portas 80/443) ou "traefik"\n'
+  printf '# (o VPS já tem um Traefik nessas portas — Hostinger, Coolify, Dokploy...).\n'
+  printf '# Em "traefik" entra o docker-compose.traefik.yml, que desliga o Caddy e\n'
+  printf '# publica o app por labels. TRAEFIK_* só é lido nesse modo.\n'
+  envq REVERSE_PROXY "$REVERSE_PROXY"
+  envq TRAEFIK_DOCKER_NETWORK "$TRAEFIK_DOCKER_NETWORK"
+  envq TRAEFIK_ENTRYPOINT "${TRAEFIK_ENTRYPOINT:-websecure}"
+  envq TRAEFIK_CERTRESOLVER "${TRAEFIK_CERTRESOLVER:-letsencrypt}"
   envq NEXT_PUBLIC_SUPABASE_URL "$NEXT_PUBLIC_SUPABASE_URL"
   envq NEXT_PUBLIC_SUPABASE_ANON_KEY "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
   envq SUPABASE_SERVICE_ROLE_KEY "$SUPABASE_SERVICE_ROLE_KEY"
@@ -620,20 +668,20 @@ SQL
 
 # ── 9. Sobe a stack ─────────────────────────────────────────────────────────
 step "Puxando a imagem e subindo os serviços"
-docker compose -f "$COMPOSE" pull
-docker compose -f "$COMPOSE" up -d
+dc pull
+dc up -d
 c_grn "✓ containers no ar"
 
 # ── 10. Healthcheck ─────────────────────────────────────────────────────────
 step "Aguardando o app ficar saudável"
 ok=0
 for i in $(seq 1 30); do
-  if docker compose -f "$COMPOSE" exec -T app node -e "require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))" 2>/dev/null; then
+  if dc exec -T app node -e "require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))" 2>/dev/null; then
     ok=1; break
   fi
   sleep 3
 done
-[ "$ok" = 1 ] && c_grn "✓ app respondendo" || c_ylw "⚠ app ainda não respondeu. Veja: docker compose -f $COMPOSE logs app"
+[ "$ok" = 1 ] && c_grn "✓ app respondendo" || c_ylw "⚠ app ainda não respondeu. Veja: docker compose $(dc_files) logs app"
 
 # ── 11. Automações (cron do drain de eventos) ───────────────────────────────
 step "Ativando as automações"
@@ -666,16 +714,16 @@ $(c_grn "═══════════════════════�
 
   Telemetria: por padrão os erros desta instalação são enviados ao Sentry do
   projeto, o que ajuda a corrigir falhas que afetam todo mundo. Para desligar,
-  ponha SENTRY_DSN='off' no .env e rode: docker compose -f ${COMPOSE} up -d
+  ponha SENTRY_DSN='off' no .env e rode: docker compose $(dc_files) up -d
 
   Comandos úteis:
-    ver logs:      docker compose -f ${COMPOSE} logs -f app
-    reiniciar:     docker compose -f ${COMPOSE} restart
+    ver logs:      docker compose $(dc_files) logs -f app
+    reiniciar:     docker compose $(dc_files) restart
     atualizar:     bash hostgator-setup-kit/update.sh
     backup:        bash hostgator-setup-kit/backup.sh
     trocar config: bash hostgator-setup-kit/install.sh
                    (mostra tudo o que você respondeu e deixa corrigir por número)
-    recomeçar:     docker compose -f ${COMPOSE} down -v && rm -f .env
+    recomeçar:     docker compose $(dc_files) down -v && rm -f .env
                    (derruba tudo; depois rode o install.sh de novo)
 
 DONE
