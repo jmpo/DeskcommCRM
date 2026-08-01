@@ -311,6 +311,35 @@ if [ "${INSTALL_SH_LIB:-}" = "1" ]; then trap - EXIT; return 0; fi
 
 # ── 1. Preflight ────────────────────────────────────────────────────────────
 step "Verificando dependências"
+
+# VPS "cru" (Hetzner, DigitalOcean, Contabo…) não vem com Docker. Antes isto era
+# um beco sem saída: o script morria dizendo "instale antes de continuar" e a
+# pessoa — que por definição não é técnica — ficava sem saber como. Hospedagens
+# com template (Hostinger, HostGator) já trazem Docker, então o caso nunca
+# aparecia para quem escreveu o kit.
+#
+# O instalador oficial do Docker é o mesmo comando da documentação deles; não
+# inventamos nada. Em modo interativo PERGUNTA (instalar coisa no servidor de
+# alguém sem avisar é abuso de confiança); com --yes segue direto, que é o
+# contrato desse modo.
+if ! command -v docker >/dev/null 2>&1; then
+  c_ylw "⚠ Docker não está instalado — é o motor que roda o CRM."
+  instalar=1
+  if [ "$NONINTERACTIVE" = 0 ]; then
+    read -r -p "  Posso instalar agora? (S/n) " r
+    case "${r:-S}" in [Nn]*) instalar=0;; esac
+  fi
+  if [ "$instalar" = 1 ]; then
+    c_dim "  Instalando (get.docker.com — o instalador oficial). Leva 1-2 minutos…"
+    curl -fsSL https://get.docker.com | sh >/dev/null 2>&1 \
+      || die "Não consegui instalar o Docker. Rode 'curl -fsSL https://get.docker.com | sh' e tente de novo."
+    command -v docker >/dev/null 2>&1 || die "Docker instalou mas não ficou no PATH. Reabra o terminal e rode de novo."
+    c_grn "✓ Docker instalado"
+  else
+    die "Sem Docker não dá para seguir. Instale com: curl -fsSL https://get.docker.com | sh"
+  fi
+fi
+
 for bin in docker git openssl curl; do
   command -v "$bin" >/dev/null 2>&1 || die "'$bin' não encontrado. Instale antes de continuar."
 done
@@ -348,6 +377,27 @@ source "$KIT_DIR/_common.sh"
 step "Configuração"
 # Se já existe .env, carrega pra não repetir perguntas (idempotência).
 if [ -f .env ]; then load_env .env; c_grn "✓ .env existente carregado"; fi
+
+# ── Supabase automático (opcional) ──────────────────────────────────────────
+# Criar o projeto no navegador e copiar 4 campos era o passo mais LENTO da
+# instalação (medido: ~59min de preparação contra ~3min de script) e o mais
+# fácil de errar — copiar a "Direct connection", que é IPv6-only e não conecta
+# de um VPS IPv4, é a armadilha campeã.
+#
+# Com SUPABASE_ACCESS_TOKEN no ambiente e as credenciais ainda vazias, o
+# projeto é criado aqui e as 4 variáveis entram direto no fluxo, sem copiar e
+# colar. Sem o token, nada muda: seguem as perguntas de sempre.
+if [ -z "${NEXT_PUBLIC_SUPABASE_URL:-}" ] && [ -n "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+  step "Criando o projeto Supabase automaticamente"
+  _sb_out="$(bash "$KIT_DIR/supabase-provision.sh" "${APP_NAME:-DeskcommCRM}" "${SUPABASE_REGION:-sa-east-1}")" \
+    || die "Não consegui criar o projeto Supabase. Crie no painel e rode de novo sem SUPABASE_ACCESS_TOKEN."
+  # O script imprime `CHAVE='valor'` em stdout (o visual dele vai para stderr).
+  # `eval` aqui é seguro: a entrada é a saída do nosso próprio script, com os
+  # valores já entre aspas simples e escapados.
+  eval "$_sb_out"
+  unset _sb_out
+  c_grn "✓ Supabase pronto — as 4 credenciais entraram sozinhas"
+fi
 
 # Cada linha: VARIÁVEL|pergunta|padrão|validador|secret|opcional
 # A ordem importa: a URL do projeto vem antes das chaves porque os validadores

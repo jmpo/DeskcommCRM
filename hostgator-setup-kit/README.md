@@ -38,7 +38,15 @@ não conecta de um VPS IPv4, é a armadilha mais comum). Dá para pular tudo iss
 
 ```bash
 export SUPABASE_ACCESS_TOKEN=sbp_...        # supabase.com/dashboard/account/tokens
-bash supabase-provision.sh "Nome do Projeto" sa-east-1
+bash install.sh                             # cria o projeto e segue a instalação
+```
+
+O `install.sh` chama o provisionamento sozinho quando encontra o token e as
+credenciais ainda vazias — as 4 variáveis entram no fluxo sem copiar e colar.
+Para criar só o projeto, sem instalar, o script também roda sozinho:
+
+```bash
+bash supabase-provision.sh "Nome do Projeto" sa-east-1 >> .env
 ```
 
 O script cria o projeto, **espera o banco ficar `ACTIVE_HEALTHY`** (projeto novo não
