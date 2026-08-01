@@ -142,8 +142,18 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
       ? "Contato anonimizado — não é possível enviar mensagens."
       : null;
 
+  // Altura da grade: a conta desconta TUDO que fica acima e abaixo dela.
+  //   3.5rem  TopBar (`h-14`, em components/shell/TopBar.tsx)
+  //   3rem    padding do <main> do AppShell (`p-6` = 1.5rem em cima + 1.5rem embaixo)
+  //
+  // Com `100vh-3.5rem` o padding ficava de fora e a grade media 3rem (48px) a MAIS
+  // que a tela. Quem pagava a diferença era o composer, que fica no rodapé: nascia
+  // 48px abaixo da borda, atrapalhando justo na hora de escrever a mensagem.
+  //
+  // `dvh` em vez de `vh` porque no celular a `vh` ignora a barra do navegador — o
+  // mesmo corte, só que pior e mudando conforme se rola a página.
   return (
-    <div className="grid h-[calc(100vh-3.5rem)] w-full grid-cols-1 md:grid-cols-[300px_1fr] xl:grid-cols-[300px_1fr_320px]">
+    <div className="grid h-[calc(100dvh-6.5rem)] w-full grid-cols-1 md:grid-cols-[300px_1fr] xl:grid-cols-[300px_1fr_320px]">
       <div className="flex h-full min-h-0 flex-col border-r border-border">
         <InboxFilters value={filterValue} onChange={setFilterValue} />
         <div className="min-h-0 flex-1 overflow-hidden">
