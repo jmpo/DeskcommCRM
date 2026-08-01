@@ -2,7 +2,7 @@
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Robot } from "@/lib/ui/icons";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
@@ -87,6 +87,17 @@ export function ConversationListItem({
     >
       <div className="relative shrink-0">
         <Avatar className="h-10 w-10">
+          {/* Só monta a <img> quando existe arquivo: sem isso o browser pediria
+              a rota para TODO contato da lista e levaria 404 em cada um sem
+              foto — que é a maioria. O AvatarFallback do Radix já cobre o caso
+              de a imagem não carregar, então as iniciais nunca somem. */}
+          {c?.avatar_storage_path && !c?.is_anonymized ? (
+            <AvatarImage
+              src={`/api/v1/contacts/${c.id}/avatar`}
+              alt=""
+              className="object-cover"
+            />
+          ) : null}
           <AvatarFallback className="text-xs">
             {initials(displayName, phoneFallback)}
           </AvatarFallback>

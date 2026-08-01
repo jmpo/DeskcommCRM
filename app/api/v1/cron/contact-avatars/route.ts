@@ -1,0 +1,193 @@
+/**
+ * contact-avatars — baixa e mantém atualizada a foto de perfil dos contatos.
+ *
+ * POR QUE UM CRON, E NÃO NA INGESTÃO
+ * O webhook do WAHA precisa responder rápido: baixar e subir uma imagem no meio
+ * dele atrasaria a gravação da mensagem e, num pico, faria o WAHA reenfileirar.
+ * Aqui vale a mesma regra do resto do repo — trabalho pesado sai do caminho
+ * quente e vira varredura periódica.
+ *
+ * POR QUE O ARQUIVO, E NÃO A URL
+ * O WAHA devolve uma URL assinada do CDN do WhatsApp, com `oe=<expiração>` no
+ * fim. Medido numa instalação real: 9 dias. Guardar a URL faria todo avatar
+ * sumir da tela em pouco mais de uma semana, sem erro nenhum. Então o arquivo
+ * vai para o bucket privado `whatsapp-media`, como já se faz com a mídia das
+ * mensagens, e a tela pede URL assinada na hora.
+ *
+ * ORDEM DA VARREDURA: `avatar_updated_at nulls first` — quem nunca teve foto
+ * entra antes de quem só está desatualizado. O rosto que falta incomoda mais
+ * que o rosto velho.
+ *
+ * Auth: Bearer INTERNAL_SECRET (fail-closed), igual aos demais crons.
+ */
+import { randomUUID } from "node:crypto";
+import type { NextRequest } from "next/server";
+
+import { ok, fail } from "@/lib/api/wrappers";
+import { env } from "@/lib/env";
+import { logger } from "@/lib/logger";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+export const dynamic = "force-dynamic";
+
+/** Contatos por invocação. Baixar imagem é I/O: cap baixo evita segurar o cron. */
+const SCAN_LIMIT = 25;
+/** Revisita a foto a cada 7 dias — gente troca de foto, mas não toda hora. */
+const REFRESH_AFTER_DAYS = 7;
+/** Foto de perfil do WhatsApp é pequena; acima disto é resposta errada. */
+const MAX_BYTES = 2 * 1024 * 1024;
+
+interface ContactRow {
+  id: string;
+  organization_id: string;
+  wa_identity: string | null;
+  avatar_storage_path: string | null;
+}
+
+/** `lid:123…` / `phone:+55…` → o chatId que o WAHA espera. */
+function chatIdFromIdentity(identity: string): string | null {
+  if (identity.startsWith("lid:")) return `${identity.slice(4)}@lid`;
+  if (identity.startsWith("phone:")) return `${identity.slice(6).replace(/\D/g, "")}@c.us`;
+  return null;
+}
+
+async function handle(req: NextRequest): Promise<Response> {
+  const requestId = randomUUID();
+
+  const auth = req.headers.get("authorization") ?? "";
+  const provided = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
+  const accepted = [env.INTERNAL_CRON_SECRET, env.INTERNAL_SECRET].filter(Boolean);
+  if (accepted.length === 0 || !provided || !accepted.includes(provided)) {
+    return fail("forbidden", "Cron secret missing or invalid.", 403, { requestId });
+  }
+
+  const admin = createAdminClient();
+  const cutoff = new Date(Date.now() - REFRESH_AFTER_DAYS * 86_400_000).toISOString();
+
+  // Nunca buscados (null) OU buscados há mais de REFRESH_AFTER_DAYS.
+  //
+  // `is_anonymized` fora é OBRIGATÓRIO, não otimização: sem esse filtro, um
+  // contato anonimizado por pedido LGPD voltaria a ser varrido no refresh
+  // seguinte e o cron BAIXARIA O ROSTO DELE DE NOVO — reintroduzindo, sozinho e
+  // periodicamente, o dado pessoal que acabara de ser apagado. A anonimização é
+  // declarada irreversível no produto; esta linha é o que sustenta isso.
+  const { data: contatos, error: queryError } = await admin
+    .from("contacts")
+    .select("id, organization_id, wa_identity, avatar_storage_path")
+    .not("wa_identity", "is", null)
+    .eq("is_anonymized", false)
+    .or(`avatar_updated_at.is.null,avatar_updated_at.lt.${cutoff}`)
+    .order("avatar_updated_at", { ascending: true, nullsFirst: true })
+    .limit(SCAN_LIMIT);
+
+  if (queryError) {
+    logger.error("[contact-avatars] query failed", { detail: queryError.message, requestId });
+    return fail("internal_error", queryError.message, 500, { requestId });
+  }
+
+  const rows = (contatos ?? []) as ContactRow[];
+  let atualizados = 0;
+  let semFoto = 0;
+  let falhas = 0;
+
+  for (const c of rows) {
+    const chatId = c.wa_identity ? chatIdFromIdentity(c.wa_identity) : null;
+    // Carimba mesmo sem conseguir resolver o chatId: sem isso o contato voltaria
+    // em TODA rodada do cron, para sempre, batendo no WAHA à toa.
+    const carimbar = async (path: string | null) => {
+      await admin
+        .from("contacts")
+        .update({
+          ...(path !== null ? { avatar_storage_path: path } : {}),
+          avatar_updated_at: new Date().toISOString(),
+        })
+        .eq("id", c.id)
+        .eq("organization_id", c.organization_id);
+    };
+
+    if (!chatId) {
+      await carimbar(null);
+      semFoto++;
+      continue;
+    }
+
+    try {
+      const { data: sessao } = await admin
+        .from("channel_sessions")
+        .select("waha_session_name")
+        .eq("organization_id", c.organization_id)
+        .eq("status", "WORKING")
+        .limit(1)
+        .maybeSingle();
+      if (!sessao?.waha_session_name) {
+        await carimbar(null);
+        semFoto++;
+        continue;
+      }
+
+      const base = env.WAHA_API_BASE_URL || "http://waha:3000";
+      const url =
+        `${base}/api/contacts/profile-picture` +
+        `?session=${encodeURIComponent(sessao.waha_session_name)}` +
+        `&contactId=${encodeURIComponent(chatId)}`;
+      const resp = await fetch(url, { headers: { "X-Api-Key": env.WAHA_API_KEY ?? "" } });
+      if (!resp.ok) {
+        await carimbar(null);
+        semFoto++;
+        continue;
+      }
+      const { profilePictureURL } = (await resp.json()) as { profilePictureURL?: string | null };
+      if (!profilePictureURL) {
+        // Contato sem foto ou com privacidade fechada: estado normal, não erro.
+        await carimbar(null);
+        semFoto++;
+        continue;
+      }
+
+      const img = await fetch(profilePictureURL);
+      if (!img.ok) {
+        await carimbar(null);
+        falhas++;
+        continue;
+      }
+      const buf = Buffer.from(await img.arrayBuffer());
+      if (buf.byteLength === 0 || buf.byteLength > MAX_BYTES) {
+        await carimbar(null);
+        falhas++;
+        continue;
+      }
+
+      // Caminho estável por contato: `upsert` sobrescreve a foto antiga em vez
+      // de acumular um arquivo órfão por refresh (7 dias × N contatos viraria
+      // lixo pago no bucket).
+      const path = `${c.organization_id}/avatars/${c.id}.jpg`;
+      const { error: upErr } = await admin.storage
+        .from("whatsapp-media")
+        .upload(path, buf, { contentType: "image/jpeg", upsert: true });
+      if (upErr) {
+        await carimbar(null);
+        falhas++;
+        continue;
+      }
+
+      await carimbar(path);
+      atualizados++;
+    } catch (err) {
+      await carimbar(null);
+      falhas++;
+      logger.warn("[contact-avatars] contato falhou", {
+        contact_id: c.id,
+        detail: err instanceof Error ? err.message : String(err),
+        requestId,
+      });
+    }
+  }
+
+  return ok(
+    { scanned: rows.length, updated: atualizados, no_picture: semFoto, failed: falhas },
+    { requestId },
+  );
+}
+
+export const GET = handle;
+export const POST = handle;

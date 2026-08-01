@@ -14,6 +14,10 @@ export interface ContactSummary {
   tags: string[];
   is_blocked: boolean;
   is_anonymized: boolean;
+  /** Caminho da foto no bucket privado. A tela nunca usa este valor como src —
+   *  só para saber SE existe foto; a imagem vem de /api/v1/contacts/{id}/avatar,
+   *  que assina a URL. Opcional: conversas em cache de antes do campo existir. */
+  avatar_storage_path?: string | null;
 }
 
 export type ConversationWithContact = Conversation & {

@@ -8731,3 +8731,24 @@ comment on column public.contacts.locale is
   'Idioma preferido do contato (ex.: pt-BR, es-PY). NULL = herda o padrão da organização; o código resolve com fallback pt-BR.';
 
 notify pgrst, 'reload schema';
+
+-- ---- foto de perfil do contato (migration 0099) ----
+-- O WAHA devolve a foto como URL assinada do CDN do WhatsApp, com validade de
+-- ~9 dias (medido). Guardar a URL crua faria todo avatar quebrar em uma semana,
+-- em silêncio. Por isso o arquivo vai para o bucket whatsapp-media e aqui fica
+-- só o CAMINHO — mesmo padrão de messages.media_storage_path. É também o que
+-- torna a LGPD cumprível: foto é dado pessoal e some na anonimização, o que só
+-- se garante sobre arquivo próprio.
+alter table public.contacts
+  add column if not exists avatar_storage_path text,
+  add column if not exists avatar_updated_at   timestamptz;
+
+comment on column public.contacts.avatar_storage_path is
+  'Caminho da foto de perfil no bucket whatsapp-media. NULL = sem foto. Guardamos o arquivo, não a URL do WhatsApp, que expira em ~9 dias.';
+comment on column public.contacts.avatar_updated_at is
+  'Quando a foto foi buscada pela última vez. NULL = nunca tentado. Usado pelo cron de refresh para escolher quem revisitar.';
+
+create index if not exists idx_contacts_avatar_refresh
+  on public.contacts (organization_id, avatar_updated_at nulls first);
+
+notify pgrst, 'reload schema';

@@ -133,6 +133,7 @@ services:
         */15 * * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/risk-watcher >/dev/null 2>&1
         0 12 * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/lgpd-sla-watcher >/dev/null 2>&1
         30 3 * * * curl -fsS -m120 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/kb-conversations-batch >/dev/null 2>&1
+        */10 * * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/contact-avatars >/dev/null 2>&1
         EOF
         exec crond -f -l 2
     logging: *default-logging
