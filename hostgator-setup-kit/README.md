@@ -30,6 +30,28 @@ e-mail/senha do admin), gera o resto e sobe tudo.
 > Modo não-interativo: copie `.env.hostgator.example` (do repositório) para `.env`,
 > preencha, e rode `bash install.sh --yes`.
 
+## Criar o Supabase automaticamente (opcional)
+
+Criar o projeto no navegador e copiar as 4 credenciais é o passo mais demorado da
+instalação — e o mais fácil de errar (copiar a *Direct connection*, que é IPv6-only e
+não conecta de um VPS IPv4, é a armadilha mais comum). Dá para pular tudo isso:
+
+```bash
+export SUPABASE_ACCESS_TOKEN=sbp_...        # supabase.com/dashboard/account/tokens
+bash supabase-provision.sh "Nome do Projeto" sa-east-1
+```
+
+O script cria o projeto, **espera o banco ficar `ACTIVE_HEALTHY`** (projeto novo não
+nasce pronto), busca as chaves e **descobre o host do pooler testando conexão real** em
+vez de adivinhar. Imprime as 4 linhas prontas para colar no `.env`.
+
+⚠️ **O token é uma chave mestra** — dá acesso a todos os projetos da conta. Ele é lido do
+ambiente e nunca gravado em disco. Instalando para terceiros, use o token DO CLIENTE, ou
+rode o script na sua máquina e leve só as 4 credenciais para o servidor dele.
+
+⚠️ **Plano grátis: 2 projetos por usuário**, contados em todas as organizações onde ele é
+Owner/Admin. Não dá para hospedar vários clientes numa conta só.
+
 ## O que você precisa antes
 
 | Item | Onde conseguir |
