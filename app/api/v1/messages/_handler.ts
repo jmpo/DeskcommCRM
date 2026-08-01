@@ -82,13 +82,30 @@ export async function listMessagesHandler(
   conversationId: string,
   q: ListMessagesQuery,
 ): Promise<ListMessagesResult> {
+  // A CONSULTA VAI DO MAIS NOVO PARA O MAIS VELHO — de propósito.
+  //
+  // Antes era `ascending: true`: a primeira página trazia as `limit` mensagens
+  // MAIS ANTIGAS da conversa, e as novas ficavam atrás do cursor. Numa conversa
+  // com mais mensagens que o limite (50, o padrão), o atendente simplesmente
+  // NÃO VIA o que acabou de chegar — a tela travava num ponto do passado e não
+  // se mexia mais, por mais que o cliente escrevesse.
+  //
+  // Medido numa instalação real: conversa com 64 mensagens: a tela parava na
+  // #50 (16:15) e as 14 seguintes (16:20 → 16:48) eram invisíveis, embora
+  // gravadas. E piora com o uso: quanto mais se conversa com alguém, mais
+  // mensagens novas somem. Num CRM de WhatsApp, é a conversa mais importante
+  // que fica pior.
+  //
+  // Chat lê de baixo para cima: o padrão certo é buscar as ÚLTIMAS N e paginar
+  // para trás ao rolar. O cursor, portanto, passa a andar para o passado
+  // (`lt`), e não mais para o futuro.
   let query = supabase
     .from("messages")
     .select(MSG_COLS)
     .eq("conversation_id", conversationId)
     .eq("organization_id", ctx.organization_id)
-    .order("sent_at", { ascending: true })
-    .order("id", { ascending: true })
+    .order("sent_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(q.limit + 1);
 
   if (q.cursor) {
@@ -96,7 +113,7 @@ export async function listMessagesHandler(
     if (!c) {
       throw new ApiError(400, "invalid_cursor", undefined, ctx.requestId, "Cursor inválido.");
     }
-    query = query.or(`sent_at.gt.${c.sent_at},and(sent_at.eq.${c.sent_at},id.gt.${c.id})`);
+    query = query.or(`sent_at.lt.${c.sent_at},and(sent_at.eq.${c.sent_at},id.lt.${c.id})`);
   }
 
   const { data, error } = await query;
@@ -107,11 +124,17 @@ export async function listMessagesHandler(
   const rows = (data ?? []) as unknown as Message[];
   const hasMore = rows.length > q.limit;
   const page = hasMore ? rows.slice(0, q.limit) : rows;
-  const last = page[page.length - 1];
-  const cursor =
-    hasMore && last ? encodeMsgCursor({ sent_at: last.sent_at, id: last.id }) : null;
 
-  return { messages: page, cursor, has_more: hasMore };
+  // Em ordem decrescente, o ÚLTIMO da página é o mais antigo dela — é dele que
+  // sai o cursor, porque a próxima página é a que vem ANTES no tempo.
+  const oldest = page[page.length - 1];
+  const cursor =
+    hasMore && oldest ? encodeMsgCursor({ sent_at: oldest.sent_at, id: oldest.id }) : null;
+
+  // A RESPOSTA continua cronológica (antigo → novo), igual a antes: o consumidor
+  // renderiza de cima para baixo sem mudar nada. O que mudou foi QUAIS mensagens
+  // entram na página, não a ordem em que saem.
+  return { messages: page.slice().reverse(), cursor, has_more: hasMore };
 }
 
 // ---------------------------------------------------------------------------
