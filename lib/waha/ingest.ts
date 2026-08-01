@@ -444,6 +444,32 @@ async function handleOutboundFromUserPhone(
   if (!p.id || !chatId) return;
   if (!p.body && !mediaUrlOf(p) && !p.hasMedia) return;
 
+  // ECO DO PRÓPRIO ENVIO — não duplicar.
+  //
+  // Toda mensagem que o CRM manda (composer ou IA) volta pelo webhook como
+  // `fromMe=true`. O dedup por `external_id` NÃO pega esse caso, porque os dois
+  // lados gravam formas diferentes do mesmo id: o envio grava o id "bare"
+  // (`3EB0…`) e o webhook chega com o composto (`true_<chat>_3EB0…`). São
+  // strings distintas, então o unique não dispara e nasce uma segunda linha —
+  // a mesma frase aparecendo duas vezes na conversa.
+  //
+  // Antes isto não aparecia por acidente: sem `to`, esta função voltava cedo e
+  // o eco era descartado junto com as mensagens legítimas do celular. Ao
+  // consertar aquele caminho, a duplicação ficou exposta.
+  //
+  // Mesmo par de candidatos que o `handleAck` usa — cobre NOWEB (bare) e WEBJS
+  // (full) sem depender do engine.
+  const bare = bareWaMessageId(p.id);
+  const idCandidates = bare === p.id ? [p.id] : [p.id, bare];
+  const { data: jaRegistrada } = await admin
+    .from("messages")
+    .select("id")
+    .eq("organization_id", session.organization_id)
+    .in("external_id", idCandidates)
+    .limit(1)
+    .maybeSingle();
+  if (jaRegistrada) return; // nasceu no envio; quem atualiza o status é o ack
+
   const contactId = await upsertContact(admin, session.organization_id, parsed, chatId, notifyNameOf(p));
   if (!contactId) return;
   const conversationId = await upsertConversation(admin, session.organization_id, contactId, session.id);
