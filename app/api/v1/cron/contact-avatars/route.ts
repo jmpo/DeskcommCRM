@@ -24,7 +24,7 @@ import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
-import { DEFAULT_CHANNEL_PROVIDER, getAdapter } from "@/lib/channels";
+import { DEFAULT_CHANNEL_PROVIDER, getAdapter, type ChannelProvider } from "@/lib/channels";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -133,7 +133,8 @@ async function handle(req: NextRequest): Promise<Response> {
       // primeira versão desta rota). Testar a PRESENÇA do método é como se
       // pergunta "este canal sabe fazer isso?" sem perguntar qual canal é.
       const adapter = getAdapter(
-        (sessao as { provider?: string | null } | null)?.provider ?? DEFAULT_CHANNEL_PROVIDER,
+        (sessao as { provider?: ChannelProvider | null } | null)?.provider ??
+          DEFAULT_CHANNEL_PROVIDER,
       );
       if (!adapter.fetchProfilePictureUrl) {
         await carimbar(null);
