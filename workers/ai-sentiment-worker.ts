@@ -27,9 +27,29 @@ const SENTIMENT_MODEL = DEFAULT_CLASSIFIER_MODEL; // "anthropic/claude-haiku-4-5
 const DEFAULT_SENTIMENT_THRESHOLD = 0.3;
 const CLASSIFY_TIMEOUT_MS = 5_000;
 
+// As descrições NÃO são decoração: viram o JSON Schema da ferramenta que o
+// provider manda ao modelo. Sem elas o `.max(100)` existia só no validador — o
+// modelo nunca ficava sabendo do limite e escrevia 223, 297, 340 caracteres
+// (medido com mensagens reais desta instalação). Com a descrição, o mesmo
+// conjunto caiu para 59–102.
+//
+// O teto do Zod é FOLGADO de propósito. Modelo não conta caractere: mesmo
+// avisado, uma amostra bateu 102. Reprovar a classificação inteira por 2
+// caracteres a mais seria péssimo negócio — ainda mais porque
+// `reasoning_short` é DESCARTADO (só `sentiment_score` e a latência vão para
+// messages.metadata). Ele existe para o modelo raciocinar antes de pontuar,
+// não para ser guardado. A descrição segura a verbosidade (e o custo); o teto
+// só impede resposta absurda.
 const sentimentSchema = z.object({
-  sentiment_score: z.number().min(0).max(1),
-  reasoning_short: z.string().max(100),
+  sentiment_score: z
+    .number()
+    .min(0)
+    .max(1)
+    .describe("0 = muito negativo, 0.5 = neutro, 1 = muito positivo"),
+  reasoning_short: z
+    .string()
+    .max(280)
+    .describe("Justificativa curta da nota, em NO MÁXIMO 100 caracteres"),
 });
 
 export interface SentimentResult {
@@ -119,7 +139,15 @@ export async function processSentiment(event: EventRow): Promise<SentimentResult
         system: SENTIMENT_SYSTEM_PROMPT,
         prompt: body,
         temperature: 0,
-        maxOutputTokens: 80,
+        // 80 era pequeno demais e nunca tinha sido exercitado (o worker morria
+        // antes, na autenticação). `generateObject` com Anthropic usa modo
+        // FERRAMENTA: o JSON vai dentro de um tool_use, que custa bem mais que
+        // texto puro. Medido com mensagens reais desta instalação: 2 de 3
+        // paravam em `stop_reason: max_tokens` com o JSON cortado no meio —
+        // daí o "No object generated: response did not match schema", que
+        // parecia erro de esquema e era truncamento. Pico observado: 146 sem
+        // as descrições, 84 com elas. 256 dá folga sem virar cheque em branco.
+        maxOutputTokens: 256,
         abortSignal: abortController.signal,
       });
 
