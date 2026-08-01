@@ -8715,3 +8715,19 @@ CREATE OR REPLACE FUNCTION "public"."retrieve_top_k_chunks"("p_organization_id" 
   order by c.embedding <=> p_embedding asc
   limit greatest(p_k, 0);
 $$;
+
+-- ---- idioma do contato (migration 0098) ----
+-- O ai-response-worker seleciona contacts.locale e o prompt usa {{contact_locale}},
+-- mas a coluna nunca existiu no snapshot: em toda instalação self-host o PostgREST
+-- respondia "column contacts_1.locale does not exist" e o worker pulava TODA
+-- conversa, com o erro escondido num log de nível info.
+-- NULL = herda o padrão da organização (o código resolve com fallback pt-BR).
+-- Sem CHECK: locale é vocabulário aberto; constraint aqui quebraria o update.sh
+-- de clones com valores legados.
+alter table public.contacts
+  add column if not exists locale text;
+
+comment on column public.contacts.locale is
+  'Idioma preferido do contato (ex.: pt-BR, es-PY). NULL = herda o padrão da organização; o código resolve com fallback pt-BR.';
+
+notify pgrst, 'reload schema';

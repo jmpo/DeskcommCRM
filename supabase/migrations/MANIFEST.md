@@ -97,6 +97,7 @@ Migrations applied to Supabase project `rrydmwnporysaiysiztn` (sa-east-1, Postgr
 | `20260730180000` | `0095_budget_conta_llm_calls` | O gatilho de consumo do orçamento de IA existia só em `ai_invocations` (workers legados); o agent-engine grava em `llm_calls`, então o contador ficava zerado, a tela mostrava R$ 0,00 com dinheiro saindo e o alarme/pausa nunca disparavam. Passa a valer nas duas + reconcilia o mês corrente. |
 | `20260730200000` | `0096_llm_default_model_da_org` | Toda org nasce (e as existentes são curadas) com `settings.llm.default_model`. Sem ele o caminho genérico do turno — documentado como "não é silêncio" — ficava sem modelo e o turno morria com "modelo LLM não definido"; bastava um roteador sem membros para derrubar TODAS as respostas. |
 | `20260730220000` | `0097_rag_threshold_calibrado` | Limiar de similaridade do RAG de 0.72 para 0.40, calibrado por medição (relevante 0.49–0.85, irrelevante 0.27). Com 0.72 só a pergunta literal do FAQ passava e toda paráfrase era descartada. |
+| `20260801200000` | `0098_contacts_locale` | Adiciona `contacts.locale` (nullable). O `ai-response-worker` já selecionava a coluna e o prompt já usava `{{contact_locale}}`, mas ela nunca existiu no baseline: em toda instalação self-host o PostgREST devolvia "column contacts_1.locale does not exist" e o worker pulava TODA conversa, com o erro escondido num log de nível info. NULL = herda o padrão da organização (fallback pt-BR no código); sem CHECK porque locale é vocabulário aberto. |
 
 ## Reproducibility
 
