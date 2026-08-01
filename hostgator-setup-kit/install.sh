@@ -502,8 +502,15 @@ c_grn "✓ .env escrito (permissão 600)"
 # ── 6. Checagem de DNS ──────────────────────────────────────────────────────
 step "Conferindo DNS de ${DOMAIN}"
 public_ip="$(curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null || echo '')"
-resolved="$(getent hosts "$DOMAIN" 2>/dev/null | awk '{print $1}' | head -1 || echo '')"
-if [ -n "$public_ip" ] && [ -n "$resolved" ] && [ "$public_ip" = "$resolved" ]; then
+# Um domínio pode ter A (IPv4) e AAAA (IPv6) ao mesmo tempo, e o resolver não
+# garante ordem entre eles. Comparar só o PRIMEIRO endereço (o antigo `hosts`
+# + `head -1`) dava falso alarme sempre que o AAAA vinha antes do A: o DNS
+# estava correto, o SSL ia ser emitido normalmente, e mesmo assim o instalador
+# dizia que o domínio não apontava pra cá — assustando quem instala bem na hora
+# em que ela mais precisa de confiança. `ahosts` lista TODOS os endereços; basta
+# que UM deles seja o IP do VPS.
+resolved="$(getent ahosts "$DOMAIN" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || echo '')"
+if [ -n "$public_ip" ] && case " $resolved " in *" $public_ip "*) true;; *) false;; esac; then
   c_grn "✓ ${DOMAIN} → ${public_ip} (aponta pra este VPS)"
 else
   c_ylw "⚠ ${DOMAIN} resolve para '${resolved:-nada}' e o IP deste VPS é '${public_ip:-desconhecido}'."
