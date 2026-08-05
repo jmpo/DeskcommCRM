@@ -29,11 +29,17 @@ export async function GET(_req: NextRequest) {
 
   const admin = createAdminClient();
 
-  // Step 1: fetch all platform_admins rows
+  // Step 1: fetch all platform_admins rows.
+  //
+  // SEM `id` no select: a tabela não tem essa coluna — a chave primária é
+  // `user_id` (um usuário é admin no máximo uma vez). Pedir `id` fazia o
+  // PostgREST responder 42703 "column platform_admins.id does not exist" → 400,
+  // e a rota devolvia 500 em toda requisição. Era o PRIMEIRO erro da rota: ela
+  // abortava aqui e nunca chegava na resolução de emails.
   const { data: paRows, error: paError } = await admin
     .from("platform_admins")
     .select(
-      "id, user_id, granted_by, granted_at, scope, mfa_required, reason, revoked_at, revoked_by, revoke_reason",
+      "user_id, granted_by, granted_at, scope, mfa_required, reason, revoked_at, revoked_by, revoke_reason",
     )
     .order("granted_at", { ascending: false });
 
@@ -105,7 +111,9 @@ export async function GET(_req: NextRequest) {
     const revokedByUser = pa.revoked_by ? authMap.get(pa.revoked_by) : null;
 
     return {
-      id: pa.id,
+      // O front usa `id` como key do React. Como a PK da tabela é `user_id` e
+      // ele já é único por linha, serve de identidade sem inventar coluna.
+      id: pa.user_id,
       user_id: pa.user_id,
       user_email: targetUser?.email ?? null,
       user_name:
