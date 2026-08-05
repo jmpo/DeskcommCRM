@@ -100,7 +100,9 @@ export async function GET(
       .eq("organization_id", id),
     admin
       .from("tenant_integrations")
-      .select("id, provider, status, connected_at")
+      // `connected_at` não existe: a linha passa a existir quando a integração
+      // é conectada, então `created_at` é essa mesma data com o nome real.
+      .select("id, provider, status, created_at")
       .eq("organization_id", id)
       .eq("provider", "nuvemshop")
       .limit(1),
@@ -124,7 +126,9 @@ export async function GET(
 
   const integrations = {
     nuvemshop_status: nuvemshopIntegration?.status ?? null,
-    nuvemshop_connected_at: nuvemshopIntegration?.connected_at ?? null,
+    // Nome de SAÍDA preservado: é o que TenantOverview já lê. Só a coluna de
+    // origem estava errada.
+    nuvemshop_connected_at: nuvemshopIntegration?.created_at ?? null,
   };
 
   // Audit lightweight — fire-and-forget

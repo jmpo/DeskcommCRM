@@ -15,7 +15,7 @@ export interface WahaSession {
   id: string;
   waha_session_name: string | null;
   status: string | null;
-  last_qr_at: string | null;
+  last_status_change_at: string | null;
   updated_at: string | null;
 }
 
@@ -110,19 +110,26 @@ export async function GET(
   const [wahaRes, nuvemshopRes, aiRes, auditRes] = await Promise.all([
     admin
       .from("channel_sessions")
-      .select("id, waha_session_name, status, last_qr_at, updated_at")
+      // `last_qr_at` não existe em channel_sessions; o equivalente real é
+      // `last_status_change_at` (quando a sessão mudou de estado pela última
+      // vez — inclusive ao entrar em SCAN_QR_CODE).
+      .select("id, waha_session_name, status, last_status_change_at, updated_at")
       .eq("organization_id", id),
 
     admin
       .from("tenant_integrations")
-      .select("id, status, credentials, last_synced_at, updated_at")
+      // Duas colunas imaginadas aqui: `credentials` (o expires_at é coluna
+      // própria da tabela, não uma chave dentro de um jsonb) e `last_synced_at`
+      // (a real é `last_sync_at`, sem o "ed").
+      .select("id, status, expires_at, last_sync_at, updated_at")
       .eq("organization_id", id)
       .eq("provider", "nuvemshop")
       .limit(1),
 
     admin
       .from("ai_budgets")
-      .select("current_month_consumed_cents, monthly_budget_cents")
+      // `monthly_budget_cents` → `monthly_limit_cents`: mesmo dado, nome real.
+      .select("current_month_consumed_cents, monthly_limit_cents")
       .eq("organization_id", id),
 
     admin
@@ -142,14 +149,13 @@ export async function GET(
   type NuvemshopRow = {
     id: string;
     status: string | null;
-    credentials: Record<string, unknown> | null;
-    last_synced_at: string | null;
+    expires_at: string | null;
+    last_sync_at: string | null;
     updated_at: string | null;
   };
   const nuRow = (nuvemshopRes.data?.[0] as NuvemshopRow | undefined) ?? null;
   const nuConnected = !!nuRow && nuRow.status === "active";
-  const nuExpiresAt =
-    (nuRow?.credentials?.["expires_at"] as string | undefined) ?? null;
+  const nuExpiresAt = nuRow?.expires_at ?? null;
   const nuDaysUntilExpiry = nuExpiresAt
     ? Math.floor(
         (new Date(nuExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
@@ -160,7 +166,7 @@ export async function GET(
   // --- AI Budget ---
   type AiBudgetRow = {
     current_month_consumed_cents: number | null;
-    monthly_budget_cents: number | null;
+    monthly_limit_cents: number | null;
   };
   const aiRows = (aiRes.data ?? []) as AiBudgetRow[];
   const consumedCents = aiRows.reduce(
@@ -168,7 +174,7 @@ export async function GET(
     0,
   );
   const firstAiRow = aiRows[0];
-  const budgetCents = firstAiRow ? (firstAiRow.monthly_budget_cents ?? null) : null;
+  const budgetCents = firstAiRow ? (firstAiRow.monthly_limit_cents ?? null) : null;
   const percentUsed =
     budgetCents && budgetCents > 0
       ? Math.round((consumedCents / budgetCents) * 100)
@@ -187,7 +193,9 @@ export async function GET(
     nuvemshop: {
       connected: nuConnected,
       expires_at: nuExpiresAt,
-      last_synced_at: nuRow?.last_synced_at ?? null,
+      // Nome de SAÍDA fica `last_synced_at` de propósito: é o que o HealthGrid
+      // já lê. Só a coluna de origem estava errada.
+      last_synced_at: nuRow?.last_sync_at ?? null,
       days_until_expiry: nuDaysUntilExpiry,
       status: nuStatus,
     },
