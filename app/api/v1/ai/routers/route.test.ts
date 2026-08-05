@@ -59,6 +59,12 @@ function makeAdminStub(cfg: AdminCfg) {
           eq() {
             return builder;
           },
+          // A rota filtra canais arquivados com `.is("archived_at", null)`. O
+          // dublê precisa encadear igual, senão o teste quebra com "is is not a
+          // function" — falha do instrumento, não da rota.
+          is() {
+            return builder;
+          },
           maybeSingle() {
             return Promise.resolve(
               cfg.sessionFound === false ? { data: null, error: null } : { data: { id: SESSION_ID }, error: null },

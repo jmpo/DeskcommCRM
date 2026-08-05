@@ -28,6 +28,7 @@ import {
   Phone,
   Plus,
   ShieldCheck,
+  Trash,
 } from "@/lib/ui/icons";
 
 type Variant = "success" | "warning" | "error" | "neutral";
@@ -60,6 +61,8 @@ export function ConnectionsClient({ wahaConfigured }: { wahaConfigured: boolean 
   const [checking, setChecking] = useState(false);
   const [qr, setQr] = useState<{ sessionId: string; title: string } | null>(null);
   const [antiBanId, setAntiBanId] = useState<string | null>(null);
+  const [toDelete, setToDelete] = useState<ChannelSession | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const pacingItems = usePacingKnobs().data?.items ?? [];
 
   const invalidate = useCallback(
@@ -109,11 +112,14 @@ export function ConnectionsClient({ wahaConfigured }: { wahaConfigured: boolean 
     }
   }, [invalidate]);
 
+  // `force` descarta a credencial pareada e obriga um QR novo. Fica fora do
+  // caminho normal porque a maioria das quedas é passageira e volta sozinha —
+  // só quem já viu o modo suave falhar deveria pagar um reescaneamento.
   const handleReconnect = useCallback(
-    async (c: ChannelSession) => {
+    async (c: ChannelSession, force = false) => {
       setBusyId(c.id);
       try {
-        await apiClient.post(`/api/v1/channel-sessions/${c.id}/reconnect`, {});
+        await apiClient.post(`/api/v1/channel-sessions/${c.id}/reconnect`, { force });
         invalidate();
         setQr({ sessionId: c.id, title: `Reconectar ${channelLabel(c)}` });
       } catch (err) {
@@ -124,6 +130,38 @@ export function ConnectionsClient({ wahaConfigured }: { wahaConfigured: boolean 
     },
     [invalidate],
   );
+
+  const forcePair = useCallback(
+    async (sessionId: string) => {
+      await apiClient.post(`/api/v1/channel-sessions/${sessionId}/reconnect`, { force: true });
+      invalidate();
+    },
+    [invalidate],
+  );
+
+  const handleDelete = useCallback(async () => {
+    if (!toDelete) return;
+    setDeleting(true);
+    try {
+      const res = await apiClient.delete<{
+        data: { archived: boolean; conversations_preserved: number };
+      }>(`/api/v1/channel-sessions/${toDelete.id}`);
+      // Arquivado ≠ apagado: o número sai da lista, mas o histórico de
+      // atendimento continua no inbox. Dizer isso evita o susto de achar que as
+      // conversas foram embora junto.
+      toast.success(
+        res.data.archived
+          ? `Canal removido. ${res.data.conversations_preserved} conversa(s) foram preservadas no inbox.`
+          : "Canal excluído.",
+      );
+      setToDelete(null);
+      invalidate();
+    } catch (err) {
+      toast.error(errMsg(err, "Não foi possível excluir o canal."));
+    } finally {
+      setDeleting(false);
+    }
+  }, [toDelete, invalidate]);
 
   const handleConnected = useCallback(() => {
     toast.success("WhatsApp conectado!");
@@ -229,6 +267,14 @@ export function ConnectionsClient({ wahaConfigured }: { wahaConfigured: boolean 
                     <ShieldCheck size={14} aria-hidden />
                     Proteção de envio
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Excluir ${channelLabel(c)}`}
+                    onClick={() => setToDelete(c)}
+                  >
+                    <Trash size={14} aria-hidden />
+                  </Button>
                 </div>
               </Card>
             );
@@ -242,6 +288,32 @@ export function ConnectionsClient({ wahaConfigured }: { wahaConfigured: boolean 
         onClose={() => setAntiBanId(null)}
       />
 
+      <Dialog open={!!toDelete} onOpenChange={(o) => !o && !deleting && setToDelete(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Excluir {toDelete ? channelLabel(toDelete) : "canal"}?</DialogTitle>
+            <DialogDescription>
+              O número será desconectado do WhatsApp e sairá desta lista. As conversas e
+              mensagens já recebidas continuam no inbox — só o canal é removido. Para voltar a
+              usar este número, será preciso conectar e escanear o QR de novo.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" disabled={deleting} onClick={() => setToDelete(null)}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" disabled={deleting} onClick={handleDelete}>
+              {deleting ? (
+                <CircleNotch size={14} className="animate-spin" aria-hidden />
+              ) : (
+                <Trash size={14} aria-hidden />
+              )}
+              Excluir
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {qr && (
         <QrDialog
           sessionId={qr.sessionId}
@@ -249,6 +321,7 @@ export function ConnectionsClient({ wahaConfigured }: { wahaConfigured: boolean 
           wahaConfigured={wahaConfigured}
           onClose={() => setQr(null)}
           onConnected={handleConnected}
+          onForcePair={forcePair}
         />
       )}
     </div>
@@ -261,17 +334,19 @@ function QrDialog({
   wahaConfigured,
   onClose,
   onConnected,
+  onForcePair,
 }: {
   sessionId: string;
   title: string;
   wahaConfigured: boolean;
   onClose: () => void;
   onConnected: () => void;
+  onForcePair: (sessionId: string) => Promise<void>;
 }) {
   const [status, setStatus] = useState<string>("STARTING");
   const [tick, setTick] = useState(0);
+  const [pairing, setPairing] = useState(false);
   const done = useRef(false);
-  const qrShown = useRef(false);
 
   useEffect(() => {
     if (!wahaConfigured) return;
@@ -284,12 +359,6 @@ function QrDialog({
         if (cancelled) return;
         const s = res.data.status;
         setStatus(s);
-        // NOWEB: o QR é estável até conectar — carrega a imagem UMA vez ao entrar
-        // em SCAN_QR_CODE (evita o flash branco de recarregar a cada poll).
-        if (s === "SCAN_QR_CODE" && !qrShown.current) {
-          qrShown.current = true;
-          setTick((t) => t + 1);
-        }
         if (s === "WORKING" && !done.current) {
           done.current = true;
           onConnected();
@@ -306,6 +375,20 @@ function QrDialog({
     };
   }, [sessionId, wahaConfigured, onConnected]);
 
+  // O QR do WhatsApp EXPIRA — medido no WAHA, a imagem muda a cada ~20s. Carregar
+  // uma vez só (o que esta tela fazia) deixava um código morto na tela: quem
+  // demorasse a pegar o celular escaneava algo que o WhatsApp já tinha
+  // invalidado. Recarregamos a cada 15s enquanto estivermos em SCAN_QR_CODE,
+  // com folga sobre a expiração.
+  // A primeira imagem não precisa de tick novo: o <img> só é montado quando o
+  // status vira SCAN_QR_CODE, e essa montagem já busca o QR do momento. O
+  // intervalo cuida só das renovações seguintes.
+  useEffect(() => {
+    if (status !== "SCAN_QR_CODE") return;
+    const iv = setInterval(() => setTick((t) => t + 1), 15_000);
+    return () => clearInterval(iv);
+  }, [status]);
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
@@ -317,9 +400,11 @@ function QrDialog({
         </DialogHeader>
         <div className="flex min-h-[16rem] flex-col items-center justify-center gap-3 py-2">
           {status === "SCAN_QR_CODE" ? (
+            // Sem `key={tick}`: trocar só o src reaproveita o mesmo <img>, e o
+            // browser segura o frame anterior até decodificar o novo. Remontar o
+            // elemento a cada refresh é o que causaria o flash branco.
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              key={tick}
               src={`/api/v1/channel-sessions/${sessionId}/qr?t=${tick}`}
               alt="QR Code para conectar WhatsApp"
               className="h-64 w-64 rounded-md border bg-white p-2"
@@ -330,9 +415,39 @@ function QrDialog({
               Conectado!
             </div>
           ) : status === "FAILED" || status === "STOPPED" ? (
-            <p className="text-center text-sm text-error-fg">
-              Não foi possível conectar. Feche e tente “Reconectar”.
-            </p>
+            // Chegar aqui quase sempre significa credencial revogada: o número
+            // foi desvinculado pelo celular e o engine não tem como voltar
+            // sozinho. Antes esta tela era um beco sem saída ("tente
+            // Reconectar" levava de volta ao mesmo FAILED); agora ela oferece a
+            // única ação que de fato resolve.
+            <div className="flex flex-col items-center gap-3 text-center">
+              <p className="text-sm text-error-fg">
+                Este número foi desvinculado do WhatsApp. Para usá-lo de novo é preciso parear
+                outra vez.
+              </p>
+              <Button
+                size="sm"
+                disabled={pairing}
+                onClick={async () => {
+                  setPairing(true);
+                  try {
+                    await onForcePair(sessionId);
+                    setStatus("STARTING");
+                  } catch (err) {
+                    toast.error(errMsg(err, "Não foi possível gerar um novo QR."));
+                  } finally {
+                    setPairing(false);
+                  }
+                }}
+              >
+                {pairing ? (
+                  <CircleNotch size={14} className="animate-spin" aria-hidden />
+                ) : (
+                  <ArrowsClockwise size={14} aria-hidden />
+                )}
+                Gerar novo QR
+              </Button>
+            </div>
           ) : (
             <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
               <CircleNotch size={28} className="animate-spin" aria-hidden />

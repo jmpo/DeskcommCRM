@@ -65,28 +65,37 @@ export async function GET(_req: NextRequest) {
   }
   const allUserIds = Array.from(userIdSet);
 
-  // Step 3: resolve auth.users emails via service-role (cross-schema join)
-  const { data: authUsersData, error: authError } = await admin
-    .schema("auth")
-    .from("users")
-    .select("id, email, raw_user_meta_data")
-    .in("id", allUserIds);
-
-  if (authError) {
-    return fail("internal_error", "Auth user query failed", 500, {
-      requestId,
-      details: authError.message,
-    });
-  }
-
+  // Step 3: resolve emails via the Auth Admin API.
+  //
+  // NÃO dá para consultar `auth.users` pelo PostgREST: o Supabase só expõe
+  // `public` e `graphql_public`, então `.schema("auth")` devolve PGRST106
+  // ("Invalid schema: auth") e esta rota inteira virava 500 — a tela mostrava
+  // "Erro ao carregar platform admins" mesmo com o service role correto.
+  // A Admin API fala com o GoTrue direto e não depende do schema exposto.
   type AuthUser = {
     id: string;
     email: string | null;
     raw_user_meta_data: Record<string, unknown> | null;
   };
 
+  const resolved = await Promise.all(
+    allUserIds.map(async (uid) => {
+      const { data, error } = await admin.auth.admin.getUserById(uid);
+      // Usuário deletado no Auth mas ainda referenciado aqui é possível (o
+      // grant não some sozinho). Devolvemos a linha com email null em vez de
+      // derrubar a listagem toda por causa de um registro órfão.
+      if (error || !data?.user) return null;
+      return {
+        id: data.user.id,
+        email: data.user.email ?? null,
+        raw_user_meta_data:
+          (data.user.user_metadata as Record<string, unknown> | null) ?? null,
+      } satisfies AuthUser;
+    }),
+  );
+
   const authMap = new Map<string, AuthUser>(
-    ((authUsersData as AuthUser[]) ?? []).map((u) => [u.id, u]),
+    resolved.filter((u): u is AuthUser => u !== null).map((u) => [u.id, u]),
   );
 
   // Step 4: build enriched rows

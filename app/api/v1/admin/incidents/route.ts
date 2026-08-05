@@ -136,8 +136,15 @@ export async function GET(req: NextRequest) {
     metadata: { status, severity, tenant_id, count: shaped.length },
   });
 
-  return ok(
-    { data: shaped, meta: { has_more, cursor: nextCursor } },
-    { requestId },
-  );
+  // `meta` vai como OPÇÃO do ok(), não dentro do payload. Passar
+  // `ok({ data, meta })` produzia o corpo aninhado `{ data: { data, meta } }`;
+  // o hook então lia `page.data` como se fosse a lista e recebia o objeto
+  // envelope, renderizando uma linha fantasma sem `created_at`. Aí
+  // `formatDistanceToNow(new Date(undefined))` estourava RangeError e a página
+  // inteira caía no error boundary — o digest que o usuário via no lugar da
+  // tabela, mesmo com zero incidentes cadastrados.
+  return ok(shaped, {
+    requestId,
+    meta: { has_more, cursor: nextCursor },
+  });
 }

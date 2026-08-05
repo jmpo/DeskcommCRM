@@ -73,7 +73,9 @@ export default async function AgentEditorPage({
     supabase
       .from("channel_sessions")
       .select("id, display_name, status, phone_number, waha_session_name")
-      .eq("organization_id", activeOrg.orgId),
+      .eq("organization_id", activeOrg.orgId)
+      // Não oferecer canal arquivado como destino de um agente.
+      .is("archived_at", null),
     supabase
       .from("ai_router_members")
       .select("router_id, ai_routers(name)")

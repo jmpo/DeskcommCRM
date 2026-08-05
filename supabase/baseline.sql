@@ -8748,7 +8748,33 @@ comment on column public.contacts.avatar_storage_path is
 comment on column public.contacts.avatar_updated_at is
   'Quando a foto foi buscada pela última vez. NULL = nunca tentado. Usado pelo cron de refresh para escolher quem revisitar.';
 
+-- ---- índice do refresh de avatar (migration 0100) ----
+-- A 0099 liderava este índice por organization_id, coluna que a varredura do cron
+-- NÃO filtra — ela varre a plataforma inteira. Sem restrição na coluna líder o
+-- planner não percorre em ordem de avatar_updated_at e cai em seq scan + top-N
+-- sort: o índice custava manutenção e não economizava nada. Medido em pg17 com
+-- 20.000 contatos (17.665 elegíveis), melhor de 3:
+--   composto (0099)  Seq Scan + heapsort · 17.665 linhas · 10,272 ms
+--   parcial  (0100)  Index Scan          ·      25 linhas ·  0,090 ms
+-- O predicado de data fica fora do WHERE porque now() não é imutável; não faz
+-- falta, os NULL vêm primeiro e o Index Scan para nas 25 primeiras linhas.
+-- Auto-curativo: só derruba se o índice presente for o antigo, então em banco
+-- novo (e na re-aplicação do update.sh) este bloco é no-op.
+do $$
+begin
+  if exists (
+    select 1 from pg_indexes
+    where schemaname = 'public'
+      and indexname  = 'idx_contacts_avatar_refresh'
+      and indexdef ilike '%organization_id%'
+  ) then
+    execute 'drop index public.idx_contacts_avatar_refresh';
+  end if;
+end
+$$;
+
 create index if not exists idx_contacts_avatar_refresh
-  on public.contacts (organization_id, avatar_updated_at nulls first);
+  on public.contacts (avatar_updated_at nulls first)
+  where wa_identity is not null and is_anonymized = false;
 
 notify pgrst, 'reload schema';

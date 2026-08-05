@@ -1788,6 +1788,7 @@ export type Database = {
       }
       channel_sessions: {
         Row: {
+          archived_at: string | null
           consecutive_health_fails: number
           created_at: string
           created_by: string | null
@@ -1815,6 +1816,7 @@ export type Database = {
           webhook_secret_encrypted: string
         }
         Insert: {
+          archived_at?: string | null
           consecutive_health_fails?: number
           created_at?: string
           created_by?: string | null
@@ -1842,6 +1844,7 @@ export type Database = {
           webhook_secret_encrypted: string
         }
         Update: {
+          archived_at?: string | null
           consecutive_health_fails?: number
           created_at?: string
           created_by?: string | null

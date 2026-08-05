@@ -71,6 +71,52 @@ export class WahaClient {
     }
   }
 
+  /**
+   * Logout: descarta as CREDENCIAIS pareadas da sessão (o conteúdo de
+   * `/app/.sessions`), mantendo a sessão registrada no WAHA.
+   *
+   * É o passo que faltava no reconnect. `stop + start` sozinho reaproveita as
+   * credenciais em disco; se o WhatsApp já as revogou (aparelho desvinculado
+   * pelo celular), o engine tenta reconectar com credencial morta e cai direto
+   * em FAILED — sem NUNCA passar por SCAN_QR_CODE, então a UI fica esperando um
+   * QR que nunca vem. Com logout antes do start, o pareamento recomeça do zero.
+   *
+   * Idempotente: 404 (sessão desconhecida) / 422 / 409 (já deslogada) contam
+   * como sucesso — quem chama quer o efeito, não a transição.
+   */
+  async logoutSession(name: string): Promise<void> {
+    const res = await fetch(
+      `${this.baseUrl}/api/sessions/${encodeURIComponent(name)}/logout`,
+      {
+        method: "POST",
+        headers: { "X-Api-Key": this.apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    );
+    if (!res.ok && ![404, 422, 409].includes(res.status)) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`waha_logout_${res.status}: ${body.slice(0, 200)}`);
+    }
+  }
+
+  /**
+   * Remove a sessão do WAHA por completo (registro + credenciais em disco).
+   * Idempotente pelo mesmo motivo do logout: 404 = já não existe = sucesso.
+   */
+  async deleteSession(name: string): Promise<void> {
+    const res = await fetch(
+      `${this.baseUrl}/api/sessions/${encodeURIComponent(name)}`,
+      {
+        method: "DELETE",
+        headers: { "X-Api-Key": this.apiKey, "Content-Type": "application/json" },
+      },
+    );
+    if (!res.ok && ![404, 422, 409].includes(res.status)) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`waha_delete_${res.status}: ${body.slice(0, 200)}`);
+    }
+  }
+
   async getSessionQr(name: string): Promise<{ qr?: string; status: string }> {
     const res = await fetch(`${this.baseUrl}/api/sessions/${encodeURIComponent(name)}`, {
       headers: { "X-Api-Key": this.apiKey },

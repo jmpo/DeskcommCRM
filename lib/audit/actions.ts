@@ -129,6 +129,11 @@ export type AuditAction =
   | "ai_agent.run_failed"
   | "channel.connected"
   | "channel.reconnected"
+  // Duas ações distintas de propósito: `deleted` apagou a linha (canal virgem),
+  // `archived` só a escondeu porque conversas/mensagens ainda a referenciam.
+  // A auditoria precisa distinguir o que sumiu do que continua no banco.
+  | "channel.deleted"
+  | "channel.archived"
   | "authz.denied"
   | "team.role_changed"
   | "leads.bulk_assigned"
