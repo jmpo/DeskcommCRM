@@ -151,6 +151,32 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
 | `lib/supabase/{browser,server,admin}.ts` | Clients canônicos |
 | `app/api/v1/health/route.ts` | Health check (Supabase + Redis + WAHA) |
 | `supabase/migrations/` | Schema versionado |
+| `docs/runbooks/deploy.md` | **Deploy em produção — leia ANTES de mexer na VPS** |
+
+---
+
+## Deploy em produção (NÃO NEGOCIÁVEL)
+
+**Todo `up -d` na VPS leva os DOIS arquivos de compose:**
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.traefik.yml --env-file .env up -d app
+```
+
+Omitir `-f docker-compose.traefik.yml` recria o contêiner sem as labels de
+roteamento; o Traefik da hospedagem deixa de enxergá-lo e **o domínio inteiro
+responde `404 page not found`** — com o contêiner `healthy`, porque o
+healthcheck é um probe TCP interno e não sabe nada de roteamento. Já aconteceu
+em produção (2026-08-05).
+
+Depois de qualquer deploy, confirme que o domínio responde **307** (redireciona
+pro login) e não 404. Verificações e o caso de build local em
+`docs/runbooks/deploy.md`.
+
+O caminho normal **não constrói nada na VPS**: commit → push → PR → merge na
+`main` → o CI publica no GHCR → a VPS puxa. Imagem construída na VPS
+(`deskcomm-app:local`) é exceção de emergência e é dívida: existe só naquele
+disco e qualquer `up -d` sem `APP_PULL_POLICY=never` a substitui em silêncio.
 
 ---
 
