@@ -34,6 +34,9 @@ export async function GET(): Promise<Response> {
     .from("channel_sessions")
     .select(CHANNEL_COLUMNS)
     .eq("organization_id", activeOrg.orgId)
+    // Canais arquivados sobrevivem só como âncora das FKs RESTRICT
+    // (conversations/messages). Para o usuário eles foram excluídos.
+    .is("archived_at", null)
     .order("created_at", { ascending: true });
   if (error) return fail("internal_error", error.message, 500, { requestId });
 

@@ -99,6 +99,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     .select("id")
     .eq("id", input.channel_session_id)
     .eq("organization_id", org.orgId)
+    // Arquivado não é destino válido — a linha só sobrevive por causa das FKs.
+    .is("archived_at", null)
     .maybeSingle();
   if (!session) {
     return fail("channel_session_not_found", "Número de WhatsApp não encontrado nesta organização.", 404, {

@@ -148,24 +148,14 @@ export async function GET(req: NextRequest) {
   // Step 2: get unique user IDs
   const userIds = [...new Set((uoRows as unknown as UoRow[]).map((r) => r.user_id))];
 
-  // Step 3: fetch auth users via admin client (batched)
-  // Supabase auth admin API paginates by default; for cross-tenant admin views
-  // we fetch all users matching our collected IDs.
-  // auth.admin.listUsers() doesn't support filter by IDs, so we use
-  // admin.schema('auth').from('users') with the service role.
-  const { data: authUsersData, error: authError } = await admin
-    .schema("auth")
-    .from("users")
-    .select("id, email, last_sign_in_at, created_at, raw_user_meta_data")
-    .in("id", userIds);
-
-  if (authError) {
-    return fail("internal_error", "Auth user query failed", 500, {
-      requestId,
-      details: authError.message,
-    });
-  }
-
+  // Step 3: fetch auth users via the Auth Admin API.
+  //
+  // O comentário acima (mantido como histórico do raciocínio) apostava que o
+  // service role conseguiria ler `auth.users` pelo PostgREST. Não consegue: o
+  // Supabase expõe apenas `public` e `graphql_public`, então `.schema("auth")`
+  // responde PGRST106 ("Invalid schema: auth") e esta listagem devolvia 500 em
+  // toda requisição. `getUserById` fala com o GoTrue, que não tem essa
+  // restrição.
   type AuthUser = {
     id: string;
     email: string | null;
@@ -174,8 +164,25 @@ export async function GET(req: NextRequest) {
     raw_user_meta_data: Record<string, unknown> | null;
   };
 
+  const resolvedUsers = await Promise.all(
+    userIds.map(async (uid) => {
+      const { data, error } = await admin.auth.admin.getUserById(uid);
+      // Vínculo apontando para usuário já removido do Auth: some da lista em
+      // vez de derrubar a página inteira.
+      if (error || !data?.user) return null;
+      return {
+        id: data.user.id,
+        email: data.user.email ?? null,
+        last_sign_in_at: data.user.last_sign_in_at ?? null,
+        created_at: data.user.created_at,
+        raw_user_meta_data:
+          (data.user.user_metadata as Record<string, unknown> | null) ?? null,
+      } satisfies AuthUser;
+    }),
+  );
+
   const authMap = new Map<string, AuthUser>(
-    ((authUsersData as AuthUser[]) ?? []).map((u) => [u.id, u]),
+    resolvedUsers.filter((u): u is AuthUser => u !== null).map((u) => [u.id, u]),
   );
 
   // Step 4: build joined rows

@@ -39,6 +39,8 @@ export async function GET(): Promise<Response> {
       .from("channel_sessions")
       .select("id, waha_session_name, display_name, phone_number, status, daily_message_limit")
       .eq("organization_id", org.orgId)
+      // Canal arquivado foi excluído pelo usuário: não volta como opção aqui.
+      .is("archived_at", null)
       .order("created_at", { ascending: true }),
     admin
       .from("channel_knobs")

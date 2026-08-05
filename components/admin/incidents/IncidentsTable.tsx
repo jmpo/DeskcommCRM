@@ -61,7 +61,12 @@ function StatusBadge({ status }: { status: IncidentStatus }) {
 }
 
 function relativeDate(iso: string): string {
-  return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: ptBR });
+  // date-fns lança RangeError em data inválida, e isso derrubava a página
+  // inteira no error boundary — o usuário via só um digest no lugar da tabela.
+  // Uma célula com "—" é melhor do que perder a tela por um timestamp ausente.
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return formatDistanceToNow(d, { addSuffix: true, locale: ptBR });
 }
 
 // ---------------------------------------------------------------------------
