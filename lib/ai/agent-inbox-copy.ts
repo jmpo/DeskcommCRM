@@ -41,6 +41,11 @@ export const KIND_LABEL = {
   // Diz o que o CLIENTE está esperando, não o que o sistema deixou de gravar.
   // "Promessa não cumprida" é a única frase que faz o dono do negócio agir: do
   // lado de lá existe uma pessoa que ouviu um compromisso e está aguardando.
+  // O que a PLATAFORMA decidiu, não o assistente. O texto diz o que mudou e
+  // por que importa agora — quem lê a Central quer saber se pode trabalhar, não
+  // qual evento chegou.
+  channel_template_review: "Um modelo de mensagem mudou de situação na revisão",
+  channel_number_alert: "Seu número de WhatsApp precisa de atenção",
   promise_unfulfilled: "O assistente prometeu algo a um cliente e ninguém cumpriu ainda",
   other: "Aviso do assistente",
 } as const satisfies Record<InboxKind, string>;
