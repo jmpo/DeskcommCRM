@@ -31,6 +31,7 @@ import { ARCHIVED_AT, queryTolerantToMissingArchived } from "@/lib/channels/arch
 import { CHANNEL_PROVIDER_META } from "@/lib/channels/capabilities";
 import { validateMetaCredentials } from "@/lib/channels/meta/validate-credentials";
 import { reactivateChannelSession } from "@/lib/channels/reactivate";
+import { env } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { encryptWebhookSecret } from "@/lib/webhooks/secrets";
 
@@ -54,12 +55,20 @@ async function adminGate(requestId: string): Promise<Gate> {
   return { ok: true, orgId: org.orgId, userId: user.id };
 }
 
-/** Base pública desta instalação — é o que o operador cola no dashboard da Meta. */
+/**
+ * Base pública desta instalação — é o que o operador cola no dashboard da Meta.
+ *
+ * `env.*` e NÃO `process.env.NEXT_PUBLIC_APP_URL` direto: variáveis
+ * `NEXT_PUBLIC_` são substituídas no BUILD, e a imagem genérica do self-host é
+ * construída com `https://placeholder.invalid` (Dockerfile). Lendo direto do
+ * `process.env`, a tela mostrava essa URL — e quem a colasse no dashboard
+ * apontaria o webhook para o nada, sem erro em lugar nenhum.
+ */
 function publicBase(req: NextRequest): string {
+  const configurada = env.NEXT_PUBLIC_APP_URL;
+  const usavel = configurada && !configurada.includes("placeholder.invalid") ? configurada : null;
   return (
-    process.env.NEXT_PUBLIC_APP_URL ??
-    req.headers.get("origin") ??
-    `${req.nextUrl.protocol}//${req.nextUrl.host}`
+    usavel ?? req.headers.get("origin") ?? `${req.nextUrl.protocol}//${req.nextUrl.host}`
   );
 }
 

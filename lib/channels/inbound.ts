@@ -19,6 +19,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { CHANNEL_PROVIDER_ZERNIO } from "./capabilities";
+import { atualizarEspelhoDoTemplate, avisoDoEvento, registrarAviso } from "./zernio/avisos";
 import { ingestZernioInbound } from "./zernio/ingest";
 import { verifyZernioSignature } from "./zernio/webhook";
 import type { ChannelProvider } from "./types";
@@ -85,6 +86,22 @@ async function zernioInbound(
     payload = JSON.parse(input.rawBody);
   } catch {
     return { ok: false, code: "invalid_json", message: "invalid_json" };
+  }
+
+  // ─── O que a plataforma decide sozinha ───────────────────────────────────
+  //
+  // Revisão de modelo e mudança de estado do número não são mensagens, mas são
+  // o tipo de coisa que só se descobre no disparo que não sai — com a campanha
+  // montada e o cliente esperando. Vira aviso na Central, onde o humano já
+  // procura o que está errado.
+  const aviso = avisoDoEvento(payload);
+  if (aviso) {
+    // O espelho local também: o aviso empurra para olhar, e a tela de modelos
+    // precisa mostrar o estado novo. Ver o estado velho depois de ler o aviso é
+    // pior que não ter avisado.
+    const espelhado = await atualizarEspelhoDoTemplate(admin, input.session.organization_id, payload);
+    const desfecho = await registrarAviso(admin, input.session.organization_id, aviso);
+    return { ok: true, body: { status: "aviso", kind: aviso.kind, desfecho, espelhado } };
   }
 
   const r = await ingestZernioInbound(admin, {

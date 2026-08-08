@@ -9104,6 +9104,8 @@ alter table public.agent_inbox_items
     -- — os blocos antigos rodam antes e falham em cadeia. Um bloco por
     -- constraint, vigiado por tests/unit/baseline-constraint-reconstruida.test.ts.
     'message_send_stuck',
+    'channel_template_review',
+    'channel_number_alert',
     -- (migration 0111, spec 16 §3.2) O papel Operador declara promessa em aberto:
     -- o assistente prometeu algo ao cliente e o cumprimento não foi registrado.
     -- A invariante sagrada da spec é "nenhuma promessa deixa de ser cumprida", e
