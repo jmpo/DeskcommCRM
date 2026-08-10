@@ -53,11 +53,34 @@ export interface AtRiskLead {
   pipeline_id: string;
 }
 
+/**
+ * Demanda ABERTA sem próximo passo — o invariante 4 da doutrina em forma de
+ * linha acionável (passo 4 do cap. 5: migrar os consumidores).
+ *
+ * O índice de atrito já publica a CONTAGEM ("7 demandas abertas sem próximo
+ * passo"). Contagem sem lugar para agir viola o invariante 5: todo dado
+ * responde "e daí?". É esta lista que responde.
+ */
+export interface DemandaSemProximoPasso {
+  id: string;
+  contact_id: string;
+  contact_name: string | null;
+  aberta_em: string;
+  horas_aberta: number;
+  origem: string;
+}
+
 export interface RadarDeRisco {
   items: AtRiskLead[];
   counts: { critico: number; em_risco: number; em_voo: number };
   /** Quantos entraram no radar antes do corte de `limit`. */
   total: number;
+  /**
+   * Demandas abertas sem próximo passo definido. Vazio é o estado saudável —
+   * e é o único número deste módulo cujo alvo é ZERO.
+   */
+  sem_proximo_passo: DemandaSemProximoPasso[];
+  total_sem_proximo_passo: number;
 }
 
 export interface OpcoesDoRadar {
@@ -217,9 +240,41 @@ export async function carregaRadarDeRisco(
     ),
   );
 
+  // PASSO 4 do cap. 5 — o Radar passa a conhecer `demandas`. Incremental de
+  // propósito: a lógica de leads acima é COMPARTILHADA com a capacidade que a
+  // IA usa (lib/mcp/tools/retencao.ts), e a tela e o agente têm de dizer a
+  // mesma coisa sobre o mesmo negócio. Reescrevê-la agora arriscaria essa
+  // paridade sem necessidade; acrescentar não arrisca nada.
+  const { data: semPasso } = await admin
+    .from("demandas")
+    .select("id, contact_id, aberta_em, origem, contacts(display_name)")
+    .eq("organization_id", organizationId)
+    .is("fechada_em", null)
+    .is("proximo_passo", null)
+    .order("aberta_em", { ascending: true })
+    .limit(limit);
+
+  const semProximoPasso: DemandaSemProximoPasso[] = (semPasso ?? []).map((d) => {
+    // O join do PostgREST vem como ARRAY mesmo em relação um-para-um.
+    const rel = d.contacts as unknown as { display_name: string | null }[] | { display_name: string | null } | null;
+    const contato = Array.isArray(rel) ? (rel[0] ?? null) : rel;
+    return {
+      id: d.id as string,
+      contact_id: d.contact_id as string,
+      contact_name: contato?.display_name ?? null,
+      aberta_em: d.aberta_em as string,
+      horas_aberta: Math.floor(
+        (now.getTime() - new Date(d.aberta_em as string).getTime()) / 3_600_000,
+      ),
+      origem: d.origem as string,
+    };
+  });
+
   return {
     items: radar.slice(0, limit),
     counts: { critico: counts.critico, em_risco: counts.em_risco, em_voo: counts.em_voo },
     total: radar.length,
+    sem_proximo_passo: semProximoPasso,
+    total_sem_proximo_passo: semProximoPasso.length,
   };
 }

@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 
 import { fail, ok } from "@/lib/api/wrappers";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
+import { CONVERSATION_TERMINAL_STATUSES } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -40,10 +41,16 @@ export async function GET(): Promise<Response> {
       .eq("organization_id", org);
 
   // Espelha tabToFilter (InboxLayout): unassigned = fila aberta sem dono;
-  // mine = atribuídas a mim; all = tudo que o usuário VÊ (RLS-scoped).
+  // mine = atribuídas a mim e ainda ABERTAS; all = tudo que o usuário VÊ.
+  //
+  // O `not in (terminais)` do `mine` espelha o `exclude_finished` da aba, e o
+  // espelhamento é o ponto: um badge que conta o que a aba não mostra é pior
+  // que badge nenhum — manda o atendente procurar um trabalho que não existe.
   const [unassigned, mine, all] = await Promise.all([
     countExact().is("assigned_to_user_id", null).eq("status", "open"),
-    countExact().eq("assigned_to_user_id", user.id),
+    countExact()
+      .eq("assigned_to_user_id", user.id)
+      .not("status", "in", `(${CONVERSATION_TERMINAL_STATUSES.join(",")})`),
     countExact(),
   ]);
 

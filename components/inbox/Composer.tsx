@@ -1,5 +1,12 @@
 "use client";
-import { forwardRef, useImperativeHandle, useRef, useState, type KeyboardEvent } from "react";
+import {
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from "react";
 import { PaperPlaneTilt } from "@/lib/ui/icons";
 import { Button } from "@/components/ui/button";
 import { AttachMenu } from "@/components/inbox/composer/AttachMenu";
@@ -12,6 +19,7 @@ import { useCreateNote } from "@/hooks/inbox/useCreateNote";
 import { useMessageTemplates, type MessageTemplate } from "@/hooks/inbox/useMessageTemplates";
 import { useSendMessage } from "@/hooks/inbox/useSendMessage";
 import { useUploadMedia } from "@/hooks/inbox/useUploadMedia";
+import { imagemDoClipboard } from "@/lib/inbox/clipboard-image";
 import { interpolateTemplate } from "@/lib/inbox/template-vars";
 import { cn } from "@/lib/utils";
 
@@ -108,6 +116,25 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
     });
   }
 
+  /**
+   * Ctrl/Cmd+V com imagem no clipboard cai no MESMO caminho do menu "+":
+   * abre o preview com legenda e envia por ali. Nada de atalho paralelo — a
+   * validação, o toast de erro e o retry já vivem lá.
+   *
+   * As três guardas antes de olhar o clipboard não são zelo: em "Nota interna"
+   * não existe anexo (a nota é só texto e o envio nem passa pelo upload), com
+   * um anexo já em preview a colagem substituiria em silêncio o que o operador
+   * escolheu, e desabilitado é desabilitado. Em qualquer um desses casos o
+   * Ctrl+V precisa continuar sendo o Ctrl+V de sempre.
+   */
+  function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    if (mode !== "reply" || isDisabled || pendingFile) return;
+    const imagem = imagemDoClipboard(e.clipboardData, new Date());
+    if (!imagem) return; // colagem de texto segue o caminho normal do browser
+    e.preventDefault();
+    setPendingFile(imagem);
+  }
+
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Escape" && menuOpen) {
       setMenuDismissed(true);
@@ -202,11 +229,25 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
               autoresize();
             }}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             rows={1}
+            // O atalho saiu do placeholder e foi para o diálogo de atalhos (`?`)
+            // e para o `title` aqui. Dois motivos, nesta ordem: ele some assim
+            // que se digita a primeira letra — isto é, some justamente quando
+            // você ia quebrar linha —; e, com a coluna do inbox mais estreita
+            // depois do conserto do layout, a frase quebrava em duas linhas
+            // dentro de um campo de uma linha só.
+            //
+            // "(só o time vê)" FICA: não é atalho, é consequência. Quem escreve
+            // uma nota interna precisa saber que ela não vai para o cliente, e
+            // essa informação não pode depender de abrir um diálogo.
             placeholder={
+              mode === "note" ? "Escreva uma nota interna… (só o time vê)" : "Escreva uma mensagem…"
+            }
+            title={
               mode === "note"
-                ? "Escreva uma nota interna… (só o time vê)"
-                : "Escreva uma mensagem… (Enter envia, Shift+Enter quebra linha)"
+                ? "Enter salva a nota · Shift+Enter quebra linha"
+                : "Enter envia · Shift+Enter quebra linha"
             }
             className={cn(
               "min-h-9 max-h-40 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm",

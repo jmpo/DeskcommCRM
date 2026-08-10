@@ -57,7 +57,7 @@ const SEPARADO = /(?<![a-zA-Z0-9])(waha|meta_cloud|zernio|graph\.facebook\.com)(
  * segmento. Não seguido de minúscula/dígito exclui `Wahalla` — onde `Waha` é
  * começo de outra palavra, não segmento próprio.
  */
-const PASCAL = /Waha(?![a-z0-9])/;
+const PASCAL = /(Waha|Zernio)(?![a-z0-9])/;
 
 /** Um trecho de código/prosa nomeia um provider de canal? */
 export function nomeiaProvider(texto: string): boolean {

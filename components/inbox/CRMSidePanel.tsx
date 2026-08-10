@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Card } from "@/components/ui/card";
@@ -18,6 +18,7 @@ import { ContactTagsEditor } from "./ContactTagsEditor";
 import { useDefaultPipeline } from "@/hooks/pipelines/useDefaultPipeline";
 import { NewLeadDialog } from "@/components/kanban/NewLeadDialog";
 import { cn } from "@/lib/utils";
+import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 
 interface Props {
   conversation: ConversationWithContact | null;
@@ -50,6 +51,124 @@ interface ActivityRow {
   /** 0071 — o porquê legível e quem agiu. */
   reason: string | null;
   actor_kind: string | null;
+}
+
+/**
+ * Passo 4 do cap. 5 — a demanda no lugar onde o humano atende.
+ *
+ * As outras três listas contam o que já aconteceu (negócio, pedido, histórico).
+ * Esta conta o que **ainda não acabou**, que é a pergunta que a pessoa do outro
+ * lado está fazendo. Sem ela, o atendente encerra a conversa sem saber que a
+ * demanda continua aberta e sem próximo passo — e o vazamento só reaparece
+ * depois, como número numa métrica que ele não abre.
+ */
+interface DemandaRow {
+  id: string;
+  aberta_em: string;
+  origem: string;
+  estado: string;
+  proximo_passo: string | null;
+  proximo_passo_em: string | null;
+  prazo_em: string | null;
+}
+
+/** Vocabulário de quem atende, não o do banco. */
+const ESTADO_LEGIVEL: Record<string, string> = {
+  aberta: "Aberta",
+  em_atendimento: "Em atendimento",
+  aguardando_cliente: "Aguardando o cliente",
+};
+
+function horasDesde(iso: string): number {
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000));
+}
+
+/**
+ * Marcar o próximo passo, no lugar onde o atendente já está.
+ *
+ * Fica FECHADO por padrão: a lista costuma ter mais de uma demanda, e um campo
+ * de texto aberto em cada uma transformaria a seção de contexto em formulário.
+ * O botão é a promessa; o campo aparece quando alguém aceita.
+ *
+ * Sem data de propósito nesta superfície. Obrigar hora aqui faria o atendente
+ * inventar uma para se livrar do campo — e data inventada é pior que ausente,
+ * porque o Radar passa a cobrar no dia errado. A rota aceita
+ * `proximo_passo_em`; quem precisa de compromisso datado usa o retorno.
+ */
+function MarcarProximoPasso({ demandaId, onPronto }: { demandaId: string; onPronto: () => void }) {
+  const [aberto, setAberto] = useState(false);
+  const [texto, setTexto] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvar() {
+    const passo = texto.trim();
+    if (passo.length < 3) return;
+    setSalvando(true);
+    try {
+      await apiClient.patch(`/api/v1/demandas/${demandaId}`, { proximo_passo: passo });
+      setAberto(false);
+      setTexto("");
+      onPronto();
+    } catch {
+      // Falha NÃO fecha o campo: fechar devolveria a tela ao estado de sucesso
+      // e o texto se perderia sem que ninguém tivesse gravado nada.
+      toast.error("Não consegui salvar o próximo passo. Tente de novo.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  if (!aberto) {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        className="mt-1.5 h-7 text-xs"
+        data-testid="marcar-proximo-passo"
+        onClick={() => setAberto(true)}
+      >
+        Marcar próximo passo
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 space-y-1.5">
+      <input
+        autoFocus
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void salvar();
+          if (e.key === "Escape") setAberto(false);
+        }}
+        maxLength={500}
+        placeholder="O que acontece a seguir?"
+        aria-label="Próximo passo desta demanda"
+        data-testid="campo-proximo-passo"
+        className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+      <div className="flex gap-1.5">
+        <Button
+          size="sm"
+          className="h-7 text-xs"
+          disabled={salvando || texto.trim().length < 3}
+          data-testid="salvar-proximo-passo"
+          onClick={() => void salvar()}
+        >
+          {salvando ? "Salvando…" : "Salvar"}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-xs"
+          onClick={() => setAberto(false)}
+        >
+          Cancelar
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function formatMoney(cents: number | null, currency: string | null): string {
@@ -107,6 +226,7 @@ export function CRMSidePanel({ conversation }: Props) {
   const [leads, setLeads] = useState<LeadRow[] | null>(null);
   const [orders, setOrders] = useState<OrderRow[] | null>(null);
   const [activities, setActivities] = useState<ActivityRow[] | null>(null);
+  const [demandas, setDemandas] = useState<DemandaRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   /**
    * O TERCEIRO ESTADO. Antes existiam dois — carregando e "tem N itens" — e a
@@ -133,6 +253,7 @@ export function CRMSidePanel({ conversation }: Props) {
       setLeads(null);
       setOrders(null);
       setActivities(null);
+      setDemandas(null);
       return;
     }
     let cancelled = false;
@@ -145,12 +266,22 @@ export function CRMSidePanel({ conversation }: Props) {
     async function load() {
       try {
         const r = await apiClient.get<{
-          data: { leads: LeadRow[]; orders: OrderRow[]; activities: ActivityRow[] };
+          data: {
+            leads: LeadRow[];
+            orders: OrderRow[];
+            activities: ActivityRow[];
+            demandas: DemandaRow[];
+          };
         }>(`/api/v1/contacts/${contactId}/crm-summary`);
         if (cancelled) return;
         setLeads(r.data.leads);
         setOrders(r.data.orders);
         setActivities(r.data.activities);
+        // `?? []` e não `?? null`: aqui a leitura DEU CERTO. Cair em `null`
+        // faria a lista vazia se disfarçar do terceiro estado e o painel
+        // mostraria esqueleto para sempre num contato sem demanda aberta —
+        // que é o caso saudável.
+        setDemandas(r.data.demandas ?? []);
       } catch {
         if (cancelled) return;
         // Falha NÃO vira lista vazia. Os dados ficam `null` e o painel diz que
@@ -159,6 +290,7 @@ export function CRMSidePanel({ conversation }: Props) {
         setLeads(null);
         setOrders(null);
         setActivities(null);
+        setDemandas(null);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -170,12 +302,15 @@ export function CRMSidePanel({ conversation }: Props) {
     };
   }, [contactId, tentativa]);
 
+  // Recarrega o resumo pelo MESMO caminho do "Tentar de novo": o efeito depende
+  // de `tentativa`, então a demanda recém-marcada volta do servidor em vez de
+  // ser apagada da lista no cliente. Sumir no otimismo esconderia uma escrita
+  // que falhou depois — e escrita que parece ter dado certo é o defeito que
+  // esta tela inteira combate.
+  const recarregar = useCallback(() => setTentativa((n) => n + 1), []);
+
   const tags = contact?.tags ?? [];
-  const displayName =
-    contact?.display_name?.trim() ||
-    contact?.name?.trim() ||
-    contact?.phone_number ||
-    "—";
+  const displayName = rotuloDoContato(contact);
 
   // `erro` PRIMEIRO, e não é detalhe: as três listas voltam a `null` quando a
   // leitura falha, e este derivado lê `null` como "ainda não chegou". Sem esta
@@ -183,8 +318,10 @@ export function CRMSidePanel({ conversation }: Props) {
   // apareceria — o mesmo colapso de significados que criou o defeito original,
   // só que trocando "erro→vazio" por "erro→carregando".
   const sectionsLoading = useMemo(
-    () => !erro && (loading || (leads === null && orders === null && activities === null)),
-    [erro, loading, leads, orders, activities],
+    () =>
+      !erro &&
+      (loading || (leads === null && orders === null && activities === null && demandas === null)),
+    [erro, loading, leads, orders, activities, demandas],
   );
 
   if (!conversation) {
@@ -266,6 +403,62 @@ export function CRMSidePanel({ conversation }: Props) {
         orgId={conversation.organization_id}
         tags={conversation.tags ?? []}
       />
+
+      <Separator />
+
+      {/* ANTES dos negócios de propósito (doutrina cap. 5): lead é o negócio,
+          conversa é o canal, demanda é o que precisa acabar. Quem abre esta
+          conversa está atendendo alguém que pediu alguma coisa — a primeira
+          pergunta a responder é o que ainda está pendente, não quanto vale. */}
+      <section data-testid="inbox-demandas">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Demandas abertas
+        </h3>
+        {sectionsLoading ? (
+          <Skeleton className="mt-2 h-14 w-full" />
+        ) : demandas && demandas.length > 0 ? (
+          <ul className="mt-2 space-y-1.5">
+            {demandas.map((d) => {
+              const semPasso = !d.proximo_passo;
+              return (
+                <li
+                  key={d.id}
+                  data-testid={semPasso ? "demanda-sem-proximo-passo" : "demanda-com-proximo-passo"}
+                  className={cn(
+                    "rounded-md border p-2 text-xs",
+                    semPasso ? "border-warning-border bg-warning-bg/40" : "border-border",
+                  )}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate font-medium">
+                      {ESTADO_LEGIVEL[d.estado] ?? d.estado}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      há {horasDesde(d.aberta_em)}h
+                    </span>
+                  </div>
+                  {/* O invariante 4 na frase, não só na cor: quem enxerga mal
+                      cor precisa ler a mesma informação. */}
+                  <div className={cn("mt-0.5", semPasso ? "font-medium" : "text-muted-foreground")}>
+                    {d.proximo_passo ?? "Sem próximo passo definido"}
+                  </div>
+                  {/* A SAÍDA. Sem ela esta seção só denunciava: o atendente via o
+                      vazamento e tinha de sair da tela para resolver — peça que
+                      só recebe é ilha pelo invariante 1, e foi o gate dos mapas
+                      de arquitetura que apontou isso. */}
+                  {semPasso ? <MarcarProximoPasso demandaId={d.id} onPronto={recarregar} /> : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <SemLista
+            vazio="Nenhuma demanda aberta."
+            erro={erro}
+            onTentarDeNovo={() => setTentativa((n) => n + 1)}
+          />
+        )}
+      </section>
 
       <Separator />
 

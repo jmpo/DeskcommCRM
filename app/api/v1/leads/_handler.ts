@@ -15,6 +15,7 @@ import { listaLegivel } from "@/lib/leads/activity-vocabulary";
 import { camposAlterados } from "@/lib/leads/campos-alterados";
 import { registraFalhaDeAtividade } from "@/lib/leads/activity-write-failure";
 import type { CreateLeadInput, UpdateLeadInput } from "@/lib/schemas";
+import { ehCorrecaoDeMovimentoDaIa } from "@/lib/leads/correcao-humana";
 
 type SB = SupabaseClient;
 
@@ -135,9 +136,18 @@ export async function listLeadsHandler(
   q: ListLeadsQuery,
 ): Promise<ListLeadsResult> {
   const limit = Math.min(Math.max(q.limit ?? 50, 1), 100);
+  // ⚠️ O filtro de organização é a PRIMEIRA cláusula, e não uma opcional entre
+  // as de baixo. Pelo MCP o client é service-role e a RLS não vale: sem ele, a
+  // listagem entregava ao modelo os negócios de TODAS as organizações do banco.
+  //
+  // Foi o terceiro furo da mesma família neste arquivo, e o mais silencioso —
+  // ler não devolve erro, então nada quebrava; o agente só passava a "saber"
+  // coisas que não são da casa dele. Escopo de funil montado por cima de um
+  // caminho que vaza ORG seria porta trancada em casa sem parede.
   let query = supabase
     .from("crm_leads")
     .select(LEAD_COLS)
+    .eq("organization_id", ctx.organization_id)
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(limit + 1);
@@ -181,15 +191,25 @@ export async function getLeadHandler(
   ctx: HandlerCtx,
   leadId: string,
 ): Promise<Record<string, unknown>> {
+  // ⚠️ `.eq("organization_id")` NÃO é redundante com a RLS — é o que segura o
+  // caminho do AGENTE. Esta função é chamada por dois lados com garantias
+  // opostas: pela rota HTTP com client de sessão (a RLS protege sozinha) e pelas
+  // ferramentas MCP com `createAdminClient()` (lib/mcp/server.ts:39), que
+  // **bypassa RLS**. Sem esta linha, o agente de uma organização LIA o negócio
+  // de outra — medido, não suposto: `tests/invariants/mcp-nao-alcanca-outro-tenant.test.ts`
+  // reprovava aqui antes deste filtro. É o anti-pattern 10 do CLAUDE.md.
   const { data, error } = await supabase
     .from("crm_leads")
     .select(LEAD_COLS)
+    .eq("organization_id", ctx.organization_id)
     .eq("id", leadId)
     .maybeSingle();
   if (error) {
     throw new ApiError(500, "internal_error", undefined, ctx.requestId, error.message);
   }
   if (!data) {
+    // 404, e não 403: dizer "existe, mas não é seu" confirmaria a existência de
+    // um recurso alheio a quem tentou adivinhar o id.
     throw new ApiError(404, "not_found", undefined, ctx.requestId, "Lead não encontrado.");
   }
   return data as Record<string, unknown>;
@@ -339,9 +359,15 @@ export async function updateLeadHandler(
   // contra isto, e uma lista fixa faria todo campo NOVO do patch cair contra
   // `undefined` e ser marcado como alterado em toda edicao — o mesmo defeito
   // que este select conserta, reaparecendo por outra porta em seis meses.
+  // ⚠️ Mesmo motivo do `getLeadHandler`: pelo MCP o client é service-role e a
+  // RLS não vale. Sem este filtro, o agente de uma organização REESCREVIA o
+  // negócio de outra — o teste de cross-tenant provou a escrita comparando o
+  // título depois. Pior: o audit era gravado sob `existing.organization_id`,
+  // ou seja, no log da VÍTIMA.
   const { data: existing, error: selErr } = await supabase
     .from("crm_leads")
     .select("*")
+    .eq("organization_id", ctx.organization_id)
     .eq("id", leadId)
     .maybeSingle();
 
@@ -372,9 +398,13 @@ export async function updateLeadHandler(
   }
   if (input.tags !== undefined) patch.tags = input.tags;
 
+  // O filtro entra AQUI TAMBÉM, e não só no SELECT acima: entre ler e escrever
+  // há uma janela, e defesa que depende de uma leitura anterior é defesa que
+  // some quando alguém reordena o código.
   const { data: updated, error: updErr } = await supabase
     .from("crm_leads")
     .update(patch)
+    .eq("organization_id", ctx.organization_id)
     .eq("id", leadId)
     .select(LEAD_COLS)
     .maybeSingle();
@@ -631,6 +661,77 @@ export async function moveLeadHandler(
       pipeline_id: lead.pipeline_id,
     },
   });
+  // ── O LAÇO (spec 17 passo 5) ──────────────────────────────────────────────
+  //
+  // Um humano mover um card que a IA moveu por último é o retorno que fecha o
+  // ciclo: sem isto o produto tem caminho e não tem aprendizado — a IA erra
+  // igual amanhã, e alguém corrige de novo, para sempre e em silêncio.
+  //
+  // Só para ator HUMANO: a IA reorganizando o próprio trabalho não é correção.
+  if (ctx.actor.type === "user") {
+    try {
+      const { data: historico } = await supabase
+        .from("crm_lead_activities")
+        .select("actor_kind, actor_agent_id, payload, performed_at")
+        .eq("organization_id", lead.organization_id)
+        .eq("lead_id", leadId)
+        .eq("type", "stage_changed")
+        .order("performed_at", { ascending: false })
+        .limit(5);
+
+      const anteriores = ((historico ?? []) as Array<{
+        actor_kind: string | null;
+        actor_agent_id: string | null;
+        payload: { from_stage_id?: string; to_stage_id?: string } | null;
+        performed_at: string;
+      }>)
+        // A atividade que ACABOU de ser emitida está aqui: descartá-la é o que
+        // impede o movimento de se comparar consigo mesmo e virar "correção".
+        .filter((h) => h.performed_at < new Date(Date.now() - 500).toISOString())
+        .map((h) => ({
+          actorKind: h.actor_kind,
+          fromStageId: h.payload?.from_stage_id ?? null,
+          toStageId: h.payload?.to_stage_id ?? null,
+          performedAt: h.performed_at,
+          agentId: h.actor_agent_id,
+        }));
+
+      const veredito = ehCorrecaoDeMovimentoDaIa({
+        anteriores,
+        deEtapa: lead.stage_id,
+        paraEtapa: input.to_stage_id,
+      });
+
+      if (veredito.ehCorrecao) {
+        await emitLeadActivity(supabase, {
+          organizationId: lead.organization_id,
+          leadId,
+          contactId: (lead as { contact_id: string | null }).contact_id,
+          type: "agent_move_corrected",
+          sourceModule: "crm",
+          sourceId: leadId,
+          actor: ctx.actor,
+          reason:
+            veredito.tipo === "devolucao"
+              ? "Uma pessoa devolveu o negócio para onde ele estava antes do assistente"
+              : "Uma pessoa levou o negócio para outra etapa, diferente da que o assistente escolheu",
+          payload: {
+            tipo: veredito.tipo,
+            // A etapa da IA é o dado do agregado: é ela que aparece em "o
+            // assistente está mandando gente para X cedo demais".
+            etapa_da_ia: veredito.etapaDaIa,
+            etapa_do_humano: veredito.etapaDoHumano,
+            agent_id: veredito.agentId,
+            pipeline_id: lead.pipeline_id,
+          },
+        });
+      }
+    } catch {
+      // O laço NUNCA derruba a movimentação: o card já moveu, e o dono não pode
+      // perder a operação porque a medição do aprendizado falhou.
+    }
+  }
+
   if (!atividade.ok) {
     // Falha BAIXO: o card já moveu e bloquear deixaria o negócio refém da
     // timeline. Mas falhar baixo é escolher não bloquear, não escolher não

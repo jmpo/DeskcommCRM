@@ -80,6 +80,7 @@ import { emitLeadActivity } from "@/lib/leads/activity-emitter";
 import { registraFalhaDeAtividade } from "@/lib/leads/activity-write-failure";
 import { resolveActiveLeadForContact } from "@/lib/leads/active-lead";
 import { stageChangeReason } from "@/lib/leads/activity-emitter";
+import { podeOperarNoFunil } from "./escopo-de-funil";
 
 export interface ResultadoDaSincronizacao {
   moveu: boolean;
@@ -99,6 +100,15 @@ export interface ResultadoDaSincronizacao {
     | "sem_negocio"
     | "ambiguo"
     | "conflito_humano"
+    /**
+     * O negócio está num funil que este agente não cuida (spec 17 passo 3).
+     *
+     * ⚠️ NÃO é o mesmo que `sem_mapeamento`: lá falta configuração de ETAPA (o
+     * agente cuidaria, mas não sabe para onde ir); aqui a configuração está
+     * COMPLETA e a resposta é não. E não é `falha_de_escrita`: nada falhou — a
+     * regra funcionou.
+     */
+    | "fora_do_escopo"
     | "falha_de_escrita"
     | "indisponivel";
   leadId?: string;
@@ -122,7 +132,20 @@ export interface ResultadoDaSincronizacao {
  */
 export async function sincronizaEstagioDoAgente(
   admin: SupabaseClient,
-  input: { organizationId: string; contactId: string; passo: string },
+  input: {
+    organizationId: string;
+    contactId: string;
+    passo: string;
+    /**
+     * Funis que ESTE agente pode escrever (`ai_agent_versions.pipeline_ids`).
+     *
+     * `undefined` = chamador que ainda não sabe do escopo (caminho legado):
+     * segue como antes. Array VAZIO = nenhum funil, e aí nada é movido — a
+     * distinção existe porque tratar "não informado" como "vazio" pararia todo
+     * caminho que ainda não foi migrado, em silêncio.
+     */
+    escopoDeFunis?: readonly string[];
+  },
 ): Promise<ResultadoDaSincronizacao> {
   // ⚠️ O erro do SELECT É LIDO, e isso não é zelo: o supabase-js NÃO LANÇA em
   // falha de rede — devolve { data: null, error }. Descartar o erro faria o
@@ -160,6 +183,27 @@ export async function sincronizaEstagioDoAgente(
     return { moveu: false, motivo: rota.reason === "no_open_lead" ? "sem_negocio" : "ambiguo" };
   }
   const lead = candidatos.find((c) => c.id === rota.leadId)!;
+
+  // ── ESCOPO DE FUNIL (spec 17 passo 3) ────────────────────────────────────
+  //
+  // DEPOIS de rotear, e não antes: filtrar os candidatos pelo escopo faria um
+  // contato cujo único negócio está fora virar "sem_negocio" — e o dono leria
+  // "esse cliente não tem negócio aberto", que é falso e manda procurar no
+  // lugar errado. O negócio EXISTE; o que não existe é a permissão.
+  if (input.escopoDeFunis !== undefined) {
+    const veredito = podeOperarNoFunil(input.escopoDeFunis, lead.pipeline_id);
+    if (!veredito.permitido) {
+      return {
+        moveu: false,
+        motivo: "fora_do_escopo",
+        leadId: lead.id,
+        detalhe:
+          veredito.motivo === "escopo_vazio"
+            ? "nenhum funil liberado para este assistente"
+            : "o negócio está num funil que este assistente não cuida",
+      };
+    }
+  }
 
   const { data: stageRows, error: erroStages } = await admin
     .from("crm_stages")

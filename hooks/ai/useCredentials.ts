@@ -2,8 +2,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
+import { PROVEDORES } from "@/lib/ai/pontos/provedores";
 
-export type Provider = "anthropic" | "openai" | "google";
+/**
+ * Derivado de `lib/ai/pontos/provedores.ts` — a lista única desde a migration
+ * 0127. Como literal fixo aqui, a tela de Credenciais não tinha como cadastrar
+ * OpenRouter, embora o painel de Provedores a oferecesse.
+ */
+export type Provider = (typeof PROVEDORES)[number]["id"];
 
 export interface CredentialRow {
   id: string;

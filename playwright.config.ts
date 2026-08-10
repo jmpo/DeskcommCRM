@@ -37,6 +37,53 @@ function envDoE2E(): Record<string, string> {
   return env;
 }
 
+/**
+ * Publica o `.env.e2e` no ambiente do PROCESSO DE TESTE, não só do servidor.
+ *
+ * ## O defeito, medido em 2026-08-08 num worktree limpo
+ *
+ * `pnpm e2e:build && pnpm test:e2e` — o caminho documentado — morria antes do
+ * primeiro teste:
+ *
+ *   Error: Sem credenciais do Supabase: defina NEXT_PUBLIC_SUPABASE_URL e
+ *   SUPABASE_SERVICE_ROLE_KEY no ambiente (…) ou no .env.local
+ *     at credenciaisSupabaseDeTeste (scripts/lib/env-de-teste.ts)
+ *     at scripts/seed-e2e-credentials.ts
+ *
+ * A cadeia: as specs semeiam a própria precondição com `execFileSync`, o filho
+ * herda o ambiente do RUNNER, e o runner não recebia nada — `envDoE2E()`
+ * alimentava apenas `webServer.env`. `env-de-teste.ts` cai no `.env.local` como
+ * plano B, e num worktree limpo esse arquivo **não existe de propósito**: a
+ * ausência dele é o que impede a suíte de escrever em produção.
+ *
+ * Ou seja as duas proteções se anulavam: a que tira o `.env.local` do disco e a
+ * que injeta o ambiente só no servidor deixavam o seed sem nenhuma das duas
+ * fontes. O CI não notava porque contorna por dois caminhos — publica o arquivo
+ * no `$GITHUB_ENV` e ainda faz `cp .env.e2e .env.local`, recriando justamente o
+ * arquivo cuja ausência é a proteção.
+ *
+ * ## Por que aqui
+ *
+ * Este é o único ponto que já lê e valida o arquivo (inclusive recusando um
+ * `.env.e2e` que aponte para fora do localhost). Resolver no `package.json` com
+ * `set -a; . ./.env.e2e` funcionaria para quem usa o script e não para quem
+ * chama `playwright test` direto — e é o caminho que a mensagem de erro sugere,
+ * o que já prova que alguém teve de descobrir isto na mão.
+ *
+ * `process.env` VENCE quando a chave já existe: é a mesma precedência de
+ * `scripts/lib/env-de-teste.ts`, e é o que mantém de pé o
+ * `AUTH_RATE_LIMIT_LOGIN_IP` que o workflow define por fora. Sobrescrever aqui
+ * criaria a colisão descrita no comentário do `webServer` abaixo — servidor e
+ * processo de teste resolvendo a mesma chave para valores diferentes, que foi
+ * como `INTERNAL_SECRET` derrubou 8 specs com 401.
+ */
+function publicarNoProcesso(env: Record<string, string>): Record<string, string> {
+  for (const [chave, valor] of Object.entries(env)) {
+    if (process.env[chave] === undefined) process.env[chave] = valor;
+  }
+  return env;
+}
+
 // Porta do dev server sob teste. Default 3001; sobrescreva com E2E_PORT quando
 // a 3001 já estiver ocupada por outro checkout/worktree.
 const PORT = process.env.E2E_PORT ?? "3001";
@@ -80,8 +127,11 @@ export default defineConfig({
     //
     // ⚠️ Isto cobre o SERVIDOR. Os scripts de seed que as specs chamam sozinhas
     // liam `.env.local` direto do disco e escapavam daqui — o conserto do outro
-    // lado é `scripts/lib/env-de-teste.ts`.
-    env: envDoE2E(),
+    // lado é `scripts/lib/env-de-teste.ts`, que faz `process.env` vencer. E é o
+    // `publicarNoProcesso` acima que garante que o `process.env` do runner tenha
+    // o que aquele conserto precisa: sem ele, num worktree sem `.env.local`, o
+    // seed não tinha NENHUMA das duas fontes.
+    env: publicarNoProcesso(envDoE2E()),
     url: BASE_URL,
     // false: reusar um server que já ocupa a porta pode ser OUTRO processo
     // (ex.: bundle do Remotion na 3000) — o teste precisa do NOSSO next start.

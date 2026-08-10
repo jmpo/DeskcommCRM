@@ -61,6 +61,13 @@ alter table public.agent_inbox_items
     'message_send_stuck',
     'channel_template_review',
     'channel_number_alert',
+    -- (migrations 0129 e 0124, vindas da main na convergência) Esta migration
+    -- roda DEPOIS da 0139 pelo timestamp, e reconstrói a MESMA constraint. Sem
+    -- estes dois nomes aqui, aplicar a 0120 num clone atualizado APAGARIA dois
+    -- kinds em uso — a lista de quem reconstrói por último é a que vale, e uma
+    -- lista incompleta não é "aditiva", é uma remoção silenciosa.
+    'midia_nao_lida',
+    'contact_proposal_expired',
     -- (migration 0111, spec 16 §3.2) O papel Operador declara promessa em aberto:
     -- o assistente prometeu algo ao cliente e o cumprimento não foi registrado.
     -- A invariante sagrada da spec é "nenhuma promessa deixa de ser cumprida", e

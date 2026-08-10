@@ -17,7 +17,20 @@ import type { Queryable } from '../../queue/queue';
 import type { CrmEdgeConfig } from './mcp-client';
 import type { LeadStage } from '../../agent/lead-state';
 
-export type MirrorReason = 'not_configured' | 'human_conflict' | 'crm_error' | 'crm_unavailable';
+export type MirrorReason =
+  | 'not_configured'
+  | 'human_conflict'
+  /**
+   * O negócio está num funil que este agente não cuida (spec 17 passo 3).
+   *
+   * ⚠️ FORA de MIRROR_WARN_ONLY, de propósito. É estado legítimo do produto —
+   * mas no dia 1 de cada agente ele é 100% dos movimentos, e um veto silencioso
+   * em massa se lê como "a IA parou de funcionar". O aviso é o que transforma
+   * uma proteção num fato compreensível.
+   */
+  | 'fora_do_escopo'
+  | 'crm_error'
+  | 'crm_unavailable';
 
 export type MirrorResult = { ok: true } | { ok: false; reason: MirrorReason; detail: string };
 
@@ -67,6 +80,12 @@ export async function mirrorLeadStageToCrm(
         detail: `nenhum estágio do pipeline declara agent_stage_hint = "${input.toStage}"`,
       },
       sem_negocio: { reason: 'not_configured', detail: 'o contato não tem negócio aberto para mover' },
+      // O detalhe vem do sync (distingue "nenhum funil liberado" de "funil de
+      // outro time") e é o que o aviso na Central mostra ao dono.
+      fora_do_escopo: {
+        reason: 'fora_do_escopo',
+        detail: 'este assistente não cuida do funil onde o negócio está',
+      },
       ambiguo: {
         reason: 'not_configured',
         detail: 'o contato tem mais de um negócio aberto — nenhum foi movido',
@@ -85,6 +104,10 @@ export async function mirrorLeadStageToCrm(
       },
     };
     const t = traduz[r.motivo];
+    // O `detalhe` do sync VENCE o texto genérico da tabela quando existe: ele
+    // sabe QUAL dos dois casos de escopo aconteceu, e o dono precisa dessa
+    // diferença para saber se marca um funil ou não faz nada.
+    if (t && r.detalhe) return { ok: false, reason: t.reason, detail: r.detalhe };
     // Motivo desconhecido NÃO pode virar warn-only silencioso: rótulo novo sem
     // tradução aqui é bug de programação, e o inbox é onde ele aparece.
     if (!t) return { ok: false, reason: 'crm_error', detail: `motivo não traduzido: ${r.motivo}` };

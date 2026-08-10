@@ -34,6 +34,7 @@ import {
   type LeadCheckpointRow,
 } from './inbound-turn';
 import { isLeadInHandoff } from './human-handoff';
+import { camadaLigada, lerCamadasDaOrg } from '../guardrails/camadas-da-org';
 import type { LeadStateRow } from './lead-state';
 import { loadReentryTemplate, pickReentryVariant } from './reentry-template';
 import { classifyFollowupReply, decideFollowupTiming } from './followup-flow-classify';
@@ -434,6 +435,12 @@ async function runDeterministicReentry(
     return;
   }
 
+  // Mesma escolha por organização do caminho do agente: a re-entrada
+  // determinística passa pela MESMA cadeia, então tem de honrar a MESMA
+  // preferência. Ler só no inbound deixaria a camada ligada num caminho e
+  // desligada no outro, para a mesma organização.
+  const camadasDaOrg = await lerCamadasDaOrg(pool, tenantId);
+
   // Template versionado por ponteiro (acc1): sem cache de processo — mover o ponteiro
   // ⇒ este disparo já usa a versão nova. Tenant sem template apontado = erro de
   // configuração (permanente): o job vira dead-letter + inbox pela fila, nunca envio mudo.
@@ -477,7 +484,7 @@ async function runDeterministicReentry(
     ...(deps.knobs.disclosureMode !== undefined ? { disclosureMode: deps.knobs.disclosureMode } : {}),
     // Gate 5 (F4-02/F4-08): mesma camada semântica do caminho do agente — a re-entrada
     // determinística também passa a candidata pela cadeia completa (ids da ROW do job).
-    ...(deps.knobs.promiseSemantic?.enabled === true
+    ...(camadaLigada(camadasDaOrg.promessa_semantica, deps.knobs.promiseSemantic?.enabled === true)
       ? {
           classifyPromiseSemantic: (candidate: string) =>
             classifyPromise(

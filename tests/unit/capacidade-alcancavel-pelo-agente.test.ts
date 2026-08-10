@@ -81,6 +81,16 @@ const ESCRITA_QUE_E_TRABALHO_DE_ATENDENTE: ReadonlyArray<string> = [
   // `app/api/v1/ai/cases/[id]/reply/` — POST exige `agent`. Registrar no chamado
   // é o trabalho de quem atende (paridade medida na integração do papel novo).
   "crm_add_case_note",
+  // `app/api/v1/contacts/[id]/proposals/` — POST exige `agent`, e a paridade é
+  // com o PATCH de contato (`app/api/v1/contacts/[id]/`), que também exige
+  // `agent`: editar a ficha de um cliente é trabalho de quem atende.
+  //
+  // O poder concedido aqui é MENOR que o daquela rota, não igual: esta tool não
+  // escreve em `contacts` — cria uma linha em `contact_field_proposals` que uma
+  // PESSOA precisa confirmar (spec 17 §4b). O que ela custa é atenção humana, e
+  // esse custo é limitado pelo índice único parcial da 0123: no máximo uma
+  // proposta viva por contato e campo, ou seja três por contato.
+  "crm_propose_contact_field",
   // `app/api/v1/ai/cases/[id]/` — exige `agent`.
   "crm_close_human_case",
   // `app/api/v1/conversations/[id]/reactivate-bot/` — POST exige `agent`.

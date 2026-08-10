@@ -39,8 +39,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import { vi } from "vitest";
+
 import {
+  anunciarDestino,
   credenciaisSupabaseDeTeste,
+  destinoEhLocal,
   type CredenciaisSupabase,
 } from "../../scripts/lib/env-de-teste";
 
@@ -143,5 +147,84 @@ describe("credenciaisSupabaseDeTeste — a travessia chega inteira", () => {
     // Guarda de vacuidade: se a função passasse a devolver objeto vazio, todos
     // os casos acima virariam comparações contra ausência de dado.
     expect(() => credenciaisSupabaseDeTeste()).toThrow(/credenciais do Supabase/i);
+  });
+});
+
+/**
+ * O ALARME cobre os dois canais — o que ele não cobria é justamente o que o
+ * fallback põe em risco.
+ *
+ * `url`/`serviceRole` só vêm do ambiente quando os DOIS estão lá; `dbUrl` cai no
+ * `.env.local` sozinha. Com `.env.e2e` exportado e um `.env.local` de trabalho no
+ * disco, a API aponta para o Supabase local e o Postgres para a produção — e são
+ * 15 arquivos que abrem `pg.Pool` com essa string. O alarme imprimia
+ * `escrevendo em LOCAL`.
+ */
+describe("anunciarDestino — o rótulo diz a verdade sobre os DOIS canais", () => {
+  const REMOTO_DB = "postgresql://postgres:senha-secreta@db.abcdefgh.supabase.co:5432/postgres";
+
+  function capturar(c: Partial<CredenciaisSupabase>): { info: string[]; warn: string[] } {
+    const info: string[] = [];
+    const warn: string[] = [];
+    const spyI = vi.spyOn(console, "info").mockImplementation((...a) => void info.push(a.join(" ")));
+    const spyW = vi.spyOn(console, "warn").mockImplementation((...a) => void warn.push(a.join(" ")));
+    try {
+      anunciarDestino("teste", {
+        url: "http://127.0.0.1:54321",
+        serviceRole: "srk",
+        anonKey: "anon",
+        appUrl: "http://localhost:3000",
+        dbUrl: DB_URL,
+        origem: "ambiente",
+        ...c,
+      });
+    } finally {
+      spyI.mockRestore();
+      spyW.mockRestore();
+    }
+    return { info, warn };
+  }
+
+  it("reconhece loopback nos dois formatos de destino", () => {
+    // Controle positivo do predicado antes de usá-lo como régua nos casos abaixo.
+    expect(destinoEhLocal("http://127.0.0.1:54321")).toBe(true);
+    expect(destinoEhLocal("http://localhost:54321")).toBe(true);
+    expect(destinoEhLocal(DB_URL)).toBe(true);
+    expect(destinoEhLocal(REMOTO_DB)).toBe(false);
+    expect(destinoEhLocal("https://porysaiysiztn.supabase.co")).toBe(false);
+    // Vazio não é destino remoto: sem DSN o `pg` falha alto no default do libpq.
+    expect(destinoEhLocal("")).toBe(true);
+  });
+
+  it("tudo local: mantém o formato que o operador já conhece, em info", () => {
+    const { info, warn } = capturar({});
+    expect(info.join("\n")).toContain("escrevendo em LOCAL");
+    expect(warn).toEqual([]);
+  });
+
+  it("MISTO (API local, Postgres remoto): grita, e em warn — era o caso que dizia LOCAL", () => {
+    const { info, warn } = capturar({ dbUrl: REMOTO_DB });
+    expect(info, "estado misto não pode sair como informação de rotina").toEqual([]);
+    const texto = warn.join("\n");
+    expect(texto).toContain("MISTO");
+    // Nomear o canal é o que torna o aviso acionável: quem lê precisa saber que
+    // é o pg.Pool, não a API, que vai para o banco errado.
+    expect(texto).toMatch(/Postgres para REMOTO/);
+    expect(texto).toMatch(/pg\.Pool/);
+  });
+
+  it("a senha do Postgres NUNCA vai ao log", () => {
+    // O canal novo do aviso carrega credencial; imprimir a DSN inteira trocaria
+    // um defeito de rótulo por um vazamento de segredo.
+    const { warn } = capturar({ dbUrl: REMOTO_DB });
+    expect(warn.join("\n")).not.toContain("senha-secreta");
+    expect(warn.join("\n")).toContain("db.abcdefgh.supabase.co:5432");
+  });
+
+  it("tudo remoto: continua avisando (e não vira MISTO por engano)", () => {
+    const { warn } = capturar({ url: "https://porysaiysiztn.supabase.co", dbUrl: REMOTO_DB });
+    const texto = warn.join("\n");
+    expect(texto).toContain("REMOTO");
+    expect(texto).not.toContain("MISTO");
   });
 });

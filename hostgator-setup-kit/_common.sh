@@ -68,13 +68,18 @@ rede_reservada_do_proxy() { printf '%s_proxy' "$(nome_do_projeto_atual)"; }
 # instalação nova, ou alguém que rodou `docker network prune`. Aí a resposta é
 # criar, não morrer: o nome é nosso e sabemos a forma dele.
 # Ecoa: ok | criar | inexistente | driver_errado
-veredito_rede_do_proxy() {  # veredito_rede_do_proxy <driver encontrado> <rede> <bridge do projeto>
+veredito_rede_do_proxy() {  # veredito_rede_do_proxy <driver encontrado> <rede> <bridge do projeto> [attachable]
   local drv="${1:-}" rede="${2:-}" nossa="${3:-}"
   if [ -z "$drv" ]; then
     [ -n "$nossa" ] && [ "$rede" = "$nossa" ] && { printf 'criar'; return 0; }
     printf 'inexistente'; return 0
   fi
   [ "$drv" = bridge ] && { printf 'ok'; return 0; }
+  # $4 = "true" quando a rede é uma overlay attachable (Swarm). Contêiner de
+  # compose comum entra numa dessas, então ela serve tão bem quanto uma bridge.
+  # Sem o attachable a recusa continua: ali o `up` morreria em
+  # "could not attach to network".
+  [ "$drv" = overlay ] && [ "${4:-}" = true ] && { printf 'ok'; return 0; }
   printf 'driver_errado'
 }
 
@@ -93,7 +98,9 @@ garantir_rede_do_proxy() {
   nossa="$(rede_reservada_do_proxy)"
   TRAEFIK_NETWORK="${TRAEFIK_NETWORK:-traefik}"
   drv="$(docker network inspect -f '{{.Driver}}' "$TRAEFIK_NETWORK" 2>/dev/null || true)"
-  case "$(veredito_rede_do_proxy "$drv" "$TRAEFIK_NETWORK" "$nossa")" in
+  local att
+  att="$(docker network inspect -f '{{.Attachable}}' "$TRAEFIK_NETWORK" 2>/dev/null || true)"
+  case "$(veredito_rede_do_proxy "$drv" "$TRAEFIK_NETWORK" "$nossa" "$att")" in
   ok) : ;;
   criar)
     # O motivo vai junto porque aqui NÃO se sabe qual é: o comando está certo, e
@@ -120,7 +127,9 @@ TRAEFIK_NETWORK=<nome> no .env antes de tentar de novo."
 de uma bridge para o Traefik alcançar o contêiner. Se o seu Traefik roda em modo
 host (é o caso quando 'docker ps' não mostra porta publicada nele), APAGUE a linha
 TRAEFIK_NETWORK do .env: o kit cria e usa a rede '$nossa'.
-Senão, rode 'docker network ls' e ponha a bridge certa em TRAEFIK_NETWORK no .env."
+Senão, rode 'docker network ls' e ponha a bridge certa em TRAEFIK_NETWORK no .env.
+Se for uma overlay do Swarm, ela precisa ter sido criada com --attachable —
+sem isso um contêiner de compose comum não consegue entrar nela."
     ;;
   esac
 }

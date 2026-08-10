@@ -10,8 +10,15 @@
  * Porque isso devolveria o problema inteiro. Se o Operador só rodasse quando o
  * Conversador lembrasse de acioná-lo, o turno em que ele "não achasse necessário"
  * seria um lead parado no funil, em silêncio — e silêncio é justamente o modo de
- * falha que ninguém vê. O disparo é do RUNTIME, no fim do turno, incondicional.
- * Mesmo argumento que este codebase já usa para a chamada de fechamento.
+ * falha que ninguém vê. O disparo é do RUNTIME, não do modelo.
+ *
+ * "Incondicional" era o que este comentário dizia, e era falso em dois pontos que
+ * vale medir em vez de prometer: o job é enfileirado DEPOIS de o checkpoint
+ * existir, então um turno que morre antes do fechamento não gera Operador naquela
+ * tentativa (e quando o job esgota as tentativas, quem fecha o laço é o `job_dead`
+ * crítico da fila); e ele só é enfileirado com o PAPEL LIGADO, porque enfileirar
+ * com o papel desligado gastava fila e a vaga do lead para escrever uma linha de
+ * log. O que não depende de nada é o modelo lembrar — e é isso que importava.
  *
  * ═══ O CURTO-CIRCUITO, e por que ele é fiel em vez de econômico ═══
  *
@@ -32,13 +39,17 @@ import type pg from 'pg';
 import { withFields } from '../obs/logger';
 import type { JobRow } from '../queue/queue';
 import type { InboundTurnDeps } from './inbound-turn';
-import { latestCheckpoint } from './inbound-turn';
+import { checkpointDoJob } from './inbound-turn';
 import { declaracaoDoTurnoSchema, promessasEmAberto, type DeclaracaoDoTurno } from './declaracao';
 import { loadPublishedAgentConfigById } from './agent-config';
+import { isLeadInHandoff } from './human-handoff';
 import { insertInboxItem } from '../db/repository';
 import { buildMcpTurnTools } from '../edge/crm/mcp-tools';
 import { runModelCall } from '../edge/llm/run-model-call';
 import { avisarCapacidadesAusentes } from './inbound-turn';
+import { criaRetornoDbPg } from '../../followup/retorno-pg';
+import { emitAgentActivityForContact } from '../../leads/agent-activity';
+import { copyDaPromessaSemDono } from '../../ai/agent-inbox-copy';
 
 /**
  * O que o runtime enfileira ao fim do turno do Conversador. Só PONTEIROS: org e
@@ -104,26 +115,93 @@ export function renderBriefingDoOperador(
   return linhas.join('\n');
 }
 
-/** O que o Operador decidiu neste turno — vai a log e à timeline. */
+/** O que o Operador decidiu neste turno — vai a `event_log` e, quando muda o que
+ *  alguém faria a seguir, à timeline do lead. */
 export type DesfechoDoOperador =
   | { tipo: 'nada_a_fazer'; porque: 'declaracao_vazia' }
-  | { tipo: 'pulado'; porque: 'papel_desligado' | 'sem_agente' | 'sem_checkpoint' }
-  | { tipo: 'agiu'; promessas: number };
+  | { tipo: 'pulado'; porque: 'papel_desligado' | 'sem_agente' | 'handoff_humano' }
+  | { tipo: 'agiu'; ferramentas: number };
+
+/**
+ * Os NOMES das ferramentas que o turno chamou. Só os nomes: argumento carrega o
+ * que o cliente disse, e isso não entra em registro nenhum.
+ *
+ * ⚠️ Lê `steps`, NUNCA `result.toolCalls`. No AI SDK o `toolCalls` do topo é o do
+ * ÚLTIMO passo; um turno que chamou ferramenta no passo 1 e encerrou no 2
+ * contaria ZERO — e zero, aqui, vira "ninguém assumiu a promessa", que é
+ * exatamente o alarme falso que este conserto existe para matar.
+ */
+export function nomesDasFerramentasChamadas(
+  saida: { result: { steps: ReadonlyArray<{ toolCalls?: ReadonlyArray<{ toolName?: string }> }> } } | null,
+): string[] {
+  if (saida === null) return [];
+  return saida.result.steps.flatMap((s) =>
+    (s.toolCalls ?? []).map((c) => String(c.toolName ?? 'desconhecida')),
+  );
+}
+
+/** Quem ficou responsável pela promessa que o Conversador declarou. */
+export type DonoDaPromessa =
+  | { assumida: true; por: 'ferramenta_do_operador' | 'retorno_agendado' }
+  | { assumida: false; porque: 'operador_sem_ferramentas' | 'operador_nao_agiu' | 'operador_nao_rodou' };
+
+/**
+ * A APURAÇÃO — pura, testável sem banco, sem modelo e sem fila, como
+ * `decidirSeRoda`.
+ *
+ * Ela existe porque o aviso da Central afirmava não-cumprimento sem nunca medir
+ * nada: disparava pela CONTAGEM de promessas declaradas, que é um fato sobre o
+ * Conversador, não sobre o Operador. Aqui se apura o que o sistema realmente
+ * consegue saber — se **alguém ficou responsável** —, e é só isso que o texto
+ * pode afirmar. Se a promessa foi CUMPRIDA, ninguém aqui sabe: agendar um
+ * retorno não é cumprir.
+ *
+ * A precedência é o desenho, não detalhe de implementação:
+ *
+ * - ferramenta chamada NESTE turno vence retorno pré-existente, porque foi este
+ *   turno que agiu;
+ * - `operador_sem_ferramentas` vence `operador_nao_agiu` mesmo com o papel
+ *   ligado, porque a AÇÃO que cabe ao dono do negócio é outra — marcar
+ *   capacidades na tela, não decidir sobre este cliente.
+ */
+export function apuraDonoDaPromessa(input: {
+  ferramentasChamadas: readonly string[];
+  temRetornoVivo: boolean;
+  operadorRodou: boolean;
+  operadorTemFerramentas: boolean;
+}): DonoDaPromessa {
+  if (input.ferramentasChamadas.length > 0) return { assumida: true, por: 'ferramenta_do_operador' };
+  if (input.temRetornoVivo) return { assumida: true, por: 'retorno_agendado' };
+  if (!input.operadorRodou) return { assumida: false, porque: 'operador_nao_rodou' };
+  if (!input.operadorTemFerramentas) return { assumida: false, porque: 'operador_sem_ferramentas' };
+  return { assumida: false, porque: 'operador_nao_agiu' };
+}
 
 /**
  * Lê a declaração do último checkpoint do lead.
  *
- * `null` tem DOIS significados aqui e eles não se confundem: sem checkpoint
- * nenhum (turno que morreu antes do fechamento) ou checkpoint sem declaração
- * (modelo não declarou). Os dois levam o Operador a RODAR, não a pular — nos dois
- * casos ninguém avaliou o turno, que é a condição em que ele mais importa.
+ * `null` tem DOIS significados aqui e eles não se confundem: o turno que me
+ * originou não fechou (não há checkpoint com aquele `job_id`) ou o checkpoint
+ * existe e não trouxe declaração (o modelo não declarou). Os dois levam o
+ * Operador a RODAR, não a pular — nos dois casos ninguém avaliou o turno, que é a
+ * condição em que ele mais importa.
+ *
+ * A leitura é pela CHAVE DO TURNO, não pelo mais recente do lead: ver
+ * `checkpointDoJob`. Ler o mais recente fazia o Operador N agir sobre a
+ * declaração N+1 quando uma mensagem nova chegava no meio do fechamento.
  */
 export async function lerDeclaracaoDoTurno(
   db: pg.Pool,
   tenantId: string,
   leadId: string,
+  /**
+   * O job do turno do Conversador que originou este. OBRIGATÓRIO de propósito:
+   * com parâmetro opcional o compilador aceitaria o call site que esquece a
+   * chave, que é exatamente o defeito que isto conserta.
+   */
+  originJobId: string,
 ): Promise<{ declaracao: DeclaracaoDoTurno | null; houveCheckpoint: boolean }> {
-  const checkpoint = await latestCheckpoint(db, tenantId, leadId);
+  const checkpoint = await checkpointDoJob(db, tenantId, leadId, originJobId);
   if (checkpoint === null) return { declaracao: null, houveCheckpoint: false };
   if (checkpoint.declaracao === null) return { declaracao: null, houveCheckpoint: true };
   // O jsonb do banco não é confiável por vir do banco: foi escrito por um modelo.
@@ -177,31 +255,112 @@ export function createOperatorTurnHandler(deps: InboundTurnDeps) {
       origin_job_id: payload.origin_job_id,
     });
 
+    // Um humano assumiu ENTRE o turno do Conversador e este job. O Operador é
+    // enfileirado no fim daquele turno e roda depois — inclusive depois de um
+    // handoff pedido NO MEIO dele (a tool `request_human_handoff`) ou pelo botão
+    // "assumir eu" da tela. Escrever no CRM aqui seria a IA operando por cima da
+    // pessoa que assumiu, e handoff não se revoga pelo agente.
+    //
+    // A guarda é AQUI, na EXECUÇÃO, e não no enfileiramento: o estado nasce
+    // durante o turno anterior e pode mudar depois dele, então só o instante da
+    // execução lê o estado que vale. Era o único dos quatro handlers de turno sem
+    // ela — `inbound-turn` e `followup-turn` a têm, e o formato aqui é o deles
+    // (registrar o motivo e sair). Persistir o desfecho de cada caminho é
+    // trabalho separado, e vale para os quatro do mesmo jeito.
+    if (await isLeadInHandoff(pool, tenantId, leadId)) {
+      // Único caminho que sai SEM apurar promessa, e é deliberado: quem assumiu
+      // está com a conversa aberta na frente. Abrir um item de Central para uma
+      // pessoa que já está olhando é o alarme redundante que ensina a ignorar os
+      // outros. O desfecho vai a registro do mesmo jeito.
+      await registrarDesfecho(
+        pool,
+        {
+          tenantId,
+          leadId,
+          jobId: job.id,
+          originJobId: payload.origin_job_id,
+          conversationId: payload.conversation_id,
+          agentId: payload.agent_id,
+          desfecho: { tipo: 'pulado', porque: 'handoff_humano' },
+          promessasDeclaradas: 0,
+          dono: null,
+          ferramentasChamadas: [],
+          houveCheckpoint: null,
+        },
+        log,
+      );
+      return;
+    }
+
+    // A DECLARAÇÃO É LIDA ANTES DA CONFIG, e a ordem é o conserto.
+    //
+    // Ela sai de `lead_checkpoints` e não depende de agente publicado nenhum: o
+    // fechamento do turno grava a declaração com ou sem agente. Lendo depois, o
+    // caminho `sem_agente` — que é o estado de uma instalação FRESCA, antes de
+    // alguém publicar o primeiro agente — saía antes de apurar qualquer coisa, e
+    // uma promessa feita ali não gerava rede nenhuma. Primeira impressão é onde
+    // um lead perdido custa o cliente inteiro.
+    const { declaracao, houveCheckpoint } = await lerDeclaracaoDoTurno(pool, tenantId, leadId, payload.origin_job_id);
+    const promessas = promessasEmAberto(declaracao);
+
     const agentConfig =
       payload.agent_id === null ? null : await loadPublishedAgentConfigById(pool, tenantId, payload.agent_id);
     if (agentConfig === null) {
       // Sem agente publicado não há config de papel para ler. Não é erro: é o
-      // turno que rodou no genérico. Registrar e sair é honesto.
-      log.info('operador pulado — turno sem agente publicado', { desfecho: 'sem_agente' });
+      // turno que rodou no genérico. Mas a promessa continua tendo de ter dono.
+      await registrarDesfecho(
+        pool,
+        {
+          tenantId,
+          leadId,
+          jobId: job.id,
+          originJobId: payload.origin_job_id,
+          conversationId: payload.conversation_id,
+          agentId: payload.agent_id,
+          desfecho: { tipo: 'pulado', porque: 'sem_agente' },
+          promessasDeclaradas: promessas.length,
+          dono: await apurarComRetorno(pool, tenantId, leadId, promessas.length, {
+            ferramentasChamadas: [],
+            operadorRodou: false,
+            operadorTemFerramentas: false,
+          }),
+          ferramentasChamadas: [],
+          houveCheckpoint,
+        },
+        log,
+      );
       return;
     }
 
-    const { declaracao, houveCheckpoint } = await lerDeclaracaoDoTurno(pool, tenantId, leadId);
     const decisao = decidirSeRoda({ papelLigado: agentConfig.operatorEnabled, declaracao });
 
     if (!decisao.roda) {
       // "Nada a fazer" é DECISÃO REGISTRADA, não silêncio (invariante 4 do
       // sistema vivo). Um turno em que o Operador não agiu e ninguém soube é
       // indistinguível de um turno em que ele falhou.
-      log.info('operador não agiu neste turno', {
-        desfecho: decisao.desfecho.tipo,
-        porque: decisao.desfecho.porque,
-        houve_checkpoint: houveCheckpoint,
-      });
+      await registrarDesfecho(
+        pool,
+        {
+          tenantId,
+          leadId,
+          jobId: job.id,
+          originJobId: payload.origin_job_id,
+          conversationId: payload.conversation_id,
+          agentId: payload.agent_id,
+          desfecho: decisao.desfecho,
+          promessasDeclaradas: promessas.length,
+          dono: await apurarComRetorno(pool, tenantId, leadId, promessas.length, {
+            ferramentasChamadas: [],
+            operadorRodou: false,
+            operadorTemFerramentas: agentConfig.operatorToolIds.length > 0,
+          }),
+          ferramentasChamadas: [],
+          houveCheckpoint,
+        },
+        log,
+      );
       return;
     }
-
-    const promessas = promessasEmAberto(declaracao);
 
     // A MÃO do papel: só as ferramentas DELE (`operator_tool_ids`), nunca as do
     // Conversador. `send_message` não está aqui e não pode estar — é assim que
@@ -242,9 +401,14 @@ export function createOperatorTurnHandler(deps: InboundTurnDeps) {
       tools: mcp?.toolIds ?? [],
     });
 
+    // O RETORNO É CAPTURADO. Descartá-lo era a raiz de dois defeitos ao mesmo
+    // tempo: o desfecho não tinha o que persistir (virou log.info) e o aviso
+    // precisou de um proxy — a contagem de promessas DECLARADAS, que é um fato
+    // sobre o Conversador, não sobre o Operador.
+    let saida: Awaited<ReturnType<typeof runModelCall>> | null = null;
     try {
       if (mcp !== null) {
-        await runModelCall(
+        saida = await runModelCall(
           pool,
           deps.llmCfg,
           {
@@ -268,45 +432,204 @@ export function createOperatorTurnHandler(deps: InboundTurnDeps) {
       await mcp?.cleanup();
     }
 
-    if (promessas.length > 0) {
-      await avisarPromessasEmAberto(pool, tenantId, payload.conversation_id, promessas.length, log);
-    }
+    const ferramentasChamadas = nomesDasFerramentasChamadas(saida);
+    await registrarDesfecho(
+      pool,
+      {
+        tenantId,
+        leadId,
+        jobId: job.id,
+        originJobId: payload.origin_job_id,
+        conversationId: payload.conversation_id,
+        agentId: payload.agent_id,
+        desfecho: { tipo: 'agiu', ferramentas: ferramentasChamadas.length },
+        promessasDeclaradas: promessas.length,
+        dono: await apurarComRetorno(pool, tenantId, leadId, promessas.length, {
+          ferramentasChamadas,
+          operadorRodou: true,
+          operadorTemFerramentas: agentConfig.operatorToolIds.length > 0,
+        }),
+        ferramentasChamadas,
+        houveCheckpoint,
+      },
+      log,
+    );
     void ctx;
   };
 }
 
 /**
- * Promessa declarada e não quitada vira item na Central.
+ * A apuração, com a consulta de retorno vivo feita só quando ela decide algo.
  *
- * Best-effort de propósito, pelo mesmo motivo dos outros avisos deste engine: o
- * aviso não pode derrubar o job que ele descreve. Mas o silêncio também não serve
- * — log de worker em VPS não é superfície de nada, e este produto é instalado por
- * quem nunca vai abrir um contêiner.
+ * Sem promessa declarada não há dono a apurar, e a query não acontece — o papel
+ * roda a cada turno e a maioria não promete nada.
+ *
+ * `buscaRetornoVivo` é REUSADO de `lib/followup/retorno-pg.ts` em vez de um SQL
+ * novo aqui: é a mesma regra que decide se o lead tem retorno em voo no Radar de
+ * Risco. Duas queries para a mesma pergunta viram, com o tempo, duas respostas.
  */
-async function avisarPromessasEmAberto(
-  db: pg.Pool,
+/**
+ * EXPORTADA so para o teste alcancar a FIACAO. A regra (`apuraDonoDaPromessa`)
+ * ja tinha rede; o fio que a liga ao `buscaRetornoVivo` nao tinha — medido:
+ * trocar `retorno !== null` por `false` deixava a suite INTEIRA verde (3516
+ * casos, exit 0), e o comportamento restaurado era exatamente o que este PR diz
+ * ter matado: a Central acusando quem acabou de agendar o retorno.
+ */
+export async function apurarComRetorno(
+  pool: pg.Pool,
   tenantId: string,
-  conversationId: string,
-  quantas: number,
-  log: { warn: (msg: string, fields?: Record<string, unknown>) => void },
+  leadId: string,
+  promessasDeclaradas: number,
+  entrada: {
+    ferramentasChamadas: readonly string[];
+    operadorRodou: boolean;
+    operadorTemFerramentas: boolean;
+  },
+  /**
+   * Costura só para o teste alcançar o FIO. Produção nunca passa este argumento.
+   * Mock de módulo não serve aqui: o grafo já está carregado quando o caso roda,
+   * e o `criaRetornoDbPg` real acaba chamado com um pool falso — medido,
+   * `db.query is not a function`.
+   */
+  buscaRetorno: (t: string, l: string) => Promise<unknown> = (t, l) =>
+    criaRetornoDbPg(pool).buscaRetornoVivo(t, l),
+): Promise<DonoDaPromessa | null> {
+  if (promessasDeclaradas === 0) return null;
+  const retorno = await buscaRetorno(tenantId, leadId);
+  return apuraDonoDaPromessa({ ...entrada, temRetornoVivo: retorno !== null });
+}
+
+/**
+ * O desfecho do turno do Operador vira registro — e, quando muda o que alguém
+ * faria a seguir, vira linha na timeline e item na Central.
+ *
+ * ═══ A REGRA DE EMISSÃO, E A JUSTIFICATIVA DE CADA LINHA ═══
+ *
+ * **`event_log`, SEMPRE.** É o que mata o `return` mudo: um turno em que o papel
+ * não agiu e ninguém soube é indistinguível de um em que ele falhou. É também o
+ * que torna CONTÁVEIS as três medidas que a spec 16 §7 promete — taxa de ação
+ * por turno, promessas declaradas × assumidas, e turnos em que ele quis agir e
+ * não pôde. Sem uma linha por execução, nenhuma delas tem denominador.
+ * `status='done'` explícito porque a linha é REGISTRO, não item de trabalho: o
+ * drain só processa `event_type` com handler, e sem o `done` ela ficaria
+ * `pending` para sempre fingindo backlog.
+ *
+ * **Timeline, só quando há promessa SEM dono.** É a disciplina do
+ * `diffCheckpoint`: entra o que muda o que alguém faria a seguir, não o relato do
+ * turno. Quando o Operador AGE, as ferramentas dele já emitem as atividades delas
+ * (`stage_changed`, `followup_scheduled`); uma segunda linha dizendo "o Operador
+ * trabalhou" é exatamente o ruído que enterra a linha que importa.
+ *
+ * **Central, mesmo critério, MENOS o handoff.** A Central é para o que ninguém
+ * está olhando.
+ *
+ * Tudo best-effort: o registro não derruba o job que ele descreve. Mas o
+ * silêncio também não serve — log de worker em VPS não é superfície de nada, e
+ * este produto é instalado por quem nunca vai abrir um contêiner.
+ */
+async function registrarDesfecho(
+  pool: pg.Pool,
+  entrada: {
+    tenantId: string;
+    leadId: string;
+    jobId: string;
+    originJobId: string;
+    conversationId: string;
+    agentId: string | null;
+    desfecho: DesfechoDoOperador;
+    promessasDeclaradas: number;
+    dono: DonoDaPromessa | null;
+    ferramentasChamadas: readonly string[];
+    houveCheckpoint: boolean | null;
+  },
+  log: {
+    info: (msg: string, fields?: Record<string, unknown>) => void;
+    warn: (msg: string, fields?: Record<string, unknown>) => void;
+  },
 ): Promise<void> {
+  const { desfecho, dono } = entrada;
+  const semDono = dono !== null && !dono.assumida;
+
+  log.info('operador — desfecho do turno', {
+    desfecho: desfecho.tipo,
+    porque: 'porque' in desfecho ? desfecho.porque : null,
+    promessas: entrada.promessasDeclaradas,
+    promessa_assumida_por: dono?.assumida === true ? dono.por : null,
+    promessa_sem_dono_porque: semDono && dono !== null && !dono.assumida ? dono.porque : null,
+    ferramentas: entrada.ferramentasChamadas,
+  });
+
   try {
-    await insertInboxItem(db, tenantId, {
-      kind: 'promise_unfulfilled',
-      severity: 'warn',
-      title:
-        quantas === 1
-          ? 'Uma promessa feita ao cliente ainda não foi cumprida'
-          : `${quantas} promessas ainda não foram cumpridas`,
-      body:
-        'O assistente prometeu algo a esta pessoa nesta conversa e o sistema ainda não registrou o ' +
-        'cumprimento. Abra a conversa para ver o que foi combinado.',
-      refKind: 'conversation',
-      refId: conversationId,
+    await pool.query(
+      `insert into event_log (organization_id, event_type, entity_kind, entity_id, status, payload)
+       values ($1, 'agent.operator_turn', 'contact', $2, 'done', $3::jsonb)`,
+      [
+        entrada.tenantId,
+        entrada.leadId,
+        // Contagens e nomes de ferramenta. NUNCA o texto da promessa: ele é o que
+        // o cliente disse, e já vive em `lead_checkpoints`.
+        JSON.stringify({
+          desfecho: desfecho.tipo,
+          porque: 'porque' in desfecho ? desfecho.porque : null,
+          ferramentas_chamadas: entrada.ferramentasChamadas,
+          promessas_declaradas: entrada.promessasDeclaradas,
+          promessa_assumida_por: dono?.assumida === true ? dono.por : null,
+          promessa_sem_dono_porque: dono !== null && !dono.assumida ? dono.porque : null,
+          houve_checkpoint: entrada.houveCheckpoint,
+          origin_job_id: entrada.originJobId,
+        }),
+      ],
+    );
+  } catch (err) {
+    log.warn('desfecho do operador não foi registrado', {
+      error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
+    });
+  }
+
+  if (!semDono || dono === null || dono.assumida) return;
+
+  const texto = copyDaPromessaSemDono(entrada.promessasDeclaradas, dono.porque);
+
+  try {
+    await emitAgentActivityForContact({
+      pool,
+      organizationId: entrada.tenantId,
+      contactId: entrada.leadId,
+      type: 'promise_unowned',
+      sourceModule: 'agent-operador',
+      sourceId: entrada.jobId,
+      ...(entrada.agentId !== null ? { agentId: entrada.agentId } : {}),
+      reason: texto.title,
+      payload: { promessas: entrada.promessasDeclaradas, porque: dono.porque },
     });
   } catch (err) {
-    log.warn('aviso de promessa em aberto não foi gravado', {
+    log.warn('linha de promessa sem responsável não foi emitida', {
+      error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
+    });
+  }
+
+  if ('porque' in desfecho && desfecho.porque === 'handoff_humano') return;
+
+  try {
+    await insertInboxItem(
+      pool,
+      entrada.tenantId,
+      {
+        kind: 'promise_unfulfilled',
+        severity: 'warn',
+        title: texto.title,
+        body: texto.body,
+        refKind: 'conversation',
+        refId: entrada.conversationId,
+      },
+      // Por conversa, não por organização: dedupar este kind org-wide engoliria a
+      // promessa de OUTRO cliente, que é perder sinal em vez de sobrar ruído.
+      'kind_e_ref',
+    );
+  } catch (err) {
+    log.warn('aviso de promessa sem responsável não foi gravado', {
       error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
     });
   }
 }
+

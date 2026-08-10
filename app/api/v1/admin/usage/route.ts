@@ -149,15 +149,22 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ---- ai_invocations per org ----
+  // ---- consumo de IA por org: `llm_calls`, a tabela única (migration 0130) ----
+  //
+  // Lia `ai_invocations`, e a 0130 deixou essa tabela SEM NENHUM ESCRITOR:
+  // `lib/ai/log-invocation.ts` passou a gravar em `llm_calls`. O painel de
+  // plataforma continuaria somando o histórico congelado e, passados os 30 dias
+  // da janela, mostraria ZERO consumo para todo tenant com o dinheiro saindo —
+  // exatamente o sintoma que a 0130 existe para matar, reintroduzido na tela do
+  // outro lado. `tests/unit/telemetria-tem-um-leitor-so.test.ts` guarda isto.
   const aiInvCountMap = new Map<string, number>();
   const aiTokensMap = new Map<string, number>();
   const aiCostMap = new Map<string, number>();
 
   if (orgIds.length > 0) {
     const { data: aiRows, error: aiErr } = await admin
-      .from("ai_invocations")
-      .select("organization_id, prompt_tokens, completion_tokens, cost_cents")
+      .from("llm_calls")
+      .select("organization_id, input_tokens, output_tokens, cost_cents")
       .in("organization_id", orgIds)
       .gte("created_at", startIso);
     if (!aiErr && aiRows) {
@@ -167,8 +174,8 @@ export async function GET(req: NextRequest) {
         aiTokensMap.set(
           oid,
           (aiTokensMap.get(oid) ?? 0) +
-            ((row.prompt_tokens as number) ?? 0) +
-            ((row.completion_tokens as number) ?? 0),
+            ((row.input_tokens as number) ?? 0) +
+            ((row.output_tokens as number) ?? 0),
         );
         aiCostMap.set(
           oid,
@@ -233,9 +240,10 @@ export async function GET(req: NextRequest) {
   const aiTokensDayMap = new Map<string, number>();
   if (orgIds.length > 0) {
     const filterOrgIds = tenant_id ? [tenant_id] : orgIds;
+    // `llm_calls`, pelo mesmo motivo do bloco acima (migration 0130).
     const { data: aiDays, error: aiDayErr } = await admin
-      .from("ai_invocations")
-      .select("created_at, prompt_tokens, completion_tokens, cost_cents")
+      .from("llm_calls")
+      .select("created_at, input_tokens, output_tokens, cost_cents")
       .in("organization_id", filterOrgIds)
       .gte("created_at", startIso);
     if (!aiDayErr && aiDays) {
@@ -248,8 +256,8 @@ export async function GET(req: NextRequest) {
         aiTokensDayMap.set(
           day,
           (aiTokensDayMap.get(day) ?? 0) +
-            ((row.prompt_tokens as number) ?? 0) +
-            ((row.completion_tokens as number) ?? 0),
+            ((row.input_tokens as number) ?? 0) +
+            ((row.output_tokens as number) ?? 0),
         );
       }
     }

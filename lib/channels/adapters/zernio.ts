@@ -126,6 +126,28 @@ export const zernioAdapter: ChannelAdapter = {
    * algo que nunca saiu.
    */
   isConfigured(): boolean {
+    // Sempre `true`, e NÃO `zernioCredsFromEnv() !== null` — que é o que a
+    // `main` trazia. Esta é uma divergência DELIBERADA, resolvida aqui a favor
+    // do lado do fork, e vale registrar por quê.
+    //
+    // A preocupação do lado de lá é real e continua valendo: o par
+    // `isConfigured() === true  ⟹  há credencial` não pode abrir, porque o
+    // handler grava `status:'sent'` quando `send()` não lança. Só que quem
+    // fecha esse par mudou de lugar: `send()` LANÇA `zernio_not_configured`
+    // quando não acha credencial nem na sessão nem no ambiente. O caso que
+    // aquele comentário descreve — "devolve `{externalId: null}` SEM lançar" —
+    // não existe mais neste arquivo.
+    //
+    // E exigir env aqui REINTRODUZ um defeito medido: `resolveZernioCreds`
+    // procura primeiro na SESSÃO (conta conectada pela tela) e só depois no
+    // ambiente. Uma instalação que conectou pelo botão tem a credencial no
+    // banco e nada no `.env` — com a checagem por env, `isConfigured()` diria
+    // "não configurado" para um canal que está conectado e funcionando, e toda
+    // mensagem ficaria parada em `queued` sem nunca tentar sair. Foi exatamente
+    // esse o bug do commit "canal conectado pela tela ficava não configurado".
+    //
+    // O método é síncrono e não pode consultar o banco; por isso ele não é o
+    // lugar de decidir. Quem decide é `send()`, que pode.
     return true;
   },
 

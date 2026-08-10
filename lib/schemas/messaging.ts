@@ -115,8 +115,26 @@ export const patchConversationSchema = z
 
 export type PatchConversationInput = z.infer<typeof patchConversationSchema>;
 
+/**
+ * Estados TERMINAIS: a conversa acabou e não volta sozinha.
+ *
+ * Vive aqui, e não espalhado em cada `.not(...)`, porque "acabou" é uma decisão
+ * de produto — se um dia `resolved` deixar de ser legado e passar a valer, o
+ * lugar de dizer isso é um só.
+ */
+export const CONVERSATION_TERMINAL_STATUSES = ["closed", "archived"] as const;
+
 export const listConversationsQuerySchema = z.object({
   status: conversationStatusSchema.optional(),
+  /**
+   * Esconde as conversas terminais (fechada/arquivada).
+   *
+   * Existe porque "Minhas" filtrava SÓ por dono e `Fechar` não solta o dono
+   * (de propósito: quem atendeu é histórico que vale). Sem isto, tudo que o
+   * atendente já fechou ficava na aba dele para sempre, e ela deixava de
+   * significar "meu trabalho" para virar "tudo que já toquei".
+   */
+  exclude_finished: z.boolean().optional(),
   assigned_to: z.union([z.string().uuid(), z.literal("me"), z.literal("unassigned")]).optional(),
   channel_session_id: z.string().uuid().optional(),
   tag: conversationTagSchema.optional(),

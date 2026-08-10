@@ -57,6 +57,11 @@ export interface PublishedAgentConfig {
    * quem não escolheu nenhuma.
    */
   operatorToolIds: string[];
+  /**
+   * Funis em que o agente pode ESCREVER (spec 17 passo 3). Vazio = NENHUM.
+   * Lido pelo gate em `lib/leads/escopo-de-funil.ts`.
+   */
+  pipelineIds: string[];
   /** criadores (p/ mint do token efêmero de audit — padrão do runtime nativo). */
   versionCreatedBy: string | null;
   agentCreatedBy: string | null;
@@ -85,6 +90,7 @@ interface Row {
   operator_enabled: boolean | null;
   operator_model: string | null;
   operator_tool_ids: string[] | null;
+  pipeline_ids: string[] | null;
   version_created_by: string | null;
   agent_created_by: string | null;
 }
@@ -111,6 +117,7 @@ const SELECT_AGENT_CONFIG_COLUMNS = `a.id as agent_id,
             v.operator_enabled,
             v.operator_model,
             v.operator_tool_ids,
+            v.pipeline_ids,
             v.created_by as version_created_by,
             a.created_by as agent_created_by`;
 
@@ -156,6 +163,9 @@ function mapAgentConfigRow(r: Row): PublishedAgentConfig {
     // `?? []` cobre o clone sem a 0112: sem coluna, o papel roda sem mão em vez
     // de herdar a lista do Conversador — a direção segura é agir de menos.
     operatorToolIds: r.operator_tool_ids ?? [],
+    // `?? []` = NENHUM funil. O clone que ainda não aplicou a 0125 nasce
+    // fechado — a direção segura é agir de menos (mesma decisão da linha acima).
+    pipelineIds: r.pipeline_ids ?? [],
     versionCreatedBy: r.version_created_by,
     agentCreatedBy: r.agent_created_by,
   };

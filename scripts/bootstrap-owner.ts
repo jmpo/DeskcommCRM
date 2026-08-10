@@ -104,8 +104,58 @@ async function ensureOrg(ownerId: string): Promise<string> {
     .select("id")
     .single();
   if (error || !data) throw new Error(`criar org: ${error?.message}`);
-  console.log(`[bootstrap] org criada: ${(data as { id: string }).id}`);
-  return (data as { id: string }).id;
+  const orgId = (data as { id: string }).id;
+  console.log(`[bootstrap] org criada: ${orgId}`);
+  await aplicarProvedorEscolhido(orgId);
+  return orgId;
+}
+
+/**
+ * O provedor que a pessoa ESCOLHEU no instalador passa a valer no banco.
+ *
+ * `fn_seed_org_llm_defaults` (trigger de insert em `organizations`) semeia
+ * `settings.llm.provider = 'anthropic'`, fixo. Enquanto a Anthropic era a única
+ * chave que o `install.sh` pedia, isso estava certo. Desde que o instalador
+ * pergunta qual IA vai atender, a resposta era simplesmente ignorada pelo
+ * banco: quem escolhia OpenRouter instalava, cadastrava a chave, e todo caminho
+ * que passa pelo agent-engine resolvia `provider='anthropic'` — sem chave da
+ * Anthropic, `LlmNotConfiguredError` em tudo, com a mensagem mandando cadastrar
+ * justamente a chave que ele decidiu não usar.
+ *
+ * Escreve só o `provider`: o `default_model` fica com o que o trigger semeou
+ * até alguém escolher na tela de Provedores, porque adivinhar um id de modelo
+ * de outro provedor aqui seria inventar um valor que ninguém verificou.
+ */
+async function aplicarProvedorEscolhido(orgId: string): Promise<void> {
+  const escolhido = (process.env.AI_PROVIDER ?? "").trim().toLowerCase();
+  if (escolhido === "" || escolhido === "anthropic") return;
+
+  const { data: org } = await admin
+    .from("organizations")
+    .select("settings")
+    .eq("id", orgId)
+    .maybeSingle();
+  const settings = ((org as { settings?: Record<string, unknown> } | null)?.settings ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const llm = ((settings["llm"] as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>;
+
+  const { error } = await admin
+    .from("organizations")
+    .update({ settings: { ...settings, llm: { ...llm, provider: escolhido } } } as never)
+    .eq("id", orgId);
+  if (error) {
+    // Não derruba a instalação: a org existe e o operador consegue trocar o
+    // provedor pela tela. Mas o aviso precisa aparecer, senão ele descobre
+    // pelo agente mudo.
+    console.warn(
+      `[bootstrap] não consegui gravar o provedor "${escolhido}" na organização: ${error.message}. ` +
+        `Ajuste em Agente de IA → Provedores depois de entrar.`,
+    );
+    return;
+  }
+  console.log(`[bootstrap] provedor de IA da organização: ${escolhido}`);
 }
 
 async function ensureMembership(userId: string, orgId: string): Promise<void> {

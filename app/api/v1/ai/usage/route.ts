@@ -82,26 +82,46 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const supabase = await createClient();
 
-  // ---- 1. ai_invocations rows for the range/filters ------------------------
+  // ---- 1. llm_calls: a ÚNICA tabela de telemetria (migration 0130) ---------
+  //
+  // Antes eram duas — `ai_invocations` (workers legados) e `llm_calls`
+  // (agent-engine) — e esta rota somava as duas. O remendo consertava a tela e
+  // deixava a raiz: toda leitura nova precisava lembrar das duas, e a que
+  // esquecesse mentia (foi assim que esta tela mostrou ZERO custo com o
+  // dinheiro saindo). A 0130 fez o backfill; `ai_invocations` é histórico e
+  // ninguém mais escreve nela.
   let invQ = supabase
-    .from("ai_invocations")
-    .select(
-      "created_at, invocation_kind, cost_cents, prompt_tokens, completion_tokens, total_tokens, latency_ms",
-    )
+    .from("llm_calls")
+    .select("created_at, purpose, cost_cents, input_tokens, output_tokens, latency_ms, agent_id")
     .eq("organization_id", activeOrg.orgId)
     .gte("created_at", fromIso)
     .lte("created_at", toIso)
     .order("created_at", { ascending: true })
     .limit(50_000);
 
+  // O filtro por agente continua existindo: a 0130 levou `agent_id` para
+  // `llm_calls` justamente para a unificação não custar essa capacidade — é
+  // como o operador descobre QUAL agente está consumindo a conta.
   if (parsed.data.agent_id) invQ = invQ.eq("agent_id", parsed.data.agent_id);
-  if (parsed.data.invocation_kind) invQ = invQ.eq("invocation_kind", parsed.data.invocation_kind);
+  if (parsed.data.invocation_kind) invQ = invQ.eq("purpose", parsed.data.invocation_kind);
 
-  const { data: invRows, error: invErr } = await invQ;
+  const { data: invRowsRaw, error: invErr } = await invQ;
   if (invErr) {
-    console.warn("[ai-usage] ai_invocations query failed", { error: invErr.message });
-    return fail("internal_error", "Erro ao agregar invocations.", 500, { requestId });
+    console.warn("[ai-usage] llm_calls query failed", { error: invErr.message });
+    return fail("internal_error", "Erro ao agregar o uso de IA.", 500, { requestId });
   }
+  const invRows = ((invRowsRaw ?? []) as unknown as Array<{
+    created_at: string; purpose: string | null; cost_cents: number | null;
+    input_tokens: number | null; output_tokens: number | null; latency_ms: number | null;
+  }>).map((r) => ({
+    created_at: r.created_at,
+    invocation_kind: r.purpose ?? "turno",
+    cost_cents: r.cost_cents,
+    prompt_tokens: r.input_tokens,
+    completion_tokens: r.output_tokens,
+    total_tokens: (r.input_tokens ?? 0) + (r.output_tokens ?? 0),
+    latency_ms: r.latency_ms,
+  }));
 
   // ---- 2. inbound messages per day ----------------------------------------
   const dailyInbounds = new Map<string, number>();
@@ -141,49 +161,15 @@ export async function GET(req: NextRequest): Promise<Response> {
     }
   }
 
-  // ---- 1b. llm_calls: a telemetria do runtime que REALMENTE atende ---------
-  //
-  // Existem duas tabelas de telemetria: `ai_invocations`, escrita pelos workers
-  // legados, e `llm_calls`, escrita pelo agent-engine — que é o consumidor
-  // padrão (AGENT_DISPATCH_CONSUMER=engine). Esta tela lia só a primeira, então
-  // numa instalação nova ela mostrava ZERO custo enquanto o dinheiro saía:
-  // medido nesta VPS, 90 chamadas e R$ 0,15 gastos com a tela em branco.
-  //
-  // O filtro por agente não se aplica aqui (llm_calls guarda job/contato, não
-  // agente); nesse caso a tela continua respondendo só com o legado, em vez de
-  // atribuir custo a um agente que não dá para comprovar.
-  const engineRows: InvocationRow[] = [];
-  if (!parsed.data.agent_id) {
-    const { data: llmRows, error: llmErr } = await supabase
-      .from("llm_calls")
-      .select("created_at, purpose, cost_cents, input_tokens, output_tokens, latency_ms")
-      .eq("organization_id", activeOrg.orgId)
-      .gte("created_at", fromIso)
-      .lte("created_at", toIso)
-      .limit(50_000);
-    if (llmErr) {
-      console.warn("[ai-usage] llm_calls query failed", { error: llmErr.message });
-    } else {
-      for (const r of (llmRows ?? []) as unknown as {
-        created_at: string; purpose: string | null; cost_cents: number | null;
-        input_tokens: number | null; output_tokens: number | null; latency_ms: number | null;
-      }[]) {
-        if (parsed.data.invocation_kind && r.purpose !== parsed.data.invocation_kind) continue;
-        engineRows.push({
-          created_at: r.created_at,
-          invocation_kind: r.purpose ?? "turno",
-          cost_cents: r.cost_cents,
-          prompt_tokens: r.input_tokens,
-          completion_tokens: r.output_tokens,
-          total_tokens: (r.input_tokens ?? 0) + (r.output_tokens ?? 0),
-          latency_ms: r.latency_ms,
-        });
-      }
-    }
-  }
+  // O bloco que somava `llm_calls` a `ai_invocations` foi REMOVIDO aqui, e a
+  // remoção é a parte perigosa desta mudança: com a leitura primária já sendo
+  // `llm_calls` (migration 0130), mantê-lo faria a MESMA linha ser contada duas
+  // vezes — o custo do mês dobraria na tela, e o teto de orçamento passaria a
+  // disparar na metade do gasto real. Guardado por
+  // `tests/unit/usage-nao-conta-em-dobro.test.ts`.
 
   const payload = aggregateUsage(
-    [...((invRows ?? []) as InvocationRow[]), ...engineRows],
+    invRows as InvocationRow[],
     dailyInbounds,
     dailyHandoffs,
     range,

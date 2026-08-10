@@ -28,6 +28,15 @@ export interface LlmEdgeConfig {
    */
   openaiApiKey?: string;
   /**
+   * Mesma ideia para a OpenRouter — e o buraco era pior, porque o instalador
+   * passou a OFERECER OpenRouter como primeira opção. Quem escolhia e não
+   * cadastrava chave da Anthropic tinha `LlmNotConfiguredError` em tudo que
+   * passa por este seam, com a mensagem de erro mandando cadastrar justamente
+   * as duas chaves que ele decidiu não usar. Na derivação de mídia o desfecho
+   * era mudo: 5 tentativas, `media_derived_status='failed'`, zero avisos.
+   */
+  openrouterApiKey?: string;
+  /**
    * TTL do prefixo estável de cache (knob LLM_CACHE_TTL). Opcional para quem
    * monta a config na mão (testes) — o seam aplica a doutrina '1h' quando ausente.
    */
@@ -47,6 +56,7 @@ export interface LlmEdgeConfig {
 export function llmEdgeConfigFromEnv(env: {
   ANTHROPIC_API_KEY?: string;
   OPENAI_API_KEY?: string;
+  OPENROUTER_API_KEY?: string;
   LLM_CACHE_TTL?: string;
 }): LlmEdgeConfig {
   const ttl = env.LLM_CACHE_TTL ?? '1h';
@@ -56,6 +66,7 @@ export function llmEdgeConfigFromEnv(env: {
   return {
     ...(env.ANTHROPIC_API_KEY ? { anthropicApiKey: env.ANTHROPIC_API_KEY } : {}),
     ...(env.OPENAI_API_KEY ? { openaiApiKey: env.OPENAI_API_KEY } : {}),
+    ...(env.OPENROUTER_API_KEY ? { openrouterApiKey: env.OPENROUTER_API_KEY } : {}),
     cacheTtl: ttl,
   };
 }
@@ -173,6 +184,8 @@ export async function resolveOrgLlmConfig(
     apiKey = cfg.anthropicApiKey;
   } else if (provider === 'openai' && cfg.openaiApiKey) {
     apiKey = cfg.openaiApiKey;
+  } else if (provider === 'openrouter' && cfg.openrouterApiKey) {
+    apiKey = cfg.openrouterApiKey;
   } else {
     throw new LlmNotConfiguredError();
   }

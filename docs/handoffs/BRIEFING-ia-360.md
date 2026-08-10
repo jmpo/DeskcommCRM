@@ -117,7 +117,10 @@ export type ToolBundle = "atender" | "vender" | "reter" | "escalar" | "organizar
 export interface McpToolCatalogEntry {
   name: string;              // CONTRATO DE WIRE — imutável depois de publicado
   category: McpToolCategory; // dirige requiresScope/requiresRole — não é rótulo
-  description: string;       // técnica, vai para o MODELO
+  // `description` VIVIA AQUI e foi REMOVIDA em 2026-08-07: nenhum consumidor a
+  // lia (a ponte do turno monta a do HANDLER) e 48 das 51 divergiam do que o
+  // modelo recebia de verdade. O texto que vai ao modelo é a `description` de
+  // `lib/mcp/tools/<dominio>.ts`, e não há cópia dele neste catálogo.
 
   // camada de apresentação (pilar 3) — vai para o HUMANO:
   rotulo: string;        // "Mover lead de etapa" — verbo no infinitivo, pt-BR

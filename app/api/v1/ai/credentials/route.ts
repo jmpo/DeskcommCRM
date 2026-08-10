@@ -18,6 +18,7 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { bufToBytea, encryptKey } from "@/lib/crypto/aes_gcm";
 import { validateProviderKey, type Provider } from "@/lib/ai/provider-validators";
+import { IDS_DE_PROVEDOR } from "@/lib/ai/pontos/provedores";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -27,7 +28,11 @@ const SAFE_COLUMNS =
   "id, organization_id, provider, label, api_key_last4, validated_at, validation_error, models_available, is_active, created_by, created_at, updated_at";
 
 const createSchema = z.object({
-  provider: z.enum(["anthropic", "openai", "google"]),
+  // Derivado de `lib/ai/pontos/provedores.ts`, a lista única desde a migration
+  // 0127. Enquanto era uma cópia à mão, o banco aceitava OpenRouter e ESTA rota
+  // recusava com 422 — o operador via a tela de Provedores oferecer OpenRouter
+  // e não tinha onde cadastrar a chave.
+  provider: z.enum(IDS_DE_PROVEDOR),
   label: z.string().trim().min(1).max(80),
   api_key: z.string().trim().min(8).max(2048),
 });

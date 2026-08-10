@@ -442,8 +442,20 @@ test.describe("QA — o agente usa as mãos que a W4 entregou?", () => {
         // Turno que NÃO rodou também é gravado. Um cenário que some do diretório é
         // indistinguível de um que nunca foi tentado — e taxa medida sobre denominador
         // que encolheu em silêncio é o defeito que esta medição existe para não cometer.
+        //
+        // Mas em ARQUIVO PRÓPRIO (`__falhou`), e isto é o conserto de um estrago
+        // medido em 2026-08-08: rodando a suíte nesta máquina, sem chave de IA, os
+        // 10 cenários voltaram HTTP 400 e o carimbo `rodou: false` foi gravado por
+        // cima dos turnos REAIS versionados aqui — que são a fixture de
+        // `tests/unit/projecao-conversador.test.ts`. Resultado: a medição histórica
+        // do vazamento de 30% foi destruída e 3 testes de unidade ficaram vermelhos
+        // (o controle positivo deles pegou, como foi desenhado para pegar).
+        //
+        // Sobrescrever uma medição bem-sucedida com um registro de falha é, ele
+        // mesmo, um erro de medição: o dado histórico é o artefato mais valioso dos
+        // dois. A falha continua visível, ao lado, sem apagar nada.
         fs.writeFileSync(
-          dump,
+          dump.replace(/\.json$/, "__falhou.json"),
           JSON.stringify(
             {
               prompt_kind: PROMPT_KIND,

@@ -8,6 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { ApiError } from "@/lib/api/types";
 import type { Actor, HandlerCtx } from "@/lib/api/handlers/types";
 import { audit } from "@/lib/audit";
+import { CONVERSATION_TERMINAL_STATUSES } from "@/lib/schemas";
 import type {
   ListConversationsQuery,
   PatchConversationInput,
@@ -100,6 +101,12 @@ export async function listConversationsHandler(
     .limit(q.limit + 1);
 
   if (q.status) query = query.eq("status", q.status);
+  // Depois do `status` de propósito: pedir um status terminal E `exclude_finished`
+  // é contradição, e a resposta certa para uma contradição é lista vazia — não
+  // um dos dois lados escolhido em silêncio.
+  if (q.exclude_finished) {
+    query = query.not("status", "in", `(${CONVERSATION_TERMINAL_STATUSES.join(",")})`);
+  }
   if (q.channel_session_id) query = query.eq("channel_session_id", q.channel_session_id);
   if (q.tag) query = query.contains("tags", [q.tag]); // tags @> array[tag] (GIN)
 

@@ -94,8 +94,12 @@ export async function GET(
       // números divergem de propósito: este é o total do tenant, aquele é a
       // fila de SLA da plataforma.
       .not("status", "in", "(completed,failed)"),
+    // `llm_calls` e não `ai_invocations`: a migration 0130 deixou a segunda sem
+    // nenhum escritor (`lib/ai/log-invocation.ts` passou a gravar na primeira).
+    // Lendo a tabela morta, este contador viraria ZERO em 30 dias para todo
+    // tenant — com o dinheiro saindo. É o mesmo sintoma que a 0130 veio matar.
     admin
-      .from("ai_invocations")
+      .from("llm_calls")
       .select("*", { count: "exact", head: true })
       .eq("organization_id", id)
       .gte(

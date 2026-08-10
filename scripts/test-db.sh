@@ -62,6 +62,42 @@ begin
 end
 $$;
 
+-- O DEFAULT ACL QUE TODO PROJETO SUPABASE JÁ TEM ANTES DE QUALQUER SQL NOSSO.
+--
+-- Sem estas 4 linhas o Postgres efêmero NÃO é o banco do produto, e a diferença
+-- não é cosmética: ela apaga uma classe inteira de defeito do campo de visão do
+-- job `invariants`.
+--
+-- O `pg_dump` do baseline emite, na linha ~3960, o `ALTER DEFAULT PRIVILEGES ...
+-- GRANT ALL ON FUNCTIONS TO anon` — mas ele só o emite PORQUE a entrada já
+-- existia no projeto de origem. Num Supabase de verdade (nuvem, que é o que o
+-- `hostgator-setup-kit/install.sh` manda o cliente usar, ou a CLI local) essa
+-- entrada em `pg_default_acl` é gravada pelo bootstrap do Supabase, ANTES de
+-- `install.sh`/`update.sh` rodarem. Consequência: toda função que o baseline cria
+-- — inclusive as ~27 do CORPO do dump — nasce com EXECUTE para anon.
+--
+-- Num Postgres cru, ao contrário, a entrada só passa a existir NA linha 3960 — e
+-- as funções do corpo, criadas antes dela, nascem limpas. Medido em 2026-08-08,
+-- pg17 descartável, baseline @9249e6f2 aplicado com e sem este bloco:
+--
+--     sem  -> 0 de 27 SECURITY DEFINER de public executáveis por anon
+--     com  -> 6 de 27  (activate_kb_version, fn_decrypt_oauth, fn_encrypt_oauth,
+--                       fn_lgpd_cascade_redact_contact, fn_update_budget_consumption,
+--                       retrieve_top_k_chunks)
+--
+-- As mesmas 6, exatamente, que `select ... has_function_privilege('anon', ...)`
+-- devolve no `supabase_db_deskcomm-crm` desta máquina hoje. Ou seja: o gate estava
+-- verde medindo um universo onde o defeito não pode existir.
+--
+-- `revoke execute ... from public` no default também é fiel ao produto: no
+-- Supabase real o `proacl` das definer de public NÃO tem `=X` (grant a PUBLIC),
+-- então lá a exposição vem do grant DIRETO a anon — o caminho que
+-- `revoke from public` sozinho não fecha.
+alter default privileges for role postgres in schema public grant all on functions to anon;
+alter default privileges for role postgres in schema public grant all on functions to authenticated;
+alter default privileges for role postgres in schema public grant all on functions to service_role;
+alter default privileges for role postgres in schema public revoke execute on functions from public;
+
 create schema if not exists auth;
 create schema if not exists extensions;
 
@@ -110,6 +146,53 @@ create or replace function auth.uid() returns uuid
 grant usage on schema auth, extensions, storage to anon, authenticated, service_role;
 grant select on auth.users to anon, authenticated, service_role;
 SQL
+
+echo "==> conferindo que o banco efêmero é o do PRODUTO (antes do baseline)"
+# A guarda tem de rodar AQUI e não na suíte de invariantes, e isto foi medido:
+# o próprio baseline traz o `ALTER DEFAULT PRIVILEGES … TO anon` na linha ~3960,
+# então DEPOIS de aplicá-lo a entrada em pg_default_acl existe de qualquer jeito e
+# uma asserção lá dentro passa sempre — verde por não medir nada. A diferença entre
+# o banco fiel e o fictício só é observável NESTE instante: antes do baseline.
+#
+# A sonda cria uma definer de mentira e mede o ACL dela. Se as 4 linhas de `alter
+# default privileges` acima desaparecerem — perda silenciosa, que nenhum grep de
+# símbolo acha e que qualquer convergência no prelude sobrescreve sem conflito —,
+# este passo derruba o run com a razão escrita, em vez de a suíte inteira ficar
+# verde medindo o universo errado.
+#
+# O QUE ELA MEDE, e por que não é `has_function_privilege`: a primeira versão
+# perguntava se `anon` PODE executar, e aprovava os dois mundos. Num Postgres cru
+# a função nasce com o grant a PUBLIC (`=X/postgres`), do qual `anon` herda — o
+# privilégio EFETIVO é `true` sem nenhum default ACL. É a mesma armadilha das duas
+# origens de EXECUTE que a doutrina descreve (CLAUDE.md, migrations item 9), aqui
+# do lado do instrumento. O que distingue os mundos é o grant DIRETO a `anon` no
+# `proacl`, que só existe se `pg_default_acl` tiver a entrada.
+#
+# `-q` é obrigatório: sem ele o stdout leva "CREATE FUNCTION"/"DROP FUNCTION"
+# junto do resultado e a comparação com "t" falha sempre — sonda que reprova o
+# banco certo é tão inútil quanto sonda que aprova o errado.
+fidelidade="$(docker exec -i "$CONTAINER" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q -tA -f - <<'SQL'
+create function public.fn_sonda_fidelidade_do_harness() returns int
+  language sql security definer as $fn$ select 1 $fn$;
+select exists (
+  select 1 from pg_proc p, unnest(coalesce(p.proacl, '{}'::aclitem[])) a
+   where p.proname = 'fn_sonda_fidelidade_do_harness'
+     and split_part(a::text, '=', 1) = 'anon'
+);
+drop function public.fn_sonda_fidelidade_do_harness();
+SQL
+)"
+if [ "$fidelidade" != "t" ]; then
+  echo "FATAL: neste banco uma SECURITY DEFINER nova em public NÃO nasce com grant DIRETO a anon." >&2
+  echo "       Num projeto Supabase de verdade — o que install.sh manda o cliente criar — ela nasce," >&2
+  echo "       porque o bootstrap do Supabase grava um ALTER DEFAULT PRIVILEGES … TO anon em" >&2
+  echo "       pg_default_acl ANTES de qualquer SQL nosso. Sem reproduzir isso aqui, o gate" >&2
+  echo "       hardening-definer-varredura fica VERDE com 6 funções expostas à anon key em" >&2
+  echo "       produção (medido 2026-08-08, baseline 9249e6f2). Restaure as 4 linhas de" >&2
+  echo "       'alter default privileges … on functions' no prelude acima." >&2
+  exit 1
+fi
+echo "    ✓ definer nova nasce com grant direto a anon (armadilha do produto reproduzida)"
 
 echo "==> modo INSTALL: aplicando baseline.sql com ON_ERROR_STOP=1"
 psql_install < "$BASELINE"

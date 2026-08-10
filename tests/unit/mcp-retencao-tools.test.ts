@@ -26,6 +26,8 @@ import {
   crmListAtRiskLeads,
 } from "@/lib/mcp/tools/retencao";
 import { ACTIVITY_LABELS } from "@/lib/leads/activity-vocabulary";
+import { pickToolsFromMcp } from "@/lib/ai/runtime/tools";
+import type { McpAuthResult } from "@/lib/mcp/auth";
 import type { McpContext } from "@/lib/mcp/types";
 
 vi.mock("@/lib/audit", () => ({ audit: vi.fn().mockResolvedValue(undefined) }));
@@ -817,16 +819,147 @@ describe("crm_list_at_risk_leads", () => {
   it("não vaza negócio de outra organização — toda leitura filtra a org do contexto", async () => {
     const cap = novasCapturas();
     const filtros: Array<Record<string, unknown>> = [];
+    // Um lead COM dono-agente, estágio e contato: sem ele o radar retorna cedo e
+    // só duas das sete leituras chegam a acontecer. Medido nesta sessão — o teste
+    // anterior dizia "toda leitura" exercitando uma, e remover o filtro de org da
+    // leitura de `demandas` mantinha os 23 verdes. Cobrir uma consulta dá álibi
+    // às irmãs: a garantia é POR CONSULTA, não por função.
     const espiao: Resolver = (c) => {
       filtros.push({ table: c.table, ...c.filtros });
-      return { data: [], error: null };
+      if (c.table !== "crm_leads") return { data: [], error: null };
+      return {
+        data: [
+          {
+            id: LEAD,
+            title: "Negócio",
+            contact_id: CONTATO,
+            owner_user_id: null,
+            owner_kind: "ai_agent",
+            owner_agent_id: "agente-1",
+            stage_id: STAGE,
+            last_activity_at: "2026-01-01T00:00:00Z",
+            created_at: "2026-01-01T00:00:00Z",
+            pipeline_id: "pipe-1",
+          },
+        ],
+        error: null,
+      };
     };
 
     await crmListAtRiskLeads.handler({ limit: 50, min_hours: undefined }, ctxDe(espiao, cap));
 
-    // Service role bypassa RLS: a única defesa é o filtro explícito, e ele tem de
-    // estar na leitura de negócios — a que carrega o acervo inteiro.
-    const leituraDeLeads = filtros.find((f) => f.table === "crm_leads");
-    expect(leituraDeLeads?.organization_id).toBe(ORG);
+    // Service role bypassa RLS: a única defesa é o filtro explícito.
+    const tabelas = filtros.map((f) => f.table);
+    for (const esperada of [
+      "crm_leads",
+      "ai_agents",
+      "crm_stages",
+      "cron_jobs",
+      "conversations",
+      "contacts",
+      "demandas",
+    ]) {
+      // Guarda de vacuidade por tabela: uma leitura que deixe de acontecer não
+      // pode passar como "leitura sem vazamento".
+      expect(tabelas, `o radar não leu "${esperada}"`).toContain(esperada);
+    }
+    for (const leitura of filtros) {
+      expect(leitura.organization_id, `leitura de "${leitura.table}" sem filtro de org`).toBe(ORG);
+    }
+  });
+
+  it("entrega ao modelo as demandas abertas sem próximo passo", async () => {
+    const cap = novasCapturas();
+    const resolver: Resolver = (c) => {
+      if (c.table !== "demandas") return { data: [], error: null };
+      return {
+        data: [
+          {
+            id: "d-1",
+            contact_id: CONTATO,
+            aberta_em: "2026-08-01T00:00:00Z",
+            origem: "inbound",
+            // O PostgREST devolve o join como ARRAY mesmo em relação
+            // um-para-um. Se o código tratasse só o caso objeto, o nome do
+            // contato viria nulo e a lista chegaria ao agente sem quem é.
+            contacts: [{ display_name: "Cliente Um" }],
+          },
+        ],
+        error: null,
+      };
+    };
+
+    const r = (await crmListAtRiskLeads.handler(
+      { limit: 50, min_hours: undefined },
+      ctxDe(resolver, cap),
+    )) as { sem_proximo_passo: Array<Record<string, unknown>>; total_sem_proximo_passo: number };
+
+    expect(r.total_sem_proximo_passo).toBe(1);
+    expect(r.sem_proximo_passo[0]?.contact_id).toBe(CONTATO);
+    expect(r.sem_proximo_passo[0]?.contact_name).toBe("Cliente Um");
+  });
+
+  it("a promessa chega ao MODELO — a ponte monta a descrição do handler", () => {
+    // O teste acima guarda a DEFINIÇÃO; este guarda o CALL SITE. Não é zelo
+    // excessivo: medido nesta sessão, `description` também existe em
+    // `lib/mcp/tools/catalogo/*.ts` — 48 das 51 divergem da do handler — e o
+    // cabeçalho daquele arquivo diz textualmente "description fala com o
+    // modelo". Ninguém lê aquele campo. Sem este teste, alguém "conserta" o
+    // agente editando o arquivo errado e nada reprova.
+    const ctx = {
+      organizationId: ORG,
+      role: "ai_operator",
+      actor: { type: "ai_agent", id: "agente-1", role: "ai_operator" },
+      apiTokenId: "tok-1",
+      requestId: "run-1",
+      supabase: {} as never,
+    } as unknown as McpContext;
+    const auth = {
+      organizationId: ORG,
+      role: "ai_operator",
+      actor: ctx.actor,
+      apiTokenId: "tok-1",
+      scopes: ["mcp:read", "mcp:write", "actor:ai_agent", "role:ai_operator"],
+    } as unknown as McpAuthResult;
+
+    const montadas = pickToolsFromMcp({
+      supabase: ctx.supabase,
+      ctx,
+      auth,
+      toolIds: [crmListAtRiskLeads.name],
+      handoffToolEnabled: false,
+      handoffSignal: { triggered: false },
+    });
+
+    const montada = montadas[crmListAtRiskLeads.name];
+    expect(montada, "a capacidade não foi montada no turno").toBeDefined();
+    expect(montada?.description).toBe(crmListAtRiskLeads.description);
+    // E a promessa específica sobreviveu à travessia — não basta ser "alguma"
+    // descrição.
+    expect(montada?.description).toContain("sem_proximo_passo");
+  });
+
+  it("a descrição só promete campo que o payload realmente entrega", async () => {
+    // Descrição é texto: passa no typecheck e no lint prometendo o que não
+    // existe, e o modelo age sobre a promessa. Este teste liga as duas pontas —
+    // remover o campo do payload OU inventar campo na descrição reprova.
+    const cap = novasCapturas();
+    const r = (await crmListAtRiskLeads.handler(
+      { limit: 50, min_hours: undefined },
+      ctxDe(() => ({ data: [], error: null }), cap),
+    )) as Record<string, unknown>;
+
+    const prometidos = [...crmListAtRiskLeads.description.matchAll(/`([a-z_]+)`/g)].map(
+      (m) => m[1] as string,
+    );
+    const doPayload = new Set(Object.keys(r));
+    const camposDeTopo = prometidos.filter((p) => !p.startsWith("crm_"));
+
+    expect(camposDeTopo.length).toBeGreaterThan(0); // guarda de vacuidade
+    for (const campo of camposDeTopo) {
+      expect(doPayload.has(campo), `a descrição promete \`${campo}\`, que o payload não tem`).toBe(
+        true,
+      );
+    }
   });
 });

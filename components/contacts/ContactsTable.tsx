@@ -12,13 +12,16 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import type { Contact } from "@/lib/types/contacts";
+import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 
 interface Props {
   contacts: Contact[];
 }
 
 function displayName(c: Contact): string {
-  return c.display_name?.trim() || c.name?.trim() || "—";
+  // Era a outra tela sem telefone no fallback — e a única com "—" numa lista
+  // onde a coluna ao lado já mostra o número.
+  return rotuloDoContato(c);
 }
 
 export function ContactsTable({ contacts }: Props) {

@@ -53,8 +53,15 @@ test.describe("as telas do épico abrem para uma pessoa", () => {
 
   test("cada tela abre, tem conteúdo e não cospe erro no console", async ({ page }) => {
     const erros: string[] = [];
+    // A URL entra no registro porque sem ela o achado é indiagnosticável: a
+    // mensagem do browser para uma requisição barrada é "Failed to load resource:
+    // the server responded with a status of 429", sem dizer QUEM respondeu. Uma
+    // reprovação assim custou uma investigação inteira no CI — o relatório não
+    // guarda trace, então a única cópia do endereço morria aqui.
     page.on("console", (m) => {
-      if (m.type() === "error") erros.push(m.text().slice(0, 200));
+      if (m.type() !== "error") return;
+      const onde = m.location().url;
+      erros.push(`${m.text().slice(0, 200)}${onde ? ` @ ${onde}` : ""}`);
     });
     page.on("pageerror", (e) => erros.push(`PAGEERROR: ${String(e).slice(0, 200)}`));
 

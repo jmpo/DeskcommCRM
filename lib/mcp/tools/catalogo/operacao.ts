@@ -3,8 +3,15 @@
  * etapas do funil, marcadores, respostas prontas, entradas automáticas de
  * contatos, regras automáticas e time.
  *
- * `description` fala com o modelo; `rotulo`/`explicacao`/`oQueToca` falam com o
- * humano que configura o agente. Ver `docs/handoffs/BRIEFING-ia-360.md` §4.
+ * ESTE ARQUIVO FALA COM O HUMANO que configura o agente — `rotulo`,
+ * `explicacao` e `oQueToca`. O texto que vai ao MODELO é a `description` do
+ * HANDLER (`lib/mcp/tools/<dominio>.ts`), e ela NÃO tem cópia aqui: até
+ * 2026-08-07 tinha, ninguém lia essa cópia, e 48 das 51 divergiam do que o
+ * modelo realmente recebia. O campo foi removido em vez de sincronizado —
+ * duplicata que ninguém lê não é documentação, é armadilha: um script de
+ * medição de vazamento chegou a montar o prompt com o texto errado, sob um
+ * comentário dizendo "a ferramenta como o modelo a vê".
+ * Ver `docs/handoffs/BRIEFING-ia-360.md` §4.
  *
  * ⚠️ SOBRE O RISCO `critico` DESTE ARQUIVO. O gate mecânico
  * (`tests/unit/catalogo-tools-leigo-friendly.test.ts`) só sabe conferir que uma
@@ -51,7 +58,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_list_stages",
     category: "read",
-    description: "Lista as etapas ativas de um pipeline, na ordem do quadro",
     rotulo: "Ver as etapas de um funil",
     explicacao:
       "Mostra as colunas de um funil na ordem em que aparecem no quadro, para o agente saber onde pode colocar cada negócio.",
@@ -62,7 +68,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_create_stage",
     category: "write",
-    description: "Cria uma etapa no fim do pipeline",
     rotulo: "Criar etapa no funil",
     explicacao:
       "Acrescenta uma coluna nova no fim do funil, quando o jeito de trabalhar da empresa tem um passo que ainda não está no quadro.",
@@ -74,7 +79,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_update_stage",
     category: "write",
-    description: "Renomeia, reordena ou muda o papel de desfecho de uma etapa",
     rotulo: "Renomear ou reordenar uma etapa",
     explicacao:
       "Troca o nome de uma coluna do funil, muda o lugar dela na ordem ou define em qual delas o negócio é dado como fechado ou perdido.",
@@ -86,7 +90,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_archive_stage",
     category: "write",
-    description: "Arquiva uma etapa e move os leads dela para outra",
     rotulo: "Arquivar uma etapa do funil",
     explicacao:
       "Tira uma coluna do quadro e leva os negócios que estavam nela para outra coluna que você escolher. O histórico continua guardado.",
@@ -100,7 +103,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_list_tags",
     category: "read",
-    description: "Lista as tags em uso na org, com contagem e origem",
     rotulo: "Ver os marcadores em uso",
     explicacao:
       "Mostra quais marcadores a empresa já usa e em quantas conversas, para o agente reaproveitar em vez de inventar outro parecido.",
@@ -113,7 +115,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_list_message_templates",
     category: "read",
-    description: "Lista os message_templates da org",
     rotulo: "Ver as respostas prontas",
     explicacao:
       "Lista os textos que a empresa já escreveu para responder as situações de sempre, com o atalho de cada um.",
@@ -124,7 +125,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_render_message_template",
     category: "read",
-    description: "Preenche um template com dados do contato/lead e devolve o texto",
     rotulo: "Preencher uma resposta pronta",
     explicacao:
       "Pega uma resposta pronta e troca as lacunas pelos dados do cliente, avisando se sobrou alguma sem preencher. Não envia nada.",
@@ -137,7 +137,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_list_webhook_sources",
     category: "read",
-    description: "Lista as webhook_sources da org com destino e último recebimento",
     rotulo: "Ver as entradas automáticas de contatos",
     explicacao:
       "Mostra por onde chegam sozinhos os contatos vindos do site ou de outro sistema, se cada uma está ligada e quando recebeu pela última vez.",
@@ -148,7 +147,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_list_webhook_source_events",
     category: "read",
-    description: "Últimos recebimentos de uma webhook_source (só as chaves do corpo)",
     rotulo: "Ver o que chegou por uma entrada",
     explicacao:
       "Mostra os últimos contatos que entraram por uma origem e quais informações vieram, para descobrir por que algo não chegou como devia.",
@@ -159,7 +157,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_create_webhook_source",
     category: "write",
-    description: "Cria uma webhook_source e devolve o path_token da URL",
     rotulo: "Criar uma entrada automática de contatos",
     explicacao:
       "Abre um endereço novo para o site da empresa mandar contatos direto para um funil. A partir daí ele passa a receber gente de fora sozinho.",
@@ -171,7 +168,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_set_webhook_source_active",
     category: "write",
-    description: "Liga/desliga uma webhook_source (is_active)",
     rotulo: "Ligar ou desligar uma entrada de contatos",
     explicacao:
       "Faz uma origem voltar a receber contatos, ou parar. Desligada, o formulário do seu site continua no ar e ninguém do outro lado é avisado.",
@@ -185,7 +181,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_list_automation_rules",
     category: "read",
-    description: "Lista as automation_rules com gatilho e tipos de ação",
     rotulo: "Ver as regras automáticas",
     explicacao:
       "Mostra o que a empresa deixou configurado para acontecer sozinho, o que dispara cada regra e se ela está ligada.",
@@ -196,7 +191,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_list_automation_runs",
     category: "read",
-    description: "Histórico de automation_rule_runs, com detalhe só das falhas",
     rotulo: "Ver o que as regras dispararam",
     explicacao:
       "Mostra o que rodou sozinho nos últimos tempos e o que deu errado, para descobrir o que parou de funcionar sem ninguém perceber.",
@@ -207,7 +201,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_set_automation_rule_active",
     category: "write",
-    description: "Liga/desliga uma automation_rule (is_active)",
     rotulo: "Ligar ou desligar uma regra automática",
     explicacao:
       "Faz uma regra passar a rodar sozinha, sempre que o gatilho dela acontecer, ou parar de rodar. Ligada, ela pode falar com clientes de verdade.",
@@ -221,7 +214,6 @@ export const TOOLS_OPERACAO = declararTools([
   {
     name: "crm_list_team_members",
     category: "read",
-    description: "Lista user_organizations ativos com papel (sem PII)",
     rotulo: "Ver quem trabalha na empresa",
     explicacao:
       "Lista as pessoas do time e o que cada uma pode fazer aqui dentro, para o agente saber para quem passar um atendimento.",

@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
+import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 
 interface Props {
   conversation: ConversationWithContact;
@@ -68,11 +69,7 @@ export function ConversationListItem({
   mostrarCanal,
 }: Props) {
   const c = conversation.contacts ?? null;
-  const displayName =
-    c?.display_name?.trim() ||
-    c?.name?.trim() ||
-    c?.phone_number ||
-    "Sem nome";
+  const displayName = rotuloDoContato(c);
   const phoneFallback = c?.phone_number ?? "??";
   const tags = c?.tags ?? [];
   const visibleTags = tags.slice(0, 2);

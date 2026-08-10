@@ -28,7 +28,11 @@ jobs:
         run: pnpm build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
-          SENTRY_DSN: ""
+          # "off", não vazio: vazio seleciona o Sentry DA COMUNIDADE
+          # (lib/sentry/dsn.ts:8-10). A intenção aqui sempre foi desligar, e
+          # com aspas vazias ela não era alcançada — o build seguia com o DSN
+          # padrão embutido.
+          SENTRY_DSN: "off"
 
       - name: Report bundle sizes
         run: |

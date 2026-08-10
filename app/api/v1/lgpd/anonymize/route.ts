@@ -93,7 +93,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       name: null,
       display_name: `Contato Anonimizado #${shortId}`,
       email: null,
-      email_normalized: null,
+      // `email_normalized` sai daqui pelo mesmo motivo do handler de contatos:
+      // é coluna GERADA e a atribuição abortava o UPDATE. O efeito aqui era pior
+      // que um 500 — a ANONIMIZAÇÃO NÃO ACONTECIA, num direito do titular que a
+      // LGPD dá prazo para cumprir. Zerar `email` já zera a derivada.
       phone_number: null,
       cpf_encrypted: null,
       cpf_hash: null,

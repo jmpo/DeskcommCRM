@@ -1,4 +1,8 @@
+<<<<<<<< HEAD:supabase/migrations/20260808030000_0118_zernio_envio.sql
 -- 0118 — o que falta para o terceiro canal ENVIAR.
+========
+-- 0132 — o que falta para o terceiro canal ENVIAR.
+>>>>>>>> upstream/main:supabase/migrations/20260808030000_0132_zernio_envio.sql
 --
 -- Duas colunas, uma em cada tabela, por dois motivos distintos.
 --

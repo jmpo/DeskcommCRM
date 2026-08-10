@@ -58,7 +58,12 @@ export async function DELETE(
     actorUserId: authUser.id,
     organizationId: org.orgId,
     resourceType: "skill_pointers",
-    resourceId: name,
+    // `resource_id` é UUID e `skill_pointers` não tem um: a chave é
+    // (organization_id, name). Mandar o nome ali fazia o INSERT do audit estourar
+    // com `invalid input syntax for type uuid` — e como audit é fire-and-forget
+    // por doutrina, a desinstalação acontecia e a trilha ficava sem a linha,
+    // silenciosamente, num DELETE. O nome identifica o recurso pelo metadata.
+    resourceId: null,
     requestId,
     metadata: { name },
   });

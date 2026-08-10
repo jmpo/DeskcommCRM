@@ -332,7 +332,14 @@ export async function patchContactHandler(
 ): Promise<Contact> {
   const { data: existing, error: selErr } = await supabase
     .from("contacts")
-    .select("id, organization_id, is_anonymized, tags")
+    // ⚠️ Os campos sensíveis entram aqui para existir o **`from`** da regra L-06
+    // ("audit com who/what/which/when/**from/to**", exceção: "Nenhuma"). Antes
+    // este select pedia só `id, organization_id, is_anonymized, tags`, e o audit
+    // gravava apenas os NOMES dos campos alterados — quem quisesse saber qual
+    // e-mail foi substituído não tinha onde olhar. `consent` vem junto porque o
+    // patch dele passou a ser MERGE (ver abaixo), e merge precisa do estado
+    // anterior.
+    .select("id, organization_id, is_anonymized, tags, email, phone_number, name, display_name, consent")
     .eq("id", contactId)
     .maybeSingle();
 
@@ -355,16 +362,36 @@ export async function patchContactHandler(
   const patch: Record<string, unknown> = {};
   if (input.name !== undefined) patch.name = input.name;
   if (input.display_name !== undefined) patch.display_name = input.display_name;
-  if (input.email !== undefined) {
-    patch.email = input.email;
-    patch.email_normalized = input.email ? input.email.trim().toLowerCase() : null;
-  }
+  // `email_normalized` NÃO entra no patch — é `GENERATED ALWAYS AS
+  // (lower(trim(email))) STORED` (baseline.sql:1349), e o Postgres RECUSA
+  // qualquer atribuição a coluna gerada (SQLSTATE 428C9), abortando o UPDATE
+  // inteiro. Efeito medido: salvar o email de um contato pela tela devolvia 500,
+  // e junto morriam todos os outros campos do mesmo PATCH.
+  //
+  // O banco deriva a coluna sozinho — era só não escrever nela.
+  if (input.email !== undefined) patch.email = input.email;
   if (input.phone_number !== undefined) patch.phone_number = input.phone_number;
   if (input.birthdate !== undefined) patch.birthdate = input.birthdate;
   if (input.tags !== undefined) patch.tags = input.tags;
   if (input.source !== undefined) patch.source = input.source;
   if (input.source_metadata !== undefined) patch.source_metadata = input.source_metadata;
-  if (input.consent !== undefined) patch.consent = input.consent;
+  if (input.consent !== undefined) {
+    // MERGE por finalidade, nunca substituição.
+    //
+    // `contacts.consent` é um mapa de finalidades — a regra L-05 nomeia
+    // `marketing`, `transactional` e `profiling`. Atribuir o objeto inteiro
+    // (o que esta linha fazia) significa que gravar UMA finalidade APAGA as
+    // outras duas: registrar o consentimento transacional de alguém apagaria em
+    // silêncio o consentimento de marketing que essa pessoa tinha dado.
+    //
+    // Perda de consentimento não é bug barulhento — é a base legal de um envio
+    // futuro sumindo sem ninguém ver.
+    const anterior = ((existing as { consent?: Record<string, unknown> }).consent ?? {}) as Record<
+      string,
+      unknown
+    >;
+    patch.consent = { ...anterior, ...input.consent };
+  }
   if (input.cpf !== undefined) {
     patch.cpf_hash = hashCpf(input.cpf);
     const enc = await encryptCpfSql(supabase, input.cpf);
@@ -407,6 +434,31 @@ export async function patchContactHandler(
   const a = actorAuditPayload(ctx.actor);
   const fields = Object.keys(patch).filter((k) => k !== "updated_at");
 
+  /**
+   * O par ANTES/DEPOIS dos campos que a L-06 nomeia.
+   *
+   * Grafia `old_`/`new_` seguindo o precedente de `team.role_changed`
+   * (app/api/v1/team/[user_id]/_shared.ts:93-94), que tem teste-guarda. O repo
+   * tem mais de uma grafia para este conceito; escolher a que já é vigiada evita
+   * criar a quinta.
+   *
+   * Só os campos SENSÍVEIS e só quando mudaram: o audit é lido por humano e
+   * despejar o objeto inteiro afogaria o que importa. `consent` entra como
+   * lista de finalidades tocadas, não como jsonb cru — o valor é um mapa e o
+   * que se audita é qual finalidade mudou.
+   */
+  const antes = existing as Record<string, unknown>;
+  const sensiveis: Record<string, unknown> = {};
+  for (const campo of ["email", "phone_number", "name", "display_name"]) {
+    if (patch[campo] !== undefined && patch[campo] !== antes[campo]) {
+      sensiveis[`old_${campo}`] = antes[campo] ?? null;
+      sensiveis[`new_${campo}`] = patch[campo] ?? null;
+    }
+  }
+  if (input.consent !== undefined) {
+    sensiveis.consent_scopes = Object.keys(input.consent);
+  }
+
   await supabase
     .rpc("emit_event", {
       p_event_type: "contact.updated",
@@ -446,7 +498,7 @@ export async function patchContactHandler(
     resourceType: "contact",
     resourceId: contact.id,
     requestId: ctx.requestId,
-    metadata: { ...a.metadataActor, fields },
+    metadata: { ...a.metadataActor, fields, ...sensiveis },
   });
 
   return contact;

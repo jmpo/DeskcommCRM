@@ -188,8 +188,12 @@ v_email() {
 v_supabase_url() {
   case "$1" in
     https://*.supabase.co) ;;
+    # Supabase SELF-HOSTED (ex.: https://db-crm.exemplo.com.br). A prova é a
+    # chamada a /auth/v1/health logo abaixo, que vale para qualquer host — o
+    # que se dispensa aqui é só a suposição de que todo Supabase é o da nuvem.
+    https://*) ;;
     *supabase.co*) echo "Cole a URL completa, começando com https:// — ex.: https://abcdefgh.supabase.co"; return 1;;
-    *) echo "Essa não é a URL do projeto Supabase. Ela termina em .supabase.co e fica em Settings > API > Project URL."; return 1;;
+    *) echo "A URL precisa começar com https://. Na nuvem ela fica em Settings > API > Project URL (termina em .supabase.co); num Supabase próprio, é o endereço do seu servidor."; return 1;;
   esac
   local code
   code="$(curl -s -o /dev/null -w '%{http_code}' -m 15 "$1/auth/v1/health" 2>/dev/null || echo 000)"
@@ -261,11 +265,23 @@ v_db_url() {
   esac
   # Mesma família de projeto? (usuário do pooler é 'postgres.<ref>')
   local dbref="${1#*://}"; dbref="${dbref%%:*}"; dbref="${dbref#postgres.}"
-  if [ -n "${NEXT_PUBLIC_SUPABASE_URL:-}" ] && [ "$dbref" != "postgres" ] \
-     && [ "$dbref" != "$(sb_ref "$NEXT_PUBLIC_SUPABASE_URL")" ]; then
-    echo "Essa connection string é do projeto '${dbref}', mas a URL que você deu é do projeto '$(sb_ref "$NEXT_PUBLIC_SUPABASE_URL")'. Precisam ser o mesmo projeto."
-    return 1
-  fi
+  # Só a NUVEM tem <ref> a comparar. E a decisão é pelo HOST, nunca pela string
+  # inteira: `case "$url" in *.supabase.co)` só casa quando a URL TERMINA nisso, e
+  # ela chega com barra final, caminho ou espaço colado — é o que o address bar do
+  # navegador entrega. Medido: com `https://<ref>.supabase.co/` a comparação era
+  # pulada e uma connection string de OUTRO projeto passava, o que instala o
+  # baseline.sql num banco e deixa o app falando com outro.
+  local sbhost="${NEXT_PUBLIC_SUPABASE_URL:-}"
+  sbhost="${sbhost#*://}"; sbhost="${sbhost%%/*}"
+  sbhost="${sbhost%%[[:space:]]*}"; sbhost="${sbhost%%:*}"
+  case "$sbhost" in
+    *.supabase.co)
+      if [ "$dbref" != "postgres" ] \
+         && [ "$dbref" != "$(sb_ref "$NEXT_PUBLIC_SUPABASE_URL")" ]; then
+        echo "Essa connection string é do projeto '${dbref}', mas a URL que você deu é do projeto '$(sb_ref "$NEXT_PUBLIC_SUPABASE_URL")'. Precisam ser o mesmo projeto."
+        return 1
+      fi;;
+  esac
   local out
   if out="$(docker run --rm postgres:17-alpine psql "$1" -tAc 'select 1' 2>&1)"; then
     return 0
@@ -295,6 +311,26 @@ v_anthropic() {
     000) c_ylw "  ⚠ não consegui checar a chave online; sigo com ela."; return 0;;
     401) echo "A Anthropic recusou essa chave (401). Confira se está ativa e se copiou inteira."; return 1;;
     *)   c_ylw "  ⚠ a Anthropic respondeu ${code} ao testar a chave; sigo com ela."; return 0;;
+  esac
+}
+
+# A OpenRouter entrou na lista de provedores (opção [1] da pergunta de qual IA
+# vai atender) sem que este validador existisse. `ask_one` despacha o validador
+# pelo NOME — `"$validator" "$input"` —, então um nome inexistente vira exit 127
+# e o laço repete a pergunta para sempre: a pessoa que escolhe [1] não consegue
+# terminar a instalação. E no caminho `--yes` a mesma ausência vira
+# "OPENROUTER_API_KEY inválido" seguido de "Corrija o .env e rode de novo" —
+# instrução impossível de cumprir, porque o .env está certo.
+v_openrouter() {
+  case "$1" in sk-or-*) ;; *) echo "A chave da OpenRouter começa com 'sk-or-'. Pegue em openrouter.ai/keys."; return 1;; esac
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 https://openrouter.ai/api/v1/key \
+    -H "Authorization: Bearer $1" 2>/dev/null || echo 000)"
+  case "$code" in
+    2*) return 0;;
+    000) c_ylw "  ⚠ não consegui checar a chave online; sigo com ela."; return 0;;
+    401) echo "A OpenRouter recusou essa chave (401). Confira se está ativa e se copiou inteira."; return 1;;
+    *)   c_ylw "  ⚠ a OpenRouter respondeu ${code} ao testar a chave; sigo com ela."; return 0;;
   esac
 }
 
@@ -874,6 +910,77 @@ fi
 # das chaves batem contra ela (chave de outro projeto é erro comum e mudo).
 # Marca da instalação (APP_NAME) fica por último de propósito: é opcional, e
 # perguntar no meio das credenciais faria parecer obrigatória.
+# ── Qual IA vai atender ─────────────────────────────────────────────────────
+#
+# Antes daqui o instalador só sabia pedir a chave da Anthropic, e quem já tinha
+# conta em outro provedor descobria isso tarde: instalava, cadastrava a chave
+# "errada", e o agente não respondia. A OpenRouter mudou a conta dessa escolha —
+# uma chave só dá acesso a centenas de modelos de dezenas de fabricantes, o que
+# costuma ser o caminho mais simples para quem está começando.
+#
+# A pergunta vem ANTES das credenciais porque é ela que decide QUAL credencial
+# será pedida; perguntar depois obrigaria a voltar atrás.
+escolher_provedor() {
+  # Numa 2ª execução, o provedor já escolhido vira o default — quem re-roda o
+  # script para corrigir outra coisa não deve ter que reescolher isto.
+  local atual="${AI_PROVIDER:-}"
+  if [ -z "$atual" ]; then
+    if   [ -n "${OPENROUTER_API_KEY:-}" ]; then atual="openrouter"
+    elif [ -n "${ANTHROPIC_API_KEY:-}" ];  then atual="anthropic"
+    elif [ -n "${OPENAI_API_KEY:-}" ];     then atual="openai"
+    fi
+  fi
+
+  if [ "$NONINTERACTIVE" = 1 ]; then
+    AI_PROVIDER="${atual:-anthropic}"
+    return 0
+  fi
+
+  printf '\n\033[1mQual inteligência artificial vai atender seus clientes?\033[0m\n\n'
+  printf '  [1] OpenRouter  — uma chave, centenas de modelos de vários fabricantes.\n'
+  printf '                    O caminho mais simples para experimentar. (openrouter.ai/keys)\n'
+  printf '  [2] Anthropic   — o Claude. É o que melhor segue instruções longas e usa\n'
+  printf '                    as ferramentas do CRM. (console.anthropic.com)\n'
+  printf '  [3] OpenAI      — o GPT. (platform.openai.com/api-keys)\n'
+  printf '\n'
+  printf '  Dá para trocar depois, e por parte do sistema, em Agente de IA → Provedores.\n\n'
+
+  local padrao_num=2
+  case "$atual" in openrouter) padrao_num=1;; openai) padrao_num=3;; esac
+
+  while :; do
+    if ! read -r -p "Escolha (Enter = ${padrao_num}): " escolha; then escolha=""; fi
+    [ -z "$escolha" ] && escolha="$padrao_num"
+    case "$escolha" in
+      1) AI_PROVIDER="openrouter"; break;;
+      2) AI_PROVIDER="anthropic";  break;;
+      3) AI_PROVIDER="openai";     break;;
+      *) c_ylw "Digite 1, 2 ou 3.";;
+    esac
+  done
+}
+escolher_provedor
+
+# O campo da chave do provedor ESCOLHIDO — e só dele. Pedir as três faria a
+# pessoa achar que precisa das três.
+case "$AI_PROVIDER" in
+  openrouter) CAMPO_IA="OPENROUTER_API_KEY|Chave da OpenRouter — a IA que atende (openrouter.ai/keys)||v_openrouter|secret|";;
+  openai)     CAMPO_IA="OPENAI_API_KEY|Chave da OpenAI — a IA que atende (platform.openai.com/api-keys)||v_openai|secret|";;
+  *)          CAMPO_IA="ANTHROPIC_API_KEY|Chave da Anthropic — a IA que atende (console.anthropic.com)||v_anthropic|secret|";;
+esac
+
+# A chave da OpenAI é pedida À PARTE quando ela NÃO é o provedor de conversa,
+# porque dois pontos do sistema dependem dela mesmo assim: ouvir áudio (o
+# Whisper é da OpenAI) e indexar a base de conhecimento. Sem esta linha, quem
+# escolhe OpenRouter instala achando que está completo e descobre semanas depois
+# que o agente nunca ouviu um áudio — que é exatamente o defeito já visto em
+# produção, com a chave certa no .env e indo para o endpoint errado.
+if [ "$AI_PROVIDER" = "openai" ]; then
+  CAMPO_OPENAI_EXTRA=""
+else
+  CAMPO_OPENAI_EXTRA="OPENAI_API_KEY|Chave da OpenAI — só para ouvir áudios e usar a base de conhecimento (Enter pula)||v_openai|secret|opcional"
+fi
+
 FIELDS=(
   "DOMAIN|Domínio do CRM (ex: crm.suaempresa.com.br)||v_domain||"
   "ACME_EMAIL|Seu e-mail (avisos de SSL)||v_email||"
@@ -882,8 +989,8 @@ FIELDS=(
   "NEXT_PUBLIC_SUPABASE_ANON_KEY|Supabase anon key (Settings > API)||v_anon||"
   "SUPABASE_SERVICE_ROLE_KEY|Supabase service_role key (Settings > API)||v_service|secret|"
   "SUPABASE_DB_URL|Supabase connection string — Session pooler, modo URI (Settings > Database)||v_db_url|secret|"
-  "ANTHROPIC_API_KEY|Chave da Anthropic — a IA que atende (console.anthropic.com)||v_anthropic|secret|"
-  "OPENAI_API_KEY|Chave da OpenAI — ouvir áudios do WhatsApp e usar a base de conhecimento (Enter pula)||v_openai|secret|opcional"
+  "$CAMPO_IA"
+  ${CAMPO_OPENAI_EXTRA:+"$CAMPO_OPENAI_EXTRA"}
   "OWNER_EMAIL|E-mail do primeiro admin (dono)||v_email||"
   "OWNER_PASSWORD|Senha do primeiro admin (mínimo 8 caracteres)||v_password|secret|"
   "APP_NAME|Nome que aparece na interface (Enter para o padrão)|DeskcommCRM|||"
@@ -893,7 +1000,9 @@ field_at() { IFS='|' read -r F_VAR F_PROMPT F_DEF F_VAL F_SEC F_OPT <<< "${FIELD
 
 if [ "$NONINTERACTIVE" = 0 ]; then
   c_dim "Dica: em qualquer pergunta, digite 'voltar' para refazer a anterior."
-  c_ylw "A chave da OpenAI é opcional, mas sem ela a IA não ouve áudio nem consulta a base de conhecimento."
+  if [ "$AI_PROVIDER" != "openai" ]; then
+    c_ylw "A chave da OpenAI é opcional, mas sem ela a IA não ouve áudio nem consulta a base de conhecimento."
+  fi
 fi
 
 i=0
@@ -1040,6 +1149,68 @@ umask 077
 # (`source .env && curl ...`). O Docker Compose remove as aspas ao carregar,
 # então o contêiner recebe exatamente o valor digitado.
 
+# ── Preserva o que o instalador NÃO conhece ────────────────────────────────
+#
+# O bloco abaixo fecha com `} > .env`, que é TRUNCANTE: ele reescreve o arquivo
+# inteiro a partir de uma lista fechada de chaves. Quem acrescentou qualquer
+# variável à mão — uma chave de provedor de IA que o kit ainda não pergunta, um
+# knob de modelo, um endpoint próprio — PERDIA tudo ao re-rodar o script. E o
+# README vende o install.sh como idempotente, então re-rodar é exatamente o que
+# se espera de quem quer corrigir um dado.
+#
+# O sintoma é dos piores: a instalação continua subindo, sem erro nenhum, e só
+# depois alguém descobre que o agente voltou ao provedor padrão.
+#
+# Aqui as chaves desconhecidas são lidas do .env atual e reemitidas no fim do
+# arquivo novo. Comparação por NOME da variável, contra a lista que este script
+# escreve — assim uma chave nova que o kit passe a conhecer deixa de ser
+# "alheia" sozinha, sem ninguém precisar manter uma segunda lista.
+PRESERVADAS=""
+if [ -f .env ]; then
+  # ── Antes de tudo: recarrega o .env atual no ambiente ────────────────────
+  #
+  # Este é o furo MAIOR, e ele é invisível: várias chaves da lista fechada são
+  # escritas como `envq X "${X:-}"` — o valor da variável de SHELL. Numa
+  # re-execução o shell não tem essas variáveis (o instalador só as coleta no
+  # fluxo interativo, e chave opcional não é perguntada), então elas são
+  # reescritas VAZIAS. Ou seja: a chave da OpenRouter que a pessoa configurou à
+  # mão é APAGADA por uma linha que parecia estar só repassando o valor.
+  #
+  # NÃO recarregue o .env aqui. Havia um `set -a; . ./.env; set +a` neste ponto,
+  # justificado por "carregar o .env atual primeiro faz `${X:-}` cair de volta no
+  # valor que já existia" — e essa premissa é FALSA: `install.sh:674` já faz
+  # `load_env .env` antes da entrevista, e `_common.sh:266` faz `printf -v` +
+  # `export` incondicionalmente. O arquivo já está carregado e exportado aqui.
+  #
+  # O que a releitura fazia de fato era DESFAZER a entrevista: a pessoa corrigia
+  # um valor errado na tela e o `.` sobrescrevia com o antigo do disco. Medido na
+  # triagem; a preservação de variável alheia (o laço abaixo) continua
+  # funcionando sem estas linhas.
+
+  # `$KIT_DIR/install.sh`, não `"$0"`: este bloco roda DEPOIS do `cd` da linha
+  # 662, e com `$0` relativo (o `bash install.sh` que o README:34 documenta) o
+  # grep procura o arquivo no diretório errado e morre com "No such file or
+  # directory" — matando a 2ª execução, que o README:126/:138 documentam como
+  # suportada. `KIT_DIR` (linha 16) é absoluto e imune ao `cd`.
+  CONHECIDAS="$(grep -oE "^\s*envq [A-Z_][A-Z0-9_]*" "$KIT_DIR/install.sh" | awk '{print $2}' | sort -u)"
+  while IFS= read -r linha; do
+    case "$linha" in
+      ''|'#'*) continue;;
+    esac
+    nome="${linha%%=*}"
+    case "$nome" in
+      *[!A-Za-z0-9_]*|'') continue;;
+    esac
+    if ! printf '%s\n' "$CONHECIDAS" | grep -qx "$nome"; then
+      PRESERVADAS="${PRESERVADAS}${linha}
+"
+    fi
+  done < .env
+  if [ -n "$PRESERVADAS" ]; then
+    c_ylw "→ preservando $(printf '%s' "$PRESERVADAS" | grep -c .) variável(is) que você acrescentou à mão"
+  fi
+fi
+
 {
   printf '# Gerado por install.sh — NÃO comitar. Contém segredos.\n'
   envq APP_IMAGE "$APP_IMAGE"
@@ -1071,7 +1242,15 @@ umask 077
   printf '# imagem pública para trocar o texto por logo na sidebar. Ver lib/branding.ts.\n'
   envq APP_NAME "$APP_NAME"
   envq APP_LOGO_URL "${APP_LOGO_URL:-}"
-  envq ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"
+  printf '# Qual provedor você escolheu na instalação. É o que faz a 2ª execução do\n'
+  printf '# install.sh já vir com a sua escolha como padrão, em vez de re-adivinhar\n'
+  printf '# pelas chaves presentes. A app não lê esta variável.\n'
+  envq AI_PROVIDER "${AI_PROVIDER:-anthropic}"
+  # `${ANTHROPIC_API_KEY:-}`, não `$ANTHROPIC_API_KEY`: quem escolhe OpenRouter
+  # ou OpenAI nunca passa pelo campo da Anthropic, e sob `set -u` (linha 12) a
+  # variável não associada derrubava o script AQUI — no meio da escrita do
+  # .env, deixando o arquivo pela metade e a instalação sem como continuar.
+  envq ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}"
   envq AI_GATEWAY_API_KEY "${AI_GATEWAY_API_KEY:-}"
   printf '# OpenRouter: alternativa ao AI Gateway para o chat da IA. A ordem de\n'
   printf '# resolução é AI_GATEWAY_API_KEY > OPENROUTER_API_KEY > provider direto,\n'
@@ -1115,6 +1294,12 @@ umask 077
   envq INTERNAL_AGENT_RUN_STUB "false"
   envq OWNER_EMAIL "$OWNER_EMAIL"
   envq OWNER_PASSWORD "$OWNER_PASSWORD"
+  # As variáveis que você acrescentou à mão, de volta — já no formato em que
+  # estavam, sem passar por envq (o valor original já vem com as aspas dele).
+  if [ -n "$PRESERVADAS" ]; then
+    printf '\n# ── Acrescentadas manualmente (preservadas pelo install.sh) ──\n'
+    printf '%s' "$PRESERVADAS"
+  fi
 } > .env
 chmod 600 .env
 # O .env definitivo existe: o rascunho cumpriu o papel e some — deixá-lo no
@@ -1254,6 +1439,23 @@ begin
   if v_org is null then
     insert into public.organizations (slug, display_name, legal_name, created_by)
     values ('minha-empresa','Minha Empresa','Minha Empresa', v_uid) returning id into v_org;
+  end if;
+  -- O provedor que a pessoa ESCOLHEU passa a valer no banco. O trigger
+  -- fn_seed_org_llm_defaults semeia 'anthropic' fixo — o que estava certo
+  -- enquanto a Anthropic era a única chave que este script pedia. Desde que
+  -- ele pergunta qual IA vai atender, ignorar a resposta significava: quem
+  -- escolhe OpenRouter instala, cadastra a chave, e todo caminho que passa
+  -- pelo agent-engine resolve 'anthropic' — sem chave da Anthropic, erro de
+  -- "IA não configurada" em tudo, mandando cadastrar a chave que ele decidiu
+  -- não usar. Só o provider: o modelo padrão fica com o que o trigger semeou
+  -- até alguém escolher em Agente de IA -> Provedores, porque adivinhar um id
+  -- de modelo de outro provedor aqui seria inventar um valor não verificado.
+  if '${AI_PROVIDER}' not in ('', 'anthropic') then
+    update public.organizations
+       set settings = jsonb_set(
+             coalesce(settings, '{}'::jsonb), '{llm,provider}',
+             to_jsonb('${AI_PROVIDER}'::text), true)
+     where id = v_org;
   end if;
   insert into public.user_organizations (user_id, organization_id, role, accepted_at)
   values (v_uid, v_org, 'admin', now())

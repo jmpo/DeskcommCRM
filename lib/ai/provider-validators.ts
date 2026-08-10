@@ -8,8 +8,19 @@
  *
  * Timeout 5s, sem retry. Erros 401 são distintos de erros de rede.
  */
+import { PROVEDORES } from "@/lib/ai/pontos/provedores";
 
-export type Provider = "anthropic" | "openai" | "google";
+/**
+ * Os provedores cuja CHAVE este arquivo sabe validar.
+ *
+ * Derivado de `lib/ai/pontos/provedores.ts`, que é a lista única desde a
+ * migration 0127 — quando ela era repetida à mão aqui, na rota de credenciais,
+ * no diálogo da tela e em `lib/ai/agents/validation.ts`, a 0127 abriu o banco
+ * para a OpenRouter e as quatro cópias continuaram recusando. O resultado era
+ * uma tela que oferecia OpenRouter num ponto e não tinha onde cadastrar a
+ * chave dela.
+ */
+export type Provider = (typeof PROVEDORES)[number]["id"];
 
 export interface ValidationOk {
   ok: true;
@@ -103,6 +114,32 @@ export async function validateGoogleKey(apiKey: string): Promise<ValidationResul
   }
 }
 
+/**
+ * OpenRouter expõe `/api/v1/key` (metadados da própria chave) e `/api/v1/models`
+ * (catálogo). Validamos pelo catálogo porque ele responde a mesma pergunta —
+ * "esta chave é aceita?" — e já devolve a lista de modelos que a interface usa,
+ * do mesmo jeito que os três irmãos acima.
+ */
+export async function validateOpenRouterKey(apiKey: string): Promise<ValidationResult> {
+  try {
+    const res = await timedFetch("https://openrouter.ai/api/v1/models", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, error: "auth_failed_401" };
+    }
+    if (!res.ok) {
+      return { ok: false, error: `provider_status_${res.status}` };
+    }
+    const json = (await res.json()) as { data?: { id?: string }[] };
+    const models = (json.data ?? []).map((m) => m.id ?? "").filter(Boolean);
+    return { ok: true, models };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.name : "network_error" };
+  }
+}
+
 export function validateProviderKey(
   provider: Provider,
   apiKey: string,
@@ -114,9 +151,14 @@ export function validateProviderKey(
       return validateOpenAIKey(apiKey);
     case "google":
       return validateGoogleKey(apiKey);
+    case "openrouter":
+      return validateOpenRouterKey(apiKey);
     default: {
-      const exhaustive: never = provider;
-      return Promise.resolve({ ok: false, error: `unknown_provider:${exhaustive}` });
+      // Sem `never` aqui: `Provider` agora é derivado de PROVEDORES, e a lista
+      // cresce sem que este arquivo saiba. Provedor novo cadastrado antes de
+      // ganhar validador devolve um erro que DIZ isso, em vez de quebrar o
+      // build de quem só acrescentou uma linha na lista.
+      return Promise.resolve({ ok: false, error: `unknown_provider:${provider}` });
     }
   }
 }

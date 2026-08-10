@@ -11,8 +11,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PROVEDORES } from "@/lib/ai/pontos/provedores";
 
-export type Provider = "anthropic" | "openai" | "google";
+/**
+ * Derivado de `lib/ai/pontos/provedores.ts` — a mesma lista única da tela de
+ * Credenciais e da rota. Como literal aqui, o seletor de modelo do agente não
+ * conseguia representar um agente publicado em OpenRouter.
+ */
+export type Provider = (typeof PROVEDORES)[number]["id"];
 
 export interface ModelOption {
   provider: Provider;
