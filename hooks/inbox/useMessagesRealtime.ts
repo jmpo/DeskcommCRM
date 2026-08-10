@@ -37,6 +37,20 @@ export function useMessagesRealtime(conversationId: string | null) {
     },
     getNextPageParam: (last) =>
       last.meta?.has_more && last.meta.cursor ? last.meta.cursor : undefined,
+    /**
+     * Voltar para a aba RESSINCRONIZA — aqui, e não no padrão global.
+     *
+     * O padrão do repo é `refetchOnWindowFocus: false`, e está certo para o
+     * resto: recarregar tudo a cada troca de aba é gasto sem retorno numa tela
+     * que muda devagar. O inbox é o oposto — é a tela em que a informação chega
+     * de fora enquanto ninguém olha, e voltar para ela é exatamente o momento
+     * em que a defasagem aparece.
+     *
+     * É a segunda rede, não a primeira: quem entrega é o Realtime. Esta existe
+     * para o intervalo em que ele esteve caído — e foi o sintoma relatado,
+     * "às vezes preciso atualizar para a mensagem aparecer".
+     */
+    refetchOnWindowFocus: true,
   });
 
   const onChange = useCallback(() => {

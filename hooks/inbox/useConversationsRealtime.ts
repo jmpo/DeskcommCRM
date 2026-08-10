@@ -95,6 +95,10 @@ export function useConversationsRealtime(
     },
     getNextPageParam: (last) =>
       last.meta?.has_more && last.meta.cursor ? last.meta.cursor : undefined,
+    // Mesma razão do hilo de mensagens: o inbox é a tela em que a informação
+    // chega de fora enquanto ninguém olha, e voltar para a aba é quando a
+    // defasagem aparece. Segunda rede — a primeira é o Realtime.
+    refetchOnWindowFocus: true,
   });
 
   const onChange = useCallback(() => {

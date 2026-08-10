@@ -177,10 +177,6 @@ export function useRealtimeChannel(opts: UseRealtimeChannelOpts): {
     const supabase = createClient();
     const channelName = `${name}::${instanceId}`;
 
-    // `chain` nunca é null durante o setup; `active` (anulável) existe só pro
-    // cleanup — separado para o narrowing do TS não depender de reatribuição.
-    let chain: RealtimeChannel = supabase.channel(channelName);
-
     const handler = (payload: unknown) => {
       // Carimba ANTES de entregar: se o consumidor lançar, a entrega ainda
       // aconteceu — e o refetch de segurança precisa saber disso para não
@@ -189,46 +185,98 @@ export function useRealtimeChannel(opts: UseRealtimeChannelOpts): {
       onChangeRef.current(payload);
     };
 
-    if (postgresChanges) {
-      chain = chain.on(
-        "postgres_changes",
-        {
-          event: postgresChanges.event,
-          schema: postgresChanges.schema ?? "public",
-          table: postgresChanges.table,
-          ...(postgresChanges.filter ? { filter: postgresChanges.filter } : {}),
-        },
-        handler,
-      );
-    }
-
-    if (broadcast) {
-      chain = chain.on("broadcast", { event: broadcast.event }, handler);
-    }
-
-    let active: RealtimeChannel | null = chain;
+    // `active` guarda o canal VIGENTE. Cada tentativa cria um objeto novo, e a
+    // comparação `active !== novo` nos callbacks descarta o que sobrou de uma
+    // tentativa anterior — sem ela, um canal velho que responde tarde
+    // sobrescreveria o estado do canal que já está de pé.
+    let active: RealtimeChannel | null = null;
     let cancelado = false;
+    let tentativas = 0;
+    let retomada: ReturnType<typeof setTimeout> | null = null;
     setStatus("connecting");
 
-    // O token tem de chegar ANTES do subscribe: assinar primeiro e autenticar
-    // depois deixa o canal anônimo para sempre — ele responde "Subscribed to
-    // PostgreSQL" e nunca entrega evento, porque a RLS filtra do outro lado.
-    void esperarAuth(supabase).then(() => {
-      if (cancelado || !active) return;
-      active.subscribe((s) => {
-        // s is one of "SUBSCRIBED" | "CHANNEL_ERROR" | "TIMED_OUT" | "CLOSED"
-        const map: Record<string, RealtimeStatus> = {
-          SUBSCRIBED: "subscribed",
-          CHANNEL_ERROR: "channel_error",
-          TIMED_OUT: "timed_out",
-          CLOSED: "closed",
-        };
-        setStatus(map[s] ?? "connecting");
+    /**
+     * Monta o canal do zero e assina.
+     *
+     * DO ZERO, e não `subscribe()` de novo no mesmo objeto: um canal que entrou
+     * em erro não volta — o socket já derrubou a topologia dele, e reassinar o
+     * mesmo objeto devolve SUBSCRIBED sem nunca mais entregar. Morte silenciosa,
+     * a mesma classe de defeito que a memo de auth já tinha aqui.
+     */
+    const montar = () => {
+      if (cancelado) return;
+
+      let novo: RealtimeChannel = supabase.channel(`${channelName}#${tentativas}`);
+      if (postgresChanges) {
+        novo = novo.on(
+          "postgres_changes",
+          {
+            event: postgresChanges.event,
+            schema: postgresChanges.schema ?? "public",
+            table: postgresChanges.table,
+            ...(postgresChanges.filter ? { filter: postgresChanges.filter } : {}),
+          },
+          handler,
+        );
+      }
+      if (broadcast) novo = novo.on("broadcast", { event: broadcast.event }, handler);
+      active = novo;
+
+      // O token tem de chegar ANTES do subscribe: assinar primeiro e autenticar
+      // depois deixa o canal anônimo para sempre — ele responde "Subscribed to
+      // PostgreSQL" e nunca entrega evento, porque a RLS filtra do outro lado.
+      void esperarAuth(supabase).then(() => {
+        if (cancelado || active !== novo) return;
+        novo.subscribe((s) => {
+          if (cancelado || active !== novo) return;
+          // s is one of "SUBSCRIBED" | "CHANNEL_ERROR" | "TIMED_OUT" | "CLOSED"
+          const map: Record<string, RealtimeStatus> = {
+            SUBSCRIBED: "subscribed",
+            CHANNEL_ERROR: "channel_error",
+            TIMED_OUT: "timed_out",
+            CLOSED: "closed",
+          };
+          setStatus(map[s] ?? "connecting");
+
+          if (s === "SUBSCRIBED") {
+            // Voltou depois de ter caído. O que aconteceu enquanto ele estava
+            // morto NÃO vai chegar — o Realtime não guarda nada para entregar
+            // depois. Uma entrega sintética força quem escuta a buscar de novo,
+            // e é ela que fecha o buraco de verdade: sem isso o canal volta a
+            // funcionar para o PRÓXIMO evento e a tela segue sem o anterior.
+            if (tentativas > 0) {
+              tentativas = 0;
+              handler({ tipo: "reassinado" });
+            }
+            return;
+          }
+
+          if (s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") {
+            // Antes daqui não havia NADA: o estado era anotado e o canal ficava
+            // morto até a pessoa recarregar a página. Foi o sintoma relatado —
+            // "às vezes preciso atualizar para a mensagem aparecer".
+            //
+            // Recuo exponencial com teto de 30s: reconectar em rajada contra um
+            // socket que caiu por sobrecarga piora a sobrecarga, e o teto evita
+            // que uma queda longa deixe a espera em minutos.
+            const espera = Math.min(30_000, 1_000 * 2 ** tentativas);
+            tentativas++;
+            if (retomada) clearTimeout(retomada);
+            retomada = setTimeout(() => {
+              if (cancelado) return;
+              if (active) supabase.removeChannel(active);
+              montar();
+            }, espera);
+          }
+        });
       });
-    });
+    };
+
+    montar();
 
     return () => {
       cancelado = true;
+      if (retomada) clearTimeout(retomada);
       if (active) {
         supabase.removeChannel(active);
         active = null;
