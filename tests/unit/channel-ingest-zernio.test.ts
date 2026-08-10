@@ -442,3 +442,41 @@ describe("a entrada do seam — o que a rota chama", () => {
     expect(verifyZernioSignature(corpo + " ", firma, SECRET)).toBe(false);
   });
 });
+
+describe("o carimbo da conversa — o elo que faltava", () => {
+  it("marca a conversa com a mensagem que chegou", async () => {
+    // Faltava. Medido em produção: conversa com cinco mensagens do cliente e
+    // `last_inbound_at` NULL. Os outros dois canais fazem esta chamada; este
+    // ingest a omitia.
+    ops.length = 0;
+    await ingestZernioInbound(admin, { ...ENTRADA, payload: evento() });
+    const carimbo = ops.find((o) => o.op === "fn_mark_conversation_message");
+    expect(carimbo, "a conversa não foi carimbada").toBeTruthy();
+    expect(carimbo?.payload).toMatchObject({ p_direction: "inbound" });
+  });
+
+  it("usa a hora do PROVIDER, não a da chegada do webhook", async () => {
+    // Numa reentrega atrasada as duas diferem por horas — e é desta hora que
+    // sai a janela de 24h e a ordem da lista.
+    ops.length = 0;
+    await ingestZernioInbound(admin, { ...ENTRADA, payload: evento() });
+    const carimbo = ops.find((o) => o.op === "fn_mark_conversation_message");
+    expect((carimbo?.payload as { p_at?: string })?.p_at).toBe("2026-08-08T01:00:00.000Z");
+  });
+
+  it("saída também carimba — envio feito fora do CRM conta", async () => {
+    ops.length = 0;
+    await ingestZernioInbound(admin, {
+      ...ENTRADA,
+      // `conversation.participantId` porque na SAÍDA o `sender` é o negócio: a
+      // identidade do cliente vem da conversa, não de quem mandou.
+      payload: {
+        ...evento({ direction: "outgoing" }),
+        event: "message.sent",
+        conversation: { participantId: "+595991733685" },
+      },
+    });
+    const carimbo = ops.find((o) => o.op === "fn_mark_conversation_message");
+    expect(carimbo?.payload).toMatchObject({ p_direction: "outbound" });
+  });
+});

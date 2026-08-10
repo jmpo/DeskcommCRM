@@ -22,6 +22,8 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { logger } from "@/lib/logger";
+
 import { parseZernioInbound, type ZernioIdentity, type ZernioInboundMessage } from "./webhook";
 
 export interface ZernioIngestResult {
@@ -115,6 +117,9 @@ export async function ingestZernioInbound(
         .eq("id", existente.contact_id)
         .is("phone_number", null);
     }
+    if (inseridaNaExistente !== "duplicate") {
+      await marcarConversa(admin, existente.id, msg);
+    }
     return inseridaNaExistente === "duplicate"
       ? { status: "duplicate", conversationId: existente.id }
       : { status: "ingested", conversationId: existente.id, messageId: inseridaNaExistente };
@@ -147,7 +152,59 @@ export async function ingestZernioInbound(
   });
 
   if (inserted === "duplicate") return { status: "duplicate", conversationId };
+
+  await marcarConversa(admin, conversationId, msg);
   return { status: "ingested", conversationId, messageId: inserted };
+}
+
+/**
+ * Carimba a conversa com o que acabou de chegar.
+ *
+ * ─── O que faltava, e o que isso quebrava ──────────────────────────────────
+ *
+ * Esta chamada não existia neste canal. Os outros dois a fazem; eu escrevi este
+ * ingest e a omiti. Medido em produção: conversa com CINCO mensagens do cliente
+ * e `last_inbound_at` NULL.
+ *
+ * O estrago não é cosmético, porque `last_inbound_at` é a fonte da janela de
+ * 24h:
+ *
+ *   - o selo dizia "o cliente nunca escreveu" numa conversa em que ele acabara
+ *     de escrever, e o composer barrava o envio por um motivo falso;
+ *   - o guardrail do agente calcula a janela do MESMO campo, então o assistente
+ *     tratava toda conversa deste canal como fechada e nunca respondia texto
+ *     livre — inclusive dentro da janela;
+ *   - `unread_count_for_assignee` nunca subia, então o contador de não lidas da
+ *     lista ficava em zero mesmo com mensagem nova.
+ *
+ * Três sintomas sem relação aparente, uma linha ausente.
+ *
+ * Não carimba no `duplicate`: a reentrega é a MESMA mensagem, e somar de novo
+ * inflaria o contador de não lidas a cada reenvio do provider.
+ */
+async function marcarConversa(
+  admin: SupabaseClient,
+  conversationId: string,
+  msg: ZernioInboundMessage,
+): Promise<void> {
+  const { error } = await admin.rpc("fn_mark_conversation_message" as never, {
+    p_conv: conversationId,
+    p_direction: msg.direction,
+    p_preview: (msg.text ?? "").slice(0, 200),
+    // `sentAt` do provider quando existe: a ordem da lista e o cálculo da janela
+    // têm que usar a hora em que o cliente ESCREVEU, não a hora em que o webhook
+    // chegou — numa reentrega atrasada as duas diferem por horas.
+    p_at: msg.sentAt ?? new Date().toISOString(),
+  } as never);
+  // Não derruba a ingestão: a mensagem já está gravada, e perder o carimbo é
+  // pior que perder a mensagem — mas MUITO melhor que devolver 500 e fazer o
+  // provider reenviar tudo de novo.
+  if (error) {
+    logger.warn("[zernio] carimbo da conversa falhou", {
+      conversationId,
+      detail: error.message,
+    });
+  }
 }
 
 /** A conversa que o provider já associou a esta thread, se houver. */
