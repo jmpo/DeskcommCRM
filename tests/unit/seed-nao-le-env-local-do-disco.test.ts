@@ -67,6 +67,28 @@ const SONDAS = [...varrer("scripts"), ...varrer("tests"), ...varrer("tests/e2e")
  */
 const LE_DO_DISCO = /readFileSync[\s\S]{0,80}?\.env\.local/;
 
+/**
+ * Tira COMENTÁRIO antes de aplicar a regex — comentário não é caminho de execução.
+ *
+ * Medido em 2026-08-08: documentar esta própria lição dentro de
+ * `tests/e2e/escalacao-ciclo.spec.ts` reprovou o gate. O texto explicava por que a
+ * flag `--env-file` tinha saído e citava, em prosa, as duas palavras que a regex
+ * procura — a 80 caracteres uma da outra. O match caía inteiro dentro do bloco de
+ * comentário.
+ *
+ * A escolha aqui é deliberada e vale dizer por quê, porque "afrouxar o gate para o
+ * teste passar" é normalmente a troca errada: o que o gate PRETENDE medir é
+ * comportamento de execução, e prosa não executa. Um gate que reprova quem
+ * documenta ensina a não documentar — e a próxima pessoa a explicar esta armadilha
+ * tropeçaria nela de novo.
+ *
+ * O que se perde: uma violação escondida dentro de código COMENTADO deixa de ser
+ * pega. Código comentado também não executa, então a perda é nominal.
+ */
+function semComentarios(fonte: string): string {
+  return fonte.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
 describe("seeds de E2E não leem .env.local do disco", () => {
   it("a varredura acha os seeds — sem isto, um teste vazio passaria e não mediria nada", () => {
     // Controle positivo. Um filtro errado devolve [], o `it.each` não roda
@@ -77,7 +99,7 @@ describe("seeds de E2E não leem .env.local do disco", () => {
   it.each(SEEDS)("%s pergunta ao ambiente, não ao arquivo", (seed) => {
     const fonte = readFileSync(seed, "utf8");
     expect(
-      LE_DO_DISCO.test(fonte),
+      LE_DO_DISCO.test(semComentarios(fonte)),
       `${seed} lê .env.local do disco. Num checkout de trabalho isso aponta para PRODUÇÃO — ` +
         "use `credenciaisSupabaseDeTeste()` de scripts/lib/env-de-teste.ts, que faz process.env vencer.",
     ).toBe(false);
@@ -101,7 +123,7 @@ describe("seeds de E2E não leem .env.local do disco", () => {
   it.each(SONDAS)("%s não lê .env.local do disco", (arquivo) => {
     const fonte = readFileSync(arquivo, "utf8");
     expect(
-      LE_DO_DISCO.test(fonte),
+      LE_DO_DISCO.test(semComentarios(fonte)),
       `${arquivo} lê .env.local do disco. Num checkout de trabalho isso aponta para PRODUÇÃO — ` +
         "use `carregarEnvLocal()` de scripts/lib/env-de-teste.ts, que faz process.env vencer " +
         "e tolera a ausência do arquivo.",

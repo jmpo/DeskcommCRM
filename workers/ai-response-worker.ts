@@ -22,7 +22,6 @@ import {
   gatewayHeaders,
   isAiGatewayConfigured,
   isEmbeddingProviderConfigured,
-  resolveLanguageModel,
 } from "@/lib/ai/gateway";
 import { embedText } from "@/lib/ai/embed";
 import { computeCost } from "@/lib/ai/cost";
@@ -40,6 +39,7 @@ import type {
   SkipDecision,
 } from "@/lib/ai/types";
 import type { EventRow } from "@/lib/event-log/dispatcher";
+import { resolverModeloDoPonto } from "@/lib/ai/gateway-binding";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -141,8 +141,14 @@ export async function processMessageReceived(row: EventRow): Promise<ProcessResu
   //
   // Skip, não erro: modelo que nenhuma chave desta instalação atende é config,
   // não falha transitória — retentar só repetiria o loop que este PR mata.
-  const model = resolveLanguageModel(ctx.agent.model);
-  if (!model) {
+  // O painel de provedores manda aqui também — ver lib/ai/gateway-binding.ts.
+  const resolvido = await resolverModeloDoPonto(
+    "bot_respond",
+    ctx.organization_id,
+    ctx.agent.model,
+  );
+  const model = resolvido?.model ?? null;
+  if (!model || !resolvido) {
     logger.warn("[ai-response-worker] modelo do agente sem provider configurado", {
       organization_id: ctx.organization_id,
       agent_id: ctx.agent.id,
@@ -155,6 +161,14 @@ export async function processMessageReceived(row: EventRow): Promise<ProcessResu
     };
   }
 
+  // Daqui para baixo, o modelo RESOLVIDO pelo painel é o que vai para o provedor
+  // E para a telemetria. Os `logInvocation`/`computeCost` abaixo usavam
+  // `ctx.agent.model`: a chamada saía para o provedor do binding e a linha em
+  // `llm_calls` dizia o modelo do agente. Quem escolhesse, por exemplo, um llama
+  // pela OpenRouter em "Responder o cliente" veria a tela de Execuções atribuir
+  // o gasto à Anthropic — no ponto de IA mais frequente do produto. O mesmo
+  // defeito já tinha sido corrigido no ai-sentiment-worker; aqui era a cópia do
+  // padrão que ficou para trás.
   try {
     const response = await invokeBot(ctx, model);
     const post = postProcess(response.text);
@@ -197,12 +211,12 @@ export async function processMessageReceived(row: EventRow): Promise<ProcessResu
         conversation_id: ctx.conversation_id,
         message_id: persisted.outbound_message_id,
         invocation_kind: "bot_respond",
-        model: ctx.agent.model,
+        model: resolvido.modelId,
         prompt_tokens: response.prompt_tokens,
         completion_tokens: response.completion_tokens,
         latency_ms: response.latency_ms,
         cost_cents: await computeCost({
-          model: ctx.agent.model,
+          model: resolvido.modelId,
           promptTokens: response.prompt_tokens,
           completionTokens: response.completion_tokens,
         }),
@@ -223,12 +237,12 @@ export async function processMessageReceived(row: EventRow): Promise<ProcessResu
       conversation_id: ctx.conversation_id,
       message_id: persisted.outbound_message_id,
       invocation_kind: "bot_respond",
-      model: ctx.agent.model,
+      model: resolvido.modelId,
       prompt_tokens: response.prompt_tokens,
       completion_tokens: response.completion_tokens,
       latency_ms: response.latency_ms,
       cost_cents: await computeCost({
-        model: ctx.agent.model,
+        model: resolvido.modelId,
         promptTokens: response.prompt_tokens,
         completionTokens: response.completion_tokens,
       }),
@@ -249,7 +263,7 @@ export async function processMessageReceived(row: EventRow): Promise<ProcessResu
       conversation_id: ctx.conversation_id,
       message_id: ctx.message_id,
       invocation_kind: "bot_respond",
-      model: ctx.agent.model,
+      model: resolvido.modelId,
       prompt_tokens: 0,
       completion_tokens: 0,
       latency_ms: 0,

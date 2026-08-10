@@ -100,4 +100,27 @@ describe("catálogo real ↔ handlers reais", () => {
       expect(s.pacotes.length, `${s.id} sem pacote`).toBeGreaterThan(0);
     }
   });
+
+  it("toda capacidade servida tem descrição — e ela vem do HANDLER", () => {
+    // Esta guarda faltava, e a falta ficou visível em 2026-08-07: o catálogo
+    // tinha uma `description` própria que NENHUM consumidor lia (a ponte do
+    // turno monta `def.description`, do handler) e que divergia da real em 48
+    // das 51 capacidades. Ela foi removida; o campo do catálogo não existe mais.
+    //
+    // Sem este caso, esvaziar a descrição de um handler passaria calado: a tela
+    // mostraria a capacidade sem explicação técnica e o modelo receberia uma
+    // ferramenta sem contrato — dois silêncios de uma vez.
+    const servidas = juntarCatalogoComHandlers(allTools, TOOL_CATALOG);
+    const porNome = new Map(allTools.map((t) => [t.name, t.description]));
+    expect(servidas.length, "nada servido — guarda de vacuidade").toBeGreaterThan(0);
+    for (const s of servidas) {
+      expect(s.description.trim().length, `${s.id} servido sem descrição`).toBeGreaterThan(0);
+      // A IDENTIDADE é o que importa: não basta ter texto, tem de ser o MESMO
+      // que chega ao modelo. Se um dia reaparecer uma cópia no catálogo e a
+      // junção passar a preferi-la, este caso reprova.
+      expect(s.description, `${s.id}: a tela mostra texto diferente do que vai ao modelo`).toBe(
+        porNome.get(s.id),
+      );
+    }
+  });
 });

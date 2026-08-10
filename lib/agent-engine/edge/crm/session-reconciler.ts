@@ -92,14 +92,25 @@ interface QueuedRow {
   body: string | null;
   waha_session_name: string;
   wa_identity: string | null;
+  wa_lid: string | null;
   phone_number: string | null;
   is_group: boolean;
   group_chat_id: string | null;
 }
 
-/** chatId do WAHA a partir da identidade do contato (mesma regra do lib/waha/send). */
+/**
+ * chatId do WAHA a partir da identidade do contato — MESMA REGRA de
+ * `resolveWahaChatId` (lib/waha/send.ts), e as duas precisam continuar iguais:
+ * este caminho reenvia o que aquele deixou preso, e divergir aqui faria o
+ * redrive mandar a mensagem para um endereço diferente do envio original.
+ *
+ * `wa_lid` na frente pelo motivo da 0122: `wa_identity` é GERADA com o telefone
+ * antes do lid, então o contato @lid que ganhou número passa a bater na linha do
+ * `phone:` e a conversa mudaria de canal no reenvio.
+ */
 function chatIdOf(m: QueuedRow): string | null {
   if (m.is_group && m.group_chat_id) return m.group_chat_id;
+  if (m.wa_lid) return `${m.wa_lid}@lid`;
   if (m.wa_identity?.startsWith('lid:')) return `${m.wa_identity.slice(4)}@lid`;
   if (m.wa_identity?.startsWith('phone:+')) return `${m.wa_identity.slice(7)}@c.us`;
   if (m.phone_number) return `${m.phone_number.replace('+', '')}@c.us`;
@@ -114,7 +125,7 @@ export async function redriveQueued(
 ): Promise<number> {
   const { rows } = await pool.query<QueuedRow>(
     `select m.id, m.organization_id, m.body, s.waha_session_name,
-            c.wa_identity, c.phone_number, v.is_group, v.group_chat_id
+            c.wa_identity, c.wa_lid, c.phone_number, v.is_group, v.group_chat_id
      from messages m
      join channel_sessions s on s.id = m.channel_session_id
      join conversations v on v.id = m.conversation_id

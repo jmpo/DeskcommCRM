@@ -110,6 +110,31 @@ export function credenciaisSupabaseDeTeste(): CredenciaisSupabase {
   };
 }
 
+/** O host de um destino, sem a senha — `dbUrl` carrega credencial e não vai a log. */
+function hostDe(alvo: string): string {
+  if (alvo === "") return "(vazio)";
+  try {
+    const u = new URL(alvo);
+    return u.port === "" ? u.hostname : `${u.hostname}:${u.port}`;
+  } catch {
+    return "(ilegível)";
+  }
+}
+
+/**
+ * Um destino é local quando o host é loopback. Serve para os DOIS canais: a URL
+ * HTTP do Supabase e o DSN do Postgres (`new URL` entende `postgresql://`).
+ *
+ * Destino VAZIO conta como local: sem DSN o `pg` cai no default do libpq
+ * (`127.0.0.1:5432`) e falha alto com `ECONNREFUSED`, que é ruído — não é escrita
+ * em produção, e é o que este alarme existe para achar.
+ */
+export function destinoEhLocal(alvo: string): boolean {
+  if (alvo === "") return true;
+  const host = hostDe(alvo).split(":")[0] ?? "";
+  return host === "localhost" || host === "::1" || host === "[::1]" || host.startsWith("127.");
+}
+
 /**
  * Diz em voz alta contra QUAL banco o script vai escrever.
  *
@@ -117,11 +142,45 @@ export function credenciaisSupabaseDeTeste(): CredenciaisSupabase {
  * produção acha exatamente os mesmos dados de teste de sempre e termina com
  * "✅ Seed completo". Uma linha impressa é o que transforma isso em algo que
  * alguém pode notar antes de apertar enter na próxima vez.
+ *
+ * ═══ POR QUE ELE OLHA OS DOIS CANAIS (defeito medido em 2026-08-08) ═══
+ *
+ * A versão anterior decidia o rótulo **só por `c.url`**. Mas os dois canais são
+ * resolvidos por regras diferentes: `url` e `serviceRole` exigem o ambiente
+ * inteiro (linha 79), enquanto `dbUrl` cai no `.env.local` quando o ambiente não
+ * a define (linha 89) — um fallback deliberado e testado.
+ *
+ * O estado MISTO é alcançável, e é o pior dos três porque parece seguro: com
+ * `.env.e2e` no ambiente e um `.env.local` de trabalho no disco, a API vai para o
+ * Supabase local e o **Postgres vai para a produção** — e são 15 arquivos que
+ * abrem `pg.Pool` com esse `dbUrl`. O alarme imprimia `escrevendo em LOCAL` e o
+ * script escrevia no banco real: exatamente a classe de defeito que esta função
+ * foi criada para tornar visível, no canal que ela não cobria.
+ *
+ * Continua sendo INFORMAÇÃO, não gate: não recuso a execução aqui porque não
+ * consigo provar que nenhum fluxo legítimo usa o par misto, e uma exceção nova em
+ * 19 call sites é impacto maior que o defeito. O que muda é que o texto passa a
+ * ser verdade — e a linha misto sai em `console.warn`, não `info`.
  */
 export function anunciarDestino(script: string, c: CredenciaisSupabase): void {
-  const local = c.url.startsWith("http://127.0.0.1") || c.url.startsWith("http://localhost");
-  const rotulo = local ? "LOCAL" : "⚠️  REMOTO";
-  console.info(`[${script}] escrevendo em ${rotulo}: ${c.url} (origem: ${c.origem})`);
+  const apiLocal = destinoEhLocal(c.url);
+  const bancoLocal = destinoEhLocal(c.dbUrl);
+
+  // Formato preservado no caso são-todos-locais: é o que o operador já conhece e
+  // o que a prova dos 16 seeds registrou no handoff.
+  if (apiLocal && bancoLocal) {
+    console.info(`[${script}] escrevendo em LOCAL: ${c.url} (origem: ${c.origem})`);
+    return;
+  }
+  if (!apiLocal && !bancoLocal) {
+    console.warn(`[${script}] escrevendo em ⚠️  REMOTO: ${c.url} (origem: ${c.origem})`);
+    return;
+  }
+  console.warn(
+    `[${script}] ⚠️  DESTINO MISTO — a API vai para ${apiLocal ? "LOCAL" : "REMOTO"} ` +
+      `(${c.url}) e o Postgres para ${bancoLocal ? "LOCAL" : "REMOTO"} (${hostDe(c.dbUrl)}). ` +
+      `Quem abre pg.Pool escreve no SEGUNDO. (origem: ${c.origem})`,
+  );
 }
 
 /**

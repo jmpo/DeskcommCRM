@@ -45,7 +45,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { detectarVazamentoInterno } from '@/lib/agent-engine/guardrails/vazamento-interno';
-import { TOOL_CATALOG } from '@/lib/mcp/tools/catalog';
+import { allTools } from '@/lib/mcp/tools';
 import { AGENT_TOOL_DEFS } from '@/lib/agent-engine/agent/inbound-turn';
 import { capacidadesEntreguesAoOperador } from '@/lib/agent-engine/agent/entrega-de-capacidade';
 
@@ -119,7 +119,16 @@ function cenariosDaLinhaDeBase(): Cenario[] {
 /** A ferramenta como o modelo a vê: nome + descrição, que é o que pode vazar. */
 function descreverFerramentas(nativas: string[], catalogo: string[]): Array<Record<string, unknown>> {
   const defs = AGENT_TOOL_DEFS as Record<string, { description: string }>;
-  const doCatalogo = new Map(TOOL_CATALOG.map((t) => [t.name, t.description]));
+  // A descrição vem do HANDLER, não do catálogo. Esta linha lia
+  // `TOOL_CATALOG.description` — um campo que NENHUM consumidor lê: a ponte do
+  // turno (`lib/ai/runtime/tools.ts`) monta `def.description`, do handler, e as
+  // duas divergiam em 48 das 51 capacidades. O comentário acima diz "como o
+  // modelo a vê", e era exatamente o texto que o modelo NÃO vê.
+  //
+  // Não reabri a medição arquivada: o nome da tool, que é o vetor principal de
+  // vazamento, é idêntico nas duas fontes, então o efeito no resultado NÃO foi
+  // medido. Corrijo a fonte para que a próxima rodada leia o que vai ao modelo.
+  const doCatalogo = new Map(allTools.map((t) => [t.name, t.description]));
   return [
     ...nativas
       .filter((n) => defs[n] !== undefined)

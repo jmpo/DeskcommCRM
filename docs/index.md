@@ -71,13 +71,18 @@ Detalham schema SQL e payloads exatos. **Consulte antes de modelar qualquer cois
 | [`specs/14`](specs/14-contrato-governanca-agentes-externos.md) | Contrato para agentes de IA externos |
 | [`specs/15`](specs/15-spec-casos-humanos.md) | Casos humanos (IA delega a humano) |
 | [`specs/16`](specs/16-spec-tres-papeis-do-agente.md) | **Três papéis do agente** — Conversador / Operador / Segurança |
+| [`specs/17`](specs/17-spec-conversa-vira-lead.md) | **A conversa vira lead** — o elo entre atendimento e CRM |
+| [`specs/17`](specs/17-spec-indice-de-atrito.md) | **Índice de Atrito** — medir o propósito (menor atrito p/ os dois lados), não a atividade |
 | [`specs/RECONCILIATION-LOG.md`](specs/RECONCILIATION-LOG.md) | Log de reconciliação entre specs |
 
 ## 4. Doutrina e arquitetura
 
 | Doc | Conteúdo |
 |---|---|
-| [`doctrine/sistema-vivo.md`](doctrine/sistema-vivo.md) | **Doutrina do Sistema Vivo** — 5 invariantes + Living System Checklist (item 13 do DoD) |
+| [`doctrine/sistema-vivo.md`](doctrine/sistema-vivo.md) | **Doutrina do Sistema Vivo — a LEI.** 7 invariantes + regra do tempo + Living System Checklist (item 13 do DoD) |
+| [`doctrine/sistema-vivo/`](doctrine/sistema-vivo/README.md) | **Manual do Sistema Vivo** — 8 capítulos plugáveis (princípio universal + aplicação de referência). O *porquê* de cada invariante, e como adotar a doutrina em outro sistema |
+| [`doctrine/restricao-de-canal.md`](doctrine/restricao-de-canal.md) | Auto-restrição × hetero-restrição de canais externos; contrato de parâmetros derivado |
+| [`doctrine/separacao-fala-e-operacao.md`](doctrine/separacao-fala-e-operacao.md) | Vocabulário interno nunca vaza para o cliente |
 | [`architecture/agent-turn.html`](architecture/agent-turn.html) | Diagrama do turno do agente (inbound → guardrails → outbound) |
 | [`research/architecture-diagrams.md`](research/architecture-diagrams.md) | Diagramas de arquitetura |
 | [`research/reference-synthesis.md`](research/reference-synthesis.md) | Arquitetura herdada da referência WAHA |

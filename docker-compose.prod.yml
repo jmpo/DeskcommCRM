@@ -137,6 +137,8 @@ services:
         30 3 * * * curl -fsS -m120 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/kb-conversations-batch >/dev/null 2>&1
         */10 * * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/contact-avatars >/dev/null 2>&1
         */30 * * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/contact-phones >/dev/null 2>&1
+        15 4 * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/sync-model-catalog >/dev/null 2>&1
+        17 * * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/contact-proposals-watcher >/dev/null 2>&1
         EOF
         exec crond -f -l 2
     logging: *default-logging

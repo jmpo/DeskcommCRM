@@ -95,7 +95,13 @@ async function main(): Promise<void> {
   await abrirConversa(page);
   const textoFalha = await painel.innerText();
 
-  const mente = /Sem leads\.|Sem atividade\.|Sem pedidos\./.test(textoFalha);
+  // "Nenhuma demanda aberta." entra na lista pelo MESMO motivo das outras
+  // três: com a leitura falhando, é uma afirmação sobre o negócio feita em
+  // cima de um erro. A seção nasceu depois da sonda; se não entrasse aqui, o
+  // painel poderia voltar a mentir por um caminho que ninguém vigia.
+  const mente = /Sem leads\.|Sem atividade\.|Sem pedidos\.|Nenhuma demanda aberta\./.test(
+    textoFalha,
+  );
   const confessa = /Não consegui ler/i.test(textoFalha);
   record(
     "2.8.d-falha-confessa",

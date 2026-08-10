@@ -17,6 +17,7 @@ import type { createAdminClient } from "@/lib/supabase/admin";
 import { ackToStatus } from "@/lib/types/messaging";
 import { bareWaMessageId, chatIdFromWaMessageId } from "@/lib/waha/message-id";
 import { logger } from "@/lib/logger";
+import { garantirLeadDaConversa } from "@/lib/leads/nascimento-do-lead";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -48,6 +49,24 @@ export interface WahaPayload {
     pushName?: string;
     /** NOWEB: o conteúdo real (imageMessage, stickerMessage, …) — fonte do tipo. */
     message?: Record<string, unknown>;
+    /**
+     * A chave do Baileys — e o achado que o passo 2 da spec 17 mediu.
+     *
+     * Quando o chat é `@lid`, o WhatsApp NÃO esconde o telefone: ele o manda em
+     * `remoteJidAlt` (chat 1:1) ou `participantAlt` (grupo). Medido em
+     * `webhook_events_log` da produção: **76 de 76** payloads @lid com `key`
+     * trazem o número. A leitura de que "@lid é opaco por privacidade" valia
+     * para o `from`, não para o payload inteiro.
+     */
+    key?: {
+      remoteJid?: string;
+      remoteJidAlt?: string;
+      participant?: string;
+      participantAlt?: string;
+      addressingMode?: string;
+      fromMe?: boolean;
+      id?: string;
+    };
   } & Record<string, unknown>;
 }
 
@@ -240,6 +259,47 @@ function notifyNameOf(p: WahaPayload): string | null {
 }
 
 /**
+ * O telefone REAL de quem escreveu, quando o chat chega como `@lid`.
+ *
+ * `from` vem opaco (`70192801575156@lid`), mas `_data.key.remoteJidAlt` traz
+ * `558183647258@s.whatsapp.net`. Em grupo, o equivalente é `participantAlt`.
+ *
+ * Devolve E.164 (`+55…`) ou null. **Só aceita o que parece telefone**: o campo é
+ * de fora, e um valor estranho aqui viraria `phone_number` — que é chave de
+ * reencontro de contato e endereço de envio. Na dúvida, nulo: contato sem
+ * telefone é incômodo, contato com telefone ERRADO manda mensagem para
+ * estranho.
+ */
+export function telefoneAlternativoDe(p: WahaPayload): string | null {
+  const bruto = p._data?.key?.remoteJidAlt ?? p._data?.key?.participantAlt ?? null;
+  if (!bruto) return null;
+  // ⚠️ `endsWith`/`indexOf` e NÃO regex — este valor vem de FORA (é campo de
+  // webhook) e a versão com `/@(s\.whatsapp\.net|c\.us)$/` foi apontada pelo
+  // CodeQL como ReDoS de severidade alta: o motor tenta casar a partir de CADA
+  // `@` da string, então um payload com milhares deles faz o tempo explodir e
+  // trava o processo que ingere as mensagens de todo mundo.
+  //
+  // Comparação de sufixo literal é linear e diz exatamente a mesma coisa. Um
+  // teto de tamanho vem antes, porque nem trabalho linear sobre entrada
+  // arbitrária é de graça.
+  //
+  // Só sufixos de NÚMERO: `@lid` significaria que o campo repetiu a identidade
+  // opaca, e `@g.us` é grupo — nenhum dos dois é telefone de pessoa.
+  if (bruto.length > 128) return null;
+  if (!bruto.endsWith("@s.whatsapp.net") && !bruto.endsWith("@c.us")) return null;
+  const semSufixo = bruto.slice(0, bruto.indexOf("@"));
+  let digitos = "";
+  for (const ch of semSufixo) {
+    if (ch >= "0" && ch <= "9") digitos += ch;
+  }
+  // Faixa E.164: 8 a 15 dígitos. Fora disso não é número discável, e o CHECK
+  // `contacts_phone_e164_format` recusaria — falhar aqui é melhor que abortar a
+  // ingestão inteira da mensagem lá na frente.
+  if (digitos.length < 8 || digitos.length > 15) return null;
+  return `+${digitos}`;
+}
+
+/**
  * Upsert atômico de contato pela identidade canônica. Retorna null se a
  * identidade for de grupo ou a RPC falhar.
  */
@@ -249,6 +309,7 @@ async function upsertContact(
   parsed: ChatIdentity,
   chatId: string,
   notifyName: string | null,
+  telefoneAlt: string | null = null,
 ): Promise<string | null> {
   // ALLOWLIST, não denylist — e a diferença aqui não é estilo.
   //
@@ -272,7 +333,11 @@ async function upsertContact(
   const { data, error } = await admin.rpc("fn_upsert_wa_contact" as never, {
     p_org: orgId,
     p_kind: parsed.kind,
-    p_phone: parsed.kind === "phone" ? parsed.phone : null,
+    // O telefone vem de dois lugares e é UM parâmetro: do próprio chatId quando
+    // ele já é um número, ou de `_data.key.remoteJidAlt` quando o chat é `@lid`.
+    // Resolver aqui, e não no SQL, foi o que permitiu manter a assinatura da
+    // função (e portanto os grants e os invariantes de hardening) intacta.
+    p_phone: parsed.kind === "phone" ? parsed.phone : telefoneAlt,
     p_lid: parsed.kind === "lid" ? parsed.lid : null,
     p_chat_id: chatId,
     p_notify: notifyName,
@@ -384,7 +449,14 @@ async function handleInbound(
     return;
   }
 
-  const contactId = await upsertContact(admin, session.organization_id, parsed, chatId, notifyNameOf(p));
+  const contactId = await upsertContact(
+    admin,
+    session.organization_id,
+    parsed,
+    chatId,
+    notifyNameOf(p),
+    telefoneAlternativoDe(p),
+  );
   if (!contactId) return;
   const conversationId = await upsertConversation(admin, session.organization_id, contactId, session.id);
   if (!conversationId) return;
@@ -459,6 +531,44 @@ async function handleInbound(
     requestId,
     metadata: { conversation_id: conversationId, type: p.type, external_id: p.id },
   });
+
+  // ── A CONVERSA VIRA LEAD (spec 17) ──────────────────────────────────────────
+  //
+  // DEPOIS do STOP acima, de propósito: quem acabou de pedir para sair não vira
+  // oportunidade nova — a ordem aqui é o que garante isso, porque o bloqueio é
+  // gravado logo acima e a função relê o contato.
+  //
+  // ANTES do dispatcher abaixo, também de propósito: o turno do agente resolve o
+  // lead ativo do contato, e criar depois faria o primeiro turno rodar sem lead —
+  // exatamente o buraco que esta peça existe para fechar.
+  //
+  // Fire-and-forget: o CRM não pode derrubar a ingestão de uma mensagem de
+  // cliente. Falha vira log, e a mensagem entra do mesmo jeito.
+  try {
+    const nascimento = await garantirLeadDaConversa(admin, {
+      organizationId: session.organization_id,
+      contactId,
+      conversationId,
+      nomeDoContato: notifyNameOf(p),
+    });
+    // Os dois desfechos são registrados. Sem a linha do "não criou", o silêncio
+    // de "já existia" e o de "a organização não tem funil configurado" têm a
+    // mesma cara — e o segundo é falha de configuração que alguém precisa ver.
+    logger.info(
+      nascimento.criado ? "waha.ingest: lead criado da conversa" : "waha.ingest: lead nao criado",
+      {
+        organization_id: session.organization_id,
+        conversation_id: conversationId,
+        ...(nascimento.criado ? { lead_id: nascimento.leadId } : { motivo: nascimento.motivo }),
+      },
+    );
+  } catch (err) {
+    logger.error("waha.ingest: nascimento do lead falhou (a mensagem entra assim mesmo)", {
+      organization_id: session.organization_id,
+      conversation_id: conversationId,
+      error: err instanceof Error ? err.message.slice(0, 120) : "unknown",
+    });
+  }
 
   // Dispara o agent-dispatcher worker (fire-and-forget; falha não quebra o 200).
   if (insertedMessage?.id) {
@@ -587,8 +697,21 @@ async function handleOutboundFromUserPhone(
 
   // fromMe: o pushName do payload é o do OPERADOR, não do destinatário —
   // repassá-lo batizaria o contato do cliente com o nome da loja (e o
-  // coalesce do fn_upsert_wa_contact congelaria o nome errado).
-  const contactId = await upsertContact(admin, session.organization_id, parsed, chatId, null);
+  // `coalesce` do fn_upsert_wa_contact congelaria o nome errado).
+  //
+  // O TELEFONE, ao contrário, vai: aqui `_data.key.remoteJid` é o chat do
+  // DESTINATÁRIO, então `remoteJidAlt` é o número do cliente, não o da loja.
+  // Medido na produção — inbound 56/56 e outbound 20/20 trazem o campo, e as
+  // amostras de outbound mostram o número do cliente. Nome e telefone vêm de
+  // lugares diferentes do mesmo payload, e só um deles inverte no envio.
+  const contactId = await upsertContact(
+    admin,
+    session.organization_id,
+    parsed,
+    chatId,
+    null,
+    telefoneAlternativoDe(p),
+  );
   if (!contactId) return;
   const conversationId = await upsertConversation(admin, session.organization_id, contactId, session.id);
   if (!conversationId) return;
@@ -696,7 +819,11 @@ async function handleSessionStatus(
 
   const update: Record<string, unknown> = { status, last_status_change_at: now };
   if (status === "WORKING" && session.warmup_started_at && !session.is_warmup_complete) {
-    update.is_warmup_complete = true;
+    // Só `warmup_completed_at`: `is_warmup_complete` é `GENERATED ALWAYS AS
+    // (warmup_completed_at IS NOT NULL)`, e atribuir a ela abortava o UPDATE
+    // INTEIRO — inclusive o `status`, que nada tem a ver com warm-up. Ou seja: a
+    // sessão que terminava o aquecimento parava de atualizar o próprio estado, e
+    // o espelho do canal congelava sem erro visível.
     update.warmup_completed_at = now;
   }
   await admin.from("channel_sessions").update(update).eq("id", session.id);

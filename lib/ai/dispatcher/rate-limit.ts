@@ -43,8 +43,39 @@ interface MemBucket {
 }
 const _memBuckets = new Map<string, MemBucket>();
 
+/**
+ * VARREDURA DAS JANELAS VENCIDAS — sem ela o mapa cresce para sempre.
+ *
+ * A chave embute a janela (`<bucket>:<windowStart>`), então uma chave nunca volta a
+ * ser consultada depois de expirar: `windowStart` avança e a próxima chamada usa
+ * outra chave. O `set` só sobrescrevia a MESMA chave, e nada apagava as anteriores —
+ * o processo acumulava uma entrada por bucket por janela, indefinidamente.
+ *
+ * E o caminho em memória não é hipótese remota: as duas variáveis do Upstash são
+ * OPCIONAIS no kit self-host, então sem elas este é o caminho normal. Medido num
+ * único job de e2e: 120 quedas para memória. Com `webhook_in:<token>` (janela de 60s)
+ * são 1.440 chaves por dia por token, nenhuma delas relida.
+ *
+ * Oportunista, e não um timer: um `setInterval` num módulo de request handler segura
+ * o processo vivo e roda em todo runtime que importar o arquivo, inclusive edge. Aqui
+ * o custo é O(n) uma vez a cada `VARRE_A_CADA` chamadas, e o resto entre passagens é
+ * limitado por esse mesmo número.
+ */
+const VARRE_A_CADA = 128;
+let _chamadasDesdeAVarredura = 0;
+
+function varrerVencidas(agora: number): void {
+  for (const [chave, balde] of _memBuckets) {
+    if (balde.expiresAt <= agora) _memBuckets.delete(chave);
+  }
+}
+
 function memIncrement(key: string, windowSec: number): number {
   const now = Date.now();
+  if (++_chamadasDesdeAVarredura >= VARRE_A_CADA) {
+    _chamadasDesdeAVarredura = 0;
+    varrerVencidas(now);
+  }
   const existing = _memBuckets.get(key);
   if (!existing || existing.expiresAt <= now) {
     _memBuckets.set(key, { count: 1, expiresAt: now + windowSec * 1000 });
@@ -52,6 +83,11 @@ function memIncrement(key: string, windowSec: number): number {
   }
   existing.count += 1;
   return existing.count;
+}
+
+/** Só para teste: quantas chaves o contador em memória guarda NESTE instante. */
+export function __chavesEmMemoriaParaTeste(): number {
+  return _memBuckets.size;
 }
 
 export interface RateLimitResult {

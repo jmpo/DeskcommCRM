@@ -35,7 +35,14 @@ export async function GET(req: NextRequest): Promise<Response> {
   const url = new URL(req.url);
   const qsParsed = listConversationsQuerySchema.safeParse({
     status: url.searchParams.get("status") ?? undefined,
+    exclude_finished: url.searchParams.get("exclude_finished") === "true" ? true : undefined,
     assigned_to: url.searchParams.get("assigned_to") ?? undefined,
+    // O `tag` era o único param que o schema aceitava, o hook serializava e o
+    // handler implementava — e que esta linha não lia. A cadeia rompia AQUI, no
+    // meio: `InboxFilters` mostra o select "Filtrar por tag" sempre que a org tem
+    // vocabulário, o browser manda `?tag=vip`, e a lista voltava inteira, sem erro.
+    // Achado por @jmpo, no cabeçalho do teste que ele escreveu no PR #199.
+    tag: url.searchParams.get("tag") ?? undefined,
     channel_session_id: url.searchParams.get("channel_session_id") ?? undefined,
     search: url.searchParams.get("search") ?? undefined,
     cursor: url.searchParams.get("cursor") ?? undefined,

@@ -46,6 +46,8 @@ export type ConversationWithContact = Conversation & {
 
 export interface ConversationsFilters {
   status?: "open" | "claimed" | "ai_handling" | "closed" | "archived";
+  /** Esconde fechadas/arquivadas — ver `exclude_finished` no schema da rota. */
+  exclude_finished?: boolean;
   assigned_to?: "me" | "unassigned" | string;
   search?: string;
   channel_session_id?: string;
@@ -70,6 +72,7 @@ export function useConversationsRealtime(
     queryFn: async ({ pageParam }) => {
       const qs = new URLSearchParams();
       if (filters.status) qs.set("status", filters.status);
+      if (filters.exclude_finished) qs.set("exclude_finished", "true");
       if (filters.assigned_to) qs.set("assigned_to", filters.assigned_to);
       if (filters.search) qs.set("search", filters.search);
       if (filters.channel_session_id) qs.set("channel_session_id", filters.channel_session_id);

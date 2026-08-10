@@ -52,7 +52,12 @@ export function RiskRadarList() {
     );
   }
 
-  if (!data || data.total === 0) {
+  // O vazio só é vazio se as DUAS listas estiverem vazias. Sem esta condição,
+  // uma organização com 8 demandas sem próximo passo e nenhum lead frio veria
+  // "Nenhuma demanda em risco" — escondendo exatamente o vazamento que o
+  // invariante 4 existe para denunciar.
+  const semPasso = data?.sem_proximo_passo ?? [];
+  if (!data || (data.total === 0 && semPasso.length === 0)) {
     return (
       <div
         className="flex flex-1 flex-col items-center justify-center gap-2 py-16 text-center"
@@ -69,6 +74,37 @@ export function RiskRadarList() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
+      {/* INVARIANTE 4 em forma acionável: o índice de atrito publica a CONTAGEM
+          ("N demandas abertas sem próximo passo"); contagem sem lugar para agir
+          viola o invariante 5. Esta é a lista que responde "e daí?". */}
+      {semPasso.length > 0 ? (
+        <section
+          className="rounded-lg border border-warning-border bg-warning-bg/40 p-3"
+          data-testid="radar-sem-proximo-passo"
+        >
+          <p className="text-sm font-medium">
+            {semPasso.length}{" "}
+            {semPasso.length === 1
+              ? "demanda aberta sem próximo passo"
+              : "demandas abertas sem próximo passo"}
+          </p>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Ninguém marcou o que acontece a seguir. Cada uma é alguém esperando sem que nada
+            esteja combinado.
+          </p>
+          <ul className="flex flex-col gap-1">
+            {semPasso.slice(0, 8).map((d) => (
+              <li key={d.id} className="flex items-baseline justify-between gap-3 text-xs">
+                <span className="truncate">{d.contact_name ?? "Contato sem nome"}</span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  aberta há {d.horas_aberta}h
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <div className="flex flex-wrap gap-2" data-testid="radar-counts">
         <Badge variant="error">{data.counts.critico} crítico</Badge>
         <Badge variant="warning">{data.counts.em_risco} em risco</Badge>

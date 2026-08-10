@@ -374,12 +374,21 @@ const radarShape = {
   min_hours: z.number().int().min(0).max(2000).optional(),
 };
 
+// A descrição declara `sem_proximo_passo` porque o dado chegar não basta: o
+// modelo só usa o que a descrição promete. `carregaRadarDeRisco` já devolvia a
+// lista desde o passo 4 do cap. 5, e sem esta linha ela viajava invisível — o
+// equivalente, para o agente, de um campo que a tela recebe e não pinta.
 export const crmListAtRiskLeads: McpToolDefinition<typeof radarShape> = {
   name: "crm_list_at_risk_leads",
   description:
     "Radar de risco: as oportunidades ABERTAS que passaram da janela de esfriamento do próprio " +
     "estágio. Cada item traz risk='critico'|'em_risco'|'em_voo' (em_voo = já há retorno agendado, " +
-    "o sistema mantém viva), horas sem movimento, dono e a conversa. Ordenado por urgência.",
+    "o sistema mantém viva), horas sem movimento, dono e a conversa. Ordenado por urgência. " +
+    "Traz TAMBÉM `sem_proximo_passo`: demandas abertas para as quais nada está marcado para " +
+    "acontecer — cada uma é alguém esperando sem previsão. Campos: contact_id, contact_name, " +
+    "horas_aberta e origem. Essas NÃO saem sozinhas: resolva cada uma agendando um retorno " +
+    "(crm_schedule_followup com contact_id) ou registrando o desfecho (crm_close_demand), " +
+    "conforme o caso. `total_sem_proximo_passo` cabe zerar; é o único número aqui cujo alvo é 0.",
   inputSchema: radarShape,
   category: "read",
   requiresRole: "agent",

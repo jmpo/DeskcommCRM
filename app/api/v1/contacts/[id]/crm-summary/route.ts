@@ -38,6 +38,21 @@ const LEAD_COLS = "id, title, status, value_cents, currency, updated_at";
 const ORDER_COLS = "id, external_id, status, total_cents, currency, created_at";
 /** Acompanha o que a timeline mostra — `reason` e `actor_kind` inclusive. */
 const ACTIVITY_COLS = "id, type, source_module, performed_at, payload, reason, actor_kind";
+/**
+ * Passo 4 do cap. 5 — a DEMANDA chega ao lugar onde o humano atende.
+ *
+ * O painel mostrava negócios, pedidos e histórico. Nenhum dos três responde à
+ * pergunta que a pessoa do outro lado está fazendo: **o que ela pediu e ainda
+ * não foi resolvido.** Lead é o negócio; conversa é o canal; demanda é o que
+ * precisa acabar (doutrina cap. 5).
+ *
+ * O caso concreto que isto evita: o atendente encerra a conversa, a demanda
+ * segue aberta e sem próximo passo, e o vazamento só aparece depois — como
+ * número numa métrica que ele não abre. `proximo_passo` vem junto porque a
+ * ausência dele é o próprio invariante 4, e é o que precisa saltar na tela.
+ */
+const DEMANDA_COLS =
+  "id, aberta_em, origem, estado, proximo_passo, proximo_passo_em, prazo_em";
 
 export async function GET(
   _req: NextRequest,
@@ -55,7 +70,7 @@ export async function GET(
     return fail("unauthenticated", "Auth required.", 401, { requestId });
   }
 
-  const [leads, orders, activities] = await Promise.all([
+  const [leads, orders, activities, demandas] = await Promise.all([
     supabase
       .from("crm_leads")
       .select(LEAD_COLS)
@@ -74,11 +89,22 @@ export async function GET(
       .eq("contact_id", contactId)
       .order("performed_at", { ascending: false })
       .limit(5),
+    // Só as ABERTAS: demanda encerrada é histórico e já vive na timeline. Da
+    // mais antiga para a mais nova — quem espera há mais tempo aparece primeiro,
+    // mesma régua do Radar, para as duas telas não contarem histórias
+    // diferentes sobre o mesmo contato.
+    supabase
+      .from("demandas")
+      .select(DEMANDA_COLS)
+      .eq("contact_id", contactId)
+      .is("fechada_em", null)
+      .order("aberta_em", { ascending: true })
+      .limit(5),
   ]);
 
   // A falha SOBE. Engolir aqui devolveria lista vazia ao cliente e recriaria,
   // do lado do servidor, exatamente a mentira que esta rota veio desfazer.
-  const falha = leads.error ?? orders.error ?? activities.error;
+  const falha = leads.error ?? orders.error ?? activities.error ?? demandas.error;
   if (falha) {
     return fail("internal_error", falha.message, 500, { requestId });
   }
@@ -88,6 +114,7 @@ export async function GET(
       leads: leads.data ?? [],
       orders: orders.data ?? [],
       activities: activities.data ?? [],
+      demandas: demandas.data ?? [],
     },
     { requestId },
   );

@@ -25,6 +25,115 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # ─────────────────────────────────────────────────────────────────────────
+    # A COBERTURA DEIXA DE SER PROSA DIGITADA À MÃO.
+    #
+    # Antes, as listas viviam nos dois `run:` e a declaração do que NÃO é coberto
+    # era um `echo` escrito à mão. As duas fontes divergiram em silêncio: o texto
+    # dizia "32 de 33 specs" quando o disco tinha 39 e o job rodava 36 — e as
+    # ausentes eram justamente as novas, incluindo `agente-papeis-operador`, a
+    # prova de tela do épico dos três papéis, que nunca rodou em job nenhum.
+    #
+    # Cobertura parcial silenciosa se lê como cobertura total. Agora há UMA fonte
+    # por lista, o summary CONTA em vez de afirmar, e
+    # `tests/unit/e2e-cobertura-completa.test.ts` reprova o build quando um arquivo
+    # de spec não está em nenhuma das três listas.
+    #
+    # FORA_DO_CI exige motivo escrito no próprio nome do bloco abaixo — spec fora
+    # do gate sem razão declarada é a dívida voltando pela porta de serviço.
+    # ─────────────────────────────────────────────────────────────────────────
+    #
+    # ═══ O 429 DE `olhar-telas-do-epico`: RESOLVIDO DUAS VEZES, EM CAMADAS DIFERENTES ═══
+    #
+    # A spec reprovava com **429** em TODAS as 7 telas, falha PRÉ-EXISTENTE NA MAIN (run
+    # 31343408488, main, 2026-08-10T00:03, lista byte-idêntica).
+    #
+    # Duas sessões chegaram à MESMA causa raiz em paralelo, sem se ver, e os dois
+    # consertos são complementares — nenhum torna o outro dispensável:
+    #
+    #  - `a60cae2d` (main, PR #220) desligou a telemetria NO AMBIENTE DO CI:
+    #    `SENTRY_DSN: "off"` no build e nas duas partes (e no `perf.yml`). Ver o
+    #    comentário do passo "Build de produção" abaixo — a armadilha é que vazio NÃO
+    #    desliga, seleciona o Sentry da comunidade.
+    #  - `77b4a486` (este PR) consertou O PRODUTO: o SDK do browser mandava duas SESSÕES
+    #    de release health por NAVEGAÇÃO para o DSN da comunidade — de toda instalação
+    #    self-host, não só do CI. `browserSessionIntegration` é default do SDK e
+    #    `integrations: [x]` SOMA aos defaults, então a política "no Sentry da comunidade,
+    #    só erro" estava declarada e não estava em vigor. Detalhe em `lib/sentry/dsn.ts`;
+    #    o gate é `tests/unit/sentry-comunidade-so-erro.test.ts`.
+    #
+    # O ingest respondia `429` com `x-sentry-rate-limits: 60::organization:suspended` —
+    # lista de categorias vazia, isto é, TODAS: a organização estava suspensa por cota, e
+    # cada tentativa barrada virava erro de console, que é o que esta spec cobra.
+    #
+    # FONTE DA VERDADE do ambiente da suíte é `scripts/gerar-env-e2e.sh` (o `.env.e2e`
+    # que o passo "Publicar" joga no `$GITHUB_ENV`, e que vale também para quem roda
+    # local). As três linhas `SENTRY_DSN: "off"` de nível de passo FICAM como segunda
+    # camada — `env:` de passo vence o `$GITHUB_ENV`, então elas protegem o CI se o
+    # gerador mudar. Duas fontes que CONCORDAM e uma delas declarada como principal;
+    # apagar as do colega para "limpar duplicação" seria trocar defesa por estética.
+    #
+    # Três hipóteses minhas caíram por medição, e o custo delas foi maior que o do
+    # conserto. As duas primeiras foram descartadas na época:
+    #
+    #  1. "a parte 2 está sobrecarregada" — caiu de 69 para 53 testes, falha byte-idêntica.
+    #  2. "as specs anteriores exaurem o contador" — posta em PRIMEIRO lugar, contador
+    #     limpo, as mesmas 7 telas deram 429, inclusive a primeira.
+    #  3. "é o fallback em memória do limitador" — foi o que este comentário afirmou como
+    #     "a pista que sobra". MEDIDO no job real: 120 quedas para memória, 103 delas no
+    #     bucket `auth:login:ip` contra teto de 1000. O limitador não barrou nada.
+    #
+    # A lição operacional é sobre INSTRUMENTO, não sobre limitador: a mensagem do browser
+    # para requisição barrada é "Failed to load resource: ... 429" e não diz QUEM
+    # respondeu; a spec descartava `m.location()` e o relatório não guarda trace, então a
+    # única cópia do endereço morria ali. Três runs foram gastos adivinhando o dono de um
+    # 429 cuja URL o próprio teste tinha em mãos. A spec agora registra a URL.
+    #
+    # `AUTH_RATE_LIMIT_LOGIN_IP` segue existindo pelo motivo dele (o teto por IP no CI é
+    # um runner só) e não teve nada a ver com isto. Afrouxar o limitador do produto para
+    # acomodar teste segue sendo a troca errada — e aqui não foi preciso.
+    #
+    # A ordem das listas voltou ao que era: mudá-la foi tentativa que não se sustentou,
+    # e deixar a mudança de pé com um comentário dizendo "hipótese" seria pior — o
+    # próximo leitor herdaria uma decisão tomada por um motivo medido FALSO.
+    #
+    # O rebalanceamento das duas partes FICA, por outro motivo e sem alegar mais do que
+    # faz: 6,5 + 8,1 min em vez de 2,7 + 12,2.
+    env:
+      SPECS_PARTE_1: >-
+        smoke.spec.ts auth.spec.ts error-pages.spec.ts
+        password-recovery.spec.ts signup-journey.spec.ts
+        rbac-roles.spec.ts inbox-scope.spec.ts reset-password-mfa.spec.ts
+        degradacao-silenciosa.spec.ts vps-webhook-outbound-ssrf.spec.ts
+        kanban-owner-filter.spec.ts queue-assign.spec.ts
+        conversa-vira-lead.spec.ts contato-salva-email.spec.ts
+        confirmar-dado-do-contato.spec.ts
+        risk-radar.spec.ts invite-lifecycle.spec.ts system-update.spec.ts
+        agente-papeis-operador.spec.ts prova-painel-provedores.spec.ts
+      SPECS_PARTE_2: >-
+        agente-novo-e-uso.spec.ts agente-organiza-operacao.spec.ts
+        central-de-avisos-capacidades.spec.ts escalacao-ciclo.spec.ts
+        navegacao.spec.ts olhar-telas-do-epico.spec.ts pipelines-gestao.spec.ts
+        qa-agente-usa-as-maos.spec.ts qa-selo-no-funil-usado.spec.ts
+        qa-telas-descobertas-w4.spec.ts retorno-anti-morte.spec.ts
+        followup-builder.spec.ts followup-queue.spec.ts
+        distribuicao-atendimento.spec.ts followup-journey.spec.ts
+        webhooks.spec.ts
+        capacidades-do-agente.spec.ts
+        escopo-de-funil-do-agente.spec.ts
+      # Cada item aqui tem o motivo MEDIDO, não presumido — e o gate cobra que a
+      # lista exista e some com as outras duas.
+      #
+      # `vps-fresh-onboarding`: 8 referências a WAHA/Resend/Nuvemshop/Redis. É a P0
+      # da doutrina de QA Visual e fica fora por dependência de infra.
+      #
+      # `prova-painel-provedores` esteve aqui e SAIU: em 2026-08-08 o caso F3 exigia
+      # mais de 50 modelos da OpenRouter e o catálogo chegava ao CI com 2 linhas — a
+      # spec media a sorte do ambiente. `scripts/seed-e2e-catalogo-openrouter.ts`
+      # (main, 2026-08-09) semeia o catálogo no job, então a condição que a excluía
+      # deixou de existir e ela voltou para a lista de execução.
+      FORA_DO_CI: >-
+        vps-fresh-onboarding.spec.ts
     steps:
       - uses: actions/checkout@v7
 
@@ -128,6 +237,17 @@ jobs:
         run: pnpm e2e:build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+          # `off`, NÃO vazio. Vazio seleciona o Sentry DA COMUNIDADE — está
+          # escrito em lib/sentry/dsn.ts:8-10, e é o default de propósito num
+          # produto self-host. Só "off" desliga.
+          #
+          # Sem isto, o SDK do browser tuneliza por /monitoring (next.config.ts:71)
+          # para o Sentry real do projeto, que devolve 429 por cota. Os 429 caem
+          # no console, e `olhar-telas-do-epico` — a ÚNICA spec que afirma "não
+          # cospe erro no console" — reprova nas 7 telas de uma vez.
+          # Medido em 2026-08-10 capturando a URL: /monitoring?o=4509908078559232,
+          # que é o org id do DEFAULT_SENTRY_DSN (lib/sentry/dsn.ts:17).
+          SENTRY_DSN: "off"
 
       - name: Instalar o browser
         run: pnpm exec playwright install --with-deps chromium
@@ -178,6 +298,11 @@ jobs:
           pnpm exec tsx scripts/seed-e2e-escalacao.ts
           pnpm exec tsx --env-file=.env.local scripts/seed-e2e-capacidades-ausentes.ts
           pnpm exec tsx scripts/seed-e2e-followup-agent.ts
+          # O catálogo da OpenRouter não existe em banco fresco (o baseline
+          # semeia só anthropic/openai/google; os demais vêm do cron diário, que
+          # busca na internet). Sem esta linha, `prova-painel-provedores` mede a
+          # sorte do ambiente em vez da tela.
+          pnpm exec tsx scripts/seed-e2e-catalogo-openrouter.ts
 
       # O que ficou DE FORA (e por quê) é declarado no passo de summary —
       # cobertura parcial silenciosa se lê como cobertura total.
@@ -211,60 +336,46 @@ jobs:
       # fazem o segundo ser recusado como replay. Foi o que derrubava a
       # `reset-password-mfa` (issue #80): ela passa sozinha e falha em paralelo.
       - name: E2E — parte 1 de 2
-        run: |
-          pnpm exec playwright test --workers=1 \
-            smoke.spec.ts auth.spec.ts error-pages.spec.ts \
-            password-recovery.spec.ts signup-journey.spec.ts \
-            rbac-roles.spec.ts inbox-scope.spec.ts reset-password-mfa.spec.ts \
-            degradacao-silenciosa.spec.ts vps-webhook-outbound-ssrf.spec.ts \
-            kanban-owner-filter.spec.ts queue-assign.spec.ts \
-            risk-radar.spec.ts invite-lifecycle.spec.ts system-update.spec.ts
+        run: pnpm exec playwright test --workers=1 $SPECS_PARTE_1
         env:
           # Só o que NÃO vem do `.env.e2e`: isto é ajuste de CI, não config do
           # produto. CI = 1 IP para todos os specs, e o teto de produção
           # (60/5min) é irreal aqui. O teto por CONTA (5 falhas) NÃO muda — é
           # ele que barra brute force.
           AUTH_RATE_LIMIT_LOGIN_IP: "1000"
+          # ver o comentário do passo de build: vazio NÃO desliga.
+          SENTRY_DSN: "off"
 
       - name: E2E — parte 2 de 2 (processo novo, contador de login zerado)
-        run: |
-          pnpm exec playwright test --workers=1 \
-            agente-novo-e-uso.spec.ts agente-organiza-operacao.spec.ts \
-            central-de-avisos-capacidades.spec.ts escalacao-ciclo.spec.ts \
-            navegacao.spec.ts olhar-telas-do-epico.spec.ts pipelines-gestao.spec.ts \
-            qa-agente-usa-as-maos.spec.ts qa-selo-no-funil-usado.spec.ts \
-            qa-telas-descobertas-w4.spec.ts retorno-anti-morte.spec.ts \
-            followup-builder.spec.ts followup-queue.spec.ts \
-            distribuicao-atendimento.spec.ts followup-journey.spec.ts \
-            webhooks.spec.ts \
-            capacidades-do-agente.spec.ts
+        run: pnpm exec playwright test --workers=1 $SPECS_PARTE_2
         env:
           # Só o que NÃO vem do `.env.e2e`: isto é ajuste de CI, não config do
           # produto. CI = 1 IP para todos os specs, e o teto de produção
           # (60/5min) é irreal aqui. O teto por CONTA (5 falhas) NÃO muda — é
           # ele que barra brute force.
           AUTH_RATE_LIMIT_LOGIN_IP: "1000"
+          # ver o comentário do passo de build: vazio NÃO desliga.
+          SENTRY_DSN: "off"
 
       - name: Declarar o que este job ainda NÃO cobre
         if: always()
         run: |
+          # CONTA, não afirma. A versão anterior deste passo era prosa digitada à
+          # mão e dizia "32 de 33" com 39 arquivos no disco — a única coisa que
+          # existia para declarar a lacuna estava, ela mesma, desatualizada.
+          NO_DISCO=$(ls tests/e2e/*.spec.ts | wc -l | tr -d ' ')
+          RODOU=$(echo $SPECS_PARTE_1 $SPECS_PARTE_2 | wc -w | tr -d ' ')
+          FORA=$(echo $FORA_DO_CI | wc -w | tr -d ' ')
           {
             echo "## E2E — cobertura deste job"
             echo ""
-            echo "**Rodou (32 de 33 specs):** smoke, auth, error-pages, password-recovery,"
-            echo "signup-journey, rbac-roles, inbox-scope, reset-password-mfa,"
-            echo "degradacao-silenciosa, vps-webhook-outbound-ssrf, kanban-owner-filter,"
-            echo "queue-assign, risk-radar, invite-lifecycle, system-update,"
-            echo "agente-novo-e-uso, agente-organiza-operacao, central-de-avisos-capacidades,"
-            echo "escalacao-ciclo, navegacao, olhar-telas-do-epico, pipelines-gestao,"
-            echo "qa-agente-usa-as-maos, qa-selo-no-funil-usado, qa-telas-descobertas-w4,"
-            echo "retorno-anti-morte, followup-builder, followup-queue,"
-            echo "distribuicao-atendimento, followup-journey, capacidades-do-agente, webhooks."
+            echo "**Rodou: ${RODOU} de ${NO_DISCO} specs.**"
             echo ""
-            echo "**Não rodou (1):**"
-            echo "- precisa de WAHA + Redis + Resend + Nuvemshop: vps-fresh-onboarding (P0)"
+            echo "**Não rodou (${FORA}):**"
+            for s in $FORA_DO_CI; do echo "- \`${s}\` — precisa de WAHA + Redis + Resend + Nuvemshop (P0 da doutrina de QA Visual)"; done
             echo ""
-            echo "Expandir é trabalho de seguimento — issue #63."
+            echo "A soma é conferida mecanicamente por \`tests/unit/e2e-cobertura-completa.test.ts\`:"
+            echo "spec no disco que não esteja em nenhuma das três listas reprova o build."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v7

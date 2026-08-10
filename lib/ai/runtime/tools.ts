@@ -23,6 +23,7 @@ import { allTools, getToolByName } from "@/lib/mcp/tools";
 import { catalogEntry } from "@/lib/mcp/tools/catalog";
 import { recusaDeCapacidadeParaOModelo } from "@/lib/mcp/recusa-para-o-modelo";
 import type { McpContext, McpToolDefinition } from "@/lib/mcp/types";
+import { podeChamarFerramenta, recusaParaOModelo } from "@/lib/leads/escopo-de-funil";
 
 export interface RuntimeHandoffSignal {
   triggered: boolean;
@@ -36,6 +37,14 @@ export interface PickToolsInput {
   auth: McpAuthResult;
   toolIds: string[];
   handoffToolEnabled: boolean;
+  /**
+   * Funis em que ESTE agente pode escrever (`ai_agent_versions.pipeline_ids`).
+   *
+   * `?? []` no chamador, e vazio significa NENHUM: o clone que ainda não aplicou
+   * a migration 0125 nasce fechado, pela mesma razão de `operator_tool_ids` — a
+   * direção segura é agir de menos.
+   */
+  pipelineIds?: readonly string[];
   /** Mutable signal — runtime checks after each step. */
   handoffSignal: RuntimeHandoffSignal;
 }
@@ -62,6 +71,52 @@ function wrapMcpTool(
       try {
         ensureScope(input.auth.scopes, def.requiresScope);
         ensureRole(input.auth.role, def.requiresRole);
+
+        // ── ESCOPO DE FUNIL (spec 17 passo 3) ────────────────────────────────
+        //
+        // Aqui, e não dentro de cada handler: `moveLeadHandler` e irmãos servem
+        // o agente, a rota HTTP sob sessão E as automações. Um gate lá dentro
+        // cobraria de uma regra de automação cujo funil foi escolhido por um
+        // humano de propósito, e de um atendente fazendo o trabalho dele.
+        //
+        // Este ponto sabe que quem age é o AGENTE — é o que torna a restrição
+        // aplicável sem atingir quem não deve ser atingido.
+        const veredito = await podeChamarFerramenta({
+          ferramenta: def.name,
+          argumentos: argsRecord,
+          escopo: input.pipelineIds,
+          ehEscrita: def.category === "write",
+          resolvePipelineDoLead: async (leadId) => {
+            const { data, error } = await input.supabase
+              .from("crm_leads")
+              .select("pipeline_id")
+              .eq("organization_id", input.ctx.organizationId)
+              .eq("id", leadId)
+              .maybeSingle();
+            // `throw` e não `null`: erro de consulta precisa virar
+            // `indisponivel` lá dentro, nunca "fora do escopo". Traduzir falha
+            // de banco em recusa de permissão ensinaria ao modelo que o card
+            // não é dele, e ele pararia de tentar para sempre.
+            if (error) throw new Error(error.message);
+            return (data as { pipeline_id: string } | null)?.pipeline_id ?? null;
+          },
+        });
+
+        if (!veredito.permitido) {
+          const explicacao = recusaParaOModelo(veredito) ?? "ação não permitida.";
+          void auditMcpToolCall({
+            ctx: input.ctx,
+            toolName: def.name,
+            args: argsRecord,
+            durationMs: Date.now() - startedAt,
+            success: false,
+            errorMessage: `escopo_de_funil:${veredito.motivo}`,
+          });
+          // Devolve TEXTO em vez de lançar: o modelo lê, entende por que foi
+          // recusado e segue a conversa. Uma exceção viraria erro de execução e
+          // o turno morreria — para o cliente, o assistente teria emudecido.
+          return { permitido: false, motivo: veredito.motivo, mensagem: explicacao };
+        }
 
         const result = await def.handler(argsRecord as never, input.ctx);
 

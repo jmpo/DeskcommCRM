@@ -32,9 +32,11 @@ import {
   type CredentialRow,
   type Provider,
 } from "@/hooks/ai/useCredentials";
+import { IDS_DE_PROVEDOR, PROVEDORES } from "@/lib/ai/pontos/provedores";
 
 const formSchema = z.object({
-  provider: z.enum(["anthropic", "openai", "google"]),
+  // Derivado da lista única (`lib/ai/pontos/provedores.ts`), como a rota.
+  provider: z.enum(IDS_DE_PROVEDOR),
   label: z.string().trim().min(1, "Obrigatório").max(80),
   api_key: z.string().trim().min(8, "API key muito curta").max(2048),
 });
@@ -141,9 +143,11 @@ export function AddCredentialDialog({ open, onOpenChange }: Props) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="anthropic">Anthropic</SelectItem>
-                <SelectItem value="openai">OpenAI</SelectItem>
-                <SelectItem value="google">Google</SelectItem>
+                {PROVEDORES.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.rotulo}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             {errors.provider && (

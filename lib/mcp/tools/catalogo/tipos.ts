@@ -13,8 +13,6 @@ export interface McpToolCatalogEntry {
   name: string;
   /** Dirige requiresScope/requiresRole. Nao e rotulo de tela. */
   category: McpToolCategory;
-  /** Texto tecnico entregue ao MODELO. */
-  description: string;
 
   // ---- camada de apresentacao: o que o HUMANO le ----
   /** Verbo no infinitivo, pt-BR. Ex: "Mover oportunidade de etapa". */

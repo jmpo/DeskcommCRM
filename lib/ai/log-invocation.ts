@@ -57,42 +57,70 @@ export function logInvocation(row: LogInvocationInput): void {
     void (async () => {
       try {
         const admin = createAdminClient();
-        const { error } = await admin.from("ai_invocations").insert({
+        // ─── Escreve em llm_calls, não mais em ai_invocations (migration 0130) ──
+        //
+        // As duas tabelas contavam a mesma coisa em lugares diferentes, e toda
+        // leitura nova de telemetria precisava lembrar das duas — a que
+        // esquecesse mentia. Foi o que aconteceu com a tela de uso: mostrava
+        // ZERO custo enquanto o dinheiro saía.
+        //
+        // O mapa de nomes é o mesmo eixo com rótulos diferentes:
+        // invocation_kind → purpose, prompt/completion → input/output.
+        const { error } = await admin.from("llm_calls").insert({
           organization_id: row.organization_id,
           // NORMALIZA AQUI, e não no chamador (issue #160). O tipo já diz
           // `string | null`, mas `string` aceita `""` — e foi exatamente `?? ""`
-          // que fez esta tabela ficar vazia numa VPS com tráfego real, porque o
-          // Postgres recusa string vazia como uuid e o insert é fire-and-forget.
-          // Consertar só o chamador que apareceu deixaria a armadilha armada
-          // para o próximo: quem escreve na coluna uuid é esta função, então é
-          // ela que fecha a porta. `?? null` continua sendo o certo lá; isto é a
-          // rede embaixo.
-          agent_id: row.agent_id === null || row.agent_id.trim() === "" ? null : row.agent_id,
-          conversation_id: row.conversation_id,
-          message_id: row.message_id,
-          invocation_kind: row.invocation_kind,
+          // que fez a tabela ficar vazia numa VPS com tráfego real, porque o
+          // Postgres recusa string vazia como uuid e o insert é
+          // fire-and-forget. A rede embaixo continua sendo esta função.
+          agent_id:
+            row.agent_id === null || row.agent_id.trim() === "" ? null : row.agent_id,
+          purpose: row.invocation_kind,
+          // `provider` não existia no shape antigo; deriva-se do id do modelo, e
+          // vira 'desconhecido' quando não dá para saber — chute viraria
+          // estatística, e estatística errada é pior que lacuna declarada.
+          provider: providerDoModelo(row.model),
           model: row.model,
-          prompt_tokens: row.prompt_tokens,
-          completion_tokens: row.completion_tokens,
-          latency_ms: row.latency_ms,
+          input_tokens: row.prompt_tokens,
+          output_tokens: row.completion_tokens,
           cost_cents: row.cost_cents,
-          finish_reason: row.finish_reason ?? null,
-          citations: row.citations ?? [],
-          error_payload: row.error_payload ?? null,
+          latency_ms: row.latency_ms,
+          status: row.error_payload ? "erro" : "ok",
+          error_code: row.error_payload ? "erro_legado" : null,
+          error_message: row.error_payload
+            ? String(JSON.stringify(row.error_payload)).slice(0, 500)
+            : null,
         });
         if (error) {
-          logger.warn("[ai-invocations] insert failed", {
+          logger.warn("[llm-calls] insert failed", {
             error: error.message,
             organization_id: row.organization_id,
             invocation_kind: row.invocation_kind,
           });
         }
       } catch (err) {
-        logger.warn("[ai-invocations] insert threw", {
+        logger.warn("[llm-calls] insert threw", {
           error: err instanceof Error ? err.message : String(err),
           organization_id: row.organization_id,
         });
       }
     })();
   });
+}
+
+/**
+ * Deriva o provedor do id do modelo.
+ *
+ * O shape antigo (`ai_invocations`) não guardava provedor, e a coluna existe em
+ * `llm_calls`. Quando o id não diz, o valor é `'desconhecido'` — nunca um
+ * palpite: a coluna alimenta a divisão de custo por provedor, e um chute vira
+ * estatística que alguém vai usar para decidir onde cortar gasto.
+ */
+export function providerDoModelo(model: string): string {
+  const m = model.toLowerCase();
+  if (m.startsWith("anthropic/") || m.startsWith("claude")) return "anthropic";
+  if (m.startsWith("openai/") || m.startsWith("gpt") || m.startsWith("text-embedding")) return "openai";
+  if (m.startsWith("google/") || m.startsWith("gemini")) return "google";
+  if (m.includes("/")) return "openrouter";
+  return "desconhecido";
 }

@@ -107,7 +107,25 @@ function blocoDeAberturaDoTurno(orgId: string, contactId: string): string {
   try {
     return execFileSync(
       "pnpm",
-      ["exec", "tsx", "--env-file=.env.local", arquivo, orgId, contactId],
+      [
+        "exec",
+        "tsx",
+        // SEM `--env-file=.env.local`. Esse arquivo não existe no worktree dedicado
+        // de e2e — e a ausência dele é a proteção que impede a suíte de escrever em
+        // PRODUÇÃO (o defeito medido em 2026-08-06). Aqui o filho herda o ambiente
+        // do runner, que `playwright.config.ts` publica a partir do `.env.e2e`.
+        //
+        // Medido em 2026-08-08: com a flag, este spec morria em
+        // `Command failed: pnpm exec tsx --env-file=.env.local ...` num worktree
+        // limpo; num checkout que TEM `.env.local`, rodaria contra a nuvem. O gate
+        // `tests/unit/seed-nao-le-env-local-do-disco.test.ts` não pegava esta forma
+        // — a regex dele procura `readFileSync`, e esta é a única ocorrência
+        // EXECUTÁVEL de `--env-file=.env.local` no repo (as outras são comentários
+        // de uso).
+        arquivo,
+        orgId,
+        contactId,
+      ],
       { encoding: "utf8", cwd: process.cwd() },
     );
   } finally {
@@ -120,8 +138,32 @@ test.describe("IA 360 W3 — o agente para, a pessoa continua, o agente retoma s
 
   test.beforeAll(() => {
     creds = JSON.parse(fs.readFileSync(CREDS_PATH, "utf8")) as Creds;
+
+    // A PRECONDIÇÃO É SEMEADA AQUI, não pressuposta.
+    //
+    // `seed-e2e-credentials.ts` reescreve o `.e2e-creds.json` INTEIRO, e o helper
+    // de login o chama sozinho quando outra sessão rotaciona o fator TOTP deste
+    // banco (`semearCredenciais`, tests/e2e/helpers/login-admin.ts). A
+    // reconstituição de lá cobre `credentials` e `followup-agent` — o bloco
+    // `escalacao` sumia junto e esta spec morria com "rode o seed antes", logo
+    // depois de um seed que imprimiu sucesso.
+    //
+    // Medido em 2026-08-08, rodando a suíte inteira: falha em 0ms, e o vermelho
+    // aparecia como se a jornada de escalação estivesse quebrada — quando o que
+    // quebrou foi o arquivo de fixtures debaixo dela. Depender de um seed que outra
+    // spec deixou é depender da ordem dos arquivos, que já mordeu este repo antes.
+    //
+    // Só semeia quando falta: o seed cria uma conversa nova a cada execução
+    // (`e2e-escalacao-${Date.now()}`), então rodá-lo sempre deixaria lixo por corrida.
     if (!creds.escalacao) {
-      throw new Error("bloco `escalacao` ausente em .e2e-creds.json — rode scripts/seed-e2e-escalacao.ts");
+      execFileSync("npx", ["tsx", "scripts/seed-e2e-escalacao.ts"], { stdio: "inherit" });
+      creds = JSON.parse(fs.readFileSync(CREDS_PATH, "utf8")) as Creds;
+    }
+    if (!creds.escalacao) {
+      throw new Error(
+        "bloco `escalacao` ausente em .e2e-creds.json mesmo depois de semear — " +
+          "veja a saída de scripts/seed-e2e-escalacao.ts acima",
+      );
     }
   });
 

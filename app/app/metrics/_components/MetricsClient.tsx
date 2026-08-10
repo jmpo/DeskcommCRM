@@ -2,6 +2,7 @@
 import { useState } from "react";
 
 import { useAttendantMetrics, type AttendantMetric } from "@/hooks/metrics/useAttendantMetrics";
+import { AtritoPanel } from "./AtritoPanel";
 import { useTeamMembers } from "@/hooks/team/useTeamMembers";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -77,6 +78,12 @@ export function MetricsClient({ canCompare, currentUserId }: Props) {
           </Select>
         </div>
       ) : null}
+
+      {/* Acima do funil e da performance de propósito: é o número do sistema
+          inteiro, ao qual as métricas de área se subordinam (doutrina §3.6).
+          Não filtra por atendente — atrito é propriedade do sistema, e quebrá-lo
+          por pessoa convida a otimização local que degrada o todo. */}
+      <AtritoPanel podeEditarRegua={canCompare} />
 
       <Card>
         <CardHeader>

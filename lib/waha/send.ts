@@ -20,19 +20,44 @@ export interface ResolveWahaChatIdInput {
   phoneNumber: string | null | undefined;
   /** `contacts.wa_identity` (migration 0027): 'phone:+E164' | 'lid:<digits>' | null. */
   waIdentity: string | null | undefined;
+  /**
+   * `contacts.wa_lid` (migration 0122): só os dígitos do Linked ID, ou null.
+   *
+   * Existe separada de `waIdentity` por uma razão que custou uma correção
+   * errada: `wa_identity` é GERADA com o telefone na frente, então o contato
+   * @lid que ganha número passa a valer `phone:+55…` e o teste
+   * `waIdentity.startsWith("lid:")` fica FALSO — exatamente para quem a regra
+   * precisava valer. Ler o lid daqui é o que faz a ordem abaixo significar algo.
+   */
+  waLid?: string | null | undefined;
 }
 
 /**
- * Resolves the WAHA-addressable chat id for a 1:1 or group conversation.
- * Falls back to the `lid:<digits>` identity (migration 0027) when the
- * contact has no `phone_number` — WhatsApp's privacy-mode contacts (Linked
- * ID) never expose a real phone number, but WAHA/NOWEB still accepts sending
- * to `<digits>@lid`.
+ * O endereço WAHA de uma conversa 1:1 ou de grupo.
+ *
+ * ⚠️ **O `lid:` vem ANTES do telefone, e a ordem é a regra.**
+ *
+ * Até a migration 0122, contato @lid nunca tinha `phone_number` — o número era
+ * descartado na ingestão —, então "telefone primeiro" nunca era exercido para
+ * quem chegava por Linked ID. A 0122 passou a gravar o telefone que o WhatsApp
+ * sempre mandou (`_data.key.remoteJidAlt`), e com a ordem antiga toda conversa
+ * @lid viva mudaria de endereço de `@lid` para `@c.us` no envio seguinte.
+ *
+ * Trocar o canal de uma conversa que funciona é o pior defeito possível aqui: se
+ * o `@c.us` não for endereçável — e para contato em modo privacidade ele
+ * frequentemente não é —, paramos de responder o cliente, com a mensagem
+ * marcada como enviada. O telefone entra para o CRM (identificar, buscar,
+ * ligar, deduplicar); o ENVIO continua indo por onde a conversa veio.
+ *
+ * Contato sem `lid` (import, formulário, pedido) segue por `@c.us` como sempre.
  */
 export function resolveWahaChatId(input: ResolveWahaChatIdInput): string | null {
   if (input.isGroup && input.groupChatId) return input.groupChatId;
-  if (input.phoneNumber) return `${input.phoneNumber.replace(/\D/g, "")}@c.us`;
+  // `wa_lid` primeiro; `wa_identity` só como retaguarda para chamador que ainda
+  // não lê a coluna nova (e que, por definição, é de contato sem telefone).
+  if (input.waLid) return `${input.waLid}@lid`;
   if (input.waIdentity?.startsWith("lid:")) return `${input.waIdentity.slice(4)}@lid`;
+  if (input.phoneNumber) return `${input.phoneNumber.replace(/\D/g, "")}@c.us`;
   return null;
 }
 

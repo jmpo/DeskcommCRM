@@ -19,6 +19,8 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
+import { useOperatorMetrics } from "@/hooks/ai/useOperatorMetrics";
+
 import { ModelPicker } from "./ModelPicker";
 import { ToolPicker } from "./ToolPicker";
 import type { Provider } from "@/hooks/ai/useCredentials";
@@ -37,11 +39,74 @@ interface Props {
   disabled?: boolean;
 }
 
+/**
+ * O PAPEL FUNCIONANDO — as três medidas que a spec 16 §7 prometeu.
+ *
+ * O painel era 100% formulário: dizia o que o papel FARIA e nada sobre o que ele
+ * fez. Um mecanismo que age no CRM a cada conversa e não tem nenhum retorno
+ * visível é o invariante 7 aberto — "quando o sistema erra, o que muda nele?"
+ * ficava sem resposta, e "se ele parar de agir, alguém vê" era falso.
+ *
+ * Cada número aqui responde "e daí?": a taxa de ação diz se o papel está
+ * trabalhando; as promessas sem dono são a lista do que pode morrer; e
+ * "quis agir e não pôde" é o único que aponta uma ação de configuração — por isso
+ * vem com o caminho, não só com a contagem.
+ */
+function ComoOPapelEstaIndo() {
+  const m = useOperatorMetrics(true);
+  if (m.data === undefined) return null;
+  const { turnos, agiu, promessas, quisAgirENaoPode, dias } = m.data;
+
+  if (turnos === 0) {
+    // Zero não é "0" cru: num papel recém-ligado isso é o estado esperado, e um
+    // número solto pareceria falha.
+    return (
+      <Card className="p-4" data-testid="operador-como-esta-indo">
+        <p className="text-xs text-muted-foreground">
+          Nenhuma conversa passou por aqui nos últimos {dias} dias. Assim que o assistente atender
+          alguém, o que ele organizar aparece nesta área.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="space-y-2 p-4" data-testid="operador-como-esta-indo">
+      <h4 className="text-sm font-medium">Como está indo (últimos {dias} dias)</h4>
+      <p className="text-xs text-muted-foreground" data-testid="operador-metrica-acao">
+        Organizou o sistema em <span className="font-medium text-foreground">{agiu}</span> de{" "}
+        {turnos} conversas.
+      </p>
+      <p className="text-xs text-muted-foreground" data-testid="operador-metrica-promessas">
+        De {promessas.declaradas} promessas feitas ao cliente,{" "}
+        <span className="font-medium text-foreground">{promessas.assumidas}</span> ficaram com um
+        responsável
+        {promessas.semDono > 0 ? (
+          <>
+            {" "}— e <span className="font-medium text-foreground">{promessas.semDono}</span> não.
+            Elas aparecem na Central de avisos, uma por conversa.
+          </>
+        ) : (
+          "."
+        )}
+      </p>
+      {quisAgirENaoPode > 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid="operador-metrica-sem-mao">
+          Em <span className="font-medium text-foreground">{quisAgirENaoPode}</span> delas o
+          assistente tinha algo a registrar e nenhuma capacidade marcada para isso — o que resolve é
+          marcar abaixo o que ele pode fazer.
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
 export function PainelDoOperador(props: Props) {
   const desabilitado = props.disabled ?? false;
 
   return (
     <div className="space-y-4">
+      {props.enabled ? <ComoOPapelEstaIndo /> : null}
       <Card className="space-y-3 p-4">
         <div className="flex items-start gap-3">
           <Switch

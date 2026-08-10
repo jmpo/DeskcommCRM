@@ -10,8 +10,15 @@
 import { z } from "zod";
 import { VALID_TOOL_IDS } from "@/lib/mcp/tools/catalog";
 import { TETO_TOOLS_POR_AGENTE } from "@/lib/mcp/tools/selecao-por-pacote";
+import { IDS_DE_PROVEDOR } from "@/lib/ai/pontos/provedores";
 
-export const PROVIDERS = ["anthropic", "openai", "google"] as const;
+/**
+ * Derivado de `lib/ai/pontos/provedores.ts` (a lista única desde a 0127). Como
+ * cópia à mão, esta constante mantinha `agent_turn`/`operator_turn` fora do
+ * alcance da OpenRouter — justamente os dois pontos que a abertura do
+ * vocabulário existia para atender.
+ */
+export const PROVIDERS = IDS_DE_PROVEDOR;
 export type Provider = (typeof PROVIDERS)[number];
 
 const UUID = z.string().uuid();
@@ -110,6 +117,17 @@ const versionShapeSchema = z
         (ids) => ids.every((id) => (VALID_TOOL_IDS as readonly string[]).includes(id)),
         { message: "tool_id_invalid" },
       ),
+    /**
+     * Funis em que este agente pode ESCREVER (spec 17 passo 3). Vazio = NENHUM.
+     *
+     * ⚠️ Sem `.refine()` de existência, ao contrário de `operator_tool_ids` logo
+     * acima — e a diferença não é descuido. Aquele valida contra uma CONSTANTE
+     * em código, que o cliente também tem; funil é linha de tabela, e checar
+     * existência é consulta cross-row. Um schema compartilhado com o browser não
+     * pode fazer isso, então a validação de que o funil existe (e é desta
+     * organização) mora no servidor, junto do resto.
+     */
+    pipeline_ids: z.array(z.string().uuid()).default([]),
   })
   .strict();
 

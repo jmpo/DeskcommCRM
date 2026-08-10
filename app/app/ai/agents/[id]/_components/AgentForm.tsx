@@ -43,6 +43,8 @@ import { TriggerEditor, type TriggerValue } from "./TriggerEditor";
 import { HandoffKeywordsInput } from "./HandoffKeywordsInput";
 import { FollowupFlowPicker } from "./FollowupFlowPicker";
 import { PainelDoOperador } from "./PainelDoOperador";
+import { PainelDeSeguranca } from "./PainelDeSeguranca";
+import { FunisDoAgente, type CoberturaPorFunil } from "./FunisDoAgente";
 import { PublishConfirmDialog } from "./PublishConfirmDialog";
 import {
   saveAgentDraftAction,
@@ -56,6 +58,7 @@ import type { AgentRow } from "@/hooks/ai/useAgent";
 import type { AgentVersionRow } from "@/hooks/ai/useAgentVersions";
 import type { CredentialRow, Provider } from "@/hooks/ai/useCredentials";
 import { credentialStatus } from "@/hooks/ai/useCredentials";
+import type { FunilDaResposta } from "@/hooks/pipelines/usePipelines";
 
 /**
  * O canal oferecido no seletor é exatamente o que `listSelectableChannels`
@@ -82,7 +85,19 @@ interface CreateProps extends BaseProps {
   mode: "create";
 }
 
-type Props = EditProps | CreateProps;
+type Props = (EditProps | CreateProps) & {
+  /**
+   * Os funis da organização, para a marcação de escopo (spec 17 passo 3).
+   *
+   * Vem por PROP e não por hook: a página já é server component e busca o resto
+   * do contexto lá: um fetch client-side aqui faria a lista piscar vazia no
+   * primeiro render, e "nenhum funil" é exatamente o estado que esta tela usa
+   * para dizer algo importante.
+   */
+  funis?: FunilDaResposta[];
+  /** Quanto de cada funil o assistente sabe percorrer (spec 17 passo 4). */
+  cobertura?: CoberturaPorFunil;
+};
 
 interface FormState {
   name: string;
@@ -111,6 +126,7 @@ interface FormState {
   /** "" = herda o modelo do Conversador (vira null no payload). */
   operator_model: string;
   operator_tool_ids: string[];
+  pipeline_ids: string[];
 }
 
 interface FollowupValue {
@@ -169,6 +185,8 @@ function buildState(args: {
     // A conversão de volta acontece em `toVersionPayload`, num ponto só.
     operator_model: version?.operator_model ?? "",
     operator_tool_ids: version?.operator_tool_ids ?? [],
+    // `?? []` = nenhum funil. Agente novo nasce fechado, como o banco.
+    pipeline_ids: version?.pipeline_ids ?? [],
   };
 }
 
@@ -197,10 +215,12 @@ function toVersionPayload(s: FormState) {
     // camadas diferentes, e o mapeamento vive AQUI para não se espalhar.
     operator_model: s.operator_model.trim() === "" ? null : s.operator_model.trim(),
     operator_tool_ids: s.operator_tool_ids,
+    pipeline_ids: s.pipeline_ids,
   };
 }
 
 export function AgentForm(props: Props) {
+  const funis = props.funis ?? [];
   const router = useRouter();
   const isEdit = props.mode === "edit";
   const readOnly = props.readOnly ?? false;
@@ -222,7 +242,7 @@ export function AgentForm(props: Props) {
    * navegação — o rascunho é um só, e uma URL por papel faria o usuário achar
    * que salvou um e não o outro.
    */
-  const [papel, setPapel] = React.useState<"conversa" | "operacao">("conversa");
+  const [papel, setPapel] = React.useState<"conversa" | "operacao" | "seguranca">("conversa");
 
   const dirty = JSON.stringify(form) !== JSON.stringify(baseline);
 
@@ -438,6 +458,10 @@ export function AgentForm(props: Props) {
           [
             ["conversa", "Conversa com o cliente"],
             ["operacao", "Organiza o sistema"],
+            // O TERCEIRO PAPEL. O rótulo diz o que ele FAZ, como os outros dois:
+            // "Segurança" é o nosso nome; quem configura quer saber o que é
+            // conferido antes de a mensagem chegar ao cliente dele.
+            ["seguranca", "Confere antes de enviar"],
           ] as const
         ).map(([id, rotulo]) => (
           <button
@@ -458,6 +482,8 @@ export function AgentForm(props: Props) {
         ))}
       </div>
 
+      {papel === "seguranca" ? <PainelDeSeguranca /> : null}
+
       {papel === "operacao" ? (
         <PainelDoOperador
           enabled={form.operator_enabled}
@@ -468,6 +494,19 @@ export function AgentForm(props: Props) {
           toolIds={form.operator_tool_ids}
           onToolIdsChange={(ids) => patch({ operator_tool_ids: ids })}
           modeloDoConversador={form.model}
+          disabled={disabled}
+        />
+      ) : null}
+
+      {/* Fica na aba de OPERAÇÃO e não na de conversa: é permissão de mexer em
+          negócio, não de falar com cliente — a mesma separação que a spec 16
+          impôs no resto da tela. */}
+      {papel === "operacao" ? (
+        <FunisDoAgente
+          funis={funis}
+          cobertura={props.cobertura}
+          value={form.pipeline_ids}
+          onChange={(ids) => patch({ pipeline_ids: ids })}
           disabled={disabled}
         />
       ) : null}

@@ -47,7 +47,9 @@ export type InboxKind =
   // tinha o banco atualizado e o tipo não.
   | 'channel_template_review'
   | 'channel_number_alert'
+  | 'midia_nao_lida'
   | 'promise_unfulfilled'
+  | 'contact_proposal_expired'
   | 'other';
 
 export interface InboxItemRow {
@@ -71,18 +73,84 @@ function one<T>(rows: T[], what: string): T {
   return row;
 }
 
+/**
+ * Como não abrir um segundo aviso para o mesmo problema ainda aberto.
+ *
+ * `kind` — um por organização. Serve para defeito SISTÊMICO, que não é de um
+ * cliente: teto de orçamento estourado, capacidades que não montaram.
+ *
+ * `kind_e_ref` — um por (kind, ref). Serve para aviso que fala de UMA conversa
+ * ou de UM lead. Dedupar esses por `kind` sozinho engoliria o aviso de outro
+ * cliente, que é pior que repetir: some sinal em vez de sobrar ruído.
+ */
+export type InboxDedupe = 'kind' | 'kind_e_ref';
+
+/**
+ * Abre um aviso na Central.
+ *
+ * ═══ POR QUE O DEDUP MORA AQUI, E NÃO EM CADA CHAMADOR ═══
+ *
+ * A guarda de "não abre outro enquanto o anterior está aberto" existia escrita
+ * três vezes à mão, em SQL inline, em três arquivos — e nunca na função que todos
+ * usam. Quem chama `insertInboxItem` não tinha como pedi-la, então não deduplicava:
+ * o aviso de promessa do papel Operador nascia de novo a cada turno, e N cópias do
+ * mesmo item enterram o item que pedia decisão. Alarme repetido treina o dono a
+ * ignorar o alarme certo.
+ *
+ * Omitir `dedupe` mantém o comportamento de sempre — uma linha por chamada —, e
+ * isso é deliberado: há kinds que QUEREM uma linha por evento (`job_dead` é um
+ * registro de ocorrência, não um estado).
+ *
+ * `where not exists` e não `on conflict`: um índice único exigiria incluir
+ * `status`, que é MUTÁVEL, e isso quebraria reabrir um item resolvido. A corrida
+ * de dois inserts simultâneos é a mesma que as três irmãs já aceitam — no pior
+ * caso nascem dois avisos idênticos, que é exatamente o estado de hoje.
+ *
+ * Devolve `null` quando o dedup barrou. Não lança: "já havia um aviso aberto" é
+ * desfecho normal, não erro.
+ */
 export async function insertInboxItem(
   db: pg.Pool,
   tenantId: string | null, // null = plataforma (ex.: infra)
   input: { kind: InboxKind; title: string; severity?: InboxItemRow['severity']; body?: string; refKind?: string; refId?: string },
-): Promise<InboxItemRow> {
+  dedupe?: InboxDedupe,
+): Promise<InboxItemRow | null> {
+  const valores = [
+    tenantId,
+    input.kind,
+    input.severity ?? 'warn',
+    input.title,
+    input.body ?? null,
+    input.refKind ?? null,
+    input.refId ?? null,
+  ];
+
+  if (dedupe === undefined) {
+    const { rows } = await db.query<InboxItemRow>(
+      `insert into agent_inbox_items (organization_id, kind, severity, title, body, ref_kind, ref_id)
+       values ($1, $2, $3, $4, $5, $6, $7)
+       returning *`,
+      valores,
+    );
+    return one(rows, 'agent_inbox_items');
+  }
+
+  // `is not distinct from` e não `=`: organização nula (avisos de plataforma) e
+  // ref nula precisam casar com nula, e `null = null` é null, não true.
   const { rows } = await db.query<InboxItemRow>(
     `insert into agent_inbox_items (organization_id, kind, severity, title, body, ref_kind, ref_id)
-     values ($1, $2, $3, $4, $5, $6, $7)
+     select $1, $2, $3, $4, $5, $6, $7
+      where not exists (
+        select 1 from agent_inbox_items
+         where organization_id is not distinct from $1
+           and kind = $2
+           and status = 'open'
+           and ($8 = false or (ref_kind is not distinct from $6 and ref_id is not distinct from $7))
+      )
      returning *`,
-    [tenantId, input.kind, input.severity ?? 'warn', input.title, input.body ?? null, input.refKind ?? null, input.refId ?? null],
+    [...valores, dedupe === 'kind_e_ref'],
   );
-  return one(rows, 'agent_inbox_items');
+  return rows[0] ?? null;
 }
 
 export async function listOpenInboxItems(db: pg.Pool, tenantId: string): Promise<InboxItemRow[]> {

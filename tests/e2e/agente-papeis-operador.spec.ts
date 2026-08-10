@@ -98,7 +98,7 @@ async function abrirAbaDoOperador(): Promise<void> {
 }
 
 test.describe("A aba do papel que organiza o sistema", () => {
-  test("os dois papéis aparecem, e os nomes dizem o que cada um faz", async () => {
+  test("os TRÊS papéis aparecem, e os nomes dizem o que cada um faz", async () => {
     await pagina.goto(`/app/ai/agents/${agenteDeTeste()}`);
 
     // Os rótulos são o contrato com quem configura. "Conversador"/"Operador" é
@@ -106,6 +106,38 @@ test.describe("A aba do papel que organiza o sistema", () => {
     // e em quem mantém a casa em ordem.
     await expect(pagina.getByTestId("papel-conversa")).toHaveText(/conversa com o cliente/i);
     await expect(pagina.getByTestId("papel-operacao")).toHaveText(/organiza o sistema/i);
+    // O TERCEIRO. O épico se chama "os três papéis" e foi entregue com dois na
+    // tela — a cadeia de conferências rodava e ninguém que configura sabia.
+    await expect(pagina.getByTestId("papel-seguranca")).toHaveText(/confere antes de enviar/i);
+  });
+
+  test("o papel que confere mostra a lista inteira, aberta, e sem interruptor decorativo", async () => {
+    await pagina.goto(`/app/ai/agents/${agenteDeTeste()}`);
+    await pagina.getByTestId("papel-seguranca").click();
+
+    const painel = pagina.getByTestId("painel-de-seguranca");
+    await expect(painel).toBeVisible();
+
+    // MEDIDA POR FERRAMENTA, não a olho: o defeito que este painel substitui era
+    // um `<details>` FECHADO dentro do resultado de um teste — presente no DOM e
+    // invisível na prática. Altura real > 0 é o que separa "existe" de "aparece".
+    const altura = await painel.evaluate((el) => el.getBoundingClientRect().height);
+    expect(altura, "o painel está no DOM e não ocupa espaço na tela").toBeGreaterThan(100);
+
+    // Todas as conferências, não uma amostra.
+    const itens = painel.locator('[data-testid^="item-conferencia-"]');
+    await expect(itens).toHaveCount(11);
+
+    // EXATAMENTE DOIS interruptores — um por camada que custa dinheiro. Este caso
+    // já afirmou ZERO, e a mudança é deliberada: enquanto o motor lia só o `.env`,
+    // um controle aqui seria a tela gravando o que o código ignora. Depois que a
+    // 0142 criou a escolha por organização e os três pontos de consumo passaram a
+    // lê-la, o interruptor deixou de ser decorativo.
+    //
+    // As outras nove seguem sem controle, e é isso que a contagem exata guarda:
+    // um switch a mais aqui é alguém oferecendo desligar o que protege o número
+    // do cliente.
+    await expect(painel.locator('[role="switch"]')).toHaveCount(2);
   });
 
   test("desligado, a tela diz o que CONTINUA acontecendo — não só o que para", async () => {

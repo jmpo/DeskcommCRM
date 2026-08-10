@@ -240,7 +240,7 @@ export async function sendMessageHandler(
   // envio com 42703. Sem a coluna, nada está arquivado — e a consulta sem ela é a
   // consulta certa (ver lib/channels/archived).
   const convSelect = (comArchived: boolean) =>
-    `id, organization_id, contact_id, channel_session_id, is_group, group_chat_id, provider_conversation_id, contacts:contact_id(phone_number, wa_identity, is_blocked), channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS}, status${comArchived ? `, ${ARCHIVED_AT}` : ""})`;
+    `id, organization_id, contact_id, channel_session_id, is_group, group_chat_id, provider_conversation_id, contacts:contact_id(phone_number, wa_identity, wa_lid, is_blocked), channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS}, status${comArchived ? `, ${ARCHIVED_AT}` : ""})`;
   const { data: conv, error: convErr } = await queryTolerantToMissingArchived(
     () => supabase.from("conversations").select(convSelect(true)).eq("id", input.conversation_id).maybeSingle(),
     () => supabase.from("conversations").select(convSelect(false)).eq("id", input.conversation_id).maybeSingle(),
@@ -260,9 +260,14 @@ export async function sendMessageHandler(
     channel_session_id: string;
     is_group: boolean;
     group_chat_id: string | null;
-    /** Thread do provider, quando ele endereça por thread própria (migration 0118). */
+    /** Thread do provider, quando ele endereça por thread própria (migration 0132). */
     provider_conversation_id: string | null;
-    contacts: { phone_number: string | null; wa_identity: string | null; is_blocked: boolean } | null;
+    contacts: {
+      phone_number: string | null;
+      wa_identity: string | null;
+      wa_lid: string | null;
+      is_blocked: boolean;
+    } | null;
     channel_sessions: (ChannelSessionRef & { status: string; archived_at?: string | null }) | null;
   };
   const c = conv as unknown as Joined;
@@ -337,6 +342,7 @@ export async function sendMessageHandler(
     groupChatId: c.group_chat_id,
     phoneNumber: c.contacts?.phone_number,
     waIdentity: c.contacts?.wa_identity,
+    waLid: c.contacts?.wa_lid,
   });
 
   if (c.channel_sessions?.archived_at) {
@@ -476,6 +482,31 @@ export async function sendMessageHandler(
       const code = msg.startsWith("storage_sign_failed")
         ? "storage_sign_failed"
         : adapter.codes.sendFailed;
+
+      // Falta de CREDENCIAL não é falha desta mensagem: é canal ainda não
+      // conectado, e o desfecho certo é `queued` — a mesma coisa que o ramo de
+      // `!isConfigured()` acima grava. Marcar `failed` mandaria o follow-up
+      // desistir de uma mensagem que sai sozinha assim que alguém conectar.
+      //
+      // Este ramo existe porque nem todo canal consegue responder `isConfigured`
+      // com honestidade: quando a credencial mora na SESSÃO (conta conectada
+      // pela tela) e não no ambiente, um método SÍNCRONO não tem como saber, e
+      // responder "não configurado" travaria em `queued` um canal que funciona.
+      // Quem sabe é `send()`, que pode consultar o banco — então ele lança, e a
+      // tradução do desfecho acontece aqui.
+      if (msg.startsWith(adapter.codes.notConfigured)) {
+        const { data: emFila } = await supabase
+          .from("messages")
+          .update({
+            metadata: { ...(message.metadata ?? {}), queued_reason: adapter.codes.notConfigured },
+          })
+          .eq("id", message.id)
+          .select(MSG_COLS)
+          .maybeSingle();
+        if (emFila) message = emFila as unknown as Message;
+        return message;
+      }
+
       const { data: updated } = await supabase
         .from("messages")
         .update({

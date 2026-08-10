@@ -56,6 +56,12 @@ export type AuditAction =
   | "conversation.closed"
   | "conversation.tags_changed"
   | "contact.tags_changed"
+  // Fila de confirmação (spec 17 §4b): a IA PROPÕE, uma pessoa decide. As três
+  // entram porque a proposta é intenção auditável mesmo quando nunca vira
+  // escrita — e "ninguém confirmou" é informação, não ausência dela.
+  | "contact.field_proposed"
+  | "contact.field_confirmed"
+  | "contact.field_rejected"
   | "lead.tags_changed"
   | "message.sent"
   | "message.received"
@@ -127,6 +133,12 @@ export type AuditAction =
   | "ai.org_memory_published"
   | "ai.org_memory_entry_created"
   | "ai.org_memory_entry_updated"
+  /** Provedor/modelo de um ponto do sistema que usa IA foi trocado no painel. */
+  | "ai.purpose_binding_updated"
+  // Ligar/desligar uma das duas verificações que consultam modelo. Auditável
+  // porque muda o que o sistema confere antes de falar com o cliente — e porque
+  // custa dinheiro por mensagem.
+  | "ai.guardrail_layer_changed"
   | "ai_agent.run_started"
   | "ai_agent.run_completed"
   | "ai_agent.run_failed"
@@ -148,6 +160,13 @@ export type AuditAction =
   | "leads.bulk_assigned"
   | "attendant.availability_changed"
   | "routing.config_changed"
+  // Mudar a régua do abandono (spec 16 §5.2) muda como TODO período passa a ser
+  // lido — é mutação relevante, não preferência de exibição.
+  | "metrics.atrito_regua_changed"
+  // O invariante 4 deixando de ser só leitura: quem marcou o próximo passo de
+  // uma demanda, e qual. Sem isto, a única mutação que fecha o vazamento seria
+  // a única sem rastro.
+  | "demanda.proximo_passo_definido"
   | "routing.worker_run"
   | "attendant.heartbeat_swept"
   | "webhook.source_created"

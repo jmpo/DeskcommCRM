@@ -54,6 +54,12 @@ export interface RecipientInput {
   phoneNumber: string | null | undefined;
   /** `contacts.wa_identity` (migration 0027): 'phone:+E164' | 'lid:<digits>' | null. */
   waIdentity: string | null | undefined;
+  /**
+   * `contacts.wa_lid` (0122). Separado de `waIdentity` porque esta é GERADA com
+   * o telefone na frente: contato @lid que ganha número deixa de casar em
+   * `waIdentity.startsWith("lid:")` — justo o caso que a regra protege.
+   */
+  waLid?: string | null | undefined;
 }
 
 export interface OutboundEnvelope {

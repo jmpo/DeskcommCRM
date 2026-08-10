@@ -144,12 +144,12 @@ describe("banco e TypeScript falam o mesmo vocabulário", () => {
 
   it("a migration versionada existe junto do apêndice — clone atualiza pelas duas vias", () => {
     const mig = readFileSync(
-      "supabase/migrations/20260808020000_0117_canal_zernio_vocabulario.sql",
+      "supabase/migrations/20260808020000_0131_canal_zernio_vocabulario.sql",
       "utf8",
     );
     expect(mig).toContain("zernio_account_id");
     expect(readFileSync("supabase/migrations/MANIFEST.md", "utf8")).toContain(
-      "0117_canal_zernio_vocabulario",
+      "0131_canal_zernio_vocabulario",
     );
   });
 });

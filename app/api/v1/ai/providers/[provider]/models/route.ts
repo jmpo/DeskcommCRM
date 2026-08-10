@@ -10,10 +10,14 @@ import { type NextRequest } from "next/server";
 import { ok, fail } from "@/lib/api/wrappers";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
+import { ehProvedorSuportado } from "@/lib/ai/pontos/provedores";
 
 export const dynamic = "force-dynamic";
 
-const PROVIDERS = new Set(["anthropic", "openai", "google"]);
+// A lista única (`lib/ai/pontos/provedores.ts`) — não uma quarta cópia. Esta
+// rota alimenta o seletor de modelos; com a lista velha, pedir os modelos da
+// OpenRouter devolvia "provedor desconhecido" para um provedor que a tela ao
+// lado oferecia.
 
 const MODEL_COLUMNS =
   "id, provider, model_id, display_name, description, context_window, input_price_per_million_cents, output_price_per_million_cents, supports_tools, is_default_for_provider, deprecated_at, released_at";
@@ -25,7 +29,7 @@ export async function GET(
   const requestId = randomUUID();
   const { provider } = await ctx.params;
 
-  if (!PROVIDERS.has(provider)) {
+  if (!ehProvedorSuportado(provider)) {
     return fail("not_found", "Provider desconhecido.", 404, { requestId });
   }
 

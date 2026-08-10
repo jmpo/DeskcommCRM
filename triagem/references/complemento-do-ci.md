@@ -175,9 +175,14 @@ Para não gastar passe à toa:
 
 ## 11. O que o verde do `e2e` NÃO significa
 
-O job `e2e` roda e é **não-bloqueante de propósito** — não está nos checks obrigatórios. Ele mesmo
-imprime, no resumo, o que não cobriu. Entre as specs que **não rodam** está a de instalação fresca em
-VPS, marcada `[P0]` — que é exatamente o produto que se vende.
+O job `e2e` **passou a ser obrigatório** (medido em 2026-08-08:
+`gh api .../branches/main/protection --jq '.required_status_checks.contexts'` → `verify,
+build-and-size, invariants, e2e`). Este parágrafo dizia o contrário até então, e uma triagem que o
+lesse mediria contra a régua errada — o modo de falha nº 1 do passe 0.
+
+Mas ele ser obrigatório **não** o torna prova de jornada. Ele mesmo imprime, no resumo, o que não
+cobriu: das 33 specs, a que **não roda** é a de instalação fresca em VPS, marcada `[P0]` — que é
+exatamente o produto que se vende.
 
 Ler `e2e` verde como "jornada de usuário provada" é falso verde **declarado pelo próprio arquivo**.
 Para PR que toca instalação ou onboarding, a prova é o passe 5, não o job.

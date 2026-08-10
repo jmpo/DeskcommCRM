@@ -21,6 +21,7 @@
  * Run: npx tsx scripts/seed-e2e-capacidades.ts
  */
 import { createClient } from "@supabase/supabase-js";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { anunciarDestino, credenciaisSupabaseDeTeste } from "./lib/env-de-teste";
@@ -53,9 +54,22 @@ function lerCreds(): Creds {
 async function main(): Promise<void> {
   const creds = lerCreds();
   const orgId = creds.org_id;
-  const fixtures = creds.followup_agent_fixtures;
+  let fixtures = creds.followup_agent_fixtures;
   if (!fixtures) {
-    throw new Error("Rode antes: npx tsx scripts/seed-e2e-followup-agent.ts");
+    // RODA o pré-requisito em vez de mandar rodar. As fixtures moram no mesmo
+    // `.e2e-creds.json` que `seed-e2e-credentials.ts` reescreve por inteiro —
+    // e ele é chamado de dentro do login quando o fator TOTP foi rotacionado
+    // por outra sessão. O resultado é este bloco sumir no meio de uma execução
+    // do Playwright, onde ninguém pode "rodar antes" coisa nenhuma: a bateria
+    // morre citando um comando que ela mesma sabia executar.
+    execFileSync("npx", ["tsx", "scripts/seed-e2e-followup-agent.ts"], { stdio: "inherit" });
+    fixtures = lerCreds().followup_agent_fixtures;
+  }
+  if (!fixtures) {
+    throw new Error(
+      "`followup_agent_fixtures` continua ausente mesmo depois de rodar " +
+        "seed-e2e-followup-agent.ts — o problema não é a ordem dos seeds.",
+    );
   }
 
   // 1) Agente + versão rascunho, idempotentes pelo nome.
@@ -108,6 +122,10 @@ async function main(): Promise<void> {
       .from("ai_agent_versions")
       .update({
         tool_ids: TOOLS_LIGADAS,
+        // Coluna da 0125, e o mesmo motivo do `tool_ids`: a tela do escopo de
+        // funis SALVA aqui, então sem repor, a segunda execução acha o funil
+        // que a primeira marcou e o caso "nasce fechada" passa a medir sujeira.
+        pipeline_ids: [],
         created_at: new Date(Date.now() - 60 * 86_400_000).toISOString(),
       })
       .eq("organization_id", orgId)
@@ -125,6 +143,7 @@ async function main(): Promise<void> {
       .from("ai_agent_versions")
       .update({
         tool_ids: TOOLS_LIGADAS,
+        pipeline_ids: [],
         // Configuração DATADA de 60 dias atrás de propósito. O painel distingue
         // "ligada agora" (não pede decisão) de "ligada há tempo e nunca usada"
         // (pede), e uma versão criada neste instante só alcançaria o primeiro

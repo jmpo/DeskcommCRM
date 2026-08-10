@@ -90,10 +90,19 @@ function Verificacoes({ g }: { g: NonNullable<TestResponse["data"]["guardrails"]
 
       {/*
         A lista do que NÃO foi checado. Ela é o que separa este conserto de uma
-        mentira mais bonita: os seis gates que dependem do turno real não podem
-        ser avaliados aqui, e inventá-los daria um veredito com aparência de
+        mentira mais bonita: as verificações que dependem do turno real não podem
+        ser avaliadas aqui, e inventá-las daria um veredito com aparência de
         prova. O usuário precisa saber a diferença entre "passou em tudo" e
         "passou no que dava para checar sem uma conversa de verdade".
+
+        (O texto dizia "os seis gates" enquanto a lista renderizava nove — número
+        que já foi verdade para um subconjunto e envelheceu. A contagem agora sai
+        da própria lista, logo abaixo, e não de prosa.)
+
+        Esta lista responde "o que este teste NÃO checou"; a aba "Confere antes de
+        enviar" responde "o que é checado, e o que cada uma protege". São
+        perguntas diferentes, e por isso há um ponteiro em vez de uma cópia — as
+        duas saem da mesma cadeia, cada uma com o seu teste de casamento.
       */}
       <details className="text-xs text-muted-foreground">
         <summary className="cursor-pointer" data-testid="teste-nao-verificado">
@@ -105,7 +114,9 @@ function Verificacoes({ g }: { g: NonNullable<TestResponse["data"]["guardrails"]
           ))}
         </ul>
         <p className="mt-2">
-          Estas só acontecem numa conversa real, com um cliente de verdade do outro lado.
+          Estas só acontecem numa conversa real, com um cliente de verdade do outro lado. Para ver
+          a lista inteira do que é conferido — e o que cada verificação protege — abra a aba{" "}
+          <span className="font-medium text-foreground">Confere antes de enviar</span>.
         </p>
       </details>
     </div>

@@ -55,11 +55,20 @@ supabase/.branches/
 # Claude Code harness artifacts (scheduled tasks lock, etc)
 # gov-loop: agents/ e commands/ são maquinaria versionada do loop e PRECISAM
 # viajar com o repo (merge de gov/setup → main); o resto de .claude/ segue local.
+# skills/: mesma razão — a doutrina (sistema-vivo) é maquinaria de arquitetura.
+# Skill fora do git não alcança quem clona nem o próximo sistema; seria uma
+# "tela sem porta" no vocabulário da própria doutrina que ela carrega.
 .claude/
 !.claude/
 .claude/*
 !.claude/agents/
 !.claude/commands/
+# skills/: allowlist explícita — só as deste repo. Liberar a pasta inteira
+# arrastaria skills locais de outros apps (Lina etc.) para o versionamento.
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/sistema-vivo/
+!.claude/skills/DeskcommCRM/
 
 # Local docker volumes (WAHA)
 .waha-data/

@@ -11,15 +11,42 @@ const messageRow = {
   media_derived_status: null as string | null,
 };
 
+/**
+ * O dublê PRECISA saber em que tabela está.
+ *
+ * A versão anterior devolvia `messageRow` para qualquer `from(...)` e encadeava
+ * exatamente dois `.eq`. Isso a tornava frágil nos dois eixos: o worker passou a
+ * consultar `ai_purpose_bindings` (com três filtros) e o stub quebrava no
+ * terceiro `.eq` — falha que aparece como "status error" e aponta para o lugar
+ * errado. O Proxy devolve o chain para qualquer filtro, e a linha vem por
+ * tabela: mensagem para `messages`, NENHUM binding para `ai_purpose_bindings`
+ * (o caso "ninguém configurou nada", que é o comportamento anterior que estes
+ * casos existem para preservar).
+ */
+const bindingDeVisao: { provider: string; model_id: string; credential_id: string | null } | null = null;
+
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
-    from: () => ({
-      select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: messageRow, error: null }) }) }) }),
-      update: (patch: Record<string, unknown>) => {
-        updateEqMock(patch);
-        return { eq: () => ({ eq: async () => ({ error: null }) }) };
-      },
-    }),
+    from: (tabela: string) => {
+      const linha = tabela === "ai_purpose_bindings" ? bindingDeVisao : messageRow;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const terminais: any = {
+        maybeSingle: async () => ({ data: linha, error: null }),
+        single: async () => ({ data: linha, error: null }),
+        update: (patch: Record<string, unknown>) => {
+          updateEqMock(patch);
+          return { eq: () => ({ eq: async () => ({ error: null }) }) };
+        },
+        then: (resolve: (v: unknown) => unknown) =>
+          Promise.resolve({ data: linha ? [linha] : [], error: null }).then(resolve),
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const chain: any = new Proxy(terminais, {
+        get: (alvo, prop) =>
+          prop in alvo ? alvo[prop as keyof typeof alvo] : () => chain,
+      });
+      return chain;
+    },
     storage: { from: () => ({ download: downloadMock }) },
   }),
 }));

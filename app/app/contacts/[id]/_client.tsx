@@ -14,6 +14,8 @@ import { ROLE_RANK } from "@/lib/auth/types";
 import { TimelineView } from "@/components/contacts/TimelineView";
 import { EditContactDialog } from "@/components/contacts/EditContactDialog";
 import { AnonymizeDialog } from "@/components/contacts/AnonymizeDialog";
+import { PropostasDeDado } from "@/components/contacts/PropostasDeDado";
+import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 
 interface Props {
   contactId: string;
@@ -49,8 +51,10 @@ export function ContactDetailClient({ contactId }: Props) {
     user.is_platform_admin ||
     (activeOrg && ROLE_RANK[activeOrg.role] >= ROLE_RANK.admin);
 
-  const displayName =
-    contact.display_name?.trim() || contact.name?.trim() || "Sem nome";
+  // Uma decisão, um lugar (lib/contacts/rotulo-do-contato.ts). Esta tela era
+  // uma das DUAS que ignoravam o telefone: contato com número e sem nome
+  // aparecia como "Sem nome" aqui e com o número no inbox.
+  const displayName = rotuloDoContato(contact);
 
   return (
     <div className="space-y-4 p-6">
@@ -92,6 +96,18 @@ export function ContactDetailClient({ contactId }: Props) {
           </Button>
         )}
       </header>
+
+      {/* ANTES das abas, e não dentro de uma delas: é o único conteúdo desta
+          tela que PEDE uma ação. Enterrado numa aba, viraria pendência que só
+          quem já sabe que existe encontra — e a fila deixaria de ser fila.
+          Some sozinho quando não há nada aguardando. */}
+      {!contact.is_anonymized && (
+        <PropostasDeDado
+          contactId={contactId}
+          podeDecidir={Boolean(activeOrg && ROLE_RANK[activeOrg.role] >= ROLE_RANK.agent)}
+          aoDecidir={() => void q.refetch()}
+        />
+      )}
 
       <Tabs defaultValue="overview">
         <TabsList>

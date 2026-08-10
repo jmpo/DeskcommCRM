@@ -44,8 +44,25 @@ export function lerCreds(): CredsE2E {
   return JSON.parse(fs.readFileSync(CREDS_PATH, "utf8")) as CredsE2E;
 }
 
+/**
+ * Re-semeia as credenciais **e reconstitui a cadeia que elas derrubam**.
+ *
+ * `seed-e2e-credentials.ts` reescreve o `.e2e-creds.json` INTEIRO. Os blocos
+ * que os outros seeds acrescentam ao mesmo arquivo (`capacidades`, a credencial
+ * de IA e a sessão de canal do follow-up) vão junto — e como este helper roda
+ * no MEIO de um login, o efeito aparece longe da causa: um spec que já tinha
+ * semeado sua fixture vê o campo sumir e falha dizendo "rode o seed antes",
+ * logo depois de um seed que imprimiu sucesso. Medido nesta sessão, duas vezes.
+ *
+ * `seed-e2e-followup-agent` entra aqui porque é pré-requisito declarado de
+ * `seed-e2e-capacidades` (que aborta com "Rode antes: …") e escreve no mesmo
+ * arquivo. O bloco `capacidades` NÃO entra: nem todo spec precisa de um
+ * `mcp_agent`, e quem precisa já o semeia — e precisa semear depois do login,
+ * de qualquer forma.
+ */
 export function semearCredenciais(): CredsE2E {
   execFileSync("npx", ["tsx", "scripts/seed-e2e-credentials.ts"], { stdio: "inherit" });
+  execFileSync("npx", ["tsx", "scripts/seed-e2e-followup-agent.ts"], { stdio: "inherit" });
   return JSON.parse(fs.readFileSync(CREDS_PATH, "utf8")) as CredsE2E;
 }
 

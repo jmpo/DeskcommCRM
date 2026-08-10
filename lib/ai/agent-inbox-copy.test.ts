@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { kindLabel, KIND_LABEL, SEVERITY_LABEL } from "./agent-inbox-copy";
+import {
+  copyDaPromessaSemDono,
+  kindLabel,
+  KIND_LABEL,
+  SEVERITY_LABEL,
+  type PromessaSemDono,
+} from "./agent-inbox-copy";
 
 describe("agent-inbox-copy — rótulos leigos dos avisos do runtime", () => {
   it("traduz kinds conhecidos do schema (agent_inbox_items.kind)", () => {
@@ -50,5 +56,73 @@ describe("agent-inbox-copy — rótulos leigos dos avisos do runtime", () => {
     expect(SEVERITY_LABEL.info).toBe("informativo");
     expect(SEVERITY_LABEL.warn).toBe("atenção");
     expect(SEVERITY_LABEL.critical).toBe("crítico");
+  });
+});
+
+/**
+ * A REGRA DE ESCRITA DESTE AVISO: ele nunca afirma cumprimento.
+ *
+ * O texto anterior dizia "o sistema ainda não registrou o cumprimento" — um
+ * veredito que nenhuma linha de código apurava, no único item que a feature dos
+ * três papéis mostra ao dono do negócio. O que se apura é se alguém ficou
+ * RESPONSÁVEL; se foi cumprida, o sistema não sabe.
+ */
+describe("copyDaPromessaSemDono — o aviso só afirma o que foi apurado", () => {
+  const MOTIVOS: PromessaSemDono[] = [
+    "operador_sem_ferramentas",
+    "operador_nao_agiu",
+    "operador_nao_rodou",
+  ];
+
+  it("NENHUM texto fala em cumprimento — nem no título, nem no corpo", () => {
+    for (const porque of MOTIVOS) {
+      const { title, body } = copyDaPromessaSemDono(1, porque);
+      const texto = `${title} ${body}`.toLowerCase();
+      for (const proibido of ["cumpriu", "cumprida", "cumprido", "cumprimento"]) {
+        expect(texto, `o motivo ${porque} voltou a afirmar cumprimento ("${proibido}")`).not.toContain(
+          proibido,
+        );
+      }
+    }
+  });
+
+  it("o rótulo do kind também não afirma cumprimento", () => {
+    // O rótulo é o que aparece na lista da Central, antes de alguém abrir o item
+    // — se ele afirma e o corpo não, a tela se contradiz.
+    expect(kindLabel("promise_unfulfilled").toLowerCase()).not.toContain("cumpri");
+    expect(kindLabel("promise_unfulfilled")).toContain("responsável");
+  });
+
+  it("sem capacidade marcada, manda para a tela do assistente", () => {
+    const { body } = copyDaPromessaSemDono(1, "operador_sem_ferramentas");
+    expect(body).toContain("capacidade");
+    expect(body).toContain("tela do assistente");
+  });
+
+  it("com capacidade e sem ação, NÃO manda configurar nada — manda decidir", () => {
+    // As duas variantes existem justamente para separar as ações. Se o texto do
+    // "não agiu" mandasse marcar capacidades, metade das pessoas iria mexer na
+    // configuração por um problema que não é de configuração.
+    const { body } = copyDaPromessaSemDono(1, "operador_nao_agiu");
+    expect(body).not.toContain("capacidade");
+    expect(body).toContain("decida quem faz");
+  });
+
+  it("plural: o título conta as promessas", () => {
+    expect(copyDaPromessaSemDono(3, "operador_nao_agiu").title).toContain("3 promessas");
+    expect(copyDaPromessaSemDono(1, "operador_nao_agiu").title).not.toContain("1 promessas");
+  });
+
+  it("nenhum texto carrega vocabulário interno", () => {
+    // Quem lê é dono de clínica. O nome do motivo é chave de código e não pode
+    // vazar para a tela — é o mesmo defeito que a spec dos três papéis existe
+    // para matar, um nível acima.
+    for (const porque of MOTIVOS) {
+      const { title, body } = copyDaPromessaSemDono(2, porque);
+      const texto = `${title} ${body}`;
+      for (const jargao of ["operador_", "operator", "mcp", "tool", "payload", "job"]) {
+        expect(texto.toLowerCase(), `jargão "${jargao}" no texto de ${porque}`).not.toContain(jargao);
+      }
+    }
   });
 });

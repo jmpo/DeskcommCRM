@@ -18,7 +18,13 @@
  * aceita; quem escreve daqui é que fica preso ao vocabulário.
  */
 export type ActivityType =
+  // Spec 17: o lead nasceu da primeira mensagem. Sem esta linha na timeline, o
+  // card aparece no kanban sem que ninguém saiba de onde veio — e "apareceu
+  // sozinho" é como se perde a confiança num automatismo.
+  | "lead_created"
   | "stage_changed"
+  /** Um humano desfez ou redirecionou o que a IA tinha movido (spec 17 passo 5). */
+  | "agent_move_corrected"
   | "note"
   | "ai_turn"
   | "send_vetoed"
@@ -34,10 +40,13 @@ export type ActivityType =
   | "reactivation_expired"
   | "followup_scheduled"
   | "followup_cancelled"
-  | "demand_closed";
+  | "demand_closed"
+  | "promise_unowned";
 
 export const ACTIVITY_LABELS: Record<ActivityType, string> = {
+  lead_created: "Entrou pelo WhatsApp",
   stage_changed: "Mudou de estágio",
+  agent_move_corrected: "Correção do que o assistente tinha feito",
   note: "Anotação",
   ai_turn: "Atendimento da IA",
   send_vetoed: "Envio bloqueado",
@@ -76,6 +85,15 @@ export const ACTIVITY_LABELS: Record<ActivityType, string> = {
   // retomar, para não repropor o que uma pessoa já desmarcou.
   followup_scheduled: "Retorno agendado",
   followup_cancelled: "Retorno cancelado",
+  // PROMESSA SEM RESPONSÁVEL. Entra na timeline pelo mesmo critério do
+  // `diffCheckpoint`: só o que muda o que alguém faria a seguir. Turno em que o
+  // Operador AGIU não gera linha própria — as ferramentas dele já geram as delas
+  // (`stage_changed`, `followup_scheduled`), e uma segunda linha dizendo "o
+  // Operador trabalhou" é o ruído que o diff existe para matar.
+  //
+  // O rótulo não diz "não cumprida": o sistema não apura cumprimento, apura se
+  // alguém assumiu.
+  promise_unowned: "Promessa sem responsável",
   // ENCERRAR É O OUTRO LADO do invariante 4: uma demanda aberta precisa de
   // próximo passo OU de desfecho registrado. Fechar como ganho ou perdido era
   // invisível na timeline — só existia em audit e event_log, que ninguém lê na

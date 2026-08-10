@@ -16,13 +16,32 @@ ser fonte sem ninguém decidir isso.
 
 | arquivo | escopo |
 |---|---|
-| `agent-turn.workflow.json` | o turno do agente (runtime da IA) |
+| `agent-turn.workflow.json` | os **dois** turnos do agente — Conversador (fala, 2 chamadas de modelo) e Operador (opera, sem canal). 24 peças, 33 arestas, 13 faixas. **É o único mapa que o archify renderiza** — ver o aviso abaixo |
 | `crm-vivo.architecture.json` | subsistema **CRM Vivo** — 24 peças, 44 arestas, 6 faixas |
 | `atualizacao-self-service.architecture.json` | botão de atualizar pela UI — `agent.sh`/`update.sh` (host) ↔ rota do agente ↔ tabelas de instância ↔ rodapé/tela |
 | `gestao-funis.architecture.json` | gestão de funis pela tela do Kanban — 18 peças, 30 arestas; as três dependências do funil e por que só uma o banco defende |
 | `ia-360-organizar.architecture.json` | IA 360 W4 — o agente organiza a operação: 18 peças, 24 arestas; uma regra por operação servindo REST e MCP, a autoria da configuração ao lado do estado, e **quatro não-ligações declaradas** (autoria não aponta para `ai_agents`; o agente não escreve regra automática, nem resposta pronta, nem o vocabulário canônico de marcadores) |
 | `ia-360-retencao.architecture.json` | pacote **Não perder o cliente** (IA 360 · wave 2) — 26 peças, 36 arestas; a regra única do retorno para o motor e para a capacidade configurável, e por que cancelado precisou deixar de ser igual a disparado |
 | `escalacao-ciclo-humano.architecture.json` | o ciclo agente ↔ pessoa — 30 peças, 38 arestas; as **três** travas da passagem (só uma era solta) e por onde a decisão da pessoa volta ao contexto do turno |
+
+
+### Aviso: só o `agent-turn.workflow.json` é renderizável hoje
+
+Medido com archify 2.11.0: os `*.architecture.json` deste diretório **não validam em nenhum
+dos dois modos**. Como `workflow` param no `diagram_type`; como `architecture` param na forma —
+aquele schema pede `components`, não `lanes`/`nodes`/`edges`. Trocar o `diagram_type` não
+resolve: os `node.type` que usamos (`api`, `service`, `table`, `lib`, `route`, `tool`,
+`config`) estão fora do enum do archify
+(`frontend|backend|database|cloud|security|messagebus|external`), vários `col` passam de 5, e
+os `dot` `sky`/`red`/`blue`/`green` não existem no enum de cards.
+
+A prova de que ninguém tentou renderizar está no próprio diretório: existe **um** `.html`, e é
+o do único arquivo que valida.
+
+Isto não invalida os outros mapas — eles seguem sendo a fonte da verdade em JSON, lida por
+gente e pelo `tests/unit/mapas-de-arquitetura.test.ts`. Mas o README dizia "re-renderize" como
+se fosse possível para todos, e não é: quem seguisse a instrução em qualquer um dos outros
+receberia um erro de schema e concluiria que estragou algo.
 
 ### `crm-vivo.architecture.json` é PLANTA, não fotografia
 

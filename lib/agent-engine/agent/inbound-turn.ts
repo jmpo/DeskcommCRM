@@ -72,7 +72,7 @@ import {
   type StageClassifierKnobs,
 } from './stage-classifier';
 import { loadPlaybook } from './playbook';
-import { DECLARACAO_INSTRUCTION, declaracaoDoTurnoSchema, type DeclaracaoDoTurno } from './declaracao';
+import { DECLARACAO_INSTRUCTION, declaracaoDoTurnoSchema, promessasEmAberto, type DeclaracaoDoTurno } from './declaracao';
 import { projetarContexto, projetarRetornoDeTool, turnoProjeta, type ContextoProjetado } from './projecao';
 import { capacidadesEntreguesAoOperador, catalogoEntregueAoOperador } from './entrega-de-capacidade';
 import { composeSystemPrompt, loadOrgMemory, renderOrgMemory } from './org-memory';
@@ -119,6 +119,7 @@ import {
   type JailbreakClassifierKnobs,
   type JailbreakLevel,
 } from '../guardrails/jailbreak/classifier';
+import { camadaLigada, lerCamadasDaOrg } from '../guardrails/camadas-da-org';
 
 /**
  * Superfície ESTÁTICA das tools do agente (description + inputSchema) — parte do
@@ -491,6 +492,68 @@ export async function latestCheckpoint(
   return rows[0] ?? null;
 }
 
+/**
+ * O checkpoint DO TURNO indicado — não "o mais recente do lead".
+ *
+ * `latestCheckpoint` é a pergunta certa para ABRIR um turno e a errada para
+ * PROCESSAR um: entre o fim do turno N e o claim do job do Operador N cabe o turno
+ * N+1 inteiro. A fila ordena por `(priority, run_after)`, o job do Operador nasce
+ * com `run_after = now()` e o inbound com `now() + INBOUND_DEBOUNCE_MS` (8s) —
+ * então uma mensagem que chega enquanto o turno corrente fecha é servida ANTES, e o
+ * Operador N acordaria lendo a declaração N+1. O efeito é a mesma promessa
+ * executada duas vezes e um aviso aberto duas vezes para uma promessa só.
+ *
+ * A chave sempre viajou no payload (`origin_job_id`) e era usada só como campo de
+ * log. Sem índice novo: `idx_lead_checkpoints_latest (organization_id, contact_id,
+ * seq desc)` já restringe a varredura àquele lead, e o `job_id` filtra em cima.
+ */
+export async function checkpointDoJob(
+  db: Queryable,
+  tenantId: string,
+  leadId: string,
+  jobId: string,
+): Promise<LeadCheckpointRow | null> {
+  const { rows } = await db.query<LeadCheckpointRow>(
+    `select * from lead_checkpoints
+     where organization_id = $1 and contact_id = $2 and job_id = $3
+     order by seq desc
+     limit 1`,
+    [tenantId, leadId, jobId],
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * A decisão de ENFILEIRAR o Operador — irmã de `decidirSeRoda`, que decide se ele
+ * RODA.
+ *
+ * A segunda era função pura desde o primeiro dia; a primeira ficou implícita em
+ * "sempre". A decisão (e) da spec declarou o custo em dinheiro (+1 chamada com o
+ * papel ligado) e ninguém declarou o custo em CAPACIDADE DE FILA, pago mesmo com o
+ * papel desligado — o default de toda instalação.
+ *
+ * Por turno, para escrever uma linha de log num contêiner que o dono do negócio
+ * nunca abre: um job, um slot de `QUEUE_MAX_CONCURRENCY` e a única vaga daquele
+ * lead no lote do claim (`distinct on (coalesce(contact_id, id))`). Sob rajada, é o
+ * turno de CRM sendo servido antes da próxima mensagem do cliente.
+ *
+ * O que se perde: o registro "papel_desligado" do handler. Aceitável — era um
+ * `log.info` de worker, que este arquivo classifica como não-superfície, e a linha
+ * do chamador o repõe no mesmo nível com custo zero de fila.
+ *
+ * O que isto NÃO conserta, e um leitor futuro vai supor que sim: com o papel
+ * desligado, promessa feita pelo Conversador continua sem registro na Central. Era
+ * assim antes e continua sendo.
+ */
+export function decidirSeEnfileiraOperador(input: {
+  temAgentePublicado: boolean;
+  papelLigado: boolean;
+}): { enfileira: boolean; porque: 'ligado' | 'sem_agente' | 'papel_desligado' } {
+  if (!input.temAgentePublicado) return { enfileira: false, porque: 'sem_agente' };
+  if (!input.papelLigado) return { enfileira: false, porque: 'papel_desligado' };
+  return { enfileira: true, porque: 'ligado' };
+}
+
 async function insertCheckpoint(
   db: Queryable,
   input: { tenantId: string; leadId: string; jobId: string; content: CheckpointContent },
@@ -750,6 +813,19 @@ export async function runAgentTurn(
   const contextKnobs = { historyLimit: deps.knobs.historyLimit, maxTokens: deps.knobs.maxContextTokens };
   // Contexto do RUN em toda linha de log do turno (F2-16): job_id É o run id.
   const runLog = withFields(deps.log, { job_id: job.id, tenant_id: tenantId, lead_id: leadId });
+
+  // AS DUAS CAMADAS QUE CUSTAM DINHEIRO, resolvidas UMA vez por turno.
+  //
+  // Os knobs (`deps.knobs.jailbreak`, `deps.knobs.promiseSemantic`) nascem no boot
+  // do worker e valem para a instalação inteira; a linha em `org_guardrail_layers`
+  // é a preferência de QUEM PAGA a consulta. Sem linha, `camadaLigada` devolve o
+  // padrão do ambiente — aplicar a migration não muda o comportamento de quem já
+  // decidiu no `.env`.
+  //
+  // Lido aqui, e não em cada ponto de uso: os dois consumidores ficam a ~900
+  // linhas de distância um do outro, e duas queries para a mesma pergunta viram,
+  // com o tempo, duas respostas.
+  const camadas = await lerCamadasDaOrg(pool, tenantId);
 
   // F4-06 (acceptance 2): lead em handoff humano → NO-OP no INÍCIO do turno, antes de
   // qualquer chamada de modelo/CRM. O bot silenciou (bot_silenced_until='infinity', cache
@@ -1066,7 +1142,7 @@ export async function runAgentTurn(
   // ROW do job fechados dentro (regra dura nº 1) — resolvido pelo seam agnóstico. undefined =
   // camada off (gate no-op). CUSTO: uma chamada de modelo POR ENVIO quando ligada.
   const semanticClassifier =
-    deps.knobs.promiseSemantic?.enabled === true
+    camadaLigada(camadas.promessa_semantica, deps.knobs.promiseSemantic?.enabled === true)
       ? (candidate: string) =>
           classifyPromise(
             pool,
@@ -1573,7 +1649,24 @@ export async function runAgentTurn(
                 to_stage: update.transition.to,
                 reason: mirror.reason,
               });
-              if (!MIRROR_WARN_ONLY.has(mirror.reason)) {
+              if (mirror.reason === 'fora_do_escopo') {
+                // Aviso PRÓPRIO, e não o de falha: nada quebrou — a regra
+                // funcionou. Dizer "falhou" aqui mandaria o dono procurar um
+                // defeito que não existe, e "reconcilie manualmente" seria
+                // instrução errada: ele não deve mover o card, deve decidir se
+                // libera o funil para este assistente.
+                await insertInboxItem(pool, tenantId, {
+                  kind: 'other',
+                  title: 'O assistente quis organizar um negócio de um funil que não é dele',
+                  body:
+                    `O assistente concluiu que este negócio deveria ir para "${update.transition.to}", ` +
+                    `mas ele não cuida do funil onde o negócio está (${mirror.detail}). ` +
+                    `Ninguém mexeu no card. Se ele deveria cuidar desse funil, marque isso na ` +
+                    `configuração do assistente; se não, não há nada a fazer.`,
+                  refKind: 'lead',
+                  refId: leadId,
+                });
+              } else if (!MIRROR_WARN_ONLY.has(mirror.reason)) {
                 await insertInboxItem(pool, tenantId, {
                   kind: 'other',
                   title: 'Espelho de stage no CRM falhou — funil possivelmente inconsistente',
@@ -1948,14 +2041,16 @@ export async function runAgentTurn(
   // checado nele). NÃO veta o inbound — só FLAGRA o turno no trace; flag/level não são PII
   // (a mensagem/reason nunca vão a log). A correlação com promessa fora de tabela escala no fim.
   let jailbreakLevel: JailbreakLevel = 'none';
-  if (deps.knobs.jailbreak !== undefined) {
+  if (camadaLigada(camadas.jailbreak, deps.knobs.jailbreak !== undefined)) {
     const verdict = await classifyJailbreak(
       pool,
       deps.llmCfg,
       { tenantId, leadId, jobId: job.id },
       {
         message: skillSignal,
-        ...argsAux(deps.knobs.jailbreak.model),
+        // Knob ausente + organização ligando = roda com o modelo padrão dela,
+        // que é a convenção já usada pelo stageClassifier.
+        ...argsAux(deps.knobs.jailbreak?.model),
       },
       { registry: deps.registry, log: runLog },
     );
@@ -2133,22 +2228,68 @@ export async function runAgentTurn(
   // Fire-and-forget: falha ao enfileirar NÃO derruba um turno que já respondeu
   // ao cliente. O `sourceEventId` é o job do Conversador, então o retry da fila
   // não gera um segundo Operador para o mesmo turno.
-  try {
-    const { deduped } = await enqueueJob(pool, tenantId, {
-      kind: 'operator_turn',
-      leadId,
-      sourceEventId: job.id,
-      payload: {
-        conversation_id: input.conversationId,
-        origin_job_id: job.id,
-        agent_id: agentConfig?.agentId ?? null,
-      },
-    });
-    runLog.info('turno do operador enfileirado', { deduped });
-  } catch (err) {
-    runLog.error('turno do operador NÃO foi enfileirado (o turno segue)', {
-      error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
-    });
+  const disparo = decidirSeEnfileiraOperador({
+    temAgentePublicado: agentConfig !== null,
+    papelLigado: agentConfig?.operatorEnabled ?? false,
+  });
+  if (!disparo.enfileira) {
+    runLog.info('turno do operador não enfileirado', { porque: disparo.porque });
+  } else {
+    try {
+      const { deduped } = await enqueueJob(pool, tenantId, {
+        kind: 'operator_turn',
+        leadId,
+        sourceEventId: job.id,
+        payload: {
+          conversation_id: input.conversationId,
+          origin_job_id: job.id,
+          agent_id: agentConfig?.agentId ?? null,
+        },
+      });
+      runLog.info('turno do operador enfileirado', { deduped });
+    } catch (err) {
+      runLog.error('turno do operador NÃO foi enfileirado (o turno segue)', {
+        error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
+      });
+      // O CATCH TINHA A DOUTRINA CERTA E A CONCLUSÃO ERRADA.
+      //
+      // "O aviso não pode derrubar o turno que já respondeu ao cliente" está certo.
+      // "Então basta um log" não: o enfileiramento é o ÚNICO mecanismo que garante o
+      // disparo do papel, e falhar aqui significa que a promessa que o Conversador
+      // acabou de fazer não terá dono e ninguém vai saber.
+      //
+      // É a mesma lição que este arquivo já aplicou no catch das capacidades MCP,
+      // onde o comentário diz que a versão anterior "dizia 'o humano vê o log'. Não
+      // vê." Lição aplicada numa ocorrência e não na irmã.
+      //
+      // Só quando HÁ promessa: sem ela o Operador teria decidido "nada a fazer", e
+      // item sem ação é ruído — ruído ensina a ignorar a Central.
+      const promessas = promessasEmAberto(content.declaracao ?? null);
+      if (promessas.length > 0) {
+        try {
+          await insertInboxItem(
+            pool,
+            tenantId,
+            {
+              kind: 'promise_unfulfilled',
+              severity: 'warn',
+              title: 'Um retorno prometido a um cliente ficou sem dono',
+              body:
+                'O assistente prometeu algo a esta pessoa nesta conversa e o passo que registra ' +
+                'o cumprimento não chegou a ser agendado. Abra a conversa, veja o que foi ' +
+                'combinado e cumpra você mesmo.',
+              refKind: 'conversation',
+              refId: input.conversationId,
+            },
+            'kind_e_ref',
+          );
+        } catch (erroDoAviso) {
+          runLog.error('aviso de promessa sem dono não foi gravado', {
+            error: (erroDoAviso instanceof Error ? erroDoAviso.message : String(erroDoAviso)).slice(0, 120),
+          });
+        }
+      }
+    }
   }
 
   const mudanca = diffCheckpoint(

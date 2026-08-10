@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Plus } from "@/lib/ui/icons";
+import { PROVEDORES } from "@/lib/ai/pontos/provedores";
 import { useCredentialsList, type CredentialRow, type Provider } from "@/hooks/ai/useCredentials";
 import { CredentialCard } from "./CredentialCard";
 import { AddCredentialDialog } from "./AddCredentialDialog";
@@ -14,13 +15,13 @@ interface Props {
   usageMap: Record<string, number>;
 }
 
-const PROVIDER_LABELS: Record<Provider, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  google: "Google",
-};
+// Rótulo e ordem saem da lista única — provedor novo aparece na tela sem que
+// alguém precise lembrar de acrescentá-lo em três lugares.
+const PROVIDER_LABELS: Record<string, string> = Object.fromEntries(
+  PROVEDORES.map((p) => [p.id, p.rotulo]),
+);
 
-const PROVIDER_ORDER: Provider[] = ["anthropic", "openai", "google"];
+const PROVIDER_ORDER: Provider[] = PROVEDORES.map((p) => p.id);
 
 export function CredentialsList({ initialData, canWrite, usageMap }: Props) {
   const { data } = useCredentialsList({ initialData });
@@ -28,11 +29,12 @@ export function CredentialsList({ initialData, canWrite, usageMap }: Props) {
 
   const credentials = data ?? [];
 
-  const grouped: Record<Provider, CredentialRow[]> = {
-    anthropic: [],
-    openai: [],
-    google: [],
-  };
+  // Construído a partir da lista única: escrito à mão, o dia em que um
+  // provedor novo entra é o dia em que as credenciais dele somem da tela sem
+  // ninguém ver (aconteceu com a OpenRouter).
+  const grouped: Partial<Record<Provider, CredentialRow[]>> = Object.fromEntries(
+    PROVEDORES.map((p) => [p.id, [] as CredentialRow[]]),
+  );
   for (const c of credentials) {
     grouped[c.provider]?.push(c);
   }
@@ -68,7 +70,10 @@ export function CredentialsList({ initialData, canWrite, usageMap }: Props) {
         )}
       </div>
       {PROVIDER_ORDER.map((p) => {
-        const rows = grouped[p];
+        // `?? []` porque a lista de provedores pode crescer sem que exista
+        // credencial daquele provedor — o agrupamento só tem chave para quem
+        // tem linha.
+        const rows = grouped[p] ?? [];
         if (rows.length === 0) return null;
         return (
           <section key={p} className="space-y-2">

@@ -47,9 +47,11 @@ A doutrina previa duas. A medição achou a terceira, e ela muda o desenho:
 > vê tool nenhuma mas recebe payload cru continua vazando.
 
 **Achado adjacente, mesma família:** a resposta `9-quem-pede-mexer` despejou **UUIDs crus de
-usuários** na tela do cliente. Não é vocabulário — é **dado interno**. O detector de vazamento não
-pega valor de UUID por desenho, e não deve: a defesa certa é a projeção (§4), não a regex.
-
+usuários** na tela do cliente. Não é vocabulário — é **dado interno**. O detector de vazamento PEGA uuid por FORMA (a regra E2 de
+> `vazamento-interno.ts`, desde 2026-08-05) — mas isso é REDE, não cura: ela barra a
+> mensagem já escrita e gasta um veto, enquanto a projeção (§4) impede que o dado
+> chegue ao modelo. A frase anterior desta linha dizia que o detector não pega uuid
+> "por desenho", e instruía o leitor a não contar com uma rede que existe.
 ---
 
 ## 2. Decisões fechadas
@@ -101,8 +103,10 @@ capacidade de mexer na operação."*
 
 ### 3.2 Operador — opera, e nunca fala
 
-- **Disparo:** evento (`event_log` + worker), imposto pelo runtime. **Roda sempre** que houve
-  turno, inclusive quando o Conversador não declarou nada.
+- **Disparo:** evento (`event_log` + worker), imposto pelo runtime. **Roda sempre** que o turno FECHOU (o checkpoint existe) e o papel está
+  ligado, inclusive quando o Conversador não declarou nada. Turno que morre antes do
+  fechamento não gera Operador naquela tentativa; se o job morre de vez, o laço fecha
+  pelo `job_dead` crítico na Central.
 - **Vê:** estado do lead, a declaração, o histórico, as 51 capacidades do catálogo.
 - **Tools:** as de escrita do catálogo MCP + as nativas de operação (`update_lead_state`,
   `schedule_followup`, `save_lead_note`, `open_human_case`, `provide_case_update`).

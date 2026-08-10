@@ -80,6 +80,54 @@ echo "e-mail"
 ok "aceita e-mail válido"     pass   v_email "voce@empresa.com.br"
 ok "rejeita sem @"            reject v_email "voce.empresa.com.br"          "inválido"
 
+echo "URL do Supabase: a da nuvem E a de um Supabase próprio"
+# O gate de formato exigia `.supabase.co` e matava quem roda Supabase
+# self-hosted com a frase "Ela termina em .supabase.co" — recusa do dado CERTO, e
+# sem saída nenhuma: não existe o que digitar que passe. Agora o formato só exige
+# https://, e a mensagem de recusa precisa ensinar os DOIS casos, senão ela
+# recria o mesmo beco em prosa.
+#
+# FRONTEIRA (o cabeçalho deste arquivo): aqui se mede só o `case` de formato. A
+# chamada a /auth/v1/health é dublada, porque prender esta suíte a DNS é trocar
+# um teste por um oráculo. O que aquela chamada prova de fato — e o que ela NÃO
+# prova — é medição de instalação real; ver o relatório da triagem.
+sburl_ok() {  # sburl_ok <descrição> <pass|reject> <url> [trecho esperado]...
+  local desc="$1" expect="$2" url="$3" out rc want
+  shift 3
+  out="$(bash -c '
+      INSTALL_SH_LIB=1 . ./install.sh
+      set +e
+      # Só o formato está sob teste: para o dublê, a rede responde 200 a todos.
+      curl() { printf 200; }
+      v_supabase_url "$1"' _ "$url" 2>&1)"; rc=$?
+  if [ "$expect" = pass ]; then
+    if [ $rc -eq 0 ]; then printf '  ✓ %s\n' "$desc"
+    else printf '  ✗ %s  (esperava aceitar, rejeitou: %s)\n' "$desc" "$(printf '%s' "$out" | head -1)"; fail=1; fi
+    return
+  fi
+  if [ $rc -eq 0 ]; then printf '  ✗ %s  (esperava rejeitar, aceitou)\n' "$desc"; fail=1; return; fi
+  for want in "$@"; do
+    if ! printf '%s' "$out" | grep -qi -- "$want"; then
+      printf '  ✗ %s  (rejeitou, mas a mensagem não fala de: %s)\n     disse: %s\n' \
+        "$desc" "$want" "$(printf '%s' "$out" | head -1)"; fail=1; return
+    fi
+  done
+  printf '  ✓ %s\n' "$desc"
+}
+sburl_ok "aceita a URL da nuvem"                pass   "https://abcdefghijklmnop.supabase.co"
+# ESTE é o caso que não existia: Supabase próprio, host que não tem .supabase.co.
+sburl_ok "aceita Supabase próprio (self-hosted)" pass  "https://db-crm.exemplo.com.br"
+sburl_ok "aceita host sem ponto (Supabase na rede interna)" pass "https://supabase-interno"
+# Sem https:// continua sendo recusa — é o que quebra o curl logo abaixo, e o
+# caso do `.supabase.co` colado sem esquema tem mensagem própria, mais específica.
+sburl_ok "rejeita .supabase.co colado sem esquema" reject "abcdefghijklmnop.supabase.co" "https://"
+sburl_ok "rejeita http:// (sem TLS)"               reject "http://db-crm.exemplo.com.br" "https://"
+# A mensagem tem de nomear os DOIS mundos. Uma recusa que só fala da nuvem
+# devolve o self-hoster ao beco de onde esta correção o tirou — o defeito
+# migraria do `case` para a prosa, onde não há catraca nenhuma.
+sburl_ok "a recusa ensina o caso da NUVEM"         reject "meu-supabase" "supabase.co"
+sburl_ok "a recusa ensina o caso do Supabase PRÓPRIO" reject "meu-supabase" "servidor"
+
 echo "chaves do Supabase (formato/papel/projeto)"
 ok "rejeita service_role no campo anon" reject v_anon    "$(mkjwt service_role abcdefghijklmnop)" "preciso da 'anon'"
 ok "rejeita anon no campo service_role" reject v_service "$(mkjwt anon abcdefghijklmnop)"         "preciso da 'service_role'"
@@ -92,8 +140,101 @@ ok "rejeita Direct connection (IPv6)"    reject v_db_url "postgresql://postgres:
 ok "rejeita string de outro projeto"     reject v_db_url "postgresql://postgres.zzzzzzzzzzzzzzzz:senha@aws-1-us-west-2.pooler.supabase.com:5432/postgres"          "mesmo projeto"
 ok "rejeita o que não é URL de Postgres" reject v_db_url "aws-1-us-west-2.pooler.supabase.com"                                                                     "começa com postgresql"
 
+echo "connection string: Supabase PRÓPRIO não tem <ref> de projeto"
+# A comparação de projeto lê o `postgres.<ref>` do pooler DA NUVEM. Num Supabase
+# self-hosted não existe <ref> e a role pode ser qualquer uma, então a checagem
+# acusava "a string é do projeto 'crmuser', mas a URL é do projeto 'db-crm'" —
+# frase sobre duas coisas que não existem, e sem saída. Agora ela só roda quando
+# a URL é mesmo da nuvem.
+#
+# O caso da nuvem está aqui de novo (já existe acima) porque a asserção é OUTRA:
+# lá se mede a mensagem, aqui se mede que a recusa acontece ANTES de encostar no
+# banco. É essa fronteira que o `case` novo poderia ter movido sem ninguém ver.
+#
+# O que sobra barrando o dado errado no caminho self-hosted é SÓ o `select 1`, e
+# ele prova que o banco RESPONDE, não que é o banco certo: medido, uma string
+# apontando para o banco de outra pessoa passa. Isto está no relatório da
+# triagem como achado — não é um teste vermelho aqui de propósito.
+db_ok() {  # db_ok <descrição> <pass|reject> <NEXT_PUBLIC_SUPABASE_URL> <string> [trecho esperado]
+  local desc="$1" expect="$2" sburl="$3" conn="$4" want="${5-}" dir out rc tocou
+  dir="$(mktemp -d)"; mkdir -p "$dir/bin"
+  # O `select 1` roda via `docker run postgres:17-alpine`. O dublê não é
+  # conveniência: sem ele um caso de ACEITE baixaria imagem e abriria conexão de
+  # rede, que é justamente o que o cabeçalho deste arquivo promete não fazer.
+  # Ele deixa um rastro para a asserção de vacuidade logo abaixo.
+  printf '#!/usr/bin/env bash\ntouch "%s/tocou-no-banco"\nprintf 1\n' "$dir" > "$dir/bin/docker"
+  chmod +x "$dir/bin/docker"
+  out="$(env PATH="$dir/bin:$PATH" NEXT_PUBLIC_SUPABASE_URL="$sburl" bash -c '
+      INSTALL_SH_LIB=1 . ./install.sh
+      set +e
+      v_db_url "$1"' _ "$conn" 2>&1)"; rc=$?
+  tocou=nao; [ -e "$dir/tocou-no-banco" ] && tocou=sim
+  rm -rf "$dir"
+  if [ "$expect" = pass ]; then
+    if [ $rc -ne 0 ]; then
+      printf '  ✗ %s  (esperava aceitar, rejeitou: %s)\n' "$desc" "$(printf '%s' "$out" | head -1)"; fail=1
+    elif [ "$tocou" != sim ]; then
+      # Vacuidade: aceitar SEM chegar ao psql é outro defeito com a mesma cara de
+      # verde — seria um `return 0` antecipado, e a instalação seguiria com uma
+      # connection string que ninguém testou.
+      printf '  ✗ %s  (aceitou sem nunca tentar conectar — return 0 antecipado?)\n' "$desc"; fail=1
+    else printf '  ✓ %s\n' "$desc"; fi
+    return
+  fi
+  if [ $rc -eq 0 ]; then printf '  ✗ %s  (esperava rejeitar, aceitou)\n' "$desc"; fail=1; return; fi
+  if [ -n "$want" ] && ! printf '%s' "$out" | grep -qi -- "$want"; then
+    printf '  ✗ %s  (rejeitou, mas pelo motivo errado)\n     disse: %s\n' "$desc" "$(printf '%s' "$out" | head -1)"; fail=1; return
+  fi
+  if [ "$tocou" = sim ]; then
+    printf '  ✗ %s  (recusou só DEPOIS de tentar conectar — a guarda é de formulário)\n' "$desc"; fail=1; return
+  fi
+  printf '  ✓ %s\n' "$desc"
+}
+db_ok "próprio: role arbitrária deixa de virar 'projeto'" pass \
+  "https://db-crm.exemplo.com.br" "postgresql://crmuser:senha@db-crm.exemplo.com.br:5432/postgres"
+db_ok "próprio: role 'postgres' segue passando"           pass \
+  "https://db-crm.exemplo.com.br" "postgresql://postgres:senha@db-crm.exemplo.com.br:5432/postgres"
+# A regressão que importa: afrouxar o self-hosted não podia afrouxar a NUVEM,
+# onde o <ref> existe e apontar para o projeto errado é o erro clássico.
+db_ok "NUVEM: projeto cruzado continua barrado antes do banco" reject \
+  "https://abcdefghijklmnop.supabase.co" \
+  "postgresql://postgres.zzzzzzzzzzzzzzzz:senha@aws-1-us-west-2.pooler.supabase.com:5432/postgres" \
+  "mesmo projeto"
+db_ok "NUVEM: mesmo projeto passa"                        pass \
+  "https://abcdefghijklmnop.supabase.co" \
+  "postgresql://postgres.abcdefghijklmnop:senha@aws-1-us-west-2.pooler.supabase.com:5432/postgres"
+# A URL da nuvem NÃO chega sempre terminando em '.supabase.co'. O address bar do
+# navegador entrega barra final; quem copia da documentação traz caminho; quem
+# cola com o mouse traz espaço. Decidir "é nuvem?" pela string inteira desliga a
+# comparação de projeto em silêncio nesses três casos — e o desfecho é o pior
+# possível: o baseline.sql vai para um banco e o app fala com outro, cada um de
+# um projeto. Estes três casos guardam a extração de HOST que impede isso.
+for _sufixo in "/" "/rest/v1" " "; do
+  db_ok "NUVEM com '${_sufixo}' na URL: projeto cruzado continua barrado" reject \
+    "https://abcdefghijklmnop.supabase.co${_sufixo}" \
+    "postgresql://postgres.zzzzzzzzzzzzzzzz:senha@aws-1-us-west-2.pooler.supabase.com:5432/postgres" \
+    "mesmo projeto"
+done
+unset _sufixo
+# E o outro lado da mesma extração: Supabase próprio com barra final continua
+# sendo Supabase próprio — a correção acima não pode reintroduzir a recusa do
+# dado certo que este PR veio tirar.
+db_ok "próprio com barra final segue sem comparar projeto" pass \
+  "https://db-crm.exemplo.com.br/" "postgresql://crmuser:senha@db-crm.exemplo.com.br:5432/postgres"
+# Quem responde a connection string ANTES da URL (ou pula a URL) não tem com o
+# que comparar — e não pode ser barrado por isso.
+db_ok "sem URL respondida ainda: não há o que comparar"   pass \
+  "" "postgresql://postgres.zzzzzzzzzzzzzzzz:senha@aws-1-us-west-2.pooler.supabase.com:5432/postgres"
+
 echo "chaves de IA e senha"
 ok "rejeita chave Anthropic com prefixo errado" reject v_anthropic "sk-proj-abc123" "começa com 'sk-ant-'"
+# `v_openrouter` foi referenciada como validador do campo da OpenRouter sem
+# nunca ter sido definida — e a suíte não tinha uma linha sequer que a
+# mencionasse. Este caso é o que faz a AUSÊNCIA da função ser vermelha: um nome
+# inexistente devolve 127, que `ok` lê como rejeição, então o par (rejeita por
+# prefixo / aceita vazio-não) é o que separa "existe e valida" de "não existe".
+ok "rejeita chave OpenRouter com prefixo errado" reject v_openrouter "sk-ant-abc123" "começa com 'sk-or-'"
+ok "rejeita chave OpenRouter vazia"              reject v_openrouter ""              "começa com 'sk-or-'"
 ok "rejeita chave OpenAI com prefixo errado"    reject v_openai    "minha-chave"    "começa com 'sk-'"
 ok "aceita OpenAI vazia (é opcional)"           pass   v_openai    ""
 ok "rejeita senha curta"                        reject v_password  "1234567"        "muito curta"
@@ -592,9 +733,15 @@ rt_ok "Traefik em 2 redes → a primeira"          coolify    coolify    "coolif
 rt_ok "modo host NÃO grava a pseudo-rede 'host'" crm_proxy  host       "host "           crm_proxy
 
 echo "proxy reverso: a rede externa existe e serve?"
-vr_ok() {  # vr_ok <descrição> <esperado> <driver encontrado> <rede> <bridge do projeto>
+vr_ok() {  # vr_ok <descrição> <esperado> <driver encontrado> <rede> <bridge do projeto> [attachable]
   local desc="$1" esperado="$2" real
-  real="$(veredito_rede_do_proxy "${3:-}" "${4:-}" "${5:-}")"
+  # O attachable só é passado quando o caso o declara, e isso NÃO é firula de
+  # assinatura: a chamada de 3 argumentos é o call site de antes do Swarm, e ela
+  # tem de continuar recusando overlay. Passar "" sempre apagaria essa medição em
+  # silêncio — a função trata ausente e vazio igual, então os dois casos ficariam
+  # verdes pelo mesmo caminho e o de compatibilidade deixaria de existir.
+  if [ $# -ge 6 ]; then real="$(veredito_rede_do_proxy "${3:-}" "${4:-}" "${5:-}" "$6")"
+  else                  real="$(veredito_rede_do_proxy "${3:-}" "${4:-}" "${5:-}")"; fi
   if [ "$real" = "$esperado" ]; then printf '  ✓ %s\n' "$desc"
   else printf '  ✗ %s  (deu %s, esperava %s)\n' "$desc" "$real" "$esperado"; fail=1; fi
 }
@@ -606,9 +753,83 @@ vr_ok "a bridge do PROJETO ainda não existe → cria" criar       ""      crm_p
 vr_ok "rede de outro que não existe → morre"      inexistente   ""      coolify    crm_proxy
 # TRAEFIK_NETWORK=host escrito à mão: existe, mas não aceita contêiner de bridge.
 vr_ok "driver host → morre"                       driver_errado host    host       crm_proxy
-vr_ok "driver overlay → morre"                    driver_errado overlay traefik    crm_proxy
+# Chamada com 3 argumentos DE PROPÓSITO: é o call site de antes do attachable.
+# Sem este caso, apagar o `att` de garantir_rede_do_proxy (deixando a função
+# intacta e o símbolo presente) não seria pego por teste nenhum.
+vr_ok "driver overlay, chamada de 3 args → morre" driver_errado overlay traefik    crm_proxy
 # Sem bridge do projeto conhecida (chamada defensiva), ausência volta a ser morte.
 vr_ok "sem rede nossa declarada → não inventa"    inexistente   ""      crm_proxy  ""
+
+# ── Overlay do Swarm ────────────────────────────────────────────────────────
+# Numa VPS com Docker Swarm o Traefik vive numa overlay, e a recusa por driver
+# matava a instalação com "ponha a bridge certa em TRAEFIK_NETWORK" — instrução
+# impossível de seguir, porque ali bridge do Traefik não existe. O que separa a
+# overlay que SERVE da que não serve é o --attachable: sem ele um contêiner de
+# compose comum não entra na rede e o `up -d` morre em "could not attach to
+# network". Por isso o veredito lê os DOIS campos, nunca só o driver.
+#
+# Os valores abaixo são o que `docker network inspect -f '{{.Attachable}}'`
+# imprime DE VERDADE (medido no docker 28.3.2): `true` ou `false`, minúsculo e
+# sem aspas, e VAZIO quando a rede não existe (aí o inspect sai != 0). Um teste
+# escrito com "True" ou "1" guardaria um formato que o Docker não emite.
+vr_ok "overlay attachable → serve como bridge"     ok            overlay traefik crm_proxy true
+vr_ok "overlay SEM attachable → morre"             driver_errado overlay traefik crm_proxy false
+# Vazio é a resposta de quem não sabe, não um "pode entrar". Tratar ausência de
+# resposta como permissão é exatamente o falhar-em-verde que este arquivo existe
+# para impedir.
+vr_ok "overlay com attachable vazio → morre"       driver_errado overlay traefik crm_proxy ""
+# O attachable NÃO pode virar critério único: a bridge default do Docker e as que
+# os painéis criam reportam Attachable=false (medido no docker 28.3.2, inclusive
+# na rede `bridge`). Exigi-lo de todo mundo quebraria toda instalação com Traefik
+# em bridge que hoje funciona — que é a maioria.
+vr_ok "bridge com attachable=false segue ok"       ok            bridge  coolify crm_proxy false
+# E o driver continua mandando: attachable=true numa rede `host` não muda que
+# contêiner de bridge não entra nela.
+vr_ok "host com attachable=true continua morrendo" driver_errado host    host    crm_proxy true
+
+echo "proxy reverso: o CALL SITE pergunta o attachable ao Docker"
+# Guardar a função não guarda a correção. Apagar o `att=` e o 4º argumento de
+# `garantir_rede_do_proxy` deixa `veredito_rede_do_proxy` intacta, o símbolo
+# presente e todo grep verde — e a VPS com Swarm volta a morrer, no update.sh
+# que o agent.sh roda sozinho a cada 5 minutos, sem ninguém lendo a tela. É o
+# call site que precisa de rede, e aqui o _common.sh roda de verdade contra um
+# `docker` dublê que responde como um Swarm responderia.
+rede_e2e() {  # rede_e2e <descrição> <segue|morre> <driver> <attachable>
+  local desc="$1" esperado="$2" drv="$3" att="$4" dir real perguntou kit="$PWD"
+  dir="$(mktemp -d)"; mkdir -p "$dir/bin"
+  cat > "$dir/bin/docker" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$dir/chamadas.log"
+if [ "\$1" = network ] && [ "\$2" = inspect ]; then
+  case "\$*" in
+    *Driver*)     printf '$drv\n'; exit 0 ;;
+    *Attachable*) printf '$att\n'; exit 0 ;;
+  esac
+fi
+exit 0
+STUB
+  chmod +x "$dir/bin/docker"
+  # O kit é capturado ANTES do cd: dentro do subshell o \$PWD já é o temporário,
+  # e o _common.sh não seria encontrado — o teste "morreria" por não achar o
+  # arquivo, indistinguível de uma recusa legítima.
+  if (cd "$dir" && env PATH="$dir/bin:$PATH" REVERSE_PROXY=traefik \
+        TRAEFIK_NETWORK=traefik PROJECT_DIR="$dir" \
+        bash -c '. "$1/_common.sh"; garantir_rede_do_proxy' _ "$kit") >/dev/null 2>&1
+  then real=segue; else real=morre; fi
+  # Vacuidade: "segue" só significa alguma coisa se o call site TIVER perguntado
+  # o attachable ao Docker. Sem esta checagem, um call site que parasse de
+  # perguntar — e um veredito que aceitasse overlay de olhos fechados — passaria
+  # com a mesma cara de aprovado.
+  perguntou=nao
+  grep -q 'Attachable' "$dir/chamadas.log" 2>/dev/null && perguntou=sim
+  rm -rf "$dir"
+  if [ "$perguntou" != sim ]; then
+    printf '  ✗ %s  (o call site não perguntou o attachable ao Docker)\n' "$desc"; fail=1
+  elif [ "$real" = "$esperado" ]; then printf '  ✓ %s\n' "$desc"
+  else printf '  ✗ %s  (deu %s, esperava %s)\n' "$desc" "$real" "$esperado"; fail=1; fi
+}
+rede_e2e "overlay attachable: install/update seguem" segue overlay true
+rede_e2e "overlay sem attachable: morre explicando"  morre overlay false
 
 echo "proxy reverso: quanta confiança a eleição merece"
 # A eleição por porta publicada traz a evidência (a coluna Ports diz ':80->'); a
@@ -734,7 +955,17 @@ chegou_na_deteccao() {
 # proxy (o que se testa aqui), depois os 3 campos que o BASE_ENV deixa vazios de
 # propósito (APP_IMAGE, OPENAI_API_KEY, APP_NAME — todos com Enter), a tela de
 # conferência, a telemetria e o aviso de DNS ('c' = seguir assim mesmo).
-RESTO_DAS_PERGUNTAS=$'\n\n\n\n\nc\n'
+# As respostas que vêm DEPOIS da do proxy reverso, na ordem em que o install.sh
+# as consome. É uma fila posicional: pergunta nova no meio do script desloca
+# tudo daqui para baixo, e o sintoma NÃO aponta para cá — o cenário simplesmente
+# não chega onde esperava e reprova com outro nome (medido: a pergunta de qual
+# IA vai atender, em `install.sh:916`, derrubou o caso do TRAEFIK_NETWORK).
+#
+# O primeiro `\n` é o "Enter = padrão" de `escolher_provedor` (install.sh:916),
+# que roda depois da pergunta do proxy (:768) e antes da entrevista (:975).
+# Quem acrescentar pergunta interativa ao install.sh acrescenta a resposta aqui,
+# na mesma posição relativa.
+RESTO_DAS_PERGUNTAS=$'\n\n\n\n\n\nc\n'
 
 echo "integração: instalação NOVA numa VPS LIMPA (o caminho do Caddy)"
 # O caminho mais percorrido de todos — VPS crua, portas livres, o kit sobe o
@@ -775,6 +1006,80 @@ STUB
   printf '  ✓ portas livres → Caddy, e o .env sai inteiro mesmo sem proxy externo\n'
 ) || fail=1
 rm -rf "$TMP3B"
+
+echo "integração: os TRÊS provedores de IA que o instalador oferece"
+# A pergunta "qual IA vai atender" tem três respostas, e até aqui só uma delas
+# era exercitada: todo cenário desta suíte responde Enter, e Enter é [2]
+# Anthropic. As outras duas estavam quebradas, cada uma de um jeito, e a suíte
+# inteira ficava verde:
+#
+#   [1] OpenRouter → `v_openrouter` era declarada como validador do campo e
+#       nunca definida. `ask_one` despacha o validador pelo NOME, então o nome
+#       inexistente vira exit 127: no modo interativo o laço repete a pergunta
+#       para sempre, e no `--yes` vira "OPENROUTER_API_KEY inválido / corrija o
+#       .env" com o .env certo.
+#   [3] OpenAI    → quem escolhe OpenAI nunca passa pelo campo da Anthropic, e
+#       o bloco que escreve o .env fazia `envq ANTHROPIC_API_KEY
+#       "$ANTHROPIC_API_KEY"` sem default. Sob `set -u` isso aborta o `{ … } >
+#       .env` no meio: arquivo pela metade, instalação sem como continuar.
+#
+# O caminho medido é o `--yes`, porque é o que o `update.sh` e a 2ª execução
+# usam, e porque nele a escolha vem do .env — que é como uma instalação que já
+# existe chega aqui. A asserção é a MESMA das outras rodadas: a última linha do
+# bloco tem de estar presente, senão o .env saiu pela metade.
+provedor_ok() {  # provedor_ok <descrição> <VAR da chave> <valor> <AI_PROVIDER esperado>
+  local desc="$1" var="$2" val="$3" esperado="$4" raiz env_ia
+  raiz="$(mktemp -d)"
+  (
+    montar_vps "$raiz" "crmia" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+case "$1" in
+  compose) case "$*" in *" exec "*) printf 'healthy\n{"data":{"status":"healthy"}}\n' ;; esac; exit 0 ;;
+esac
+exit 0
+STUB
+    # O .env de quem escolheu ESTE provedor: a chave dele, e NENHUMA outra. É o
+    # ponto todo — um .env com as três chaves esconderia os dois defeitos.
+    env_ia="$(printf '%s\n' "$BASE_ENV" | grep -v '^ANTHROPIC_API_KEY=')"
+    printf '%s\n%s=%s\n' "$env_ia" "$var" "'$val'" > "$raiz/crmia/.env"
+    : > "$raiz/docker.log"
+    saida="$(cd "$raiz/crmia" && env PATH="$raiz/bin:$PATH" DOCKER_LOG="$raiz/docker.log" \
+      CRONTAB_SANDBOX="$CRONTAB_SANDBOX" bash "$raiz/install.sh" --yes 2>&1 || true \
+      | sed -E 's/\x1b\[[0-9;]*m//g')"
+    if printf '%s' "$saida" | grep -q 'comando não encontrado\|command not found'; then
+      printf '  ✗ %s — o instalador chamou um comando que não existe:\n' "$desc"
+      printf '%s\n' "$saida" | grep 'comando não encontrado\|command not found' | head -2 | sed 's/^/       /'
+      exit 1
+    fi
+    if ! grep -qE "^OWNER_PASSWORD='" "$raiz/crmia/.env"; then
+      printf '  ✗ %s — o .env saiu pela metade (parou antes da última linha do bloco)\n' "$desc"
+      printf '     últimas chaves gravadas: %s\n' \
+        "$(grep -oE '^[A-Z_]+=' "$raiz/crmia/.env" | tail -3 | tr '\n' ' ')"
+      exit 1
+    fi
+    # A escolha precisa SOBREVIVER no .env, senão a 2ª execução re-adivinha —
+    # e re-adivinhar é como uma instalação só-OpenRouter volta a ser tratada
+    # como Anthropic.
+    if ! grep -qx "AI_PROVIDER='$esperado'" "$raiz/crmia/.env"; then
+      printf '  ✗ %s — AI_PROVIDER não foi gravado como %s: %s\n' "$desc" "$esperado" \
+        "$(grep -E '^AI_PROVIDER=' "$raiz/crmia/.env" || echo '(ausente)')"
+      exit 1
+    fi
+    # E a chave que a pessoa tinha continua lá, com o valor dela.
+    if ! grep -qx "$var='$val'" "$raiz/crmia/.env"; then
+      printf '  ✗ %s — %s não sobreviveu: %s\n' "$desc" "$var" \
+        "$(grep -E "^$var=" "$raiz/crmia/.env" || echo '(ausente)')"
+      exit 1
+    fi
+    printf '  ✓ %s\n' "$desc"
+  ) || fail=1
+  rm -rf "$raiz"
+}
+provedor_ok "OpenRouter: instala e o .env sai inteiro"  OPENROUTER_API_KEY sk-or-v1-teste openrouter
+provedor_ok "OpenAI: instala e o .env sai inteiro"      OPENAI_API_KEY     sk-teste       openai
+provedor_ok "Anthropic: instala e o .env sai inteiro"   ANTHROPIC_API_KEY  sk-ant-teste   anthropic
+
 
 echo "integração: instalação NOVA numa VPS com Traefik em modo host"
 # O install.sh roda contra um `docker` dublê que imita a Hostinger: 80/443
@@ -1004,6 +1309,82 @@ np_ok /root/_-_crm       crm
 np_ok /root/_123         123
 np_ok /root/deskcomm.crm deskcommcrm
 np_ok /root/crm_cliente  crm_cliente
+
+echo "re-execução: o kit é chamado por caminho RELATIVO, como o README manda"
+# O harness acima sempre invoca `bash "$VPS_RAIZ/$script"` — ABSOLUTO. O README
+# documenta `bash install.sh` (:34) e a re-execução como suportada (:126, :138),
+# e é aí que mora a diferença: um `grep ... "$0"` DEPOIS do `cd` para o diretório
+# do projeto procura o script no lugar errado e morre em "No such file or
+# directory", matando a 2ª execução. Passou verde por anos porque a única sonda
+# que rodava o instalador usava caminho absoluto.
+#
+# Este caso não roda o install.sh inteiro: isola o mecanismo (o `cd` seguido da
+# leitura do próprio script), que é o que regride em silêncio.
+reexec_ok() {
+  local desc="$1" dir raiz achou linha
+  raiz="$(mktemp -d)"; dir="$raiz/deskcommcrm"; mkdir -p "$dir"
+  cp ./install.sh "$raiz/install.sh"
+  # A LINHA REAL do install.sh, extraída do arquivo — não uma reimplementação.
+  # Reimplementar o mecanismo aqui deixaria este caso VERDE com o install.sh
+  # sabotado (medido: previ 1 vermelho e observei 0 na primeira versão deste
+  # arquivo). O teste tem de executar o que o kit executa.
+  linha="$(grep -n 'CONHECIDAS=' "$raiz/install.sh" | head -1 | cut -d: -f2-)"
+  if [ -z "$linha" ]; then
+    printf '  ✗ %s — não achei a linha CONHECIDAS= no install.sh (o teste ficou cego)\n' "$desc"; fail=1; return
+  fi
+  achou="$(cd "$dir" && KIT_DIR="$raiz" bash -c "
+    set +e
+    $linha
+    printf '%s' \"\$CONHECIDAS\" | grep -c . 
+  " install.sh 2>/dev/null)"
+  rm -rf "$raiz"
+  if [ "${achou:-0}" -gt 0 ]; then printf '  ✓ %s (%s vars)\n' "$desc" "$achou"
+  else printf '  ✗ %s — o kit não se encontra depois do cd; a 2ª execução morre\n' "$desc"; fail=1; fi
+}
+# O CONTROLE NEGATIVO. Ele foi PROMETIDO por escrito no comentário acima e
+# chamado aqui, mas nunca definido — `reexec_neg` era um comando inexistente,
+# que sob um script sem `set -e` só imprime "command not found" no stderr e
+# segue em frente. A suíte então terminava em "todos os validadores passaram"
+# tendo executado uma asserção a menos do que dizia.
+#
+# Sem ele, `reexec_ok` sozinho não prova nada: uma sonda que devolvesse "achei
+# vars" em qualquer circunstância também ficaria verde. Este caso roda a MESMA
+# linha extraída do install.sh, trocando só `$KIT_DIR/install.sh` por `"$0"` —
+# a forma que o kit tinha antes do conserto — e exige que ela FALHE. Se ela
+# passar, a sonda não distingue o defeito da correção e o caso de cima é
+# decorativo.
+reexec_neg() {
+  local dir raiz linha achou
+  raiz="$(mktemp -d)"; dir="$raiz/deskcommcrm"; mkdir -p "$dir"
+  cp ./install.sh "$raiz/install.sh"
+  linha="$(grep -n 'CONHECIDAS=' "$raiz/install.sh" | head -1 | cut -d: -f2-)"
+  if [ -z "$linha" ]; then
+    printf '  ✗ controle negativo — não achei a linha CONHECIDAS= no install.sh (o teste ficou cego)\n'; fail=1; rm -rf "$raiz"; return
+  fi
+  # A checagem de alvo vem ANTES da substituição, e olha a linha ORIGINAL. Se
+  # ela olhasse a linha já reescrita, um install.sh sabotado de volta para `"$0"`
+  # deixaria este caso VERDE — ele estaria medindo exatamente o que o caso de
+  # cima mede, e um controle negativo que ecoa o positivo não controla nada.
+  # (Medido: previ 2 vermelhos ao sabotar o fonte e observei 1, e foi assim que
+  # esta vacuidade apareceu.)
+  case "$linha" in
+    *'"$KIT_DIR/install.sh"'*) ;;
+    *) printf '  ✗ controle negativo — a linha CONHECIDAS= não usa mais $KIT_DIR; o defeito voltou ou o caso perdeu o alvo\n'; fail=1; rm -rf "$raiz"; return;;
+  esac
+  # A forma ANTIGA, reconstruída a partir da linha real: o `$KIT_DIR/install.sh`
+  # vira `"$0"`, e nada mais muda.
+  linha="${linha//\"\$KIT_DIR\/install.sh\"/\"\$0\"}"
+  achou="$(cd "$dir" && KIT_DIR="$raiz" bash -c "
+    set +e
+    $linha
+    printf '%s' \"\$CONHECIDAS\" | grep -c .
+  " install.sh 2>/dev/null)"
+  rm -rf "$raiz"
+  if [ "${achou:-0}" -eq 0 ]; then printf '  ✓ controle negativo: com "$0" relativo depois do cd, o kit NÃO se acha\n'
+  else printf '  ✗ controle negativo FALHOU — a sonda achou %s vars mesmo com o defeito; ela não distingue nada\n' "$achou"; fail=1; fi
+}
+reexec_neg
+reexec_ok "o bloco de variáveis conhecidas acha o kit depois do cd"
 
 echo "isolamento: a suíte não escreve no crontab da máquina"
 # Isto não é hipótese defensiva: os testes JÁ escreveram 10 linhas órfãs no
