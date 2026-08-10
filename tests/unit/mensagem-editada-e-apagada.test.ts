@@ -169,6 +169,19 @@ describe("os elos que somem sem barulho", () => {
     expect(fonte).toMatch(/eventType === "message\.revoked"/);
   });
 
+  it("o canal por QR ASSINA os dois eventos — sem isso nada chega", () => {
+    // Este é o elo mais silencioso de todos: o código trata os eventos
+    // perfeitamente e o transporte nunca os envia. Medido antes desta mudança —
+    // `WHATSAPP_HOOK_EVENTS` não tinha nenhum dos dois, e a mensagem editada
+    // pelo dono simplesmente nunca chegou ao CRM.
+    for (const arquivo of ["docker-compose.prod.yml", "docker-compose.yml"]) {
+      const compose = readFileSync(arquivo, "utf8");
+      const linha = compose.split("\n").find((l) => l.includes("WHATSAPP_HOOK_EVENTS")) ?? "";
+      expect(linha, `${arquivo} não assina message.edited`).toContain("message.edited");
+      expect(linha, `${arquivo} não assina message.revoked`).toContain("message.revoked");
+    }
+  });
+
   it("as colunas novas chegam à tela — sem elas a bolha nunca sabe", () => {
     // O `select` do handler é a única porta: coluna fora dele não chega, e
     // `conv as unknown as Joined` faz isso NÃO ser erro de tipo.

@@ -66,7 +66,7 @@ services:
       # hash. Sem o prefixo ele compara literal → o app (que manda o plaintext) toma 401.
       WAHA_API_KEY: "sha512:${WAHA_API_KEY_SHA512}"
       WHATSAPP_HOOK_URL: ${WAHA_WEBHOOK_BASE_URL}/api/v1/webhooks/waha
-      WHATSAPP_HOOK_EVENTS: "message,message.any,message.ack,session.status,state.change"
+      WHATSAPP_HOOK_EVENTS: "message,message.any,message.ack,message.edited,message.revoked,session.status,state.change"
       WHATSAPP_HOOK_HMAC: ${WAHA_HMAC_SECRET}
       # WAHA lê WHATSAPP_DEFAULT_ENGINE (NÃO WAHA_DEFAULT_ENGINE — o nome errado
       # fazia cair no default WEBJS, engine com browser que trava/corrompe a sessão
