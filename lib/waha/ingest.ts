@@ -12,6 +12,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { audit } from "@/lib/audit";
+import { sincronizarSaudeDaConexao } from "@/lib/channels/health";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { ackToStatus } from "@/lib/types/messaging";
 import { bareWaMessageId, chatIdFromWaMessageId } from "@/lib/waha/message-id";
@@ -699,6 +700,32 @@ async function handleSessionStatus(
     update.warmup_completed_at = now;
   }
   await admin.from("channel_sessions").update(update).eq("id", session.id);
+
+  // ─── E agora alguém precisa SABER ────────────────────────────────────────
+  //
+  // Até aqui esta função gravava o estado numa coluna e não contava a ninguém.
+  // Foi assim que uma desconexão real passou horas despercebida: o evento
+  // chegou, a coluna atualizou, e o dono só descobriu ao estranhar que ninguém
+  // escrevia. O estado certo no lugar que ninguém olha não vale nada.
+  //
+  // O apelido é buscado aqui, e não recebido: com dois números ligados, um aviso
+  // que não diz QUAL conexão caiu obriga o operador a adivinhar. É uma consulta
+  // a mais num evento raro — status muda algumas vezes por dia, não por minuto.
+  const { data: apelidoRow } = await admin
+    .from("channel_sessions")
+    .select("display_name, phone_number")
+    .eq("id", session.id)
+    .maybeSingle();
+
+  await sincronizarSaudeDaConexao(
+    admin,
+    { id: session.id, organization_id: session.organization_id, status },
+    // Veio do próprio transporte: se ele conseguiu nos contar, está alcançável.
+    { reachable: true, status, detail: null },
+    (apelidoRow?.display_name as string | null) ??
+      (apelidoRow?.phone_number as string | null) ??
+      "sem nome",
+  );
 }
 
 /**

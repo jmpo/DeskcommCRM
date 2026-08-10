@@ -9,7 +9,7 @@ import { getWahaClient } from "@/lib/waha/client";
 import { wahaSendPlanFor } from "@/lib/waha/media-send";
 import { bareWaMessageId, parseWahaMessageId } from "@/lib/waha/message-id";
 import { resolveWahaChatId } from "@/lib/waha/send";
-import type { ChannelAdapter, OutboundEnvelope, RecipientInput } from "../types";
+import type { ChannelAdapter, ChannelHealth, OutboundEnvelope, RecipientInput } from "../types";
 
 export const wahaAdapter: ChannelAdapter = {
   provider: "waha",
@@ -76,6 +76,33 @@ export const wahaAdapter: ChannelAdapter = {
     const client = getWahaClient();
     if (!client) return null;
     return client.resolvePhoneForLid(input.sessionRef, input.identity.slice("lid:".length));
+  },
+
+  /**
+   * Pergunta ao transporte se a conexão está de pé.
+   *
+   * Três desfechos, e a diferença entre eles é o que o operador vai FAZER:
+   *
+   *   - respondeu com estado → é a verdade do momento;
+   *   - 404 → a sessão não existe mais lá dentro. Não é erro de rede: é a
+   *     resposta, e ela quer dizer parada. Sem este ramo o caso mais comum de
+   *     desconexão (o transporte esqueceu a sessão) viraria "não deu para
+   *     perguntar" e não alertaria ninguém;
+   *   - qualquer outro erro → NÃO sabemos. Devolver um estado aqui seria
+   *     inventar: uma oscilação de rede viraria "canal caído" e o operador
+   *     aprenderia a ignorar o aviso.
+   */
+  async checkHealth(input: { sessionRef: string }): Promise<ChannelHealth> {
+    const client = getWahaClient();
+    if (!client) return { reachable: false, status: null, detail: "transporte_nao_configurado" };
+    try {
+      const r = await client.getSessionQr(input.sessionRef);
+      return { reachable: true, status: r.status ?? null, detail: null };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "erro_desconhecido";
+      if (msg.includes("404")) return { reachable: true, status: "STOPPED", detail: null };
+      return { reachable: false, status: null, detail: msg.slice(0, 200) };
+    }
   },
 
   async send(envelope: OutboundEnvelope): Promise<{ externalId: string | null }> {

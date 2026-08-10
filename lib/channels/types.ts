@@ -171,6 +171,36 @@ export interface ChannelAdapter {
    * conhece `contract_hash` — isso é de quem sincroniza.
    */
   templates?: ChannelTemplateOps;
+
+  /**
+   * A conexão está de pé AGORA? Pergunta feita ao transporte, não ao banco.
+   *
+   * Existe porque o banco guarda o último estado que alguém CONTOU, e a falha
+   * que mais dói é justamente a que ninguém conta: o transporte cai, para de
+   * mandar evento, e a coluna segue dizendo `WORKING` para sempre. Silêncio e
+   * saúde ficam idênticos — foi assim que uma desconexão real passou horas
+   * despercebida, descoberta só quando o dono foi olhar por conta própria.
+   *
+   * `reachable: false` NÃO é o mesmo que o canal estar desconectado: significa
+   * que não deu para perguntar (transporte fora do ar, rede caída). A diferença
+   * importa porque a ação é outra — reiniciar o serviço, não escanear um QR — e
+   * porque sobrescrever o status com um erro de rede transitório trocaria uma
+   * informação boa por ruído.
+   *
+   * OPCIONAL como os demais: canal sem sessão para consultar não implementa, e
+   * quem chama testa a presença em vez de perguntar QUAL provider é.
+   */
+  checkHealth?(input: { sessionRef: string }): Promise<ChannelHealth>;
+}
+
+/** O que o transporte respondeu quando perguntamos se está de pé. */
+export interface ChannelHealth {
+  /** Deu para perguntar? `false` = transporte inalcançável, não canal caído. */
+  reachable: boolean;
+  /** Estado relatado pelo transporte; `null` quando não deu para perguntar. */
+  status: string | null;
+  /** Detalhe do erro, para o corpo do aviso. Nunca credencial. */
+  detail: string | null;
 }
 
 /** Definição aprovada, na forma NEUTRA — sem o vocabulário de nenhum provider. */
