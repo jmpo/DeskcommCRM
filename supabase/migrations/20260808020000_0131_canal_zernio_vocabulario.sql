@@ -1,8 +1,4 @@
-<<<<<<<< HEAD:supabase/migrations/20260808020000_0117_canal_zernio_vocabulario.sql
--- 0117 — vocabulário do terceiro canal (BSP intermediário) em channel_sessions.
-========
 -- 0131 — vocabulário do terceiro canal (BSP intermediário) em channel_sessions.
->>>>>>>> upstream/main:supabase/migrations/20260808020000_0131_canal_zernio_vocabulario.sql
 --
 -- O VOCABULÁRIO antes do transporte, de propósito: o tipo TypeScript, a matriz
 -- de capabilities e a coluna de ref nascem juntos, e o adapter chega depois
