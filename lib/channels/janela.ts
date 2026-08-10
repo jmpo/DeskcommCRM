@@ -35,8 +35,16 @@ export type EstadoDaJanela =
   | { tipo: "sem_restricao" }
   /** Dá para escrever livremente; `restanteMs` é quanto falta para fechar. */
   | { tipo: "aberta"; restanteMs: number }
-  /** Fechada: só modelo aprovado sai daqui. */
-  | { tipo: "fechada" };
+  /**
+   * Fechada: só modelo aprovado sai daqui.
+   *
+   * `fechadaHaMs` é HÁ QUANTO TEMPO fechou — não quando o cliente escreveu.
+   * É a pergunta que o operador faz de verdade ("passei muito?"), e a distância
+   * até o vencimento é o que decide se ainda vale insistir ou se a conversa
+   * esfriou. `null` quando o cliente nunca escreveu: aí não houve fechamento, e
+   * inventar um número seria descrever um prazo que nunca correu.
+   */
+  | { tipo: "fechada"; fechadaHaMs: number | null };
 
 /**
  * O estado da janela desta conversa, agora.
@@ -57,8 +65,16 @@ export function estadoDaJanela(
   // Mostrar um relógio nele seria inventar uma urgência que não existe.
   if (caps.freeformOutsideWindow) return { tipo: "sem_restricao" };
 
-  const restanteMs = windowRemainingMs(agora, lastInboundAt ? new Date(lastInboundAt) : null);
-  return restanteMs > 0 ? { tipo: "aberta", restanteMs } : { tipo: "fechada" };
+  if (!lastInboundAt) return { tipo: "fechada", fechadaHaMs: null };
+
+  const ultimo = new Date(lastInboundAt);
+  const restanteMs = windowRemainingMs(agora, ultimo);
+  if (restanteMs > 0) return { tipo: "aberta", restanteMs };
+
+  // Quanto passou DEPOIS do vencimento, não desde a mensagem: os dois números
+  // diferem em exatamente 24h, e o que o operador pergunta é "passei muito?".
+  const fechadaHaMs = Math.max(0, agora.getTime() - (ultimo.getTime() + WINDOW_MS));
+  return { tipo: "fechada", fechadaHaMs };
 }
 
 /**
@@ -77,6 +93,23 @@ export function formatarRestante(ms: number): string {
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+/**
+ * "3d", "5h", "20m" — quanto tempo passou desde que fechou.
+ *
+ * Uma unidade só, ao contrário do restante: aqui o número não apoia nenhuma
+ * decisão fina (já fechou; a saída é a mesma), e "2d 7h 13m" pediria leitura
+ * para responder o que "2d" já responde. No restante os minutos importam porque
+ * decidem entre escrever agora e montar um modelo.
+ */
+export function formatarDecorrido(ms: number): string {
+  const min = Math.floor(ms / 60_000);
+  if (min < 1) return "agora mesmo";
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
 }
 
 /**

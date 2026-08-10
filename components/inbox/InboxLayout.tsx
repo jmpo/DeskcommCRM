@@ -1,7 +1,8 @@
 "use client";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/auth/AuthProvider";
+import { estadoDaJanela, formatarDecorrido } from "@/lib/channels/janela";
 import { useClaimConversation } from "@/hooks/inbox/useClaimConversation";
 import { useCloseConversation } from "@/hooks/inbox/useCloseConversation";
 import {
@@ -144,11 +145,41 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
     close.mutate({ conversation_id: selectedConversation.id });
   }, [close, selectedConversation]);
 
+  // A janela vence SOZINHA com a aba aberta. Sem este relógio, quem deixa o
+  // inbox aberto a tarde inteira seguiria com o composer liberado numa conversa
+  // que já venceu — e o bloqueio só apareceria no próximo recarregamento.
+  const [agoraJanela, setAgoraJanela] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setAgoraJanela(new Date()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // A janela de 24h fecha o composer, e o motivo DIZ há quanto tempo fechou.
+  //
+  // Antes disto o texto livre saía, o CRM marcava `failed` e o operador via um
+  // `131047` — descobrindo a regra pelo erro, uma mensagem por vez. Barrar aqui
+  // é o pedido explícito do dono: se não dá para enviar, que não deixe tentar.
+  //
+  // Reusa o `blockedReason` que já existe (contato bloqueado/anonimizado) em vez
+  // de um segundo mecanismo de bloqueio: dois caminhos para desabilitar o mesmo
+  // composer divergem, e o segundo esquece de cobrir o áudio ou o anexo.
+  const janela = estadoDaJanela(
+    selectedConversation?.channel_sessions?.provider ?? null,
+    selectedConversation?.last_inbound_at ?? null,
+    agoraJanela,
+  );
+  const motivoDaJanela =
+    janela.tipo === "fechada"
+      ? janela.fechadaHaMs === null
+        ? "O cliente ainda não escreveu — a janela de 24h nunca abriu. Só um modelo aprovado sai daqui."
+        : `A janela de 24h fechou há ${formatarDecorrido(janela.fechadaHaMs)}. Só um modelo aprovado sai daqui — texto livre é recusado pela plataforma.`
+      : null;
+
   const blockedReason = selectedConversation?.contacts?.is_blocked
     ? "Contato bloqueado — envio de mensagens desabilitado."
     : selectedConversation?.contacts?.is_anonymized
       ? "Contato anonimizado — não é possível enviar mensagens."
-      : null;
+      : motivoDaJanela;
 
   // Altura da grade: a conta desconta TUDO que fica acima e abaixo dela.
   //   3.5rem            TopBar (`h-14`, em components/shell/TopBar.tsx)

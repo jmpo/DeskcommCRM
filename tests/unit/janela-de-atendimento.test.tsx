@@ -23,7 +23,7 @@ import { describe, expect, it } from "vitest";
  * e que a tela não decida isso sozinha — quem sabe da regra é o seam.
  */
 import { JanelaSelo } from "@/components/inbox/JanelaSelo";
-import { estadoDaJanela, formatarRestante } from "@/lib/channels/janela";
+import { estadoDaJanela, formatarDecorrido, formatarRestante } from "@/lib/channels/janela";
 
 const AGORA = new Date("2026-08-10T18:00:00Z");
 const hMenos = (h: number) => new Date(AGORA.getTime() - h * 3_600_000).toISOString();
@@ -40,18 +40,24 @@ describe("o estado da janela", () => {
     if (e.tipo === "aberta") expect(Math.round(e.restanteMs / 3_600_000)).toBe(23);
   });
 
-  it("passadas as 24h: fechada", () => {
-    expect(estadoDaJanela("zernio", hMenos(25), AGORA)).toEqual({ tipo: "fechada" });
+  it("passadas as 24h: fechada, e diz HÁ QUANTO fechou", () => {
+    // Não é "desde a última mensagem": os dois diferem em exatamente 24h, e a
+    // pergunta do operador é "passei muito?".
+    const e = estadoDaJanela("zernio", hMenos(25), AGORA);
+    expect(e.tipo).toBe("fechada");
+    if (e.tipo === "fechada") expect(Math.round((e.fechadaHaMs ?? 0) / 3_600_000)).toBe(1);
   });
 
   it("em 24h EXATAS já fechou — a borda é exclusiva, como a da plataforma", () => {
-    expect(estadoDaJanela("zernio", hMenos(24), AGORA)).toEqual({ tipo: "fechada" });
+    const e = estadoDaJanela("zernio", hMenos(24), AGORA);
+    expect(e.tipo).toBe("fechada");
+    if (e.tipo === "fechada") expect(e.fechadaHaMs).toBe(0);
   });
 
-  it("cliente que NUNCA escreveu está fechado, não aberto", () => {
-    // Fail-closed: tratá-lo como aberto faria toda prospecção fria passar como
-    // se fosse resposta — exatamente o que a regra existe para impedir.
-    expect(estadoDaJanela("zernio", null, AGORA)).toEqual({ tipo: "fechada" });
+  it("cliente que NUNCA escreveu: fechada SEM prazo — nunca houve fechamento", () => {
+    // Fail-closed, e `null` em vez de um número: inventar "fechada há 3 dias"
+    // descreveria um prazo que nunca correu.
+    expect(estadoDaJanela("zernio", null, AGORA)).toEqual({ tipo: "fechada", fechadaHaMs: null });
   });
 
   it("sem canal resolvido não trava nada", () => {
@@ -74,6 +80,18 @@ describe("como o tempo é escrito", () => {
   });
 });
 
+describe("quanto tempo passou", () => {
+  it("uma unidade só — já fechou, e o minuto não muda a saída", () => {
+    expect(formatarDecorrido(3 * 86_400_000)).toBe("3d");
+    expect(formatarDecorrido(5 * 3_600_000)).toBe("5h");
+    expect(formatarDecorrido(20 * 60_000)).toBe("20m");
+  });
+
+  it("recém-fechada não vira \"0m\"", () => {
+    expect(formatarDecorrido(30_000)).toBe("agora mesmo");
+  });
+});
+
 describe("o selo na tela", () => {
   it("não renderiza nada em canal sem restrição", () => {
     const { container } = render(<JanelaSelo provider="waha" lastInboundAt={hMenos(1)} />);
@@ -90,6 +108,16 @@ describe("o selo na tela", () => {
     // saída que existe: modelo aprovado.
     render(<JanelaSelo provider="zernio" lastInboundAt={new Date(Date.now() - 30 * 3_600_000).toISOString()} />);
     expect(screen.getByText(/só modelo/i)).toBeInTheDocument();
+  });
+
+  it("e diz HÁ QUANTO fechou — 20 minutos e um mês pedem decisões diferentes", () => {
+    render(<JanelaSelo provider="zernio" lastInboundAt={new Date(Date.now() - 30 * 3_600_000).toISOString()} />);
+    expect(screen.getByText(/fechada há 6h/i)).toBeInTheDocument();
+  });
+
+  it("cliente que nunca escreveu não ganha um prazo inventado", () => {
+    render(<JanelaSelo provider="zernio" lastInboundAt={null} />);
+    expect(screen.getByText(/nunca escreveu/i)).toBeInTheDocument();
   });
 });
 
@@ -116,6 +144,25 @@ describe("os elos que somem sem barulho", () => {
     // erro de tipo: ficaria `undefined` e todo canal viraria "sem restrição".
     const fonte = readFileSync("app/api/v1/conversations/_handler.ts", "utf8");
     expect(fonte).toMatch(/channel_sessions:channel_session_id \(phone_number, display_name, provider\)/);
+  });
+
+  it("o composer é BLOQUEADO quando a janela fechou", () => {
+    // Pedido explícito do dono: se não dá para enviar, que não deixe tentar.
+    // Reusa o `blockedReason` que já existe — um segundo mecanismo de bloqueio
+    // divergiria, e o segundo esqueceria de cobrir o áudio ou o anexo.
+    const fonte = readFileSync("components/inbox/InboxLayout.tsx", "utf8");
+    expect(fonte).toMatch(/motivoDaJanela/);
+    expect(fonte, "o motivo da janela não chega ao composer").toMatch(
+      /:\s*motivoDaJanela;/,
+    );
+  });
+
+  it("e o bloqueio VENCE sozinho com a aba aberta", () => {
+    // Sem relógio, quem deixa o inbox aberto a tarde inteira seguiria com o
+    // composer liberado numa conversa que já venceu.
+    const fonte = readFileSync("components/inbox/InboxLayout.tsx", "utf8");
+    expect(fonte).toMatch(/setAgoraJanela/);
+    expect(fonte).toMatch(/setInterval/);
   });
 
   it("a conta é a MESMA do guardrail do agente", () => {

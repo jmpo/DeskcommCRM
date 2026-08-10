@@ -2,7 +2,12 @@
 import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { estadoDaJanela, formatarRestante, LIMIAR_URGENTE_MS } from "@/lib/channels/janela";
+import {
+  estadoDaJanela,
+  formatarDecorrido,
+  formatarRestante,
+  LIMIAR_URGENTE_MS,
+} from "@/lib/channels/janela";
 import { cn } from "@/lib/utils";
 
 /**
@@ -48,13 +53,20 @@ export function JanelaSelo({
   if (estado.tipo === "sem_restricao") return null;
 
   if (estado.tipo === "fechada") {
+    // "Fechada há 3d" responde o que o operador realmente pergunta — "passei
+    // muito?" —, e essa distância é o que decide se ainda vale insistir ou se a
+    // conversa esfriou. "Fechada" sozinho não distingue vinte minutos de um mês.
+    const quanto =
+      estado.fechadaHaMs === null
+        ? "O cliente nunca escreveu"
+        : `Janela fechada há ${formatarDecorrido(estado.fechadaHaMs)}`;
     return (
       <Badge
         variant="outline"
         className="h-4 border-amber-400 px-1.5 text-[10px] text-amber-700 dark:border-amber-700 dark:text-amber-300"
         title="Passaram 24h desde a última mensagem do cliente. Só um modelo aprovado sai daqui — texto livre é recusado pela plataforma."
       >
-        Janela fechada · só modelo
+        {quanto} · só modelo
       </Badge>
     );
   }
