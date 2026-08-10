@@ -326,3 +326,41 @@ function tipoDoAnexo(tipo: string | undefined): string {
       return "document";
   }
 }
+
+/**
+ * Aplica a edição ou o apagamento numa mensagem que JÁ existe.
+ *
+ * Não cria linha: uma edição de mensagem que nunca chegou não deve inventar uma
+ * conversa do nada, com um texto sem nada antes dele. Devolve `"sem_alvo"`, que
+ * é informação — não erro —, e a rota segue respondendo 200.
+ *
+ * O corpo é sobrescrito e o original não é guardado: o que o CRM mostra tem que
+ * ser o que o cliente vê agora. E a linha apagada continua existindo, com
+ * `revoked_at`: removê-la levaria junto o contexto das vizinhas e o histórico
+ * de quem atendeu.
+ */
+export async function aplicarEdicaoZernio(
+  admin: SupabaseClient,
+  organizationId: string,
+  edicao: { externalId: string; tipo: "edited" | "deleted"; body: string | null },
+): Promise<"aplicado" | "sem_alvo"> {
+  const agora = new Date().toISOString();
+  const patch =
+    edicao.tipo === "deleted"
+      ? { revoked_at: agora }
+      : // Edição sem corpo novo não zera o texto: seria trocar a versão velha
+        // (útil) por um vazio (inútil), e o evento sem corpo é justamente o
+        // caso em que não sabemos o texto novo.
+        edicao.body !== null
+        ? { body: edicao.body, edited_at: agora }
+        : { edited_at: agora };
+
+  const { data } = await admin
+    .from("messages")
+    .update(patch)
+    .eq("organization_id", organizationId)
+    .eq("external_id", edicao.externalId)
+    .select("id");
+
+  return (data ?? []).length > 0 ? "aplicado" : "sem_alvo";
+}

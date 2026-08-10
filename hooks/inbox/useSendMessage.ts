@@ -56,6 +56,11 @@ export function useSendMessage() {
         delivered_at: null,
         read_at: null,
         metadata: { _optimistic: true },
+        // Mensagem que acaba de sair não foi editada nem apagada — mas os
+        // campos precisam existir: sem eles o otimista não é do mesmo tipo do
+        // que volta do servidor, e a bolha passaria a renderizar dois formatos.
+        edited_at: null,
+        revoked_at: null,
         created_at: new Date().toISOString(),
       };
 

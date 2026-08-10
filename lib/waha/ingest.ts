@@ -856,6 +856,59 @@ async function handleSessionStatus(
 }
 
 /**
+ * O autor editou a mensagem no aplicativo.
+ *
+ * O corpo é SOBRESCRITO, e não versionado: o que o CRM mostra tem que ser o que
+ * o cliente vê agora. Guardar as versões anteriores é outra feature (histórico
+ * de edição), com tela e retenção próprias — fazê-la pela metade acumularia
+ * dado pessoal num campo que ninguém mostra e que a anonimização não conhece.
+ *
+ * `editedMessageId` é o id da mensagem ORIGINAL; o `id` do payload é o do
+ * evento de edição. Casar pelo `id` não acharia nada — e o silêncio pareceria
+ * "funcionou", que é exatamente o modo de falha que este arquivo já pagou caro
+ * em outros lugares.
+ */
+async function handleMessageEdited(
+  admin: Admin,
+  session: Session,
+  p: WahaPayload & { editedMessageId?: string },
+): Promise<void> {
+  const alvo = bareWaMessageId(p.editedMessageId ?? "");
+  const corpo = typeof p.body === "string" ? p.body : null;
+  if (!alvo || corpo === null) return;
+
+  await admin
+    .from("messages")
+    .update({ body: corpo, edited_at: new Date().toISOString() })
+    .eq("organization_id", session.organization_id)
+    .eq("external_id", alvo);
+}
+
+/**
+ * O autor apagou a mensagem ("apagar para todos").
+ *
+ * A linha NÃO é removida: sumir com ela apagaria o contexto das vizinhas — uma
+ * resposta passaria a responder ao nada — e o histórico de quem atendeu. O
+ * corpo também não é limpo aqui: quem decide o que mostrar é a tela, e apagar o
+ * texto no banco impediria o próprio atendente de entender, depois, o que tinha
+ * sido combinado antes do arrependimento.
+ */
+async function handleMessageRevoked(
+  admin: Admin,
+  session: Session,
+  p: WahaPayload & { revokedMessageId?: string },
+): Promise<void> {
+  const alvo = bareWaMessageId(p.revokedMessageId ?? "");
+  if (!alvo) return;
+
+  await admin
+    .from("messages")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("organization_id", session.organization_id)
+    .eq("external_id", alvo);
+}
+
+/**
  * Roteador único de eventos WAHA. Os dois route handlers convergem aqui após
  * resolver a sessão e validar HMAC.
  */
@@ -876,6 +929,10 @@ export async function dispatchWahaEvent(
     }
   } else if (eventType === "message.ack") {
     await handleAck(admin, session, payload);
+  } else if (eventType === "message.edited") {
+    await handleMessageEdited(admin, session, payload);
+  } else if (eventType === "message.revoked") {
+    await handleMessageRevoked(admin, session, payload);
   } else if (eventType === "session.status" || eventType === "state.change") {
     await handleSessionStatus(admin, session, payload);
   }

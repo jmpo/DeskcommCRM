@@ -10892,4 +10892,15 @@ grant execute on function public.fn_encrypt_oauth(text) to service_role;
 grant execute on function public.fn_lgpd_cascade_redact_contact(uuid, uuid, uuid) to service_role;
 grant execute on function public.fn_update_budget_consumption() to service_role;
 
+-- ---- mensagem editada e mensagem apagada (migration 0143) ----
+-- O cliente edita ou apaga no aplicativo e o CRM seguia mostrando a versão
+-- velha — sem erro em lugar nenhum. Combinar preço ou endereço a partir de um
+-- texto que o cliente já corrigiu gera um erro que ninguém rastreia depois.
+-- Duas colunas e não um estado: editada continua valendo (o texto novo conta),
+-- apagada deixou de valer (o texto não pode mais aparecer). Timestamp e não
+-- booleano porque a pergunta seguinte é "quando?". A linha apagada NÃO some: a
+-- remoção levaria junto o contexto das vizinhas e o histórico de quem atendeu.
+alter table public.messages add column if not exists edited_at timestamptz;
+alter table public.messages add column if not exists revoked_at timestamptz;
+
 notify pgrst, 'reload schema';

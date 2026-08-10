@@ -141,6 +141,47 @@ const EVENTOS_DE_STATUS: Record<string, "delivered" | "read" | "failed"> = {
   "message.failed": "failed",
 };
 
+/**
+ * O autor editou ou apagou a mensagem no aplicativo.
+ *
+ * Separado de `parseZernioInbound` porque o efeito é outro: aquele CRIA linha
+ * (e conversa, e contato); este só corrige uma que já existe. Misturá-los faria
+ * uma edição de mensagem que nunca chegou criar uma conversa do nada, com um
+ * texto sem contexto nenhum antes dele.
+ *
+ * `null` quando não é dos nossos — a rota responde 200 e o provider para de
+ * reenviar, que é o certo para um evento que nunca vai nos servir.
+ */
+export interface ZernioEdicao {
+  externalId: string;
+  /** `edited` traz corpo novo; `deleted` não tem corpo a trazer. */
+  tipo: "edited" | "deleted";
+  body: string | null;
+}
+
+export function parseZernioEdicao(payload: unknown): ZernioEdicao | null {
+  const p = obj(payload);
+  if (!p) return null;
+
+  const evento = str(p.event) ?? "";
+  if (evento !== "message.edited" && evento !== "message.deleted") return null;
+
+  const m = obj(p.message);
+  if (!m) return null;
+  // Mesma regra do parser de mensagem: a conta serve outras plataformas, e uma
+  // edição de DM de outra rede não tem linha nossa para corrigir.
+  if (str(m.platform) !== "whatsapp") return null;
+
+  const externalId = str(m.platformMessageId) ?? str(m.id);
+  if (!externalId) return null;
+
+  return {
+    externalId,
+    tipo: evento === "message.edited" ? "edited" : "deleted",
+    body: str(m.content) ?? str(m.text) ?? str(m.body),
+  };
+}
+
 export function parseZernioInbound(payload: unknown): ZernioInboundMessage | null {
   const p = obj(payload);
   if (!p) return null;

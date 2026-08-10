@@ -37,6 +37,12 @@ export function MessageBubble({ message, debugCitations }: Props) {
   const hasMedia = Boolean(message.media_url || message.media_storage_path);
   // Figurinha sem caption: sem moldura de bolha (padrão WhatsApp).
   const isBareSticker = hasMedia && message.type === "sticker" && !message.body;
+  // Apagada pelo autor ("apagar para todos"). A linha continua no histórico —
+  // sumir com ela deixaria a resposta seguinte respondendo ao nada —, mas o
+  // texto não aparece: mostrá-lo seria expor justamente o que o cliente pediu
+  // para tirar do ar.
+  const apagada = Boolean(message.revoked_at);
+  const editada = Boolean(message.edited_at) && !apagada;
   const aiGenerated = isAiGeneratedMessage(message.metadata);
   const citations = extractCitations(message.metadata);
   const showCitationButton =
@@ -72,14 +78,25 @@ export function MessageBubble({ message, debugCitations }: Props) {
           </div>
         )}
 
-        {hasMedia && (
-          <div className={cn(message.body && "mb-1")}>
-            <MediaRenderer message={message} />
-          </div>
-        )}
+        {apagada ? (
+          // Nem corpo nem mídia: o anexo apagado também sai. Em itálico e
+          // esmaecido porque não é texto de ninguém — é o CRM narrando o que
+          // aconteceu com aquele lugar da conversa.
+          <p className="whitespace-pre-wrap break-words italic leading-snug opacity-60">
+            Esta mensagem foi apagada
+          </p>
+        ) : (
+          <>
+            {hasMedia && (
+              <div className={cn(message.body && "mb-1")}>
+                <MediaRenderer message={message} />
+              </div>
+            )}
 
-        {message.body && (
-          <p className="whitespace-pre-wrap break-words leading-snug">{message.body}</p>
+            {message.body && (
+              <p className="whitespace-pre-wrap break-words leading-snug">{message.body}</p>
+            )}
+          </>
         )}
 
         <div
@@ -88,6 +105,13 @@ export function MessageBubble({ message, debugCitations }: Props) {
             isOutbound ? "text-primary-foreground/70" : "text-muted-foreground",
           )}
         >
+          {editada && (
+            // Ao lado da hora, não no corpo: o texto mostrado JÁ é o novo, e o
+            // que falta é avisar que ele mudou. Sem isso, um combinado de preço
+            // ou endereço é lido como se sempre tivesse dito aquilo — e a
+            // divergência só aparece quando alguém cobra o que não foi.
+            <span title="O autor editou esta mensagem">editada</span>
+          )}
           <span>{time}</span>
           {showCitationButton && (
             <CitationButton citations={citations} messageId={message.id} />

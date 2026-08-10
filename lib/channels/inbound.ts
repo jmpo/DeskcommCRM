@@ -20,8 +20,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { CHANNEL_PROVIDER_ZERNIO } from "./capabilities";
 import { atualizarEspelhoDoTemplate, avisoDoEvento, registrarAviso } from "./zernio/avisos";
-import { ingestZernioInbound } from "./zernio/ingest";
-import { verifyZernioSignature } from "./zernio/webhook";
+import { aplicarEdicaoZernio, ingestZernioInbound } from "./zernio/ingest";
+import { parseZernioEdicao, verifyZernioSignature } from "./zernio/webhook";
 import type { ChannelProvider } from "./types";
 
 /** Curto demais para ser segredo — placeholder ou lixo de decrypt. */
@@ -102,6 +102,17 @@ async function zernioInbound(
     const espelhado = await atualizarEspelhoDoTemplate(admin, input.session.organization_id, payload);
     const desfecho = await registrarAviso(admin, input.session.organization_id, aviso);
     return { ok: true, body: { status: "aviso", kind: aviso.kind, desfecho, espelhado } };
+  }
+
+  // ─── Edição e apagamento ────────────────────────────────────────────────
+  //
+  // Vêm ANTES da ingestão, como os avisos: são correções de linha que já
+  // existe, não mensagens novas. Deixá-los cair no `ingest` faria uma edição
+  // criar uma conversa do nada, com um texto sem nada antes dele.
+  const edicao = parseZernioEdicao(payload);
+  if (edicao) {
+    const desfecho = await aplicarEdicaoZernio(admin, input.session.organization_id, edicao);
+    return { ok: true, body: { status: "edicao", tipo: edicao.tipo, desfecho } };
   }
 
   const r = await ingestZernioInbound(admin, {
