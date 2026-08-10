@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { JanelaSelo } from "@/components/inbox/JanelaSelo";
 import { Phone, ArrowRight } from "@/lib/ui/icons";
 import { useAuth } from "@/hooks/auth/AuthProvider";
 import { useClaimConversation } from "@/hooks/inbox/useClaimConversation";
@@ -78,6 +79,13 @@ export function ConversationHeader({ conversation }: Props) {
           <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
             {STATUS_LABEL[status] ?? status}
           </Badge>
+          {/* Ao lado do estado, não escondido num painel: a pergunta "dá para
+              escrever agora?" se faz ANTES de digitar, não depois de receber um
+              `failed` com um código de cinco dígitos. */}
+          <JanelaSelo
+            provider={conversation.channel_sessions?.provider ?? null}
+            lastInboundAt={conversation.last_inbound_at}
+          />
           {/* Sem esta marca, a conversa em que o robô está calado tem exatamente
               a mesma cara de uma conversa normal — e ninguém entende por que as
               respostas automáticas pararam. */}
