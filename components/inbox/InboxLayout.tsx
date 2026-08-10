@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/auth/AuthProvider";
 import { estadoDaJanela, formatarDecorrido } from "@/lib/channels/janela";
+import { JanelaFechadaAviso } from "@/components/inbox/JanelaFechadaAviso";
 import { useClaimConversation } from "@/hooks/inbox/useClaimConversation";
 import { useCloseConversation } from "@/hooks/inbox/useCloseConversation";
 import {
@@ -179,7 +180,7 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
     ? "Contato bloqueado — envio de mensagens desabilitado."
     : selectedConversation?.contacts?.is_anonymized
       ? "Contato anonimizado — não é possível enviar mensagens."
-      : motivoDaJanela;
+      : null;
 
   // Altura da grade: a conta desconta TUDO que fica acima e abaixo dela.
   //   3.5rem            TopBar (`h-14`, em components/shell/TopBar.tsx)
@@ -242,10 +243,17 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
               <ChatThread conversationId={selectedConversation.id} />
             </div>
             <RetentionNotice conversationId={selectedConversation.id} />
+            {motivoDaJanela && (
+              <JanelaFechadaAviso
+                conversationId={selectedConversation.id}
+                motivo={motivoDaJanela}
+              />
+            )}
             <Composer
               ref={composerRef}
               conversationId={selectedConversation.id}
               blockedReason={blockedReason}
+              janelaFechada={motivoDaJanela}
               disabled={selectedConversation.status === "closed"}
               contactName={selectedConversation.contacts?.name ?? null}
             />

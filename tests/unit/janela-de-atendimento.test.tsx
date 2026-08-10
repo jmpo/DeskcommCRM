@@ -152,8 +152,10 @@ describe("os elos que somem sem barulho", () => {
     // divergiria, e o segundo esqueceria de cobrir o áudio ou o anexo.
     const fonte = readFileSync("components/inbox/InboxLayout.tsx", "utf8");
     expect(fonte).toMatch(/motivoDaJanela/);
+    // Por prop PRÓPRIA, não por `blockedReason`: a primeira versão passava por
+    // ali e levava a nota interna junto, que nunca chega ao cliente.
     expect(fonte, "o motivo da janela não chega ao composer").toMatch(
-      /:\s*motivoDaJanela;/,
+      /janelaFechada=\{motivoDaJanela\}/,
     );
   });
 
@@ -163,6 +165,41 @@ describe("os elos que somem sem barulho", () => {
     const fonte = readFileSync("components/inbox/InboxLayout.tsx", "utf8");
     expect(fonte).toMatch(/setAgoraJanela/);
     expect(fonte).toMatch(/setInterval/);
+  });
+
+  it("a nota interna NÃO é barrada pela janela", () => {
+    // Regressão que eu mesmo criei: o primeiro bloqueio usou `blockedReason`, e
+    // ele desabilita o composer inteiro. A nota interna nunca chega ao cliente —
+    // a regra da plataforma não a alcança —, e é justamente onde o atendente
+    // registra por que a conversa esfriou.
+    const fonte = readFileSync("components/inbox/Composer.tsx", "utf8");
+    expect(fonte).toMatch(/janelaFechada/);
+    expect(fonte, "a janela está barrando a nota").toMatch(
+      /mode === "reply" && !!janelaFechada/,
+    );
+  });
+
+  it("barrar OFERECE a saída — o seletor de modelo aprovado", () => {
+    // Barrar sem oferecer deixa o operador sem caminho: ele lê "só modelo
+    // aprovado sai daqui" e não tem como mandar um.
+    const fonte = readFileSync("components/inbox/InboxLayout.tsx", "utf8");
+    // A GUARDA junto com a tag: `{false && (` deixava a tag na linha seguinte e
+    // o caso passava verde com a saída removida da tela.
+    expect(fonte).toMatch(/\{motivoDaJanela && \(\s*\n\s*<JanelaFechadaAviso/);
+    const aviso = readFileSync("components/inbox/JanelaFechadaAviso.tsx", "utf8");
+    expect(aviso).toMatch(/type: "template"/);
+    expect(aviso).toMatch(/template_name/);
+  });
+
+  it("o modelo sai pelo CANAL da conversa, não sempre pela Meta", () => {
+    // Medido: `sendTemplateForSession` lê `META_PHONE_NUMBER_ID` do ambiente, e
+    // template de qualquer canal saía pelo número da Meta. Para o canal
+    // intermediado isso é a mensagem saindo pelo número ERRADO — pior que falhar.
+    const fonte = readFileSync("app/api/v1/messages/_handler.ts", "utf8");
+    expect(fonte).toMatch(/adapter\.sendTemplate/);
+    expect(fonte.indexOf("adapter.sendTemplate")).toBeLessThan(
+      fonte.indexOf("sendTemplateForSession(supabase"),
+    );
   });
 
   it("a conta é a MESMA do guardrail do agente", () => {

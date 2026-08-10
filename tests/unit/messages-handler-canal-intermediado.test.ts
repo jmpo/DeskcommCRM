@@ -392,6 +392,37 @@ describe("nenhum desfecho diz `sent` sem nada ter saído", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("o MODELO sai pelo canal da conversa — não pelo número da Meta", async () => {
+    // Medido antes deste caso: `_handler.ts` desviava `type:'template'` para
+    // `sendTemplateForSession`, que lê `META_PHONE_NUMBER_ID` e
+    // `META_SYSTEM_USER_TOKEN` do ambiente e fala com a Graph API. Com os dois
+    // canais configurados, o modelo de uma conversa do canal intermediado saía
+    // pelo número da META, com o token da META.
+    //
+    // Isso não é "falha de envio": é a mensagem chegando ao cliente CERTO pelo
+    // número ERRADO. Ninguém percebe, porque ela sai.
+    //
+    // O caso afere o DOMÍNIO da chamada, que é a única evidência que separa os
+    // dois caminhos — nome de função em `grep` não separa.
+    vi.stubEnv("ZERNIO_API_KEY", "k");
+    vi.stubEnv("ZERNIO_ACCOUNT_ID", CONTA);
+    vi.stubEnv("META_PHONE_NUMBER_ID", "111");
+    vi.stubEnv("META_SYSTEM_USER_TOKEN", "tok-meta");
+    const fetchMock = respostaOk("wamid.TPL");
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { supabase } = makeSupabase(conversaCompleta({ providerConversationId: THREAD }));
+    await sendMessageHandler(
+      supabase,
+      ctx,
+      texto({ type: "template", body: undefined, template_name: "cuenta_activa", template_language: "es" }),
+    );
+
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.join(" "), "o modelo saiu pela Graph API da Meta").not.toMatch(/graph\.facebook\.com/);
+    expect(urls.join(" ")).toMatch(/zernio/);
+  });
+
   it("sem nenhuma credencial: `queued` com o motivo do canal, e nada pela rede", async () => {
     vi.stubEnv("ZERNIO_API_KEY", "");
     vi.stubEnv("ZERNIO_ACCOUNT_ID", "");

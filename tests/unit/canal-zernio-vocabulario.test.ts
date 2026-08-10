@@ -109,8 +109,13 @@ describe("o envelope carrega a thread do provider", () => {
     expect(fonte, "falta a coluna no select da conversa").toMatch(
       /group_chat_id,\s*provider_conversation_id/,
     );
+    // TRÊS desde que o modelo passou a sair pelo canal: texto, mídia e modelo.
+    // O número é conferido, e não `>= 1`, justamente para obrigar quem acrescenta
+    // um call site novo a decidir se ele também carrega a thread — foi assim que
+    // este caso pegou a rama de modelo, que a princípio não precisaria dela mas
+    // precisa quando o provider reaproveita a conversa existente.
     const passagens = [...fonte.matchAll(/providerConversationId:\s*c\.provider_conversation_id/g)];
-    expect(passagens.length, "os DOIS call sites (texto e mídia) precisam passar").toBe(2);
+    expect(passagens.length, "todos os call sites (texto, mídia e modelo) precisam passar").toBe(3);
   });
 });
 

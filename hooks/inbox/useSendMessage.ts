@@ -12,6 +12,14 @@ interface SendArgs {
   media_storage_path?: string;
   media_size_bytes?: number;
   type?: string;
+  /**
+   * Definição aprovada — o caminho de volta quando a janela de 24h fechou. A
+   * rota já aceitava estes campos; só o front nunca os mandava, então não havia
+   * como disparar um modelo pelo inbox.
+   */
+  template_name?: string;
+  template_language?: string;
+  template_values?: Record<string, string>;
 }
 
 interface MessagesPage {

@@ -197,6 +197,34 @@ export interface ChannelAdapter {
    * quem chama testa a presença em vez de perguntar QUAL provider é.
    */
   checkHealth?(input: { sessionRef: string }): Promise<ChannelHealth>;
+
+  /**
+   * Envia uma DEFINIÇÃO APROVADA — o único caminho de volta quando a janela de
+   * 24h fechou.
+   *
+   * Existe porque o envio de template não passava pelo seam: `_handler.ts`
+   * desviava `type:'template'` para uma função que lê `META_PHONE_NUMBER_ID` e
+   * `META_SYSTEM_USER_TOKEN` do ambiente e fala com a Graph API. Medido: com os
+   * três canais configurados, template de QUALQUER um saía pelo número da Meta,
+   * com o token da Meta. Para o canal intermediado isso não é "falha de envio":
+   * é a mensagem saindo pelo número ERRADO, para o cliente certo.
+   *
+   * `providerConversationId` vem junto porque alguns canais abrem a conversa e
+   * mandam o template no MESMO pedido quando ainda não há thread — e reaproveitam
+   * a thread quando já há.
+   *
+   * OPCIONAL como os demais: quem não implementa continua pelo caminho antigo,
+   * e quem chama testa a presença em vez de perguntar QUAL provider é.
+   */
+  sendTemplate?(input: {
+    sessionRef: string;
+    to: string;
+    providerConversationId?: string | null;
+    name: string;
+    language: string;
+    /** Valores dos `{{n}}`, na ordem em que a definição os declara. */
+    values: Record<string, string>;
+  }): Promise<{ externalId: string | null }>;
 }
 
 /** O que o transporte respondeu quando perguntamos se está de pé. */

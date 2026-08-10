@@ -211,6 +211,73 @@ export const zernioAdapter: ChannelAdapter = {
     return { externalId: json?.data?.messageId ?? null };
   },
 
+  /**
+   * Manda uma definição aprovada — e, com ela, REABRE a janela de 24h.
+   *
+   * Vai por `POST /v1/inbox/conversations`, que é o endpoint de ABRIR conversa,
+   * e não pelo de mandar mensagem numa thread. É de propósito: fora da janela a
+   * thread antiga não aceita mais nada, e o provider trata "abrir com template"
+   * como o caminho único de reentrada. Quando já existe conversa com o mesmo
+   * destinatário, ele reaproveita em vez de duplicar (documentado no contrato
+   * dele) — por isso `providerConversationId` não entra no corpo.
+   *
+   * `templateParams` é uma LISTA na ordem dos `{{n}}`, não um objeto: é assim
+   * que a plataforma numera os valores, e mandar um mapa faria o segundo
+   * parâmetro virar o primeiro na hora em que alguém renomeasse uma chave.
+   */
+  async sendTemplate(input: {
+    sessionRef: string;
+    to: string;
+    name: string;
+    language: string;
+    values: Record<string, string>;
+  }): Promise<{ externalId: string | null }> {
+    const admin = createAdminClient();
+    const creds = await resolveZernioCreds(admin, input.sessionRef);
+    if (!creds) {
+      throw new Error(
+        "zernio_not_configured: nenhuma credencial para esta conta (nem na sessão, nem no ambiente).",
+      );
+    }
+
+    // `{{1}}`, `{{2}}`… viram posições. Chave que não é número fica de fora em
+    // vez de entrar em ordem alfabética — ordem inventada manda o valor errado
+    // para o lugar errado, e o cliente recebe o nome de outra pessoa.
+    const params = Object.keys(input.values)
+      .filter((k) => /^\d+$/.test(k))
+      .sort((a, b) => Number(a) - Number(b))
+      .map((k) => input.values[k] ?? "");
+
+    const res = await fetch(`${creds.baseUrl}/v1/inbox/conversations`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        accountId: creds.accountId,
+        participantId: input.to,
+        templateName: input.name,
+        ...(input.language ? { templateLanguage: input.language } : {}),
+        ...(params.length ? { templateParams: params } : {}),
+      }),
+    });
+
+    const json = (await res.json().catch(() => null)) as {
+      success?: boolean;
+      data?: { messageId?: string };
+      error?: string;
+      code?: string;
+    } | null;
+
+    if (!res.ok || json?.success === false) {
+      const detalhe = json?.code ? `${json.code}: ${json.error ?? ""}` : (json?.error ?? res.statusText);
+      throw new Error(`zernio_template_failed: ${res.status} ${detalhe}`.trim());
+    }
+
+    return { externalId: json?.data?.messageId ?? null };
+  },
+
   /** Gestão das definições aprovadas — ver `../zernio/templates.ts`. */
   templates: zernioTemplateOps,
 

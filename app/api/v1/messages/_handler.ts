@@ -413,13 +413,31 @@ export async function sendMessageHandler(
         // texto/mídia) porque o payload da plataforma é outro — e porque o envio
         // exige checar o contrato ANTES de sair (bind vigente, valores completos),
         // coisa que só faz sentido para template.
-        externalId = await sendTemplateForSession(supabase, {
-          organizationId: ctx.organization_id,
-          to: chatId,
-          name: input.template_name ?? "",
-          language: input.template_language ?? "",
-          values: input.template_values ?? {},
-        });
+        //
+        // Mas quem SABE falar template é o adapter, quando sabe. Antes disto a
+        // linha de baixo era o único caminho, e ela lê `META_PHONE_NUMBER_ID` e
+        // `META_SYSTEM_USER_TOKEN` do ambiente: template de QUALQUER canal saía
+        // pelo número da Meta, com o token da Meta. Para o canal intermediado
+        // isso não é falha de envio — é a mensagem saindo pelo número ERRADO
+        // para o cliente certo, e ninguém percebe porque ela sai.
+        externalId = adapter.sendTemplate
+          ? (
+              await adapter.sendTemplate({
+                sessionRef: resolveSessionRef(c.channel_sessions),
+                to: chatId,
+                providerConversationId: c.provider_conversation_id,
+                name: input.template_name ?? "",
+                language: input.template_language ?? "",
+                values: input.template_values ?? {},
+              })
+            ).externalId
+          : await sendTemplateForSession(supabase, {
+              organizationId: ctx.organization_id,
+              to: chatId,
+              name: input.template_name ?? "",
+              language: input.template_language ?? "",
+              values: input.template_values ?? {},
+            });
       } else if (input.media_storage_path) {
         // Storage-first: signed URL curta só pro canal baixar (nunca base64).
         const admin = createAdminClient();
