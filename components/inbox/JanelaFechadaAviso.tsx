@@ -3,8 +3,11 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
+
+import { apiClient } from "@/lib/api/client";
 import { useSendMessage } from "@/hooks/inbox/useSendMessage";
-import { useTemplates, type TemplateView } from "@/hooks/channels/useTemplates";
+import { fonteDeTemplates, rotaDeTemplates } from "@/lib/channels/templates-fonte";
 import { cn } from "@/lib/utils";
 
 /**
@@ -31,26 +34,44 @@ import { cn } from "@/lib/utils";
  * modelo. Por isso o seletor MARCA quais pedem parâmetro, em vez de escondê-los
  * (esconder faria o operador procurar um modelo que existe e não aparece).
  */
+interface ModeloAprovado {
+  name: string;
+  language: string;
+  status: string;
+  slots?: unknown[];
+}
+
 export function JanelaFechadaAviso({
   conversationId,
+  provider,
   motivo,
 }: {
   conversationId: string;
+  /** Decide de ONDE vêm as definições. A tela não interpreta este valor. */
+  provider: string | null;
   motivo: string;
 }) {
-  const { data } = useTemplates();
   const send = useSendMessage();
   const [escolhido, setEscolhido] = useState("");
 
+  const fonte = fonteDeTemplates(provider);
+  const { data } = useQuery({
+    // A chave inclui a fonte: sem isso, trocar de conversa entre canais serviria
+    // a lista em cache do canal anterior, e o operador mandaria um modelo que
+    // não existe na conta desta conversa.
+    queryKey: ["templates-da-conversa", fonte],
+    enabled: fonte !== null,
+    queryFn: async () =>
+      apiClient.get<{ data: { templates: ModeloAprovado[] } }>(rotaDeTemplates(fonte!)),
+    staleTime: 30_000,
+  });
+
   const aprovados = useMemo(
-    () =>
-      (data?.data.templates ?? []).filter(
-        (t: TemplateView) => t.status?.toUpperCase() === "APPROVED",
-      ),
+    () => (data?.data.templates ?? []).filter((t) => t.status?.toUpperCase() === "APPROVED"),
     [data],
   );
 
-  const atual = aprovados.find((t: TemplateView) => `${t.name}|${t.language}` === escolhido) ?? null;
+  const atual = aprovados.find((t) => `${t.name}|${t.language}` === escolhido) ?? null;
   const pedeParametros = (atual?.slots?.length ?? 0) > 0;
 
   function enviar() {
@@ -97,10 +118,10 @@ export function JanelaFechadaAviso({
             )}
           >
             <option value="">Escolha um modelo aprovado…</option>
-            {aprovados.map((t: TemplateView) => (
+            {aprovados.map((t) => (
               <option key={`${t.name}|${t.language}`} value={`${t.name}|${t.language}`}>
                 {t.name} ({t.language})
-                {(t.slots?.length ?? 0) > 0 ? ` · ${t.slots.length} parâmetro(s)` : ""}
+                {(t.slots?.length ?? 0) > 0 ? ` · ${t.slots!.length} parâmetro(s)` : ""}
               </option>
             ))}
           </select>
@@ -114,7 +135,7 @@ export function JanelaFechadaAviso({
         // Avisa ANTES do clique: este modelo precisa de valores e este seletor
         // ainda não os coleta, então o envio vai falhar na plataforma.
         <p className="mt-2 text-[11px] text-amber-900/80 dark:text-amber-200/80">
-          Este modelo pede {atual?.slots.length} valor(es) e ainda não dá para preenchê-los aqui —
+          Este modelo pede {atual?.slots?.length} valor(es) e ainda não dá para preenchê-los aqui —
           envie por <strong>Conexões → Templates</strong>, ou escolha um modelo sem parâmetros.
         </p>
       )}
