@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useLeadTimeline } from "@/hooks/leads/useLeadTimeline";
 import type { Lead } from "@/lib/types/leads";
+import { ConversaNoDossie } from "./ConversaNoDossie";
 import { LeadFieldsForm } from "./LeadFieldsForm";
 import { ScoreSlot } from "./ScoreSlot";
 import { LeadTimeline } from "./LeadTimeline";
@@ -119,6 +120,8 @@ export function LeadDossier({
             Probabilidade recalculada automaticamente · {new Date(score.at).toLocaleString("pt-BR")}
           </p>
         )}
+
+        <ConversaNoDossie conversa={lead.conversa} />
 
         {/* ② timeline */}
         <section className="flex-1 py-3">
