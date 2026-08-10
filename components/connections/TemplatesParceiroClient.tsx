@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api/client";
+import { contarVariaveis, lerConteudo, montarComponents } from "@/lib/channels/template-conteudo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,6 +35,7 @@ interface TemplateParceiro {
   category: string | null;
   rejectedReason: string | null;
   syncedAt: string;
+  components: unknown[];
 }
 
 const COR_DO_ESTADO: Record<string, string> = {
@@ -49,7 +51,16 @@ export function TemplatesParceiroClient() {
   const [criando, setCriando] = useState(false);
   const [nome, setNome] = useState("");
   const [idioma, setIdioma] = useState("es");
+  const [categoria, setCategoria] = useState("UTILITY");
   const [corpo, setCorpo] = useState("");
+  const [rodape, setRodape] = useState("");
+  const [exemplos, setExemplos] = useState<string[]>([]);
+  const [aberto, setAberto] = useState<string | null>(null);
+
+  // Quantas amostras a revisão vai exigir. Recalculado enquanto se digita: o
+  // operador vê o campo aparecer no instante em que escreve `{{1}}`, e não
+  // descobre a exigência numa recusa que chega horas depois.
+  const nVariaveis = contarVariaveis(corpo);
 
   const lista = useQuery({
     queryKey: ["partner-templates"],
@@ -122,6 +133,22 @@ export function TemplatesParceiroClient() {
               className="h-9 w-24 rounded-md border border-input bg-background px-2 text-sm"
             />
           </div>
+          {/* A CATEGORIA é obrigatória no contrato e não era oferecida: tudo
+              saía como UTILITY. Mandar promoção como utility é reclassificado
+              (ou recusado) pela revisão — e a tarifa da categoria errada é mais
+              cara. O padrão continua UTILITY porque é o caso comum de
+              atendimento, mas agora é escolha. */}
+          <select
+            value={categoria}
+            onChange={(e) => setCategoria(e.target.value)}
+            aria-label="Categoria"
+            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          >
+            <option value="UTILITY">Utilidade — aviso de pedido, agendamento, cobrança</option>
+            <option value="MARKETING">Marketing — promoção, novidade, reengajamento</option>
+            <option value="AUTHENTICATION">Autenticação — código de verificação</option>
+          </select>
+
           <textarea
             value={corpo}
             onChange={(e) => setCorpo(e.target.value)}
@@ -129,6 +156,46 @@ export function TemplatesParceiroClient() {
             aria-label="Conteúdo"
             className="min-h-20 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
           />
+
+          <input
+            value={rodape}
+            onChange={(e) => setRodape(e.target.value)}
+            placeholder="Rodapé (opcional) — texto pequeno no fim da mensagem"
+            aria-label="Rodapé"
+            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          />
+
+          {nVariaveis > 0 && (
+            /* ESTE É O CAMPO QUE FALTAVA, e a causa das recusas.
+               A revisão exige uma AMOSTRA de cada `{{n}}` — sem ela a definição
+               é recusada, e a recusa chega horas depois sem ninguém ligar uma
+               coisa à outra. O formulário deixava digitar `{{1}}` e nunca
+               pedia o exemplo. */
+            <div className="flex flex-col gap-1.5 rounded-md border border-amber-300 bg-amber-50/50 p-2 dark:border-amber-800/60 dark:bg-amber-950/20">
+              <p className="text-[11px] text-amber-900 dark:text-amber-200">
+                A revisão exige um exemplo de cada valor. Sem eles o modelo é recusado.
+              </p>
+              {Array.from({ length: nVariaveis }, (_, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="w-12 shrink-0 font-mono text-xs text-muted-foreground">
+                    {`{{${i + 1}}}`}
+                  </span>
+                  <input
+                    value={exemplos[i] ?? ""}
+                    onChange={(e) => {
+                      const proximo = [...exemplos];
+                      proximo[i] = e.target.value;
+                      setExemplos(proximo);
+                    }}
+                    placeholder="ex.: María"
+                    aria-label={`Exemplo do valor ${i + 1}`}
+                    className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* O formato do nome e o texto são validados PELA PLATAFORMA, e a
               recusa dela chega inteira ao operador. Repetir a regra aqui a faria
               envelhecer separado da fonte. */}
@@ -146,8 +213,8 @@ export function TemplatesParceiroClient() {
                   acao: "criar",
                   name: nome.trim(),
                   language: idioma.trim(),
-                  category: "UTILITY",
-                  components: [{ type: "BODY", text: corpo }],
+                  category: categoria,
+                  components: montarComponents({ body: corpo, footer: rodape, exemplos }),
                 })
               }
             >
@@ -166,25 +233,83 @@ export function TemplatesParceiroClient() {
         </p>
       ) : (
         <ul className="divide-y divide-border rounded-md border border-border">
-          {templates.map((t) => (
-            <li key={`${t.name}|${t.language}`} className="flex flex-wrap items-center gap-2 px-3 py-2">
-              <span className="font-mono text-sm">{t.name}</span>
-              <span className="text-xs text-muted-foreground">{t.language}</span>
-              <span
-                className={cn(
-                  "ml-auto text-xs font-medium",
-                  COR_DO_ESTADO[t.status?.toUpperCase()] ?? "text-muted-foreground",
+          {templates.map((t) => {
+            const chave = `${t.name}|${t.language}`;
+            const c = lerConteudo(t.components);
+            const expandido = aberto === chave;
+            return (
+              <li key={chave} className="px-3 py-2">
+                {/* A linha inteira ABRE o conteúdo. Ver "APPROVED" sem ver o
+                    texto obriga a abrir a plataforma para saber o que a
+                    definição diz — e é o texto que decide qual mandar. */}
+                <button
+                  type="button"
+                  onClick={() => setAberto(expandido ? null : chave)}
+                  className="flex w-full flex-wrap items-center gap-2 text-left"
+                  aria-expanded={expandido}
+                >
+                  <span className="font-mono text-sm">{t.name}</span>
+                  <span className="text-xs text-muted-foreground">{t.language}</span>
+                  {t.category && (
+                    <span className="rounded bg-muted px-1.5 text-[10px] uppercase text-muted-foreground">
+                      {t.category}
+                    </span>
+                  )}
+                  {c.variaveis > 0 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {c.variaveis} valor(es)
+                    </span>
+                  )}
+                  <span
+                    className={cn(
+                      "ml-auto text-xs font-medium",
+                      COR_DO_ESTADO[t.status?.toUpperCase()] ?? "text-muted-foreground",
+                    )}
+                  >
+                    {t.status}
+                  </span>
+                </button>
+
+                {/* O motivo da recusa é o que diz o que corrigir, e fica SEMPRE
+                    à vista — não escondido atrás do clique: quem precisa dele
+                    não sabe que precisa procurar. */}
+                {t.rejectedReason && (
+                  <p className="mt-1 text-[11px] text-destructive">{t.rejectedReason}</p>
                 )}
-              >
-                {t.status}
-              </span>
-              {/* O motivo da recusa é o que diz o que corrigir. Sem ele o
-                  operador só sabe que falhou, e tenta de novo igual. */}
-              {t.rejectedReason && (
-                <span className="w-full text-[11px] text-destructive">{t.rejectedReason}</span>
-              )}
-            </li>
-          ))}
+
+                {expandido && (
+                  <div className="mt-2 flex flex-col gap-1.5 rounded-md bg-muted/40 p-2 text-sm">
+                    {c.header && (
+                      <p className="text-xs">
+                        <span className="text-muted-foreground">Cabeçalho ({c.header.formato}): </span>
+                        {c.header.texto ?? <em className="text-muted-foreground">mídia</em>}
+                      </p>
+                    )}
+                    {c.body ? (
+                      <p className="whitespace-pre-wrap">{c.body}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Sem corpo espelhado — sincronize para trazer o conteúdo.
+                      </p>
+                    )}
+                    {c.footer && <p className="text-xs text-muted-foreground">{c.footer}</p>}
+                    {c.botoes.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {c.botoes.map((b, i) => (
+                          <span key={i} className="rounded border border-border px-1.5 text-[11px]">
+                            {b.texto} <span className="text-muted-foreground">({b.tipo})</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-muted-foreground">
+                      Sincronizado em {new Date(t.syncedAt).toLocaleString("pt-BR")}
+                    </p>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

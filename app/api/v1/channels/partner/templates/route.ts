@@ -120,6 +120,10 @@ export async function GET(): Promise<Response> {
         category: (t.category as string | null) ?? null,
         rejectedReason: (t.rejected_reason as string | null) ?? null,
         syncedAt: t.synced_at as string,
+        // O CONTEÚDO, e não só o estado. Ver "APPROVED" sem ver o texto obriga
+        // o operador a abrir a plataforma para saber o que a definição diz —
+        // e é o texto que ele precisa para escolher qual mandar.
+        components: (t.components as unknown[]) ?? [],
       })),
     },
     { requestId },
