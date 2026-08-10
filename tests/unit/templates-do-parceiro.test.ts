@@ -25,7 +25,11 @@ import { describe, expect, it } from "vitest";
 import { fonteDeTemplates, rotaDeTemplates } from "@/lib/channels/templates-fonte";
 import {
   contarVariaveis,
+  IDIOMAS_DA_DEFINICAO,
   lerConteudo,
+  LIMITE_BOTOES,
+  LIMITE_CORPO,
+  LIMITE_RODAPE,
   montarComponents,
 } from "@/lib/channels/template-conteudo";
 
@@ -188,12 +192,123 @@ describe("o conteúdo da definição, e o campo que causava as recusas", () => {
 
   it("e PEDE os exemplos, em vez de mandar sem eles", () => {
     const fonte = readFileSync("components/connections/TemplatesParceiroClient.tsx", "utf8");
-    expect(fonte).toMatch(/montarComponents\(\{ body: corpo, footer: rodape, exemplos \}\)/);
+    // O `exemplos` chega a `montarComponents` — a forma da chamada mudou quando
+    // cabeçalho e botões entraram, o objeto virou multilinha.
+    expect(fonte).toMatch(/montarComponents\(\{[\s\S]{0,200}?exemplos,/);
     expect(fonte).toMatch(/nVariaveis > 0 &&/);
   });
 
   it("a rota devolve o CONTEÚDO, não só o estado", () => {
     const fonte = readFileSync("app/api/v1/channels/partner/templates/route.ts", "utf8");
     expect(fonte).toMatch(/components: \(t\.components as unknown\[\]\) \?\? \[\]/);
+  });
+});
+
+describe("o formulário completo — idioma, cabeçalho e botões", () => {
+  it("o idioma vem de LISTA, não digitado", () => {
+    // `esp`, `ES`, `es-AR` e `español` são todos recusados, e a recusa volta
+    // como "language not supported" horas depois. Escolher não erra.
+    const fonte = readFileSync("components/connections/TemplatesParceiroClient.tsx", "utf8");
+    expect(fonte).toMatch(/IDIOMAS_DA_DEFINICAO\.map/);
+    expect(fonte, "o idioma ainda é campo livre").not.toMatch(
+      /placeholder="es"\s*\n\s*aria-label="Idioma"/,
+    );
+  });
+
+  it("a lista traz os códigos no formato da plataforma", () => {
+    // `es_AR`, não `es-AR` nem `ES`.
+    for (const i of IDIOMAS_DA_DEFINICAO) {
+      expect(i.codigo, i.codigo).toMatch(/^[a-z]{2}(_[A-Z]{2})?$/);
+    }
+  });
+
+  it("cabeçalho de TEXTO leva exemplo PRÓPRIO", () => {
+    // `header_text` é separado de `body_text`. Usar o do corpo manda a amostra
+    // errada e a revisão recusa.
+    const c = montarComponents({
+      body: "corpo",
+      exemplos: [],
+      cabecalho: { texto: "Oi {{1}}" },
+    }) as { type: string; example?: { header_text?: string[] } }[];
+    expect(c[0]?.type).toBe("HEADER");
+    expect(c[0]?.example?.header_text).toHaveLength(1);
+  });
+
+  it("cabeçalho de MÍDIA usa header_handle, não texto", () => {
+    const c = montarComponents({
+      body: "corpo",
+      exemplos: [],
+      cabecalho: { midiaUrl: "https://exemplo/foto.jpg" },
+    }) as { type: string; format?: string; example?: { header_handle?: string[] } }[];
+    expect(c[0]).toMatchObject({ type: "HEADER", format: "IMAGE" });
+    expect(c[0]?.example?.header_handle).toEqual(["https://exemplo/foto.jpg"]);
+  });
+
+  it("o cabeçalho vem ANTES do corpo — a ordem é a da mensagem", () => {
+    const c = montarComponents({
+      body: "corpo",
+      exemplos: [],
+      cabecalho: { texto: "Título" },
+    }) as { type: string }[];
+    expect(c.map((x) => x.type)).toEqual(["HEADER", "BODY"]);
+  });
+
+  it("os botões saem num ÚNICO componente, como pede o contrato", () => {
+    const c = montarComponents({
+      body: "corpo",
+      exemplos: [],
+      botoes: [
+        { tipo: "quick_reply", texto: "Sim" },
+        { tipo: "url", texto: "Ver", url: "https://x.com" },
+      ],
+    }) as { type: string; buttons?: unknown[] }[];
+    const bts = c.find((x) => x.type === "BUTTONS");
+    expect(bts?.buttons).toHaveLength(2);
+  });
+
+  it("URL sem endereço e telefone sem número NÃO são enviados", () => {
+    // Vão ser recusados de qualquer jeito; mandar só faz o operador esperar
+    // horas por um "não" que já se sabia.
+    const c = montarComponents({
+      body: "corpo",
+      exemplos: [],
+      botoes: [
+        { tipo: "url", texto: "Ver", url: "" },
+        { tipo: "phone_number", texto: "Ligar", telefone: "" },
+        { tipo: "quick_reply", texto: "Ok" },
+      ],
+    }) as { type: string; buttons?: { type: string }[] }[];
+    const bts = c.find((x) => x.type === "BUTTONS");
+    expect(bts?.buttons?.map((b) => b.type)).toEqual(["QUICK_REPLY"]);
+  });
+
+  it("botão sem texto não entra, e o teto é respeitado", () => {
+    const c = montarComponents({
+      body: "corpo",
+      exemplos: [],
+      botoes: [
+        { tipo: "quick_reply", texto: "" },
+        { tipo: "quick_reply", texto: "a" },
+        { tipo: "quick_reply", texto: "b" },
+        { tipo: "quick_reply", texto: "c" },
+        { tipo: "quick_reply", texto: "d" },
+      ],
+    }) as { type: string; buttons?: unknown[] }[];
+    expect(c.find((x) => x.type === "BUTTONS")?.buttons).toHaveLength(LIMITE_BOTOES);
+  });
+
+  it("a tela respeita os limites de tamanho da plataforma", () => {
+    // Passar do limite é recusa, e a recusa não diz que o problema era o tamanho.
+    const fonte = readFileSync("components/connections/TemplatesParceiroClient.tsx", "utf8");
+    expect(fonte).toMatch(/slice\(0, LIMITE_CORPO\)/);
+    expect(fonte).toMatch(/slice\(0, LIMITE_RODAPE\)/);
+    expect(LIMITE_CORPO).toBe(1024);
+    expect(LIMITE_RODAPE).toBe(60);
+  });
+
+  it("texto e mídia no cabeçalho se EXCLUEM — mandar os dois é recusa", () => {
+    const fonte = readFileSync("components/connections/TemplatesParceiroClient.tsx", "utf8");
+    expect(fonte).toMatch(/if \(e\.target\.value\) setMidiaUrl\(""\)/);
+    expect(fonte).toMatch(/if \(e\.target\.value\) setCabecalho\(""\)/);
   });
 });

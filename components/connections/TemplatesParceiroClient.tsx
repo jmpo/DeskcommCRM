@@ -5,7 +5,16 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api/client";
-import { contarVariaveis, lerConteudo, montarComponents } from "@/lib/channels/template-conteudo";
+import {
+  contarVariaveis,
+  IDIOMAS_DA_DEFINICAO,
+  lerConteudo,
+  LIMITE_BOTOES,
+  LIMITE_CORPO,
+  LIMITE_RODAPE,
+  montarComponents,
+  type BotaoDaDefinicao,
+} from "@/lib/channels/template-conteudo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -55,6 +64,9 @@ export function TemplatesParceiroClient() {
   const [corpo, setCorpo] = useState("");
   const [rodape, setRodape] = useState("");
   const [exemplos, setExemplos] = useState<string[]>([]);
+  const [cabecalho, setCabecalho] = useState("");
+  const [midiaUrl, setMidiaUrl] = useState("");
+  const [botoes, setBotoes] = useState<BotaoDaDefinicao[]>([]);
   const [aberto, setAberto] = useState<string | null>(null);
 
   // Quantas amostras a revisão vai exigir. Recalculado enquanto se digita: o
@@ -125,13 +137,22 @@ export function TemplatesParceiroClient() {
               aria-label="Nome do modelo"
               className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
             />
-            <input
+            {/* LISTA, e não campo livre. O contrato descreve o formato e não
+                enumera os valores; digitar é onde o erro nasce — `esp`, `ES`,
+                `es-AR` e `español` são todos recusados, e a recusa volta como
+                "language not supported" horas depois. */}
+            <select
               value={idioma}
               onChange={(e) => setIdioma(e.target.value)}
-              placeholder="es"
               aria-label="Idioma"
-              className="h-9 w-24 rounded-md border border-input bg-background px-2 text-sm"
-            />
+              className="h-9 w-56 rounded-md border border-input bg-background px-2 text-sm"
+            >
+              {IDIOMAS_DA_DEFINICAO.map((i) => (
+                <option key={i.codigo} value={i.codigo}>
+                  {i.rotulo} ({i.codigo})
+                </option>
+              ))}
+            </select>
           </div>
           {/* A CATEGORIA é obrigatória no contrato e não era oferecida: tudo
               saía como UTILITY. Mandar promoção como utility é reclassificado
@@ -149,21 +170,139 @@ export function TemplatesParceiroClient() {
             <option value="AUTHENTICATION">Autenticação — código de verificação</option>
           </select>
 
-          <textarea
-            value={corpo}
-            onChange={(e) => setCorpo(e.target.value)}
-            placeholder="Texto da mensagem. Use {{1}}, {{2}} para os valores que mudam."
-            aria-label="Conteúdo"
-            className="min-h-20 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-          />
+          {/* CABEÇALHO opcional: texto OU mídia, nunca os dois — a plataforma
+              aceita um formato por definição, e mandar ambos é recusa. */}
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={cabecalho}
+              onChange={(e) => {
+                setCabecalho(e.target.value);
+                if (e.target.value) setMidiaUrl("");
+              }}
+              placeholder="Cabeçalho de texto (opcional)"
+              aria-label="Cabeçalho de texto"
+              disabled={!!midiaUrl}
+              className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
+            />
+            <input
+              value={midiaUrl}
+              onChange={(e) => {
+                setMidiaUrl(e.target.value);
+                if (e.target.value) setCabecalho("");
+              }}
+              placeholder="…ou URL pública de imagem"
+              aria-label="URL da imagem do cabeçalho"
+              disabled={!!cabecalho}
+              className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
+            />
+          </div>
 
-          <input
-            value={rodape}
-            onChange={(e) => setRodape(e.target.value)}
-            placeholder="Rodapé (opcional) — texto pequeno no fim da mensagem"
-            aria-label="Rodapé"
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-          />
+          <div className="flex flex-col gap-1">
+            <textarea
+              value={corpo}
+              onChange={(e) => setCorpo(e.target.value.slice(0, LIMITE_CORPO))}
+              placeholder="Texto da mensagem. Use {{1}}, {{2}} para os valores que mudam."
+              aria-label="Conteúdo"
+              className="min-h-20 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+            />
+            {/* O contador existe porque passar do limite é RECUSA, e a recusa
+                chega horas depois sem dizer que o problema era o tamanho. */}
+            <span className="self-end text-[10px] text-muted-foreground">
+              {corpo.length}/{LIMITE_CORPO}
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <input
+              value={rodape}
+              onChange={(e) => setRodape(e.target.value.slice(0, LIMITE_RODAPE))}
+              placeholder="Rodapé (opcional) — texto pequeno no fim da mensagem"
+              aria-label="Rodapé"
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+            />
+            <span className="self-end text-[10px] text-muted-foreground">
+              {rodape.length}/{LIMITE_RODAPE}
+            </span>
+          </div>
+
+          {/* BOTÕES: até três, e cada tipo pede um campo diferente. URL sem
+              endereço e telefone sem número são recusados — por isso o campo
+              extra aparece junto com o tipo, e não escondido atrás de outro
+              clique. */}
+          <div className="flex flex-col gap-1.5">
+            {botoes.map((b, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-2">
+                <select
+                  value={b.tipo}
+                  onChange={(e) => {
+                    const p = [...botoes];
+                    p[i] = { ...b, tipo: e.target.value as BotaoDaDefinicao["tipo"] };
+                    setBotoes(p);
+                  }}
+                  aria-label={`Tipo do botão ${i + 1}`}
+                  className="h-8 w-40 rounded-md border border-input bg-background px-2 text-sm"
+                >
+                  <option value="quick_reply">Resposta rápida</option>
+                  <option value="url">Abrir link</option>
+                  <option value="phone_number">Ligar</option>
+                </select>
+                <input
+                  value={b.texto}
+                  onChange={(e) => {
+                    const p = [...botoes];
+                    p[i] = { ...b, texto: e.target.value };
+                    setBotoes(p);
+                  }}
+                  placeholder="Texto do botão"
+                  aria-label={`Texto do botão ${i + 1}`}
+                  className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                />
+                {b.tipo === "url" && (
+                  <input
+                    value={b.url ?? ""}
+                    onChange={(e) => {
+                      const p = [...botoes];
+                      p[i] = { ...b, url: e.target.value };
+                      setBotoes(p);
+                    }}
+                    placeholder="https://…"
+                    aria-label={`URL do botão ${i + 1}`}
+                    className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                  />
+                )}
+                {b.tipo === "phone_number" && (
+                  <input
+                    value={b.telefone ?? ""}
+                    onChange={(e) => {
+                      const p = [...botoes];
+                      p[i] = { ...b, telefone: e.target.value };
+                      setBotoes(p);
+                    }}
+                    placeholder="+595…"
+                    aria-label={`Telefone do botão ${i + 1}`}
+                    className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                  />
+                )}
+                <button
+                  type="button"
+                  onClick={() => setBotoes(botoes.filter((_, j) => j !== i))}
+                  className="text-xs text-muted-foreground hover:text-destructive"
+                  aria-label={`Remover botão ${i + 1}`}
+                >
+                  remover
+                </button>
+              </div>
+            ))}
+            {botoes.length < LIMITE_BOTOES && (
+              <button
+                type="button"
+                onClick={() => setBotoes([...botoes, { tipo: "quick_reply", texto: "" }])}
+                className="self-start text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                + Adicionar botão ({botoes.length}/{LIMITE_BOTOES})
+              </button>
+            )}
+          </div>
 
           {nVariaveis > 0 && (
             /* ESTE É O CAMPO QUE FALTAVA, e a causa das recusas.
@@ -214,7 +353,13 @@ export function TemplatesParceiroClient() {
                   name: nome.trim(),
                   language: idioma.trim(),
                   category: categoria,
-                  components: montarComponents({ body: corpo, footer: rodape, exemplos }),
+                  components: montarComponents({
+                    body: corpo,
+                    footer: rodape,
+                    exemplos,
+                    cabecalho: { texto: cabecalho, midiaUrl },
+                    botoes,
+                  }),
                 })
               }
             >
