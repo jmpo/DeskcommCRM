@@ -8,9 +8,19 @@
  */
 import { z } from "zod";
 
+import { IDIOMAS } from "@/lib/i18n/idiomas";
+
 import { conversationTagSchema } from "./messaging";
 
-const LOCALES = ["pt-BR", "en-US"] as const;
+/**
+ * Os idiomas que a interface REALMENTE serve.
+ *
+ * `en-US` saiu: esteve na lista desde sempre e nunca teve uma linha de
+ * tradução — escolhê-lo não mudava nada. Espanhol entrou quando passou a mudar.
+ * A fonte é `lib/i18n/idiomas`, para a validação e o dicionário não divergirem:
+ * um idioma aceito aqui e desconhecido lá cairia no padrão em silêncio.
+ */
+const LOCALES = IDIOMAS;
 
 /**
  * G6-02: organizations.settings.ai_dispatch_mode (edge-contract do Vendaval).

@@ -57,6 +57,14 @@ export interface AuthUser {
   full_name: string | null;
   avatar_url: string | null;
   is_platform_admin: boolean;
+  /**
+   * Idioma da interface, de `user_metadata.locale`.
+   *
+   * Vem no AuthUser e não numa consulta própria porque toda tela precisa dele
+   * no primeiro render: buscá-lo depois faria a interface aparecer em português
+   * e trocar para espanhol meio segundo depois, em toda navegação.
+   */
+  locale?: string | null;
   organizations: UserOrgMembership[];
 }
 

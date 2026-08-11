@@ -100,6 +100,7 @@ export async function loadAuthUser(): Promise<AuthUser | null> {
 
   const fullName = (user.user_metadata?.full_name as string | undefined) ?? null;
   const avatarUrl = (user.user_metadata?.avatar_url as string | undefined) ?? null;
+  const locale = (user.user_metadata?.locale as string | undefined) ?? null;
 
   return {
     id: user.id,
@@ -107,6 +108,7 @@ export async function loadAuthUser(): Promise<AuthUser | null> {
     full_name: fullName,
     avatar_url: avatarUrl,
     is_platform_admin: !!paRow,
+    locale,
     organizations: memberships,
   };
 }

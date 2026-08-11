@@ -1,4 +1,5 @@
 "use client";
+import { useT } from "@/hooks/i18n/useT";
 import {
   forwardRef,
   useImperativeHandle,
@@ -49,6 +50,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
   { conversationId, disabled, blockedReason, janelaFechada, contactName },
   ref,
 ) {
+  const t = useT();
   const [text, setText] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [menuDismissed, setMenuDismissed] = useState(false);
@@ -194,7 +196,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
                 : "text-muted-foreground hover:bg-muted",
             )}
           >
-            Responder
+            {t("Responder")}
           </button>
           <button
             type="button"
@@ -206,7 +208,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
                 : "text-muted-foreground hover:bg-muted",
             )}
           >
-            Nota interna
+            {t("Nota interna")}
           </button>
         </div>
         <div className="flex items-end gap-2">
@@ -255,7 +257,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
             // uma nota interna precisa saber que ela não vai para o cliente, e
             // essa informação não pode depender de abrir um diálogo.
             placeholder={
-              mode === "note" ? "Escreva uma nota interna… (só o time vê)" : "Escreva uma mensagem…"
+              mode === "note" ? t("Escreva uma nota interna… (só o time vê)") : t("Escreva uma mensagem…")
             }
             title={
               mode === "note"
