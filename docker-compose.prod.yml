@@ -12,6 +12,18 @@ x-logging: &default-logging
 
 services:
   app:
+    # Teto de memória — 335 MiB de pico MEDIDO nesta VPS.
+    #
+    # Sem ele o contêiner é ilimitado, e numa VPS de 3,8 GB isso não é teoria:
+    # um contêiner ALHEIO (agente da hospedagem, fora deste compose) registrou
+    # pico de 3.068 MiB no mesmo host. Quando a RAM acaba, o OOM killer escolhe
+    # a vítima por PONTUAÇÃO — quem cresceu mais rápido —, não por importância:
+    # o que morre pode ser o CRM.
+    #
+    # O teto não impede o pico legítimo; impede que UM serviço leve a máquina
+    # inteira. Estourá-lo mata só quem estourou, e o `restart: unless-stopped`
+    # o traz de volta — falha isolada em vez de queda geral.
+    mem_limit: 768m
     # Imagem GENÉRICA pré-buildada: o leigo só puxa (sobe em ~2min, roda em 2GB).
     # Os NEXT_PUBLIC_* reais vêm em RUNTIME (env_file abaixo) — o browser lê via
     # <PublicEnvScript/> e o servidor via lib/env.ts. Não precisa buildar no VPS.
@@ -40,6 +52,18 @@ services:
 
   # Worker 24/7 do agent-engine (fusão Vendaval) — cérebro do agente SDR.
   worker:
+    # Teto de memória — 230 MiB de pico MEDIDO nesta VPS.
+    #
+    # Sem ele o contêiner é ilimitado, e numa VPS de 3,8 GB isso não é teoria:
+    # um contêiner ALHEIO (agente da hospedagem, fora deste compose) registrou
+    # pico de 3.068 MiB no mesmo host. Quando a RAM acaba, o OOM killer escolhe
+    # a vítima por PONTUAÇÃO — quem cresceu mais rápido —, não por importância:
+    # o que morre pode ser o CRM.
+    #
+    # O teto não impede o pico legítimo; impede que UM serviço leve a máquina
+    # inteira. Estourá-lo mata só quem estourou, e o `restart: unless-stopped`
+    # o traz de volta — falha isolada em vez de queda geral.
+    mem_limit: 512m
     build:
       context: .
       dockerfile: Dockerfile.worker
@@ -57,6 +81,18 @@ services:
       retries: 3
       start_period: 20s
   waha:
+    # Teto de memória — 893 MiB de pico MEDIDO nesta VPS.
+    #
+    # Sem ele o contêiner é ilimitado, e numa VPS de 3,8 GB isso não é teoria:
+    # um contêiner ALHEIO (agente da hospedagem, fora deste compose) registrou
+    # pico de 3.068 MiB no mesmo host. Quando a RAM acaba, o OOM killer escolhe
+    # a vítima por PONTUAÇÃO — quem cresceu mais rápido —, não por importância:
+    # o que morre pode ser o CRM.
+    #
+    # O teto não impede o pico legítimo; impede que UM serviço leve a máquina
+    # inteira. Estourá-lo mata só quem estourou, e o `restart: unless-stopped`
+    # o traz de volta — falha isolada em vez de queda geral.
+    mem_limit: 1280m
     # Core grátis por padrão; troque para devlikeapro/waha-plus via WAHA_IMAGE se
     # precisar de multi-número/retry/S3 (licença paga).
     image: ${WAHA_IMAGE:-devlikeapro/waha}
