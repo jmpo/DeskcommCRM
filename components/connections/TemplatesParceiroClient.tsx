@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { PreviaDaDefinicao } from "./PreviaDaDefinicao";
 import { apiClient } from "@/lib/api/client";
 import {
   contarVariaveis,
@@ -67,6 +68,7 @@ export function TemplatesParceiroClient() {
   const [cabecalho, setCabecalho] = useState("");
   const [midiaUrl, setMidiaUrl] = useState("");
   const [botoes, setBotoes] = useState<BotaoDaDefinicao[]>([]);
+  const [subindo, setSubindo] = useState(false);
   const [aberto, setAberto] = useState<string | null>(null);
 
   // Quantas amostras a revisão vai exigir. Recalculado enquanto se digita: o
@@ -128,7 +130,8 @@ export function TemplatesParceiroClient() {
       </div>
 
       {criando && (
-        <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+        <div className="grid gap-4 rounded-md border border-border p-3 lg:grid-cols-[1fr_20rem]">
+          <div className="flex flex-col gap-2">
           <div className="flex flex-wrap gap-2">
             <input
               value={nome}
@@ -184,17 +187,49 @@ export function TemplatesParceiroClient() {
               disabled={!!midiaUrl}
               className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
             />
-            <input
-              value={midiaUrl}
-              onChange={(e) => {
-                setMidiaUrl(e.target.value);
-                if (e.target.value) setCabecalho("");
-              }}
-              placeholder="…ou URL pública de imagem"
-              aria-label="URL da imagem do cabeçalho"
-              disabled={!!cabecalho}
-              className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
-            />
+            {/* SUBIR, e não colar URL. Colar exigia que o operador já tivesse a
+                imagem hospedada em algum lugar público — que é justamente o que
+                ele não tem. O arquivo vai para o nosso storage e a rota devolve
+                um link assinado, que é o que a plataforma baixa na revisão. */}
+            <label
+              className={cn(
+                "flex h-9 flex-1 cursor-pointer items-center justify-center rounded-md border border-dashed border-input px-2 text-sm text-muted-foreground hover:bg-muted",
+                cabecalho && "pointer-events-none opacity-50",
+              )}
+            >
+              {subindo ? "Subindo…" : midiaUrl ? "Trocar imagem" : "Subir imagem (JPG/PNG)"}
+              <input
+                type="file"
+                accept="image/jpeg,image/png"
+                className="hidden"
+                aria-label="Imagem do cabeçalho"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  setSubindo(true);
+                  try {
+                    const fd = new FormData();
+                    fd.append("file", f);
+                    const r = await fetch("/api/v1/channels/partner/templates/media", {
+                      method: "POST",
+                      body: fd,
+                    });
+                    const j = (await r.json()) as { data?: { url?: string }; error?: { message?: string } };
+                    if (!r.ok || !j.data?.url) {
+                      // A mensagem da rota CHEGA ao operador: é ela que
+                      // distingue "formato" de "tamanho" de "erro nosso".
+                      toast.error(j.error?.message ?? "Não consegui subir a imagem.");
+                      return;
+                    }
+                    setMidiaUrl(j.data.url);
+                    setCabecalho("");
+                  } finally {
+                    setSubindo(false);
+                    e.target.value = "";
+                  }
+                }}
+              />
+            </label>
           </div>
 
           <div className="flex flex-col gap-1">
@@ -365,6 +400,19 @@ export function TemplatesParceiroClient() {
             >
               Enviar para revisão
             </Button>
+          </div>
+          </div>
+
+          {/* A prévia fica AO LADO, não embaixo: embaixo ela sai da tela junto
+              com o botão de enviar, e o operador manda sem ter olhado. */}
+          <div className="lg:sticky lg:top-4 lg:self-start">
+            <PreviaDaDefinicao
+              cabecalho={cabecalho}
+              midiaUrl={midiaUrl}
+              corpo={corpo}
+              rodape={rodape}
+              botoes={botoes}
+            />
           </div>
         </div>
       )}

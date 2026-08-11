@@ -307,8 +307,64 @@ describe("o formulário completo — idioma, cabeçalho e botões", () => {
   });
 
   it("texto e mídia no cabeçalho se EXCLUEM — mandar os dois é recusa", () => {
+    // Os dois sentidos: digitar texto limpa a mídia, e subir imagem limpa o
+    // texto. E o campo de texto DESABILITA o de imagem enquanto tem conteúdo —
+    // a forma mudou quando o "colar URL" virou "subir arquivo", mas a regra é a
+    // mesma: a plataforma aceita um formato por definição.
     const fonte = readFileSync("components/connections/TemplatesParceiroClient.tsx", "utf8");
     expect(fonte).toMatch(/if \(e\.target\.value\) setMidiaUrl\(""\)/);
-    expect(fonte).toMatch(/if \(e\.target\.value\) setCabecalho\(""\)/);
+    expect(fonte).toMatch(/setMidiaUrl\(j\.data\.url\);\s*\n\s*setCabecalho\(""\);/);
+    expect(fonte).toMatch(/cabecalho && "pointer-events-none opacity-50"/);
+  });
+});
+
+describe("subir a imagem e ver a prévia", () => {
+  it("o cabeçalho de mídia SOBE o arquivo — não pede URL colada", () => {
+    // Colar exigia que o operador já tivesse a imagem hospedada em algum lugar
+    // público, que é justamente o que ele não tem.
+    const fonte = readFileSync("components/connections/TemplatesParceiroClient.tsx", "utf8");
+    expect(fonte).toMatch(/type="file"/);
+    expect(fonte).toMatch(/accept="image\/jpeg,image\/png"/);
+    expect(fonte).toMatch(/\/api\/v1\/channels\/partner\/templates\/media/);
+  });
+
+  it("a rota devolve link ASSINADO — o bucket é privado", () => {
+    // Tornar o bucket público resolveria o cabeçalho e exporia o histórico de
+    // mídia de todos os clientes, que mora no mesmo lugar.
+    const fonte = readFileSync("app/api/v1/channels/partner/templates/media/route.ts", "utf8");
+    expect(fonte).toMatch(/createSignedUrl\(caminho, VALIDADE_SEGUNDOS\)/);
+    expect(fonte).toMatch(/7 \* 24 \* 60 \* 60/);
+  });
+
+  it("e recusa formato e tamanho ANTES de subir", () => {
+    // Deixar subir faria a recusa chegar horas depois, falando de um formato
+    // que o operador escolheu porque a tela deixou.
+    const fonte = readFileSync("app/api/v1/channels/partner/templates/media/route.ts", "utf8");
+    expect(fonte).toMatch(/TIPOS\.has\(mime\)/);
+    expect(fonte).toMatch(/file\.size > TAMANHO_MAX/);
+  });
+
+  it("a prévia é montada, e AO LADO do formulário", () => {
+    // Embaixo ela sai da tela junto com o botão de enviar, e o operador manda
+    // sem ter olhado.
+    const fonte = readFileSync("components/connections/TemplatesParceiroClient.tsx", "utf8");
+    expect(fonte).toMatch(/\n\s*<PreviaDaDefinicao/);
+    expect(fonte).toMatch(/lg:grid-cols-\[1fr_20rem\]/);
+  });
+
+  it("a prévia AVISA da numeração com buraco", () => {
+    // `{{3}}` sem `{{1}}` é recusado — a lista de valores é posicional. Ver
+    // isso antes poupa o ciclo de revisão inteiro.
+    const fonte = readFileSync("components/connections/PreviaDaDefinicao.tsx", "utf8");
+    expect(fonte).toMatch(/faltando/);
+    expect(fonte).toMatch(/numeração é sequencial/);
+  });
+
+  it("as variáveis aparecem COMO variáveis, não substituídas", () => {
+    // Substituir pelo exemplo mostraria uma mensagem que nunca vai existir; o
+    // que se confere aqui é ONDE está o buraco.
+    const fonte = readFileSync("components/connections/PreviaDaDefinicao.tsx", "utf8");
+    expect(fonte).toMatch(/\{corpo\}/);
+    expect(fonte, "a prévia está substituindo as variáveis").not.toMatch(/replace\(.*\{\{/);
   });
 });
