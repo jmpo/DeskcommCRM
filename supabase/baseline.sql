@@ -280,7 +280,9 @@ begin
     jsonb_build_object(
       'message_id', new.id, 'conversation_id', new.conversation_id,
       'contact_id', new.contact_id, 'direction', new.direction,
-      'type', new.type, 'status', new.status, 'external_id', new.external_id
+      'type', new.type, 'status', new.status, 'external_id', new.external_id,
+      'channel_session_id', new.channel_session_id,
+      'body_preview', "left"(new.body, 280)
     )
   );
   return new;

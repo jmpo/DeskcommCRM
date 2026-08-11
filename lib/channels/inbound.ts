@@ -34,7 +34,15 @@ import type { ChannelProvider } from "./types";
 const MIN_SECRET_LEN = 16;
 
 export interface InboundWebhookInput {
-  session: { id: string; organization_id: string; provider: string };
+  session: {
+    id: string;
+    organization_id: string;
+    provider: string;
+    /** Como o operador chama esta conexão. Entra no título do aviso: com dois
+     *  números ligados, "WhatsApp fora do ar" não diz QUAL. */
+    display_name?: string | null;
+    phone_number?: string | null;
+  };
   rawBody: string;
   /** Todos os headers da requisição — cada canal lê o SEU. */
   headers: Headers;
@@ -125,7 +133,14 @@ async function zernioInbound(
         // episódio serve justamente para registrar o que ele disse.
         { id: input.session.id, organization_id: input.session.organization_id, status: saude.status },
         saude,
-        aviso.title,
+        // O APELIDO da conexão, não o texto do evento. Passar `aviso.title` aqui
+        // produzia `WhatsApp "Número SUSPENSO — não é possível enviar." fora do
+        // ar (FAILED)`: título quebrado que não identifica a conexão — exatamente
+        // o que o apelido existe para resolver. E fica gravado na linha.
+        input.session.display_name ?? input.session.phone_number ?? "sem nome",
+        // Empurrão do provedor: ele é a autoridade sobre o estado do NÚMERO, e
+        // por isso a varredura não fecha o que ele abriu.
+        "empurrao",
       );
       return { ok: true, body: { status: "saude", kind: aviso.kind, desfecho, espelhado } };
     }
