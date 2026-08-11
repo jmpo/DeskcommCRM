@@ -170,6 +170,21 @@ function makeSupabase(linhaCompleta: Row) {
           update: () => ({ eq: async () => ({ error: null }) }),
         };
       }
+      if (tabela === "meta_templates") {
+        // O espelho da definição aprovada, consultado pelo pré-voo que roda
+        // ANTES de escolher transporte. `null` = não espelhada, e o pré-voo
+        // deixa passar de propósito: recusar o que não se sabe barraria todo
+        // envio de modelo numa instalação cujo sync ainda não rodou.
+        //
+        // Encadeável sem limite: um dublê que fixa a quantidade de filtros faz
+        // o teste quebrar quando a consulta ganha um `eq` novo, com um erro que
+        // não fala do comportamento sob teste.
+        const cadeia: Record<string, unknown> = {
+          eq: () => cadeia,
+          maybeSingle: async () => ({ data: null, error: null }),
+        };
+        return { select: () => cadeia };
+      }
       if (tabela === "messages") {
         return {
           insert: (row: Row) => {
