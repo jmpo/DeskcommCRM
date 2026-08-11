@@ -19,6 +19,7 @@ import {
   type ChannelSessionRef,
 } from "@/lib/channels";
 import { ARCHIVED_AT, queryTolerantToMissingArchived } from "@/lib/channels/archived";
+import { conferirDefinicao } from "@/lib/channels/conferir-definicao";
 import { isMediaPathOwnedBy } from "@/lib/messaging/media/upload-validation";
 import type { ListMessagesQuery, SendMessageInput } from "@/lib/schemas";
 import { sendTemplateForSession } from "@/lib/channels/meta/send-template-for-session";
@@ -420,6 +421,24 @@ export async function sendMessageHandler(
         // pelo número da Meta, com o token da Meta. Para o canal intermediado
         // isso não é falha de envio — é a mensagem saindo pelo número ERRADO
         // para o cliente certo, e ninguém percebe porque ela sai.
+        // ─── Pré-voo ANTES de escolher transporte ──────────────────────────
+        //
+        // Vale para os dois caminhos, e é por isso que está aqui e não dentro
+        // de um deles: a definição aprovada é contrato da plataforma, não
+        // característica do transporte. O caminho de baixo já conferia; o
+        // adapter postava direto, e um parâmetro a mais virava `400` cru em vez
+        // de "falta o valor {{2}}".
+        await conferirDefinicao(supabase, {
+          organizationId: ctx.organization_id,
+          // A conexão dona da definição: dois números têm modelos diferentes, e
+          // conferir a do número errado aprovaria um envio que a plataforma
+          // recusa. `null` só em base anterior à 0144.
+          channelSessionId: c.channel_session_id ?? null,
+          name: input.template_name ?? "",
+          language: input.template_language ?? "",
+          values: input.template_values ?? {},
+        });
+
         externalId = adapter.sendTemplate
           ? (
               await adapter.sendTemplate({

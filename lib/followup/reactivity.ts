@@ -60,7 +60,7 @@ import type { EnrollmentOutcome, EnrollmentStatus } from "./node-handlers";
 /** Grace pós-resume (spec §4: "grace configurável, default 30min, knob"). */
 export const RESUME_GRACE_MS = 30 * 60_000;
 
-const LIVE_STATUSES: readonly EnrollmentStatus[] = ["active", "waiting_reply", "paused_handoff"];
+export const LIVE_STATUSES: readonly EnrollmentStatus[] = ["active", "waiting_reply", "paused_handoff"];
 
 export interface LiveEnrollmentRef {
   id: string;
@@ -89,6 +89,21 @@ export interface ReactivityAdminClient {
     idempotency_key: string;
   }): Promise<{ inserted: boolean }>;
   updateEnrollment(id: string, orgId: string, patch: EnrollmentPatch): Promise<void>;
+  /**
+   * O relógio do BANCO (`fn_agora()`, migration 0147).
+   *
+   * ⚠️ NÃO É PRECIOSISMO. Quem acorda um enrollment grava `next_eval_at` e o
+   * claim compara com `now()` do Postgres — e o relógio do processo fica
+   * 17–34 ms À FRENTE do banco. Gravar o "agora" do processo produz um instante
+   * que ainda é FUTURO para o claim: o tick seguinte pula, e o follow-up só
+   * reage no tick DEPOIS — até 60 s de silêncio DEPOIS QUE O LEAD RESPONDEU,
+   * num sistema cujo propósito é não deixar ninguém esperando.
+   *
+   * `default now()` não serve aqui: isto é UPDATE, e default só age em INSERT.
+   * E o `supabase-js` grava VALOR, nunca EXPRESSÃO — `set next_eval_at = now()`
+   * não é exprimível pelo client. Daí a leitura explícita.
+   */
+  agoraNoBanco(): Promise<string>;
 }
 
 export interface ReactivitySummary {
@@ -209,6 +224,9 @@ async function reactToInbound(
     // steps_taken ao aplicar um NodeResult) — o marker fica válido até o
     // tick reprocessar esta MESMA ocupação do nó.
     const wakeKey = `${e.current_node_id}:${e.steps_taken}:wake`;
+    // `next_eval_at` vem do BANCO; `updated_at` continua do processo de
+    // propósito — ele é carimbo de auditoria, ninguém o compara com `now()`.
+    const agora = await db.agoraNoBanco();
     const applied = await applyStep(
       db,
       row.organization_id,
@@ -216,7 +234,7 @@ async function reactToInbound(
       wakeKey,
       "inbound_woke",
       {},
-      { next_eval_at: clock().toISOString(), updated_at: clock().toISOString() },
+      { next_eval_at: agora, updated_at: clock().toISOString() },
     );
     if (applied) reacted++;
   }
@@ -410,6 +428,11 @@ export function createSupabaseReactivityClient(admin: SupabaseClient): Reactivit
     async updateEnrollment(id, orgId, patch) {
       const { error } = await admin.from("followup_enrollments").update(patch).eq("id", id).eq("organization_id", orgId);
       if (error) throw new Error(error.message);
+    },
+    async agoraNoBanco() {
+      const { data, error } = await admin.rpc("fn_agora" as never);
+      if (error) throw new Error(`fn_agora: ${error.message}`);
+      return data as unknown as string;
     },
   };
 }

@@ -42,7 +42,13 @@ export async function drainEventLog(
   const nowIso = new Date().toISOString();
   const { data: rows, error } = await admin
     .from("event_log")
-    .select("id, organization_id, event_type, entity_kind, entity_id, payload, metadata, consumed_by, attempts")
+    // `created_at` viaja porque um consumidor não consegue distinguir "evento de
+    // agora" de "evento de três dias parado em `pending`" sem ele — e o drain
+    // leva 50 por tick sem janela de recência, então um backlog vira enxurrada
+    // de efeitos com data errada no primeiro tick depois de um deploy.
+    .select(
+      "id, organization_id, event_type, entity_kind, entity_id, payload, metadata, consumed_by, attempts, created_at",
+    )
     .eq("status", "pending")
     .or(`next_attempt_at.is.null,next_attempt_at.lte.${nowIso}`)
     .in("event_type", handledTypes)

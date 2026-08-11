@@ -8,24 +8,88 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
 ## [Não lançado]
 
-## [1.2.0] — 2026-08-06
+## [1.2.0] — 2026-08-11
 
-Versão grande: 122 correções e 62 novidades desde a 1.1.0. O tema é o agente de IA deixar de
-ser um respondedor e virar parte da operação — com papel próprio, capacidades declaradas e
-lugar na tela —, e o sistema parar de mentir quando algo dá errado.
+A maior versão até aqui: **126 novidades e 205 correções** desde a 1.1.0 (contadas por commit).
+Dois temas.
+
+O primeiro é o **agente de IA deixar de ser um respondedor e virar parte da operação**: ele
+ganha papéis separados, capacidades declaradas, um follow-up que não deixa conversa morrer no
+silêncio, e um painel onde você escolhe qual inteligência atende cada parte do sistema.
+
+O segundo é o **sistema parar de mentir quando algo dá errado**: falha de IA deixa rastro em
+vez de sumir, botão que não controlava nada foi ligado (ou removido), e erro de rede diz onde
+mexer em vez de mandar reiniciar o que nunca caiu.
 
 ### Adicionado
 
-- **O agente publicado ganha papel próprio**, entre atendente e gerente: ele assume o lead,
-  devolve para uma pessoa quando precisa, e a volta aparece na linha do tempo em vez de sumir.
-- **Roteador de intenção por número.** Um WhatsApp só passa a atender vários assuntos: o
-  roteador entende o que o cliente quer e entrega para o agente certo.
+**O agente ganha papéis**
+
+- **Três papéis em vez de um** — Conversador, Operador e Segurança. Quem fala não é quem
+  executa, e o disparo de ação passou a ser imposto pelo sistema, não decidido pelo modelo.
+  Efeito medido: a taxa de resposta em que dado interno vazava para o cliente (URL de sistema,
+  UUID, jargão de CRM) caiu de **3 em 10 turnos para 1 em 10** — mesmos cenários, ferramentas
+  executadas contra dados reais, controle calibrado contra a linha de base.
+- **O agente publicado tem lugar próprio**, entre atendente e gerente: assume o lead, devolve
+  para uma pessoa quando precisa, e a volta aparece na linha do tempo em vez de sumir.
+- **Capacidades declaradas.** Você escolhe o que ele pode fazer, vê quantas vezes usou cada
+  uma, e ele avisa quando falta uma capacidade em vez de falhar calado.
+- **Roteador de intenção por número** — um WhatsApp só passa a atender vários assuntos — agora
+  com escolha do modelo (e do provedor) que identifica a intenção.
+
+**Follow-up: nenhuma conversa morre no silêncio**
+
+- **O follow-up nasce sozinho** quando o negócio entra numa etapa do funil, ou quando o agente
+  abre um caso pedindo ajuda — e morre quando o caso fecha.
+- **Ramos nomeados no canvas:** cada regra é uma bolinha com nome, e publicar exige cobertura
+  por ramo, dizendo qual ramo ficou descoberto.
+- **Pausar, retomar, adiar e pular** um follow-up sem matá-lo.
+- **Tempo adaptativo** — a IA escolhe o intervalo e a tela mostra qual foi, e se bateu no seu
+  limite.
+- **Dossiê do follow-up:** o que já foi tentado, com o que o motor realmente fez.
+- O painel inteiro fala **português** — UUID saiu da tela.
+
+**Escolher a sua IA**
+
+- **Painel de Provedores** (Agente de IA → Provedores): a tela onde se vê e se escolhe qual
+  inteligência atende **cada uma das 23 partes do sistema** que usam IA — conversar, classificar
+  sentimento, indexar conhecimento, ouvir áudio. Antes disso a escolha existia só no `.env`.
+- **OpenRouter completa** — uma chave só, com catálogo que se atualiza sozinho contra a origem
+  (cerca de 400 modelos na sincronização de referência; o número acompanha o que eles publicam).
+- **O instalador pergunta qual IA vai atender** (OpenRouter, Anthropic ou OpenAI) e valida a
+  chave na hora, em vez de assumir uma e falhar semanas depois.
+- **Catálogo de modelos atualizado** nos provedores — quem instala não escolhe mais entre
+  modelos de duas gerações atrás, pagando mais caro por pior.
+
+**Ver o que a IA fez**
+
+- **Tela de Execuções** (Agente de IA → Execuções): o que a IA fez e, quando falhou, o que
+  aconteceu e o que fazer a respeito.
+- **Falha de IA deixa rastro.** Antes, um erro no meio do caminho sumia — o log mentia por
+  omissão e a operação não tinha como saber que algo não rodou.
+
+**A conversa vira CRM sozinha**
+
+- **A conversa vira lead** sem alguém transcrever nada à mão.
+- **A IA propõe o dado que o cliente disse** — telefone, e-mail, nome — e **não grava nada**:
+  o dado espera numa fila até uma pessoa confirmar na tela.
+- **Demandas viram entidade de primeira classe:** nascem no ponto de entrada, aparecem no painel
+  de quem atende, e o Radar mostra as que estão **sem próximo passo** — o que corre risco de
+  morrer sem resposta.
+- **Escopo de funil do agente:** você marca em quais funis ele mexe, e ele só escreve nesses.
+
+**Medir a operação**
+
+- **Índice de Atrito** (Desempenho) — o sistema passa a medir o próprio propósito.
+- **Abandono, repergunta e espera calada** — as perdas de que ninguém reclama, agora contadas.
+
+**Atendimento**
+
 - **Fila de leads por atendente, com rodízio.** A distribuição deixa de ser combinada por fora
   e vira porta na tela.
-- **Capacidades do agente.** Você escolhe o que ele pode fazer, vê quantas vezes usou cada uma,
-  e ele avisa quando falta uma capacidade em vez de falhar calado.
-- **Catálogo de modelos atualizado** nos três provedores — quem instala não escolhe mais entre
-  modelos de duas gerações atrás, pagando mais caro por pior.
+- **Colar imagem no composer com Ctrl+V.**
+- **Declarar desde quando o número é usado** e poder pular o aquecimento — um número antigo
+  não precisa ser tratado como recém-nascido.
 - **Aviso de mensagem presa.** Uma tarefa automática detecta mensagem que ficou "enviando" e
   abre um aviso na Central, em vez de deixar o cliente sem resposta em silêncio.
 
@@ -35,6 +99,18 @@ lugar na tela —, e o sistema parar de mentir quando algo dá errado.
 - **"O WhatsApp está fora do ar" quando o serviço estava de pé.** Toda falha de rede caía na
   mesma frase, mandando reiniciar um container que nunca havia caído. Agora a mensagem
   distingue endereço errado de serviço parado e diz onde mexer.
+- **Escolher OpenRouter ou OpenAI no instalador tornava a instalação impossível** — e, num
+  segundo defeito, a escolha era decorativa: aceita na pergunta e ignorada depois.
+- **O instalador perdia a chave que você tinha configurado à mão** no `.env`, e a segunda
+  execução desfazia a entrevista já respondida.
+- **O papel Operador escrevia no CRM depois de o humano assumir a conversa** — era o único
+  turno sem a guarda.
+- **A telemetria da IA voltou a dizer a verdade** (5 defeitos de uma unificação anterior), e a
+  troca de modelo voltou a ser auditada — o registro era engolido em silêncio.
+- **Duas mutações perdiam a auditoria caladas** por chave natural gravada em coluna `uuid`.
+- **A aba "Minhas" mostrava tudo que o atendente já tinha fechado.**
+- **O filtro por tag da tela não filtrava** — a rota ignorava o parâmetro.
+- **O menu passava da dobra em telas de 900px** depois que as telas novas entraram.
 - **O roteador recusava um número que existia**, com a mensagem "não encontrado nesta
   organização", quando na verdade a consulta é que havia falhado.
 - **A tela de funis misturava organizações** do mesmo usuário.
@@ -43,19 +119,35 @@ lugar na tela —, e o sistema parar de mentir quando algo dá errado.
 - **Erro ao publicar o agente no onboarding criava um agente novo a cada clique.**
 - **O custo de IA sem agente dono sumia da auditoria** — as telas de consumo mostravam zero
   numa instalação com tráfego real e provedor pago.
+- **Mover um lead pelo assistente** deixou de pular o que mover pela mão aciona.
+- **Telefone descoberto depois estourava a restrição de unicidade** e a mensagem do cliente
+  sumia.
+- **O `update.sh` inventava gasto de IA** e podia pausar o agente de quem estava atualizando.
+- **Uma migration anterior apagou três tipos de aviso da Central** — corrigido, e agora há um
+  gate que compara.
 
 ### Segurança
 
 - **8 de 25 funções internas do banco estavam executáveis pela chave pública** que vai para o
   navegador, incluindo uma que escreve recebendo a organização por parâmetro, sem checar se
   você pertence a ela. Todas fechadas, com uma varredura que reprova a próxima.
+- **Desligar uma camada de proteção do agente era escrita de qualquer membro** da organização —
+  agora exige papel de gestão.
+- **Expressão regular vulnerável a ReDoS** na leitura do telefone dentro da conversa.
+- **O limitador de requisições vazava uma chave por janela** em memória.
+- **O Sentry da comunidade recebia sessão além de erro** — agora recebe só o relatório de erro,
+  como o README sempre descreveu.
 
 **⚠️ Requer atenção**
 
-Esta versão traz mudanças de banco (migrations 0100 a 0114). O `update.sh` aplica tudo sozinho
-e faz backup antes — você não precisa rodar nada à mão. Se a sua instalação está há muito tempo
-sem atualizar, é normal a etapa do banco demorar mais e imprimir vários avisos de "já existe":
-eles são esperados e o script só destaca o que não for.
+Esta versão traz **51 mudanças de banco** (migrations 0087 a 0148). O `update.sh` aplica tudo
+sozinho e **faz backup antes** — você não precisa rodar nada à mão. Se a sua instalação está há
+muito tempo sem atualizar, é normal a etapa do banco demorar mais e imprimir vários avisos de
+"já existe": eles são esperados, e o script só destaca o que não for.
+
+Se você instalou entre 30/07 e hoje, seu servidor já roda este código (a instalação acompanha a
+`main`) — esta tag existe para que a atualização pela tela e o `update.sh` voltem a ter um alvo
+publicado para comparar.
 
 ## [1.1.0] — 2026-07-30
 

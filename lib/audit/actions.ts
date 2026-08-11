@@ -195,6 +195,14 @@ export type AuditAction =
   | "followup.silence_sweep_run"
   | "followup_enrollment.created"
   | "followup_enrollment.cancelled"
+  // As quatro intervenções humanas num follow-up em andamento (0145). São
+  // mutações, e mutação sem audit é decisão sem dono: "quem segurou este fluxo
+  // por dois dias?" é pergunta que se faz depois, quando a linha do tempo já
+  // não basta.
+  | "followup_enrollment.paused"
+  | "followup_enrollment.resumed"
+  | "followup_enrollment.snoozed"
+  | "followup_enrollment.step_skipped"
   | "template.created"
   | "template.updated"
   | "template.deleted"

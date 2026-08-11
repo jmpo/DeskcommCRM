@@ -48,18 +48,72 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
   if (fetchErr) return fail("internal_error", fetchErr.message, 500, { requestId });
   if (!pointer) return fail("not_found", "Fluxo não encontrado.", 404, { requestId });
 
-  // Só `manual` e `silence` têm motor de enrollment (POST manual / silence-sweep).
-  // `stage_change`/`conversation_end` são kinds válidos no schema (roadmap) mas
-  // publicar um fluxo com eles produziria um `status='active'` que nunca enrola
-  // ninguém — um fluxo morto e silencioso. Bloqueia no publish, não no schema.
-  const triggerKind = (pointer.trigger_config as { kind?: string } | null)?.kind ?? "manual";
-  if (triggerKind === "stage_change" || triggerKind === "conversation_end") {
+  // ⚠️ ALLOWLIST, NÃO DENYLIST — e a diferença não é estilo.
+  //
+  // A versão anterior recusava UM literal (`conversation_end`) e deixava passar
+  // qualquer outro. Só que `trigger_config` é `jsonb` SEM CHECK, e este publish
+  // lê a linha CRUA do banco — não passa pelo Zod do PATCH. Então uma linha
+  // escrita por SQL à mão, por um clone open-source, ou por uma versão futura do
+  // produto, publicava `status='active'` e nunca enrollava ninguém: fluxo morto
+  // com cara de vivo, que é o desfecho exato que este bloco existe para impedir.
+  //
+  // Kind entra neste conjunto só DEPOIS de ter motor de enrollment vivo:
+  // `manual` (POST manual), `silence` (silence-sweep), `stage_change`
+  // (gatilho-etapa, consumidor de `lead.stage_changed`) e `case_opened`
+  // (gatilho-caso, consumidor de `ai.case_opened`/`ai.case_closed`).
+  const KINDS_COM_MOTOR = new Set(["manual", "silence", "stage_change", "case_opened"]);
+  const trigger = (pointer.trigger_config ?? { kind: "manual" }) as {
+    kind?: string;
+    params?: { stage_id?: string };
+  };
+  const triggerKind = trigger.kind ?? "manual";
+  if (!KINDS_COM_MOTOR.has(triggerKind)) {
     return fail(
       "trigger_kind_not_implemented",
-      `O gatilho '${triggerKind}' ainda não está disponível — use Silêncio ou Manual.`,
+      `O gatilho «${triggerKind}» não está disponível — use Etapa do funil, Silêncio ou Manual.`,
       422,
       { requestId },
     );
+  }
+
+  // ⚠️ ETAPA QUE NÃO EXISTE MAIS É FLUXO MORTO COM CARA DE VIVO. O gatilho casa
+  // o `to_stage_id` do evento com este `stage_id`: apontando para etapa apagada,
+  // arquivada ou de outra org, o pointer fica `active` e nunca enrolla ninguém —
+  // exatamente o desfecho que o bloqueio acima existe para evitar. A recusa é
+  // aqui, no momento em que há um humano na tela para corrigir.
+  if (triggerKind === "stage_change") {
+    const stageId = trigger.params?.stage_id;
+    if (!stageId || !UUID_RX.test(stageId)) {
+      return fail(
+        "trigger_stage_missing",
+        "Escolha a etapa do funil que dispara este fluxo antes de publicar.",
+        422,
+        { requestId },
+      );
+    }
+    const { data: stage, error: stageErr } = await admin
+      .from("crm_stages")
+      .select("id, name, is_archived")
+      .eq("id", stageId)
+      .eq("organization_id", activeOrg.orgId)
+      .maybeSingle();
+    if (stageErr) return fail("internal_error", stageErr.message, 500, { requestId });
+    if (!stage) {
+      return fail(
+        "trigger_stage_not_found",
+        "A etapa escolhida para o gatilho não existe mais neste funil — escolha outra.",
+        422,
+        { requestId },
+      );
+    }
+    if (stage.is_archived) {
+      return fail(
+        "trigger_stage_archived",
+        `A etapa «${stage.name}» está arquivada e nunca receberia um negócio — escolha uma etapa ativa.`,
+        422,
+        { requestId },
+      );
+    }
   }
 
   if (!pointer.draft_graph) {

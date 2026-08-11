@@ -114,6 +114,51 @@ async function main(): Promise<void> {
         break;
       }
 
+      // ---- abrir-caso <conversationId> [source] — abre um agent_case como o
+      // ---- agente abre, e é setup legítimo: NÃO existe rota de criação de
+      // ---- caso (app/api/v1/ai/cases só expõe GET e reply). Quem abre é
+      // ---- `openCase` dentro do turno do agente, que exigiria modelo + WAHA.
+      // ---- O INSERT aqui passa pelo MESMO trigger de produção (0148) que o
+      // ---- turno do agente dispararia — o gatilho não é atalhado, só o
+      // ---- caminho até ele.
+      case "abrir-caso": {
+        const conversationId = args[0];
+        const source = args[1] ?? "agent";
+        if (!conversationId) throw new Error("conversationId obrigatório");
+        const creds = loadCreds();
+        const { rows } = await pool.query<{ id: string }>(
+          `insert into agent_cases
+             (organization_id, conversation_id, status, title, summary, blocker, source)
+           values ($1, $2, 'awaiting_human', $3, $4, $5, $6)
+           returning id`,
+          [
+            creds.org_id,
+            conversationId,
+            "Cliente pediu algo que eu não resolvo",
+            "O cliente quer negociar o valor e eu não tenho alçada.",
+            "precisa de alguém com alçada de desconto",
+            source,
+          ],
+        );
+        out({ caseId: rows[0]!.id, conversationId, source });
+        break;
+      }
+
+      // ---- fechar-caso <caseId> — o outro lado do laço. O UPDATE de status
+      // ---- dispara `ai.case_closed`, que cancela o follow-up nascido dele.
+      case "fechar-caso": {
+        const caseId = args[0];
+        if (!caseId) throw new Error("caseId obrigatório");
+        const creds = loadCreds();
+        const { rowCount } = await pool.query(
+          `update agent_cases set status = 'resolved', closed_at = now()
+            where id = $1 and organization_id = $2`,
+          [caseId, creds.org_id],
+        );
+        out({ caseId, atualizados: rowCount });
+        break;
+      }
+
       // ---- fast-forward-enrollment <enrollmentId> — pula o relógio: o
       // ---- próximo tick vai encontrar o enrollment devido, sem dormir
       // ---- os 5min/15min reais do wait/grace.

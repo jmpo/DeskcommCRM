@@ -80,17 +80,42 @@ describe("schema das camadas de segurança por organização", () => {
     expect(rows[0]?.cols).toBe("organization_id,layer");
   });
 
-  it("RLS está LIGADA e a policy de isolamento existe", async () => {
+  /**
+   * ⚠️ ESTE CASO É DE CATÁLOGO, E CATÁLOGO NÃO É COMPORTAMENTO.
+   *
+   * Esta conexão é `postgres` (`rolbypassrls = t`), então nada aqui exercita policy
+   * em vigor. Medido numa auditoria: com o predicado sabotado para
+   * `... or true`, este arquivo E o `rls-isolation` seguiam verdes — 31 de 31 — num
+   * banco em que o vizinho lia e escrevia. O que este caso cobre é "alguém apagou a
+   * RLS ou a policy", que é regressão grosseira e barata de pegar.
+   *
+   * Quem prova o comportamento:
+   *  - `rls-isolation.test.ts` (a tabela está na lista TABLES) — isolamento entre
+   *    duas organizações, como `authenticated` com JWT.
+   *  - `camadas-de-seguranca-rbac.test.ts` — escrita exige `admin`, e `anon` não tem
+   *    privilégio nenhum.
+   */
+  it("RLS está LIGADA e as duas policies existem (leitura org-flat + escrita de admin)", async () => {
     const { rows } = await pool.query<{ rls: boolean; policies: string }>(
       `select c.relrowsecurity as rls,
-              coalesce(string_agg(p.polname, ','), '') as policies
+              coalesce(string_agg(p.polname, ',' order by p.polname), '') as policies
          from pg_class c
          left join pg_policy p on p.polrelid = c.oid
         where c.oid = 'public.org_guardrail_layers'::regclass
         group by c.relrowsecurity`,
     );
     expect(rows[0]?.rls, "tabela tenant-aware com RLS desligada é vazamento entre clientes").toBe(true);
-    expect(rows[0]?.policies).toContain("tenant_isolation_org_guardrail_layers_all");
+    expect(rows[0]?.policies).toContain("org_guardrail_layers_select");
+    expect(
+      rows[0]?.policies,
+      "sem a policy de escrita com gate de papel, o `admin` da rota volta a ser " +
+        "contornável pelo PostgREST com a anon key — um `viewer` desliga a camada " +
+        "anti-jailbreak da organização, sem auditoria.",
+    ).toContain("org_guardrail_layers_admin_write");
+    // A policy antiga tem de ter SAÍDO: se as três coexistirem, a org-flat `for all`
+    // volta a permitir a escrita por OR de policies permissivas, e o gate novo não
+    // barra nada.
+    expect(rows[0]?.policies).not.toContain("tenant_isolation_org_guardrail_layers_all");
   });
 
   it("`layer` NÃO tem CHECK — vocabulário aberto, de propósito", async () => {

@@ -3396,6 +3396,7 @@ export type Database = {
           started_at: string
           status: string
           steps_taken: number
+          timing_plan: Json | null
           updated_at: string
           version_id: string
         }
@@ -3418,6 +3419,7 @@ export type Database = {
           started_at?: string
           status?: string
           steps_taken?: number
+          timing_plan?: Json | null
           updated_at?: string
           version_id: string
         }
@@ -3440,6 +3442,7 @@ export type Database = {
           started_at?: string
           status?: string
           steps_taken?: number
+          timing_plan?: Json | null
           updated_at?: string
           version_id?: string
         }

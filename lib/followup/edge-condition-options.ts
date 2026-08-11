@@ -56,6 +56,8 @@ export function conditionKey(condition: FlowEdge["condition"]): string {
       return `class_match:${condition.value}`;
     case "cond_result":
       return `cond_result:${condition.value}`;
+    case "branch":
+      return `branch:${condition.branch_id}`;
   }
 }
 
@@ -68,5 +70,11 @@ export function conditionLabel(condition: FlowEdge["condition"]): string {
       return condition.value === "no_reply" ? "Sem resposta" : condition.value;
     case "cond_result":
       return condition.value ? "Sim" : "Não";
+    case "branch":
+      // Only the source node knows a branch's label. This file has no node in
+      // scope, and nothing emits `branch` conditions until the builder switches
+      // to `nodeBranches()` (W2-RAMOS) — where both functions here get replaced
+      // by the node-aware branch list. Until then: the id, never a wrong name.
+      return condition.branch_id;
   }
 }

@@ -39,7 +39,7 @@ import type { FetchedMedia } from "@/lib/messaging/media/types";
 import { resolveZernioCreds } from "../zernio/credentials";
 import { zernioTemplateOps } from "../zernio/templates";
 import { zernioMediaFetchInit } from "../zernio/webhook";
-import type { ChannelAdapter, OutboundEnvelope, RecipientInput } from "../types";
+import type { ChannelAdapter, ChannelHealth, OutboundEnvelope, RecipientInput } from "../types";
 
 /** Só dígitos. `+595 (99) 173-3685` → `595991733685`. */
 function toE164Digits(raw: string): string {
@@ -311,6 +311,72 @@ export const zernioAdapter: ChannelAdapter = {
     // arquivo REALMENTE é, e é ele que vai no `contentType` do upload.
     const mime = res.headers.get("content-type")?.split(";")[0]?.trim() || input.hintMime || "application/octet-stream";
     return { buffer, mime };
+  },
+
+  /**
+   * Pergunta ao provedor se a conta ainda está de pé.
+   *
+   * ─── Por que este método faltava, e o que isso custava ─────────────────────
+   *
+   * Só o canal por QR o implementava. O cron de saúde faz
+   * `if (!adapter.checkHealth) continue` — então a sessão oficial era PULADA,
+   * sem log e sem contador, e `channel_sessions.status` só era escrito no
+   * momento de conectar. Resultado: chave revogada, número suspenso ou webhook
+   * sem assinatura viravam silêncio absoluto, para sempre, com a tela dizendo
+   * "conectado". O canal avisava dos eventos que o provedor empurra
+   * (`account.disconnected`, `number.suspended`); cego mesmo ele era para a
+   * falha CALADA, que é justamente a que ninguém percebe.
+   *
+   * Reusa a MESMA chamada da validação de credencial (`GET /v1/accounts`), com
+   * o mesmo casamento de conta (`_id ?? id`) — medido contra a API, não lido da
+   * doc: o endpoint por id aceita só `PUT` e responde 405 ao GET.
+   *
+   * ─── Os quatro desfechos, e por que a diferença importa ────────────────────
+   *
+   *   401/403      → a chave foi recusada. É FAILED: a credencial existe e não
+   *                  vale mais, que é exatamente a falha calada que se procura.
+   *   conta ausente→ a chave presta mas não alcança mais esta conta. STOPPED:
+   *                  a sessão não existe mais do lado de lá.
+   *   respondeu ok → WORKING.
+   *   qualquer erro→ NÃO sabemos. `reachable: false`, sem status. Inventar um
+   *                  faria uma oscilação de rede virar "canal caído", e o
+   *                  operador aprenderia a ignorar o aviso — que é pior que não
+   *                  ter aviso nenhum.
+   */
+  async checkHealth(input: { sessionRef: string }): Promise<ChannelHealth> {
+    const admin = createAdminClient();
+    const creds = await resolveZernioCreds(admin, input.sessionRef);
+    if (!creds) return { reachable: false, status: null, detail: "sem_credencial_para_a_sessao" };
+
+    let res: Response;
+    try {
+      // Teto de espera: sem ele, um provedor que pendura a conexão pendura o
+      // cron junto, e a varredura de saúde deixa de rodar para TODAS as sessões.
+      res = await fetch(`${creds.baseUrl}/v1/accounts`, {
+        headers: { Authorization: `Bearer ${creds.apiKey}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "erro_desconhecido";
+      return { reachable: false, status: null, detail: detail.slice(0, 200) };
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      return { reachable: true, status: "FAILED", detail: null };
+    }
+    if (!res.ok) {
+      return { reachable: false, status: null, detail: `provedor_respondeu_${res.status}` };
+    }
+
+    const json = (await res.json().catch(() => null)) as {
+      accounts?: Record<string, unknown>[];
+    } | null;
+    const contas = Array.isArray(json?.accounts) ? json.accounts : [];
+    const conta = contas.find((c) => String(c._id ?? c.id) === creds.accountId) ?? null;
+
+    return conta
+      ? { reachable: true, status: "WORKING", detail: null }
+      : { reachable: true, status: "STOPPED", detail: null };
   },
 
   /** Gestão das definições aprovadas — ver `../zernio/templates.ts`. */

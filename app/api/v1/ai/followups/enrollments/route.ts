@@ -25,7 +25,15 @@ export const dynamic = "force-dynamic";
 
 const LIST_COLUMNS =
   "id, pointer_id, version_id, contact_id, status, current_node_id, next_eval_at, outcome, started_at, completed_at, updated_at";
-const ENROLLMENT_STATUSES = ["active", "waiting_reply", "paused_handoff", "completed", "cancelled", "dead"];
+const ENROLLMENT_STATUSES = [
+  "active",
+  "waiting_reply",
+  "paused_handoff",
+  "paused_manual",
+  "completed",
+  "cancelled",
+  "dead",
+];
 
 export async function GET(req: NextRequest): Promise<Response> {
   const requestId = randomUUID();

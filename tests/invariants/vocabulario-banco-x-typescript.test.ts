@@ -169,6 +169,24 @@ const PARES: Array<{
     arquivo: "lib/channels/types.ts",
     simbolo: "ChannelProvider",
   },
+  {
+    tabela: "followup_enrollments",
+    coluna: "status",
+    // hooks/followup/useFollowupQueue.ts → FollowupEnrollmentStatus.
+    //
+    // O par aponta para o tipo da TELA, e não para `EnrollmentStatus` de
+    // `lib/followup/node-handlers.ts`, porque são conjuntos diferentes de
+    // propósito: o do motor enumera o que o motor manipula, e o motor nunca lê
+    // nem escreve `paused_manual` (o claim filtra `active|waiting_reply`). Quem
+    // precisa conhecer TODOS os estados é quem os mostra — a fila.
+    //
+    // Nasce junto com a 0145, que acrescentou o sétimo valor. Sem o par, um
+    // status novo no CHECK vira linha na fila com rótulo cru: `rotuloDoStatus`
+    // cai no fallback e a tela mostra o identificador do banco no rosto de quem
+    // opera.
+    arquivo: "hooks/followup/useFollowupQueue.ts",
+    simbolo: "FollowupEnrollmentStatus",
+  },
 ];
 
 /** Tira um nível de parênteses externos, se ele envolver a expressão inteira. */

@@ -503,22 +503,69 @@ describe("runSilenceSweep — pina o agent_id do agente que arma o pointer (Task
 
 // ---- 7. Task 8.6: exclusividade 1-follow-up-vivo-por-lead ORG-WIDE ------
 
+/**
+ * Os status que ocupam a vaga do VIVO — copiados do baseline, nunca digitados
+ * de memória. Três lugares deste arquivo dependem deles, e cada um por um
+ * motivo diferente; o cabeçalho de `setOneLiveIndex` conta a história.
+ */
+const ONE_LIVE_STATUSES = "'active','waiting_reply','paused_handoff','paused_manual'";
+
+/**
+ * Quantos follow-ups VIVOS este contato tem.
+ *
+ * ⚠️ TERCEIRA CATEGORIA, e ela não é nenhuma das outras duas deste arquivo:
+ * aqui não se restaura estado nem se reproduz história — faz-se uma PERGUNTA
+ * sobre o estado atual. Por isso o predicado tem de ser o do produto HOJE, e
+ * `paused_manual` entra: um enrollment pausado por uma pessoa ocupa a vaga do
+ * vivo (é o que o índice garante desde a 0145), então uma contagem que o ignora
+ * responde MENOS do que a realidade.
+ *
+ * Achado por `@QAVivo` na varredura do arquivo, e classificado por ele. Estava
+ * LATENTE — medido: nenhuma asserção de hoje muda com a correção (16 verdes
+ * antes, 16 depois). Consertado mesmo assim porque a armadilha estava armada: o
+ * primeiro caso de pausa manual escrito aqui passaria por SORTE, que é
+ * exatamente o defeito que esta wave já pagou uma vez.
+ */
 async function countLiveForContact(org: string, contactId: string): Promise<number> {
   const { rows } = await pool.query<{ n: string }>(
     `select count(*) as n from followup_enrollments
      where organization_id = $1 and contact_id = $2
-       and status in ('active','waiting_reply','paused_handoff')`,
+       and status in (${ONE_LIVE_STATUSES})`,
     [org, contactId],
   );
   return Number(rows[0]!.n);
 }
 
 const ONE_LIVE = "idx_followup_enrollments_one_live";
+
+/**
+ * ⚠️ O PREDICADO É COPIADO DO BASELINE, NÃO DIGITADO DE MEMÓRIA.
+ *
+ * Este helper dropa e recria um índice do schema no banco COMPARTILHADO pelos
+ * invariantes — e o `finally` que "restaura o estado do baseline" restaurava uma
+ * versão CONGELADA no tempo: `('active','waiting_reply','paused_handoff')`, de
+ * antes de a 0145 acrescentar `paused_manual`. Depois que este arquivo rodava, o
+ * banco ficava com um índice que o baseline não tem mais, e o próximo teste a
+ * depender dele reprovava — determinística e rapidamente (27ms, falha de
+ * asserção, não timeout), o que fez a suíte parecer instável por carga.
+ *
+ * Medido: rodando só `followup-silence-sweep` + `followup-intervencao`, o caso
+ * "pausado ocupa a vaga do contato na ORGANIZAÇÃO" reprova; isolado, passa. É o
+ * `IA360-FLAKY` com assinatura. Os papéis, porque a diferença ensina: `@QAVivo`
+ * CARACTERIZOU o fenômeno (determinístico, 36ms, não timeout) e REFUTOU a
+ * primeira atribuição — a de que o índice da 0145 explicava tudo, que não
+ * sobrevivia ao "isolado passa". Refutar uma causa errada é barato e uma medição
+ * basta; achar a certa custou seguir a pista dele ("o culpado está na
+ * vizinhança") até o par de arquivos.
+ *
+ * A lição que a constante carrega: quem recria objeto de schema num banco
+ * compartilhado assume a dívida de acompanhar TODA migration futura que o toque.
+ */
 async function setOneLiveIndex(columns: string): Promise<void> {
   await pool.query(`drop index if exists ${ONE_LIVE}`);
   await pool.query(
     `create unique index if not exists ${ONE_LIVE} on followup_enrollments (${columns})
-       where status in ('active','waiting_reply','paused_handoff')`,
+       where status in (${ONE_LIVE_STATUSES})`,
   );
 }
 
@@ -615,6 +662,13 @@ describe("dedup 0062 — >1 enrollment vivo pro mesmo (org,contact) vira 1 vivo 
       );
 
       // A DEDUP exata da migration 0062 (window function genérica, sem ids hardcoded).
+      //
+      // ⚠️ ESTE PREDICADO NÃO ACOMPANHA A 0145, E É DE PROPÓSITO. Ele não
+      // restaura estado: REPRODUZ o que a 0062 fazia, e a 0062 não conhecia
+      // `paused_manual`. Acrescentar o status aqui mudaria o que a réplica
+      // replica — o oposto de consertar. O predicado que PRECISA acompanhar as
+      // migrations é o de `setOneLiveIndex`, lá em cima, porque aquele devolve o
+      // banco compartilhado ao estado do baseline.
       await pool.query(
         `with ranked as (
            select id, row_number() over (

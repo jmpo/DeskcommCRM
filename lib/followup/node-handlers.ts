@@ -3,7 +3,9 @@
  * `engine.ts` owns the tick/DB orchestration; this file only decides "given
  * this node + these facts, what happens next" so it's testable without Postgres.
  */
+import { NO_REPLY_BRANCH_ID, nodeBranches } from "./graph-schema";
 import type { FlowEdge, FlowNode } from "./graph-schema";
+import { clampEspera, esperaPlanejadaDe, type EsperaAdaptativa } from "./timing-plan";
 
 export type EnrollmentStatus =
   | "active"
@@ -40,6 +42,13 @@ export interface EnrollmentRow {
   started_at: string;
   completed_at: string | null;
   updated_at: string;
+  /**
+   * Plano de tempo decidido no acionamento (migration 0144) — `unknown` porque
+   * é `jsonb` e um clone pode ter qualquer coisa lá; quem lê é
+   * `esperaPlanejadaDe` (timing-plan.ts), que degrada em vez de lançar.
+   * Ausente/`null` = enrollment de antes da feature ⇒ comportamento anterior.
+   */
+  timing_plan?: unknown;
 }
 
 /** Minimal typed facts a `condition` node can check — loaded by the engine, never guessed. */
@@ -57,11 +66,14 @@ export interface EnrollmentEventRef {
 }
 
 export type NodeResult =
-  | { kind: "advance"; next_node_id: string; next_eval_at: Date }
+  // `reason` só aparece quando o avanço NÃO é o avanço comum: hoje, o trigger
+  // desistindo do plano de tempo (o turno nunca voltou). Vira event_type próprio
+  // no engine — seguir sem plano é um fato que o operador precisa poder ler.
+  | { kind: "advance"; next_node_id: string; next_eval_at: Date; reason?: "plan_timeout" }
   | { kind: "wait"; next_eval_at: Date } // stays on the node
   | {
       kind: "enqueue_turn";
-      purpose: "send_message" | "classify" | "decide_timing";
+      purpose: "send_message" | "classify" | "plan_timing";
       wake_status: "active" | "waiting_reply";
     }
   // action recheck: the send turn is already in flight; stay put WITHOUT re-enqueuing (anti-dup-send).
@@ -83,10 +95,49 @@ export const ACTION_RECHECK_MS = 5 * 60_000;
  *  (worker down / permanently failing) is markDead — never re-enqueues, never waits forever. */
 export const MAX_ACTION_RECHECKS = 5;
 
+/**
+ * Dead-man do PLANO de tempo: rechecks tolerados no `trigger` esperando o turno
+ * de planejamento voltar. Menor que o da ação (3 × 5min ≈ 15min) e com desfecho
+ * OPOSTO — aqui o fluxo SEGUE sem plano, nunca morre. Um planejador de tempo
+ * indisponível não pode matar o follow-up: sem ele o fluxo ainda funciona
+ * inteiro (cai no máximo de cada espera, que é o comportamento anterior);
+ * matar o enrollment trocaria uma degradação por uma perda.
+ */
+export const MAX_PLAN_RECHECKS = 3;
+
 export type EdgeMatch =
   | { type: "always" }
   | { type: "class_match"; value: string }
-  | { type: "cond_result"; value: boolean };
+  | { type: "cond_result"; value: boolean }
+  | { type: "branch"; branch_id: string };
+
+/**
+ * Qual saída de um nó de classificação leva à classe `classe` — resolvendo os
+ * dois dialetos (nó v1 casa por texto, nó migrado casa pelo id estável do ramo).
+ *
+ * Existe como função porque a MESMA pergunta é feita em dois pontos do caminho
+ * de execução: aqui, quando o prazo vence sem resposta, e no `turn-bridge`,
+ * quando o modelo classifica. Consertar só um dos dois deixava o fluxo migrado
+ * roteando certo para quem responde e errado, em silêncio, para quem não
+ * responde — que num follow-up é o caso mais comum. Achado pelo DevVivo na
+ * revisão: eu tinha ensinado o `selectEdge` a casar ramo e usado isso só no
+ * `condition`.
+ *
+ * Casa por rótulo E por id de propósito: `no_reply` é reservado (id `no_reply`,
+ * rótulo "Sem resposta"), e uma classe do usuário é achada pelo texto que ele
+ * escreveu.
+ */
+export function classEdgeMatch(
+  node: Extract<FlowNode, { type: "ai_classify" }>,
+  classe: string,
+): EdgeMatch {
+  const ramo = nodeBranches(node).find(
+    (b) => b.kind === "match" && (b.label === classe || b.id === classe),
+  );
+  return ramo?.condition.type === "branch"
+    ? { type: "branch", branch_id: ramo.condition.branch_id }
+    : { type: "class_match", value: classe };
+}
 
 /**
  * Picks the outbound edge from `from`: highest `priority` first, exact
@@ -96,9 +147,16 @@ export function selectEdge(edges: FlowEdge[], from: string, match: EdgeMatch): F
   const candidates = edges.filter((e) => e.source === from).slice().sort((a, b) => b.priority - a.priority);
 
   const exact = candidates.find((e) => {
-    if (match.type === "always") return e.condition.type === "always";
-    if (match.type === "class_match") return e.condition.type === "class_match" && e.condition.value === match.value;
-    return e.condition.type === "cond_result" && e.condition.value === match.value;
+    switch (match.type) {
+      case "always":
+        return e.condition.type === "always";
+      case "class_match":
+        return e.condition.type === "class_match" && e.condition.value === match.value;
+      case "cond_result":
+        return e.condition.type === "cond_result" && e.condition.value === match.value;
+      case "branch":
+        return e.condition.type === "branch" && e.condition.branch_id === match.branch_id;
+    }
   });
   if (exact) return exact;
 
@@ -191,19 +249,77 @@ export function processNode(input: {
   /** action dead-man counter: number of events already accumulated on this action node — used to
    *  bound rechecks so a turn that never completes routes to `dead` instead of looping forever. */
   actionRecheckCount?: number;
+  /** trigger: as esperas adaptativas do grafo pinado (`coletarEsperasAdaptativas`). Vazio/ausente
+   *  ⇒ não há o que planejar e o acionamento NÃO paga uma chamada de modelo. */
+  smartWaits?: EsperaAdaptativa[];
+  /** trigger occupancy guard: um turno de planejamento para ESTA estadia no trigger já foi
+   *  enfileirado. Mesmo check de evento-do-passo-anterior do wait/action (`resolveWaitPhase`). */
+  planEnqueued?: boolean;
+  /** trigger dead-man counter: eventos já acumulados no nó trigger — limita os rechecks para que
+   *  um turno de planejamento que nunca volta siga SEM plano em vez de esperar para sempre. */
+  planRecheckCount?: number;
 }): NodeResult {
-  const { node, edges, clock, lead, waitElapsed, wokeEarly, actionEnqueued, actionRecheckCount } = input;
+  const {
+    node,
+    edges,
+    enrollment,
+    clock,
+    lead,
+    waitElapsed,
+    wokeEarly,
+    actionEnqueued,
+    actionRecheckCount,
+    smartWaits,
+    planEnqueued,
+    planRecheckCount,
+  } = input;
 
   switch (node.type) {
     case "trigger": {
       const edge = selectEdge(edges, node.id, { type: "always" });
       if (!edge) return { kind: "fail", error: `trigger node "${node.id}" has no outbound edge` };
-      return { kind: "advance", next_node_id: edge.target, next_eval_at: clock() };
+
+      // ACIONAMENTO: é aqui que o plano de tempo do fluxo inteiro é decidido, uma
+      // única vez, antes do primeiro passo. Fluxo sem espera adaptativa e
+      // enrollment que já tem plano seguem direto — nenhum custo de modelo, e o
+      // comportamento de antes desta feature fica intacto.
+      // `?? null` de propósito: a coluna chega `null` do banco e `undefined` de
+      // um snapshot montado antes da migration 0144 — os dois querem dizer "sem
+      // plano ainda", e tratar só um deles pularia o planejamento em silêncio.
+      const precisaPlanejar = (smartWaits?.length ?? 0) > 0 && (enrollment.timing_plan ?? null) === null;
+      if (!precisaPlanejar) {
+        return { kind: "advance", next_node_id: edge.target, next_eval_at: clock() };
+      }
+      if (!planEnqueued) {
+        return { kind: "enqueue_turn", purpose: "plan_timing", wake_status: "active" };
+      }
+      if ((planRecheckCount ?? 0) >= MAX_PLAN_RECHECKS) {
+        // O turno de planejamento nunca voltou. Seguir sem plano (cada espera cai
+        // no seu máximo) é a degradação certa — ver MAX_PLAN_RECHECKS.
+        return { kind: "advance", next_node_id: edge.target, next_eval_at: clock(), reason: "plan_timeout" };
+      }
+      return { kind: "recheck", next_eval_at: new Date(clock().getTime() + ACTION_RECHECK_MS) };
     }
 
     case "wait": {
       if (!waitElapsed) {
-        const durationMs = node.config.mode === "fixed" ? node.config.duration_ms : node.config.max_ms; // onda 5: smart usa max_ms até a IA propor o instante (clampado)
+        // Adaptativo: o instante vem do plano decidido no acionamento. Sem plano
+        // legível para ESTE nó (enrollment anterior à feature, fluxo v1, jsonb
+        // corrompido), cai no máximo — que era o comportamento único até aqui.
+        //
+        // O clamp é REFEITO aqui, contra o nó, mesmo a ponte já tendo clampado ao
+        // gravar: "quem decide o intervalo é o nó" só é invariante se valer na
+        // LEITURA. `timing_plan` é jsonb num banco que o self-hoster administra —
+        // uma linha editada à mão, ou um bug futuro que grave sem clampar,
+        // prenderia o lead muito além do que o operador configurou na tela, e
+        // ninguém veria. Custa uma comparação por espera.
+        const planejada = node.config.mode === "smart" ? esperaPlanejadaDe(enrollment.timing_plan, node.id) : null;
+        const durationMs =
+          node.config.mode === "fixed"
+            ? node.config.duration_ms
+            : planejada === null
+              ? node.config.max_ms
+              : clampEspera(planejada.escolhido_ms, node.config.min_ms, node.config.max_ms).escolhido_ms;
         return { kind: "wait", next_eval_at: new Date(clock().getTime() + durationMs) };
       }
       const edge = selectEdge(edges, node.id, { type: "always" });
@@ -212,6 +328,27 @@ export function processNode(input: {
     }
 
     case "condition": {
+      if (node.config.branching === "per_check") {
+        // "Uma saída por regra": a PRIMEIRA regra que passa manda, e a ordem da
+        // lista é a precedência — a mesma ordem que o usuário vê no formulário.
+        // Duas regras verdadeiras não podem sortear caminho; `combinator` não
+        // é consultado aqui, porque nesse modo a regra não vota, ela roteia.
+        const hitId = node.config.checks.find((c) => c.id !== undefined && evaluateCheck(c, lead))?.id;
+        // Nenhuma regra passou -> o ramo obrigatório 'else', que na aresta é `always`.
+        // `selectEdge` também cai nele quando o usuário deixou um ramo sem ligar:
+        // sair pela saída de escape é ruim, ficar preso no nó é pior.
+        const edge =
+          hitId === undefined
+            ? selectEdge(edges, node.id, { type: "always" })
+            : selectEdge(edges, node.id, { type: "branch", branch_id: hitId });
+        if (!edge) {
+          return {
+            kind: "fail",
+            error: `condition node "${node.id}" has no edge for branch "${hitId ?? "else"}"`,
+          };
+        }
+        return { kind: "advance", next_node_id: edge.target, next_eval_at: clock() };
+      }
       const result = evaluateCondition(node.config, lead);
       const edge = selectEdge(edges, node.id, { type: "cond_result", value: result });
       if (!edge) return { kind: "fail", error: `condition node "${node.id}" has no matching edge for result ${result}` };
@@ -229,7 +366,7 @@ export function processNode(input: {
       // grace_timeout_ms venceu sem turno de classificação concluído — classifica
       // como 'no_reply' SEM chamar o LLM (onda 5, critério 2); selectEdge já cai
       // no fallback 'always' se não houver aresta 'no_reply' explícita.
-      const edge = selectEdge(edges, node.id, { type: "class_match", value: "no_reply" });
+      const edge = selectEdge(edges, node.id, classEdgeMatch(node, NO_REPLY_BRANCH_ID));
       if (!edge) return { kind: "fail", error: `ai_classify node "${node.id}" has no edge for class "no_reply" (fallback also missing)` };
       return { kind: "advance", next_node_id: edge.target, next_eval_at: clock() };
     }

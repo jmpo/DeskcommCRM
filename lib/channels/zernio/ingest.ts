@@ -24,6 +24,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { logger } from "@/lib/logger";
 
+import { aplicarEfeitosPosEntrada } from "../pos-entrada";
+
 import { parseZernioInbound, type ZernioIdentity, type ZernioInboundMessage } from "./webhook";
 
 export interface ZernioIngestResult {
@@ -127,6 +129,7 @@ export async function ingestZernioInbound(
           inseridaNaExistente,
         );
       }
+      await efeitosDaEntrada(admin, input, msg, existente.contact_id, existente.id, inseridaNaExistente);
     }
     return inseridaNaExistente === "duplicate"
       ? { status: "duplicate", conversationId: existente.id }
@@ -165,7 +168,46 @@ export async function ingestZernioInbound(
   if (msg.attachments[0]?.url) {
     await pedirPersistenciaDaMidia(admin, input.organizationId, conversationId, inserted);
   }
+  await efeitosDaEntrada(admin, input, msg, contactId, conversationId, inserted);
   return { status: "ingested", conversationId, messageId: inserted };
+}
+
+/**
+ * Os efeitos de negócio da mensagem que acabou de entrar.
+ *
+ * Delega no passo COMPARTILHADO (`lib/channels/pos-entrada.ts`) em vez de
+ * reimplementar: opt-out, nascimento do lead e despacho do agente são regra do
+ * produto, não característica deste transporte. Foi exatamente a cópia privada
+ * dentro do outro ingest que fez este canal ficar sem os três.
+ *
+ * Chamada nos DOIS caminhos de inserção — thread conhecida e âncora. Chamar só
+ * num deles deixaria a maioria das mensagens sem efeito, que é a forma mais
+ * cara de "consertar" isto pela metade.
+ *
+ * Só para ENTRADA: o eco de um envio nosso (ou do celular do operador) não pede
+ * para sair, não abre demanda e não acorda o agente.
+ */
+async function efeitosDaEntrada(
+  admin: SupabaseClient,
+  input: { organizationId: string; channelSessionId: string; requestId?: string },
+  msg: ZernioInboundMessage,
+  contactId: string,
+  conversationId: string,
+  messageId: string,
+): Promise<void> {
+  if (msg.direction !== "inbound") return;
+
+  await aplicarEfeitosPosEntrada(admin, {
+    organizationId: input.organizationId,
+    contactId,
+    conversationId,
+    messageId,
+    channelSessionId: input.channelSessionId,
+    texto: msg.text,
+    nomeDoContato: msg.identity.displayName,
+    requestId: input.requestId,
+    origem: "zernio_webhook",
+  });
 }
 
 /**
@@ -389,6 +431,19 @@ async function insertMessage(
       // `unique (organization_id, external_id)` devolve 23505 no eco do nosso
       // próprio envio, e o chamador lê isso como "duplicate", não como erro.
       direction: msg.direction,
+      // ─── Toda linha nascida do webhook veio de FORA do CRM ──────────────
+      //
+      // O default da coluna é `'crm'`, e ele mente aqui: quem passou por este
+      // arquivo chegou pelo webhook do provider, não pelo composer. O canal por
+      // QR já carimba `external_device` no mesmo lugar.
+      //
+      // Não é cosmético. As três funções de fricção contam SÓ
+      // `external_device`, então sem este campo o painel lia "zero atendimento
+      // por fora" neste número — mesmo com o operador respondendo o dia inteiro
+      // pelo celular. E `removerEcoDoProprioEnvio` filtra por este valor: sem
+      // ele, o eco do nosso próprio envio escapa da rede e vira linha
+      // duplicada na tela.
+      sent_via: "external_device",
       status: msg.direction === "outbound" ? (msg.status ?? "sent") : "delivered",
       type: temAnexo ? tipoDoAnexo(primeiro?.type) : "text",
       body: msg.text,

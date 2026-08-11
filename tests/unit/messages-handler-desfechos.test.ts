@@ -118,15 +118,18 @@ function makeSupabase(
       if (table === 'meta_templates') {
         // O espelho local do template. `templateRow` é injetado por caso; null
         // simula template que não existe (ou WABA errada).
-        return {
-          select: () => ({
-            eq: () => ({
-              eq: () => ({
-                eq: () => ({ maybeSingle: async () => ({ data: templateRow, error: null }) }),
-              }),
-            }),
-          }),
+        //
+        // A cadeia é ENCADEÁVEL SEM LIMITE de propósito. A versão anterior tinha
+        // exatamente três `eq` aninhados, e isso fazia o dublê ditar quantos
+        // filtros o código de produção podia usar: acrescentar um quarto (a
+        // conexão dona da definição, da 0144) quebrava com `q.eq is not a
+        // function` — um vermelho que não fala do comportamento sob teste e
+        // manda quem lê procurar defeito onde não há.
+        const cadeia: Record<string, unknown> = {
+          eq: () => cadeia,
+          maybeSingle: async () => ({ data: templateRow, error: null }),
         };
+        return { select: () => cadeia };
       }
       if (table === 'messages') {
         return {

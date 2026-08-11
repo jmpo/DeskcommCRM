@@ -280,7 +280,9 @@ begin
     jsonb_build_object(
       'message_id', new.id, 'conversation_id', new.conversation_id,
       'contact_id', new.contact_id, 'direction', new.direction,
-      'type', new.type, 'status', new.status, 'external_id', new.external_id
+      'type', new.type, 'status', new.status, 'external_id', new.external_id,
+      'channel_session_id', new.channel_session_id,
+      'body_preview', "left"(new.body, 280)
     )
   );
   return new;
@@ -10799,8 +10801,13 @@ notify pgrst, 'reload schema';
 -- TypeScript.
 --
 -- Idempotente e auto-curativo: `create table if not exists` + `drop policy if
--- exists` antes do `create policy`. Nenhuma função nova, então não há grant a
--- revogar aqui.
+-- exists` antes do `create policy`.
+--
+-- TABELA NOVA NASCE CONCEDIDA, e não só função: o `ALTER DEFAULT PRIVILEGES ...
+-- GRANT ALL ON TABLES TO anon/authenticated` deste mesmo baseline vale para toda
+-- tabela criada depois dele. A primeira versão deste bloco dizia "nenhuma função
+-- nova, então não há grant a revogar" — leitura errada da doutrina, que fala de
+-- FUNÇÃO. O efeito medido está no cabeçalho da migration 0142.
 
 create table if not exists public.org_guardrail_layers (
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -10812,10 +10819,361 @@ create table if not exists public.org_guardrail_layers (
 
 alter table public.org_guardrail_layers enable row level security;
 
+-- ---- escrita de guardrail exige admin (migration 0143) ----
+--
+-- Leitura org-flat, escrita com gate de PAPEL no banco (forma canônica do repo:
+-- ver `crm_stages_select` / `crm_stages_manager_write` acima). O `admin` da rota
+-- não é fronteira — com a anon key e o próprio JWT, um `viewer` desligava a camada
+-- anti-jailbreak da organização pelo PostgREST, sem auditoria. Medido: UPDATE 1 +
+-- INSERT 1 num pg17 do zero.
+--
+-- Auto-curativo: derruba a policy da 0142 por nome antes de criar as duas novas,
+-- então o `update.sh` de um clone que parou na 0142 fica correto sem passo manual.
 drop policy if exists tenant_isolation_org_guardrail_layers_all on public.org_guardrail_layers;
-create policy tenant_isolation_org_guardrail_layers_all on public.org_guardrail_layers
-  using (organization_id in (select public.fn_user_org_ids()))
-  with check (organization_id in (select public.fn_user_org_ids()));
+drop policy if exists org_guardrail_layers_select on public.org_guardrail_layers;
+drop policy if exists org_guardrail_layers_admin_write on public.org_guardrail_layers;
+
+create policy org_guardrail_layers_select on public.org_guardrail_layers
+  for select using (
+    (organization_id in (select public.fn_user_org_ids()))
+    or public.fn_is_platform_admin()
+  );
+
+create policy org_guardrail_layers_admin_write on public.org_guardrail_layers
+  using (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and public.fn_role_at_least(organization_id, 'admin'))
+  )
+  with check (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and public.fn_role_at_least(organization_id, 'admin'))
+  );
+
+revoke all on public.org_guardrail_layers from anon;
+
+-- ---- plano de tempo do follow-up (migration 0144) ----
+--
+-- O modo "Adaptativo (min–max)" do nó de espera existia na tela e não existia no
+-- motor: o fluxo esperava SEMPRE o máximo. Esta coluna guarda o plano decidido
+-- uma vez no acionamento, para todas as esperas adaptativas de uma vez.
+--
+-- Sem CHECK e sem NOT NULL de propósito: `null` é "ainda não planejado" e também
+-- o estado de todo enrollment anterior — os dois caem no comportamento antigo, e
+-- não há dado a corrigir antes de criar a coluna. Um CHECK de shape sobre jsonb
+-- quebraria o `update.sh` de um clone que já tivesse gravado algo aqui; quem
+-- valida é `lib/followup/timing-plan.ts`, que degrada para o máximo diante de
+-- plano ilegível em vez de derrubar o tick.
+
+alter table followup_enrollments
+  add column if not exists timing_plan jsonb;
+
+comment on column followup_enrollments.timing_plan is
+  'Plano de tempo das esperas adaptativas, decidido uma vez no acionamento do fluxo. null = sem plano (cai no max_ms de cada espera). Ver lib/followup/timing-plan.ts.';
+
+notify pgrst, 'reload schema';
+
+-- ---- o tick do follow-up para de servir uma organização de cada vez (migration 0146) ----
+--
+-- O claim levava os 20 vencidos MAIS ANTIGOS globalmente. Quem acumulou fila
+-- tem, por construção, os mais antigos — então uma organização atrasada ocupa o
+-- lote inteiro. Medido em pg17 descartável, teto 20: com 25 vencidos na grande e
+-- 1 na pequena, o tick 1 leva 20 da grande e ZERO da pequena; com 300 na grande,
+-- a pequena só é atendida no TICK 16 (≈16 min, com o cron de minuto em minuto).
+-- Não é inanição eterna — o lease empurra o ponteiro e ela entra em teto(K/20)
+-- ticks — mas o atraso não tem limite superior e cresce com a fila do vizinho.
+--
+-- Passa a ser rodízio: o mais antigo de CADA organização, depois o segundo de
+-- cada. Com UMA organização o resultado é idêntico ao de antes (os 20 mais
+-- antigos, na mesma ordem), então a instalação de operador único não muda.
+--
+-- O `limit p_limit` dentro do lateral faz o custo depender do número de
+-- organizações com fila, não do tamanho da fila. E `for update skip locked` vira
+-- CTE própria porque o Postgres não o aceita junto de window function.
+--
+-- Só isso NÃO preserva "dois workers nunca pegam a mesma linha": as duas conexões
+-- materializam a MESMA lista de candidatos antes de qualquer lock existir, e a
+-- segunda, ao esperar o lock da primeira, reavalia apenas o WHERE do UPDATE
+-- (READ COMMITTED). Medido: interseção de 5 em 5 no invariante de concorrência.
+-- Por isso a condição de lease está REPETIDA no WHERE do UPDATE — é ela que faz
+-- a segunda conexão enxergar o lease recém-gravado e desistir da linha.
+
+create index if not exists idx_followup_enrollments_due_por_org
+  on followup_enrollments (organization_id, next_eval_at)
+  where status in ('active','waiting_reply');
+
+create or replace function fn_claim_due_followup_enrollments(p_limit int, p_lease_seconds int)
+returns setof followup_enrollments
+language sql
+security definer
+set search_path = public
+as $$
+  with orgs as (
+    -- Sem a condição de claim aqui de propósito: o lateral abaixo a aplica, e uma
+    -- organização cujos vencidos estão todos com lease apenas devolve zero linhas.
+    select distinct organization_id
+      from followup_enrollments
+     where status in ('active','waiting_reply')
+       and next_eval_at <= now()
+  ),
+  fila as (
+    select f.id, f.next_eval_at, f.posicao_na_org
+      from orgs
+      cross join lateral (
+        select d.id,
+               d.next_eval_at,
+               row_number() over (order by d.next_eval_at) as posicao_na_org
+          from followup_enrollments d
+         where d.organization_id = orgs.organization_id
+           and d.status in ('active','waiting_reply')
+           and d.next_eval_at <= now()
+           and (d.claimed_until is null or d.claimed_until < now())
+         order by d.next_eval_at
+         limit p_limit
+      ) f
+  ),
+  escolhidos as (
+    -- O rodízio: posição 1 de todas as organizações, depois a 2 de todas, etc.
+    -- Empate na mesma posição vai para quem esperou mais.
+    select id from fila order by posicao_na_org, next_eval_at limit p_limit
+  ),
+  travados as (
+    select e.id from followup_enrollments e
+     where e.id in (select id from escolhidos)
+     for update skip locked
+  )
+  update followup_enrollments e
+     set claimed_until = now() + make_interval(secs => p_lease_seconds),
+         updated_at = now()
+   where e.id in (select id from travados)
+     -- A condição de lease É REPETIDA AQUI, e não é redundante com a CTE `fila`.
+     -- Sem ela, duas conexões simultâneas reclamam as MESMAS linhas: a segunda
+     -- espera o lock da primeira, e quando ele sai o Postgres (READ COMMITTED)
+     -- reavalia só o WHERE do UPDATE — que não olhava `claimed_until` — e grava
+     -- por cima. O `skip locked` da CTE não salva: as duas materializam a mesma
+     -- lista antes de qualquer lock existir. Medido: interseção de 5 em 5 no
+     -- invariante de concorrência (followup-schema.test.ts).
+     and (e.claimed_until is null or e.claimed_until < now())
+  returning e.*;
+$$;
+
+revoke execute on function fn_claim_due_followup_enrollments(int, int) from public, anon, authenticated;
+-- ---- o dossiê do follow-up: tempo escolhido pela IA + pausa manual (migration 0145) ----
+--
+-- Ver o cabeçalho de `supabase/migrations/20260810120000_0145_dossie_do_followup.sql`
+-- para o porquê de cada peça. Aqui vale a nota de re-aplicação: tudo é
+-- auto-curativo. O CHECK só ACRESCENTA um valor ao conjunto aceito e o predicado
+-- novo do índice cobre as mesmas linhas do antigo (nenhum banco tem
+-- `paused_manual` antes desta migration) — nada a deduplicar antes.
+
+-- A coluna `timing_plan` NÃO é recriada aqui: ela pertence ao apêndice da
+-- migration 0144 (acima). Duas criações da mesma coluna são idempotentes, mas os
+-- dois `comment on column` competem e o último vence — duplicação com dois donos
+-- e nenhuma fonte da verdade. Resolvido na integração: 0144 cria e descreve; 0145
+-- consome.
+
+-- Os dois CHECKs saem pelo CATÁLOGO, não pelo nome: num clone que passou por
+-- dump/restore o nome gerado pode não ser o deste repo, e dropar por nome fixo
+-- falharia em silêncio — o `add constraint` tropeçaria no duplicado, o
+-- `exception when duplicate_object` engoliria, e o banco ficaria com o CHECK
+-- ANTIGO recusando `paused_manual` num INSERT que a aplicação considera válido.
+do $$
+declare
+  c record;
+begin
+  for c in
+    select con.conname
+      from pg_constraint con
+      join pg_class rel on rel.oid = con.conrelid
+      join pg_namespace ns on ns.oid = rel.relnamespace
+     where ns.nspname = 'public'
+       and rel.relname = 'followup_enrollments'
+       and con.contype = 'c'
+       and pg_get_constraintdef(con.oid) like '%paused_handoff%'
+       and pg_get_constraintdef(con.oid) not like '%paused_manual%'
+  loop
+    execute format('alter table public.followup_enrollments drop constraint %I', c.conname);
+  end loop;
+end $$;
+
+do $$ begin
+  alter table public.followup_enrollments
+    add constraint followup_enrollments_status_valido
+    check (status in ('active','waiting_reply','paused_handoff','paused_manual','completed','cancelled','dead'));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.followup_enrollments
+    add constraint followup_enrollments_relogio_coerente
+    check (
+      (status in ('active','waiting_reply') and next_eval_at is not null)
+      or (status in ('paused_handoff','paused_manual','completed','cancelled','dead'))
+    );
+exception when duplicate_object then null; end $$;
+
+-- ⚠️ AS COLUNAS SÃO (organization_id, contact_id), NÃO (pointer_id, contact_id).
+--
+-- A DDL original da tabela (bem acima neste arquivo) cria este índice por
+-- `pointer_id`; o apêndice da migration 0062 o DERRUBA e recria por
+-- `organization_id`, e é essa a definição em vigor: **um follow-up vivo por lead
+-- na organização inteira**, não um por fluxo. É o guard anti-empilhamento — sem
+-- ele o mesmo contato entra em N sequências ao mesmo tempo e leva N mensagens,
+-- que é o bug de spam que a doutrina anti-banimento existe para impedir. O
+-- `silence-sweep.ts` e o produtor do gatilho de etapa dependem dele: os dois
+-- tratam o `23505` como skip silencioso, e é ele que garante que não há laço.
+--
+-- Quem precisa MEXER no predicado (como aqui, para incluir `paused_manual`) tem
+-- de copiar a definição EM VIGOR, não a da DDL original — recriar a partir da
+-- linha errada reverte a garantia sem conflito de merge e sem sintoma imediato.
+-- Corrigido na integração; ver a nota no MANIFEST da 0145.
+drop index if exists idx_followup_enrollments_one_live;
+create unique index if not exists idx_followup_enrollments_one_live
+  on public.followup_enrollments (organization_id, contact_id)
+  where status in ('active','waiting_reply','paused_handoff','paused_manual');
+
+create index if not exists idx_followup_events_enrollment_tempo
+  on public.followup_enrollment_events (enrollment_id, created_at);
+
+notify pgrst, 'reload schema';
+
+-- ⚠️ ESTE BLOCO FICA ACIMA DA VARREDURA DE ANON DE PROPÓSITO, e a posição é
+-- parte do conserto. O corpo do baseline traz um `alter default privileges …
+-- grant all on functions to anon`, então TODA função nova nasce alcançável
+-- pela chave anônima — que vai para o browser. O bloco de varredura no fim do
+-- arquivo cura isso, mas só para o que veio ANTES dele: um apêndice colocado
+-- depois fica exposto COM os `revoke` escritos e parecendo corretos. Defesa
+-- certa na ordem errada é exposição com gate verde.
+-- Vigiado por `tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts`.
+
+-- ---- relógio do banco para o agendamento do follow-up (migration 0147) ----
+-- Quem AGENDA gravava `next_eval_at` com o relógio do PROCESSO; quem RECLAMA
+-- compara com `now()` do POSTGRES. Medido: o banco fica 17–34 ms atrás, então o
+-- "agora" do processo ainda é FUTURO para o claim — o tick seguinte não reclama
+-- e o enrollment espera o tick DEPOIS (até 60 s, cron de minuto em minuto).
+-- Corrigir por margem seria número mágico que envelhece; a correção é os dois
+-- lados usarem o mesmo relógio.
+--
+-- ADITIVO E RETROCOMPATÍVEL: `default` só age na AUSÊNCIA da coluna, então todo
+-- insert que já passa `next_eval_at` explicitamente continua idêntico. Nada a
+-- corrigir nos dados antes — não há constraint nova.
+--
+-- O QUE O DEFAULT CUSTA, decidido e não descoberto depois: hoje inserir um
+-- enrollment ativo SEM `next_eval_at` falha ALTO (o CHECK recusa); com o
+-- default, esquecer o campo passa a ser SILENCIOSO e significa "vencido agora".
+-- Troca de falha barulhenta por plausível — aceita porque os dois produtores de
+-- nascimento significam "agora", quem quiser outro instante continua passando
+-- valor explícito, e a regra está escrita no `comment on column` abaixo.
+alter table public.followup_enrollments
+  alter column next_eval_at set default now();
+
+comment on column public.followup_enrollments.next_eval_at is
+  'Quando este enrollment vence. DEFAULT now() do BANCO (migration 0147): quem agenda "para agora" deve OMITIR a coluna, porque o claim compara com now() do Postgres e o relógio do processo fica milissegundos à frente — o suficiente para o enrollment perder um tick inteiro (60s). Agendamento para o FUTURO continua passando valor explícito.';
+
+-- Para o caso em que `default` não alcança: UPDATE. O supabase-js grava VALOR,
+-- nunca EXPRESSÃO, e o PostgREST só expõe tabela e função — sem isto o worker
+-- agendaria com o relógio do próprio processo.
+create or replace function public.fn_agora()
+returns timestamptz
+language sql
+stable
+set search_path to 'public', 'pg_temp'
+as $fn$
+  select now()
+$fn$;
+
+comment on function public.fn_agora() is
+  'O relógio do BANCO, para quem precisa gravar um instante que será comparado com now() (migration 0147).';
+
+-- AS DUAS ORIGENS DE EXECUTE (CLAUDE.md, doutrina de migrations, item 9): o
+-- grant direto a anon do `alter default privileges` do baseline, que
+-- `revoke from public` não remove; e o grant a PUBLIC que o Postgres dá na
+-- criação, que `revoke from anon` não remove.
+revoke all     on function public.fn_agora() from public;
+revoke execute on function public.fn_agora() from anon, authenticated;
+grant  execute on function public.fn_agora() to service_role;
+
+-- ---- o caso anuncia abertura e fechamento no barramento (migration 0148) ----
+--
+-- `agent_cases` é a entidade de escalação e não emitia nada no `event_log`, então
+-- nenhum consumidor podia reagir a um caso. TRIGGER e não emissor em código porque
+-- o FECHAMENTO tem cinco escritores: caçar emissor deixa a garantia dependendo de
+-- alguém lembrar, e o próximo caminho nasce mudo. SQL puro, sem I/O externo — a
+-- proibição da doutrina é HTTP dentro da transação, e `fn_emit_conversation_routing`
+-- já usa este mesmo mecanismo. Idempotente: `create or replace` + `drop trigger if
+-- exists`, então o `update.sh` de um clone re-aplica sem efeito duplo.
+create or replace function public.fn_emit_agent_case_event()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_contact_id uuid;
+  v_tipo text;
+begin
+  v_tipo := case when tg_op = 'INSERT' then 'ai.case_opened' else 'ai.case_closed' end;
+
+  -- O contato viaja no PAYLOAD porque ele sempre existe por schema
+  -- (`agent_cases.conversation_id` é not null e `conversations.contact_id` é
+  -- not null) e porque poupa o consumidor de uma ida ao banco. O consumidor
+  -- mantém o fallback de buscar, para não confiar em convenção.
+  select c.contact_id into v_contact_id
+    from public.conversations c
+   where c.id = new.conversation_id;
+
+  perform public.emit_event(
+    v_tipo,
+    'agent_case',
+    new.id,
+    jsonb_build_object(
+      'case_id',         new.id,
+      'conversation_id', new.conversation_id,
+      'contact_id',      v_contact_id,
+      'lead_id',         new.lead_id,
+      'agent_id',        new.agent_id,
+      'source',          new.source,
+      'status',          new.status
+    ),
+    '{}'::jsonb,
+    new.organization_id   -- SEMPRE de `new`, nunca de parâmetro: é o filtro de tenant
+  );
+  return null;            -- AFTER trigger: o retorno é ignorado
+end;
+$$;
+
+alter function public.fn_emit_agent_case_event() owner to postgres;
+
+-- ⚠️ AS DUAS ORIGENS DE EXECUTE (doutrina de migrations, item 9). Tratar só uma
+-- deixa a função exposta com o gate verde: (A) o grant a PUBLIC que o Postgres
+-- dá a qualquer função ao criá-la, que `revoke from anon` não remove; (B) o
+-- `alter default privileges ... to anon` do baseline, que vale para toda função
+-- criada depois dele e que `revoke from public` não remove.
+revoke all     on function public.fn_emit_agent_case_event() from public;
+revoke execute on function public.fn_emit_agent_case_event() from anon, authenticated;
+
+-- ABERTURA: só os dois status que o código considera aberto
+-- (`OPEN_STATUSES` em lib/agent-engine/agent/human-cases.ts:75).
+drop trigger if exists trg_agent_case_opened on public.agent_cases;
+create trigger trg_agent_case_opened
+  after insert on public.agent_cases
+  for each row
+  when (new.status in ('awaiting_human','awaiting_lead'))
+  execute function public.fn_emit_agent_case_event();
+
+-- FECHAMENTO: os três status terminais. `escalated` entra porque o caso deixou
+-- de esperar o cliente — seguir cobrando quem já foi passado adiante é o mesmo
+-- defeito de cobrar quem já foi resolvido.
+drop trigger if exists trg_agent_case_closed on public.agent_cases;
+create trigger trg_agent_case_closed
+  after update of status on public.agent_cases
+  for each row
+  when (old.status is distinct from new.status
+        and new.status in ('resolved','escalated','cancelled'))
+  execute function public.fn_emit_agent_case_event();
+
+notify pgrst, 'reload schema';
+
 
 
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
@@ -10892,7 +11250,7 @@ grant execute on function public.fn_encrypt_oauth(text) to service_role;
 grant execute on function public.fn_lgpd_cascade_redact_contact(uuid, uuid, uuid) to service_role;
 grant execute on function public.fn_update_budget_consumption() to service_role;
 
--- ---- mensagem editada e mensagem apagada (migration 0143) ----
+-- ---- mensagem editada e mensagem apagada (migration 0149) ----
 -- O cliente edita ou apaga no aplicativo e o CRM seguia mostrando a versão
 -- velha — sem erro em lugar nenhum. Combinar preço ou endereço a partir de um
 -- texto que o cliente já corrigiu gera um erro que ninguém rastreia depois.
@@ -10903,7 +11261,7 @@ grant execute on function public.fn_update_budget_consumption() to service_role;
 alter table public.messages add column if not exists edited_at timestamptz;
 alter table public.messages add column if not exists revoked_at timestamptz;
 
--- ---- definição sabe de qual conexão é (migration 0144) ----
+-- ---- definição sabe de qual conexão é (migration 0150) ----
 -- `meta_templates` nasceu para um canal só: a única marca de origem é
 -- `waba_id`, o id da conta na plataforma da Meta. Um segundo canal não tem onde
 -- entrar sem mentir sobre o que aquele campo significa — e o endpoint, que
@@ -10918,5 +11276,25 @@ alter table public.meta_templates
 create index if not exists meta_templates_sessao_idx
   on public.meta_templates (channel_session_id, status)
   where channel_session_id is not null;
+
+-- ---- o arquivo do webhook aceita os canais novos (migration 0151) ----
+-- `webhook_events_log` guarda o corpo CRU do que o provedor mandou — é o único
+-- lugar onde ele fica. O CHECK do dump conhecia três provedores e nenhum dos
+-- canais do seam, então a rota genérica de canal não tinha como gravar sem
+-- mentir sobre a origem ('generic' para um canal que se sabe qual é).
+--
+-- Este é o BLOCO ÚNICO desta constraint (regra da issue #159): canal novo edita
+-- ESTA lista, e não acrescenta um segundo bloco — dois blocos fazem o
+-- `update.sh` de um clone com dados falhar no primeiro e deixar a tabela sem
+-- constraint entre o `drop` e o `add` que funciona.
+--
+-- Alargamento puro: um CHECK que aceita MAIS valores não pode ser violado por
+-- linha que já passava pelo antigo, então não precisa de backfill antes.
+alter table public.webhook_events_log
+  drop constraint if exists webhook_events_log_provider_check;
+alter table public.webhook_events_log
+  add constraint webhook_events_log_provider_check check (provider in (
+    'waha', 'nuvemshop', 'generic', 'meta_cloud', 'zernio'
+  ));
 
 notify pgrst, 'reload schema';

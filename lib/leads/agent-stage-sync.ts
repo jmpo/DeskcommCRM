@@ -76,6 +76,7 @@ export type { RiskBucket };
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { logger } from "@/lib/logger";
 import { emitLeadActivity } from "@/lib/leads/activity-emitter";
 import { registraFalhaDeAtividade } from "@/lib/leads/activity-write-failure";
 import { resolveActiveLeadForContact } from "@/lib/leads/active-lead";
@@ -278,6 +279,53 @@ export async function sincronizaEstagioDoAgente(
       tipo: "stage_changed",
       origem: "lib/leads/agent-stage-sync",
       erro: atividade.error,
+    });
+  }
+
+  // ⚠️ O EVENTO, E NÃO SÓ A ATIVIDADE — E A DIFERENÇA ENTRE OS DOIS É QUEM LÊ.
+  //
+  // `crm_lead_activities` conta a história na timeline do card: é para humano.
+  // `event_log` é o que ACIONA quem reage — `lib/automation/engine.handler.ts`
+  // (regras do tenant) e `lib/followup/gatilho-etapa.ts` consomem
+  // `lead.stage_changed`, e as três rotas HTTP de movimento
+  // (`leads/[id]/move`, `moveLeadHandler`, `leads/bulk`) sempre o emitiram.
+  //
+  // Enquanto esta emissão não existia, mover pela mão e mover pelo assistente
+  // eram acontecimentos DIFERENTES para o sistema: o card andava, a timeline
+  // contava, e nenhuma regra rodava — em silêncio, sem erro, sem log. Uma regra
+  // que ignora metade dos movimentos é pior que uma regra que dispara demais,
+  // porque a primeira é invisível. Mover pelo assistente tem de ser
+  // indistinguível de mover pela mão.
+  //
+  // `entity_kind='crm_lead'` não é decoração: o motor de automação FILTRA por
+  // ele (o trigger legado `fn_emit_event_on_lead_change` emite com
+  // `entity_kind='lead'`, e o filtro é o que impede a regra de rodar duas vezes
+  // pela mesma mudança). Emitir com outro valor aqui seria emitir para ninguém.
+  //
+  // Fire-and-forget com o erro LIDO, no mesmo espírito do resto do arquivo: a
+  // mutação já aconteceu e não se desfaz por causa do rastro, mas rastro
+  // perdido vira linha de log, nunca silêncio.
+  const { error: erroEvento } = await admin.rpc("emit_event" as never, {
+    p_event_type: "lead.stage_changed",
+    p_entity_kind: "crm_lead",
+    p_entity_id: lead.id,
+    p_payload: {
+      pipeline_id: lead.pipeline_id,
+      from_stage_id: lead.stage_id,
+      to_stage_id: destino.stageId,
+      status: lead.status,
+    },
+    // Quem moveu vai no metadata, como nas rotas — lá é `actor_user_id`, aqui é
+    // o assistente. Sem isto, um evento sem ator nenhum se parece com um bug de
+    // quem for depurar a regra que ele disparou.
+    p_metadata: { actor_kind: "ai", source: "agent-stage-sync", passo_do_agente: input.passo },
+    p_organization_id: input.organizationId,
+  });
+  if (erroEvento) {
+    logger.error("[agent-stage-sync] emit_event lead.stage_changed falhou", {
+      lead_id: lead.id,
+      organization_id: input.organizationId,
+      error: erroEvento.message,
     });
   }
 

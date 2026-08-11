@@ -4,10 +4,22 @@ import { toast } from "sonner";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 
+/**
+ * Os estados que `followup_enrollments.status` aceita — todos eles.
+ *
+ * É o ÚNICO union do TypeScript que enumera o conjunto inteiro: o
+ * `EnrollmentStatus` do motor (`lib/followup/node-handlers.ts`) lista o que o
+ * motor manipula, e o motor nunca escreve nem lê `paused_manual` (o claim filtra
+ * `active|waiting_reply`). Por isso este é o par do banco em
+ * `tests/invariants/vocabulario-banco-x-typescript.test.ts`: status novo no
+ * CHECK sem entrada aqui reprova o CI, em vez de virar uma linha na fila com
+ * rótulo cru.
+ */
 export type FollowupEnrollmentStatus =
   | "active"
   | "waiting_reply"
   | "paused_handoff"
+  | "paused_manual"
   | "completed"
   | "cancelled"
   | "dead";

@@ -16,7 +16,8 @@ import type pg from "pg";
 
 import type { AdminClient, EnrollmentPatch } from "./engine";
 import { flowGraphSchema } from "./graph-schema";
-import { selectEdge, type EnrollmentRow } from "./node-handlers";
+import { classEdgeMatch, selectEdge, type EnrollmentRow } from "./node-handlers";
+import { coletarEsperasAdaptativas, montarTimingPlan, type PropostaDeEspera } from "./timing-plan";
 
 /** Superset de AdminClient: a ponte precisa do snapshot COMPLETO do enrollment
  *  (current_node_id/version_id/steps_taken) pra montar o passo de conclusão —
@@ -33,21 +34,8 @@ export interface TurnBridgeAdminClient extends AdminClient {
 export type TurnResult =
   | { kind: "sent" }
   | { kind: "classified"; class: string }
-  | { kind: "timing"; proposed_at: string };
-
-/**
- * Clampa o instante proposto pela IA em `[now+min_ms, now+max_ms]` — `wait`
- * smart nunca deixa a IA decidir fora do range configurado no nó (onda 5,
- * critério 3). `proposed_at` ilegível (parse NaN) degrada pro mínimo — o lado
- * seguro (não deixa o enrollment preso além do combinado por um instante
- * inválido).
- */
-export function clampProposedAt(proposedAt: string, now: Date, minMs: number, maxMs: number): Date {
-  const parsed = Date.parse(proposedAt);
-  const deltaMs = Number.isNaN(parsed) ? minMs : parsed - now.getTime();
-  const clampedMs = Math.min(Math.max(deltaMs, minMs), maxMs);
-  return new Date(now.getTime() + clampedMs);
-}
+  /** Plano de tempo do fluxo inteiro, proposto no acionamento — cru, antes do clamp. */
+  | { kind: "planned"; propostas: PropostaDeEspera[]; modelo: string };
 
 /**
  * Traduz o resultado de um turno concluído em progressão do enrollment —
@@ -76,18 +64,19 @@ export async function completeTurnForEnrollment(
   const enrollment = await db.loadEnrollmentById(orgId, enrollmentId);
   if (!enrollment) return; // enrollment sumiu (nunca deveria, mas nada a completar)
   if (enrollment.current_node_id !== nodeId) return; // turno tardio/obsoleto — o enrollment já saiu do nó
-  // paused_handoff entra aqui: um turno em voo quando o handoff pausou (reactivity.ts)
-  // NUNCA pode reativar/avançar por baixo do reactToHandoffClose — o resultado é
-  // stale (computado antes do humano intervir); descartar é o comportamento CERTO,
-  // não perda de dado (fix de review — Task 5.2, o guard excluía só completed/
-  // cancelled/dead, deixando essa corrida passar).
-  if (
-    enrollment.status === "completed" ||
-    enrollment.status === "cancelled" ||
-    enrollment.status === "dead" ||
-    enrollment.status === "paused_handoff"
-  )
-    return;
+  // SÓ QUEM ESTÁ ANDANDO AVANÇA — lista positiva, e isso é o conserto.
+  //
+  // O guard nasceu excluindo completed/cancelled/dead e a Task 5.2 teve de
+  // acrescentar `paused_handoff` depois, porque um turno em voo reativava por
+  // baixo do `reactToHandoffClose`. Lista negativa tem esse modo de falha por
+  // construção: todo estado NOVO entra por omissão, e o sintoma é silencioso —
+  // o resultado stale (computado ANTES de o humano intervir) sobrescreve a
+  // decisão da pessoa e o fluxo volta a andar sozinho.
+  //
+  // Aconteceu de novo com `paused_manual` (migration 0145): sem esta troca, um
+  // envio que terminasse depois do clique desfazia a pausa em silêncio.
+  // Descartar o resultado é o comportamento CERTO, não perda de dado.
+  if (enrollment.status !== "active" && enrollment.status !== "waiting_reply") return;
 
   const graph = await db.loadFlowGraph(orgId, enrollment.version_id);
   if (!graph) throw new Error("flow_version_not_found");
@@ -137,7 +126,7 @@ export async function completeTurnForEnrollment(
     if (node.type !== "ai_classify") {
       throw new Error(`completeTurnForEnrollment: resultado 'classified' mas o nó "${node.id}" não é 'ai_classify'`);
     }
-    const edge = selectEdge(graph.edges, node.id, { type: "class_match", value: result.class });
+    const edge = selectEdge(graph.edges, node.id, classEdgeMatch(node, result.class));
     if (!edge) {
       throw new Error(`ai_classify node "${node.id}" sem aresta pra classe "${result.class}" (fallback 'always' também ausente)`);
     }
@@ -149,15 +138,31 @@ export async function completeTurnForEnrollment(
     return;
   }
 
-  // 'timing'
-  if (node.type !== "wait" || node.config.mode !== "smart") {
-    throw new Error(`completeTurnForEnrollment: resultado 'timing' mas o nó "${node.id}" não é 'wait' (smart)`);
+  // 'planned' — o acionamento decidiu os instantes de TODAS as esperas adaptativas.
+  if (node.type !== "trigger") {
+    throw new Error(`completeTurnForEnrollment: resultado 'planned' mas o nó "${node.id}" não é 'trigger'`);
   }
-  const nextEvalAt = clampProposedAt(result.proposed_at, now, node.config.min_ms, node.config.max_ms);
+  // Clampa contra o GRAFO PINADO, nunca contra o que o payload do modelo afirma
+  // que o intervalo era: quem propõe é a IA, quem decide o intervalo é o nó.
+  const plano = montarTimingPlan({
+    esperas: coletarEsperasAdaptativas(graph.nodes),
+    propostas: result.propostas,
+    modelo: result.modelo,
+    agora: now,
+  });
+  const edge = selectEdge(graph.edges, node.id, { type: "always" });
+  if (!edge) throw new Error(`trigger node "${node.id}" sem aresta 'always' de saída`);
   await applyStep(
-    "wait_started",
-    { next_eval_at: nextEvalAt.toISOString(), mode: "smart" },
-    { current_node_id: enrollment.current_node_id, status: "active", next_eval_at: nextEvalAt.toISOString() },
+    "timing_plan_decidido",
+    // O plano inteiro no evento (não só um ponteiro pra coluna): a timeline do
+    // enrollment precisa ser legível sozinha, com o motivo de cada espera.
+    { ...plano },
+    {
+      current_node_id: edge.target,
+      status: "active",
+      next_eval_at: now.toISOString(),
+      timing_plan: plano,
+    },
   );
 }
 
@@ -195,6 +200,9 @@ function mapEnrollmentRow(row: Record<string, unknown>): EnrollmentRow {
     started_at: toIso(row.started_at)!,
     completed_at: toIso(row.completed_at),
     updated_at: toIso(row.updated_at)!,
+    // `?? null` e não `as TimingPlan`: num clone sem a migration 0144 a chave
+    // simplesmente não vem, e "sem plano" é exatamente o que null significa.
+    timing_plan: row.timing_plan ?? null,
   };
 }
 

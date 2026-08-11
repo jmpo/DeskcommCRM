@@ -35,6 +35,16 @@ export const triggerConfigSchema = z.discriminatedUnion("kind", [
     ...CANCEL_ON_REPLY,
   }),
   z.strictObject({
+    kind: z.literal("case_opened"),
+    // ⚠️ `optional`, e não ausente. Um cliente que mande `params: {}` — o
+    // formato dos outros kinds — tem de PARSEAR: `strictObject` sem a chave
+    // reprovaria esse jsonb, o pointer ficaria `active` sem armar nada, e a
+    // falha seria muda. Sem params porque não há o que casar: todo caso aberto
+    // da organização dispara todo fluxo armado por caso.
+    params: z.strictObject({}).optional(),
+    ...CANCEL_ON_REPLY,
+  }),
+  z.strictObject({
     kind: z.literal("conversation_end"),
     params: z.strictObject({}),
     ...CANCEL_ON_REPLY,

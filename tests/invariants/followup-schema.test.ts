@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
 
 import { sql, countAs } from "./gov-helpers";
+import { isolarFixtureDeFollowup } from "./followup-isolamento";
 
 /**
  * Task 1.2 — invariantes de schema do sistema de follow-up (migration 0054).
@@ -232,16 +233,34 @@ describe("followup schema (0054) — check: active exige next_eval_at", () => {
 });
 
 describe("followup schema (0054) — fn_claim_due_followup_enrollments concorrência", () => {
+  // O claim é global e este arquivo o exercita DIRETO (sem passar pelo tick):
+  // enrollment devido deixado por outro arquivo ocuparia vaga do lote. Ver
+  // ./followup-isolamento.ts — a classe é "exercita o claim", não "roda o tick",
+  // e foi por medir a classe errada que este arquivo ficou de fora na primeira vez.
+  //
+  // DENTRO deste describe, e não no arquivo: os testes de RLS acima dependem dos
+  // enrollments que o `beforeAll` semeia, e o controle POSITIVO deles ("org A lê
+  // as próprias linhas") exige que essas linhas existam. Um beforeEach de arquivo
+  // apagaria a prova de que a consulta enxerga alguma coisa, deixando só a metade
+  // que dá zero — que passa mesmo com o banco vazio.
+  beforeEach(async () => {
+    await isolarFixtureDeFollowup(pool);
+  });
+
   it("2 conexões concorrentes pedindo limit 5 não retornam o mesmo id (união = 5, sem interseção)", async () => {
     const { pointerId, versionId } = await seedFlow(ORG_CLAIM);
     const contactIds = await Promise.all(Array.from({ length: 5 }, () => seedContact(ORG_CLAIM)));
 
     // fn_claim_due_followup_enrollments não filtra por org (fila global do
-    // worker) — outros testes deste arquivo também deixam enrollments 'active'
-    // vencidos no banco. Para não depender do total global (shared state entre
-    // arquivos, ver vitest.db.config.ts), ancoramos nos 5 ids que ESTE teste
-    // seedou (next_eval_at mais antigo que qualquer leftover: entram primeiro
-    // no `order by next_eval_at`).
+    // worker) e o `beforeEach` deste describe esvazia a fila — sem isso o lote de
+    // 5 viria misturado com enrollment de outro teste.
+    //
+    // A ancoragem por `myIds` continua, mas a razão MUDOU com a migration 0146.
+    // Antes o argumento era "os meus são os mais antigos, logo entram primeiro
+    // no order by next_eval_at" — o claim passou a ser um RODÍZIO entre
+    // organizações, então ser o mais antigo não garante mais entrar no lote:
+    // um vencido de outra organização entra na frente do meu segundo. O filtro
+    // por `myIds` protege contra ambos os mundos; a limpeza é que garante o 5.
     const myIds = new Set<string>();
     for (const contactId of contactIds) {
       const { rows } = await pool.query<{ id: string }>(

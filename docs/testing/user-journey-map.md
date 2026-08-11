@@ -194,6 +194,58 @@ Bugs desta jornada estão detalhados em `HANDOFF-ia-360.md` (BUG-01 a BUG-05).
 
 ---
 
+## J9 — Ver o que o follow-up já fez, e intervir sem matá-lo `[P1]`
+
+Contexto do código: o dossiê do enrollment (`/app/ai/followups/enrollments/[id]`,
+wave FV-W1-FILA). `followup_enrollment_events` gravava cada passo do motor desde a
+0054 e **nenhuma tela lia a tabela**; a única intervenção possível era cancelar.
+Spec: `tests/e2e/followup-dossie.spec.ts` — os eventos da timeline são REAIS (o
+setup publica um fluxo, cria o enrollment pela API e chama o cron
+`followup-flow-worker`, o mesmo caminho de produção; nada de `INSERT` à mão).
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J9.1 | Clicar no contato na aba Fila | abre o dossiê daquele follow-up (rota própria, sobrevive ao F5) | PASS |
+| J9.2 | Ler a história depois de dois ticks do motor | "Seguiu em frente" e "Começou a esperar"; **nenhum** `node_advanced` nem `wait-1` na tela | PASS |
+| J9.3 | Onde está agora | "Deixa esfriar (Espera — espera 4 horas)" + quando volta a andar | PASS |
+| J9.4 | Pausar | status vira "Pausado por uma pessoa"; próximo passo vira "Parado até alguém retomar" | PASS |
+| J9.5 | Pausado não oferece adiar/pular | botão que só sabe recusar não aparece | PASS |
+| J9.6 | Retomar | volta a andar pelo tempo que FALTAVA (não dispara na hora) | PASS |
+| J9.7 | Adiar para uma data escolhida | o próximo disparo passa a ser a data do diálogo | PASS |
+| J9.8 | Pular o passo | o follow-up anda para o passo seguinte; com mais de um caminho, a tela PERGUNTA por onde | PASS |
+| J9.9 | A intervenção aparece na timeline do NEGÓCIO | as **quatro** linhas no card, com autor humano nomeado ("E2E Manager") e sem colapsar apesar de terem acontecido no mesmo minuto | PASS |
+| J9.10 | Viewer | lê o dossiê inteiro, sem coluna de ações; as 4 rotas devolvem 403 `forbidden_role` | PASS |
+| J9.11 | O tempo que a IA escolheu, com plano REAL | "esperar 12 horas" + "bateu no seu limite" + **"a IA pediu 3 dias"** + o motivo e a faixa configurada | PASS |
+| J9.12 | A história do planejamento em português | "O agente decidiu quanto esperar em cada passo" e "Pediu ao agente para planejar os tempos de espera" — sem `timing_plan_decidido` na tela | FAIL → PASS |
+
+Evidência (uma por passo, na ordem da jornada):
+`evidence/followup-dossie/01-dossie-timeline.png` ·
+`evidence/followup-dossie/02-pausado.png` ·
+`evidence/followup-dossie/03-adiado.png` ·
+`evidence/followup-dossie/04-pulado.png` ·
+`evidence/followup-dossie/05-timeline-do-negocio.png` ·
+`evidence/followup-dossie/06-viewer-so-leitura.png` ·
+`evidence/followup-dossie/07-plano-de-tempo.png`.
+
+**J9.11/J9.12 usam plano REAL, não `INSERT` à mão:** o modelo "responde" pelo
+seam `completeTurnForEnrollment` — a mesma função que o worker chama depois da
+chamada de LLM —, então o clamp, a gravação e o `proposto_ms` são os de
+produção. Um jsonb escrito na mão provaria que a tela desenha o que eu inventei.
+
+**O J9.12 nasceu FAIL e é por isso que ele existe:** abrindo o dossiê, a
+história mostrava `código: timing_plan_decidido` e anunciava o turno de
+planejamento como "escrever a mensagem". Nenhum unitário pegaria — os dois
+eventos são do motor novo, e a tela foi o único instrumento que os viu.
+
+**O que o J9.9 mediu e quase passou batido:** as quatro intervenções acontecem
+no mesmo minuto e pelo mesmo ator, e a timeline do negócio COLAPSA blocos assim
+(`agrupaTimeline`, janela de 60s). Escondidas atrás de um "+", o próximo
+atendente abriria o card e não veria que uma pessoa segurou o fluxo — que é a
+única razão de a linha existir. Os quatro tipos entraram em `NUNCA_COLAPSA`
+pelo critério que já estava escrito lá: decisão humana não colapsa.
+
+---
+
 ## J7 — Exploração completa `[P2]`
 
 Andar por TODAS as rotas navegáveis logado como admin e como agent: settings, contacts,

@@ -2,6 +2,8 @@
 
 import { Handle, Position } from "@xyflow/react";
 
+import type { FlowBranch } from "@/lib/followup/graph-schema";
+import { rotuloDoRamo } from "@/lib/followup/rotulo-do-ramo";
 import { cn } from "@/lib/utils";
 import type { NodeVisual } from "./nodeVisuals";
 
@@ -14,6 +16,13 @@ interface Props {
   errors?: string[];
   showTarget?: boolean;
   showSource?: boolean;
+  /**
+   * As saídas do nó, quando ele tem mais de uma. Cada ramo vira UMA linha com
+   * rótulo legível e a sua própria bolinha — era isso que faltava: com um handle
+   * só não havia onde ligar "a aresta da regra 2", e desenhar bolinhas iguais
+   * sem nome trocaria um problema por outro.
+   */
+  branches?: FlowBranch[];
 }
 
 /**
@@ -31,9 +40,13 @@ export function NodeCard({
   errors,
   showTarget = true,
   showSource = true,
+  branches,
 }: Props) {
   const Icon = visual.icon;
   const hasError = (errors?.length ?? 0) > 0;
+  // Uma saída só continua sendo a bolinha de sempre no rodapé: não há o que
+  // rotular, e mexer nisso quebraria o arrasto de todo nó não-ramificado.
+  const branchRows = branches !== undefined && branches.length > 1 ? branches : null;
 
   return (
     <div
@@ -69,7 +82,42 @@ export function NodeCard({
           {errors![0]}
         </p>
       )}
-      {showSource && <Handle type="source" position={Position.Bottom} />}
+      {branchRows !== null && (
+        <ul className="border-t border-border" data-testid={`node-branches-${id}`}>
+          {branchRows.map((branch) => (
+            <li
+              key={branch.id}
+              className={cn(
+                "relative flex items-center gap-1.5 border-t border-border/60 px-3 py-1 first:border-t-0",
+                // A saída de escape é a única que não veio de uma regra do usuário:
+                // fica em itálico e apagada para se ler como "o resto cai aqui".
+                branch.kind === "fallback" && "italic text-text-muted",
+              )}
+              data-testid={`node-branch-${id}-${branch.id}`}
+              title={rotuloDoRamo(branch)}
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "h-1.5 w-1.5 shrink-0 rounded-full",
+                  branch.kind === "fallback" ? "bg-text-muted/50" : "bg-accent-500",
+                )}
+              />
+              <span className="truncate text-xs leading-tight">{rotuloDoRamo(branch)}</span>
+              <Handle
+                type="source"
+                id={branch.id}
+                position={Position.Right}
+                // Uma bolinha por LINHA: a saída sai ao lado do seu próprio rótulo,
+                // que é o que torna "qual aresta sai de qual regra" visível. No
+                // rodapé elas ficariam lado a lado, sem espaço para nome nenhum.
+                style={{ top: "50%" }}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+      {showSource && branchRows === null && <Handle type="source" position={Position.Bottom} />}
     </div>
   );
 }

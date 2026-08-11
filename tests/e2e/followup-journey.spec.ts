@@ -117,8 +117,18 @@ async function loginWithTotp(page: Page, email: string, secretTotp: string): Pro
 // (duplicados aqui de propósito: cada spec deste repo é self-contido).
 // ---------------------------------------------------------------------------
 
-async function connectHandles(page: Page, sourceNodeId: string, targetNodeId: string): Promise<void> {
-  const source = page.locator(`.react-flow__node[data-id="${sourceNodeId}"] .react-flow__handle.source`);
+async function connectHandles(
+  page: Page,
+  sourceNodeId: string,
+  targetNodeId: string,
+  sourceHandleId?: string,
+): Promise<void> {
+  // Nó que ramifica tem uma bolinha por saída: `.source` sozinho casa várias e o
+  // modo estrito recusa. Quem arrasta de um nó desses diz de qual saída.
+  const sourceSel = sourceHandleId
+    ? `.react-flow__node[data-id="${sourceNodeId}"] .react-flow__handle.source[data-handleid="${sourceHandleId}"]`
+    : `.react-flow__node[data-id="${sourceNodeId}"] .react-flow__handle.source`;
+  const source = page.locator(sourceSel).first();
   const target = page.locator(`.react-flow__node[data-id="${targetNodeId}"] .react-flow__handle.target`);
   const sBox = await source.boundingBox();
   const tBox = await target.boundingBox();
@@ -285,9 +295,12 @@ test.describe("followup — jornada completa (Task 8.3)", () => {
     await connectHandles(page, triggerId, waitId); // edge-1
     await connectHandles(page, waitId, actionId); // edge-2
     await connectHandles(page, actionId, classifyId); // edge-3
-    await connectHandles(page, classifyId, endPositivoId); // edge-4 → class_match positivo
-    await connectHandles(page, classifyId, endNoReplyId); // edge-5 → class_match no_reply
-    await connectHandles(page, classifyId, endFallbackId); // edge-6 → always (fica no default)
+    // Saem todas da bolinha "nenhuma delas" para nascerem `always`, como antes —
+    // as duas primeiras viram class_match logo abaixo, pelo painel da aresta,
+    // que é o que este trecho da jornada existe para exercitar.
+    await connectHandles(page, classifyId, endPositivoId, "else"); // edge-4 → class_match positivo
+    await connectHandles(page, classifyId, endNoReplyId, "else"); // edge-5 → class_match no_reply
+    await connectHandles(page, classifyId, endFallbackId, "else"); // edge-6 → always (fica no default)
     await expect(page.locator(".react-flow__edge")).toHaveCount(6);
 
     await setEdgeCondition(page, "edge-4", "positivo");

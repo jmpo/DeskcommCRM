@@ -32,6 +32,10 @@ import type { NextRequest } from "next/server";
 
 import { fail, ok } from "@/lib/api/wrappers";
 import { ARCHIVED_AT, queryTolerantToMissingArchived } from "@/lib/channels/archived";
+import {
+  abrirArquivoDoWebhook,
+  fecharArquivoDoWebhook,
+} from "@/lib/channels/arquivo-de-webhook";
 import { acceptsInboundWebhook, handleInboundWebhook } from "@/lib/channels/inbound";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptWebhookSecret } from "@/lib/webhooks/secrets";
@@ -59,13 +63,13 @@ export async function POST(
     () =>
       admin
         .from("channel_sessions")
-        .select(`id, organization_id, provider, webhook_secret_encrypted, ${ARCHIVED_AT}`)
+        .select(`id, organization_id, provider, display_name, phone_number, webhook_secret_encrypted, ${ARCHIVED_AT}`)
         .eq("webhook_path_token", token)
         .maybeSingle(),
     () =>
       admin
         .from("channel_sessions")
-        .select("id, organization_id, provider, webhook_secret_encrypted")
+        .select("id, organization_id, provider, display_name, phone_number, webhook_secret_encrypted")
         .eq("webhook_path_token", token)
         .maybeSingle(),
   );
@@ -74,6 +78,8 @@ export async function POST(
     id: string;
     organization_id: string;
     provider: string;
+    display_name: string | null;
+    phone_number: string | null;
     webhook_secret_encrypted: unknown;
     archived_at?: string | null;
   } | null;
@@ -93,6 +99,20 @@ export async function POST(
   const cifrado = sessao.webhook_secret_encrypted;
   const secret = cifrado ? await decryptWebhookSecret(admin, cifrado as string) : null;
 
+  // ─── O corpo cru vai para o arquivo ANTES de qualquer processamento ────────
+  //
+  // Se o processo morrer no meio — exceção, OOM, deploy no instante errado — o
+  // payload continua gravado, que é justamente quando alguém vai querer lê-lo.
+  // Este caminho não gravava NADA, enquanto a rota do outro canal grava desde
+  // sempre: era o único canal sem instrumento para investigar o que chegou.
+  const arquivo = await abrirArquivoDoWebhook(admin, {
+    organizationId: sessao.organization_id,
+    channelSessionId: sessao.id,
+    provider: sessao.provider,
+    rawBody,
+    headers: req.headers,
+  });
+
   try {
     const r = await handleInboundWebhook(admin, {
       session: sessao,
@@ -101,9 +121,26 @@ export async function POST(
       secret,
     });
 
-    if (r.ok) return ok(r.body, { requestId });
+    if (r.ok) {
+      await fecharArquivoDoWebhook(admin, arquivo, {
+        status: "processed",
+        validSignature: true,
+        // O desfecho do seam vai junto: é ele que distingue "ingerido" de
+        // "ignorado por falta de identidade" quando alguém for contar depois.
+        erro: typeof r.body.reason === "string" ? r.body.reason : null,
+      });
+      return ok(r.body, { requestId });
+    }
 
     const status = r.code === "unauthorized" ? 401 : 400;
+    await fecharArquivoDoWebhook(admin, arquivo, {
+      status: "error",
+      // `false` SÓ quando a recusa foi por assinatura. Um payload bem assinado
+      // que o parser recusou não é problema de segredo, e marcá-lo como se
+      // fosse mandaria quem investiga procurar no lugar errado.
+      validSignature: r.code === "unauthorized" ? false : null,
+      erro: r.message,
+    });
     return fail(
       r.code === "unauthorized" ? "unauthorized" : "invalid_request",
       r.message,
@@ -111,8 +148,12 @@ export async function POST(
       { requestId },
     );
   } catch (err) {
-    return fail("internal_error", err instanceof Error ? err.message : "ingest_failed", 500, {
-      requestId,
+    const detalhe = err instanceof Error ? err.message : "ingest_failed";
+    await fecharArquivoDoWebhook(admin, arquivo, {
+      status: "error",
+      validSignature: null,
+      erro: detalhe,
     });
+    return fail("internal_error", detalhe, 500, { requestId });
   }
 }

@@ -133,11 +133,44 @@ export async function redriveQueued(
      where m.sent_via = 'ai' and m.status = 'queued'
        and s.status = 'WORKING'
        and c.is_blocked = false
+       -- ─── Só as sessões que ESTE resgate consegue alcançar ───────────────
+       --
+       -- Este worker fala um transporte só, direto, e não resolve adapter: ele
+       -- e processo separado, com pg cru, sem o seam. Sem este filtro a
+       -- consulta trazia mensagem de QUALQUER canal e postava com
+       -- session nula — a coluna e nula fora deste transporte. Na melhor
+       -- hipótese o provedor recusa e a mensagem fica presa para sempre com um
+       -- warn por tique; na pior, um envio sai pelo número errado.
+       --
+       -- Deixar de fora NÃO é resolver: é parar de fazer a coisa errada. Quem
+       -- conta as que ficaram sem resgate é o bloco logo abaixo — silêncio aqui
+       -- é o que fez este defeito durar.
+       and s.waha_session_name is not null
        and m.created_at < now() - make_interval(secs => $1 / 1000.0)
      order by m.created_at
      limit $2`,
     [cfg.redriveMinAgeMs, cfg.redriveBatchSize],
   );
+
+  // As que este resgate NÃO alcança. Não são reenviadas daqui — enviar em dobro
+  // é pior que não enviar, e este processo não tem como saber se o outro
+  // caminho já mandou. O que elas não podem continuar sendo é INVISÍVEIS.
+  const { rows: foraDoAlcance } = await pool.query<{ n: string }>(
+    `select count(*)::text as n
+     from messages m
+     join channel_sessions s on s.id = m.channel_session_id
+     where m.sent_via = 'ai' and m.status = 'queued'
+       and s.status = 'WORKING'
+       and s.waha_session_name is null
+       and m.created_at < now() - make_interval(secs => $1 / 1000.0)`,
+    [cfg.redriveMinAgeMs],
+  );
+  const presas = Number(foraDoAlcance[0]?.n ?? '0');
+  if (presas > 0) {
+    log.warn('watchdog: mensagens presas em canal que este resgate não alcança', {
+      quantidade: presas,
+    });
+  }
 
   let sent = 0;
   for (const m of rows) {

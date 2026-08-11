@@ -36,6 +36,7 @@ const ENROLLMENT_STATUSES = [
   "active",
   "waiting_reply",
   "paused_handoff",
+  "paused_manual",
   "completed",
   "cancelled",
   "dead",

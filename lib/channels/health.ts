@@ -52,6 +52,15 @@ export const STATUS_QUE_AVISAM = ["SCAN_QR_CODE", "FAILED", "STOPPED"] as const;
 /** Marca os avisos desta origem, para resolver o do canal CERTO depois. */
 export const REF_KIND_SESSAO = "channel_session";
 
+/**
+ * Marca do episódio aberto por um EMPURRÃO do provedor.
+ *
+ * A varredura não fecha episódio com esta marca: ela mede credencial e conta,
+ * não o estado do número, e um número suspenso continua aparecendo na lista de
+ * contas. Sem a marca, o crítico de suspensão sumia da Central em ≤5 minutos.
+ */
+export const PREFIXO_EMPURRAO = "PUSH:";
+
 export interface AvisoDeConexao {
   kind: "qr_rescan" | "channel_number_alert";
   severity: "warn" | "critical";
@@ -173,6 +182,31 @@ export async function sincronizarSaudeDaConexao(
   sessao: SessaoParaVigiar,
   saude: SaudeObservada,
   apelido: string,
+  /**
+   * QUEM observou — e é o que decide se esta observação pode FECHAR o aviso.
+   *
+   * ─── O defeito que isto existe para impedir ───────────────────────────────
+   *
+   * As duas fontes medem coisas DIFERENTES:
+   *
+   *   - o empurrão do provedor fala do NÚMERO ("suspenso", "desconectado");
+   *   - a varredura fala da CREDENCIAL e da conta ("a chave responde, a conta
+   *     está na lista").
+   *
+   * Um número suspenso continua aparecendo na lista de contas. Então a
+   * varredura via `WORKING`, `avisoDaConexao` devolvia `null`, e o ramo de
+   * baixo marcava como resolvido o crítico que o empurrão tinha aberto minutos
+   * antes — com o número ainda suspenso. O aviso sumia da Central em ≤5 min e
+   * o provedor não reenvia o evento, então ninguém ficava sabendo.
+   *
+   * Trocar "aviso que nunca fecha" por "aviso que fecha sozinho sem o problema
+   * ter acabado" é o pior dos dois, porque o segundo parece que funciona.
+   *
+   * Regra: só fecha quem sabe do que está falando. O empurrão fecha qualquer
+   * episódio (ele é a autoridade sobre o número); a varredura fecha só o que
+   * ela mesma poderia ter aberto.
+   */
+  origem: "varredura" | "empurrao" = "varredura",
 ): Promise<"avisado" | "ja_avisado" | "resolvido" | "sem_mudanca"> {
   const aviso = avisoDaConexao(saude, apelido);
 
@@ -186,6 +220,11 @@ export async function sincronizarSaudeDaConexao(
 
   if (!aviso) {
     if (!jaEscalado) return "sem_mudanca";
+    // O episódio veio do provedor e quem está observando é a varredura: ela não
+    // tem como saber se o número deixou de estar suspenso. Não fecha.
+    if (origem === "varredura" && jaEscalado.startsWith(PREFIXO_EMPURRAO)) {
+      return "sem_mudanca";
+    }
     await admin
       .from("agent_inbox_items")
       .update({ status: "resolved" })
@@ -197,9 +236,14 @@ export async function sincronizarSaudeDaConexao(
     return "resolvido";
   }
 
+  // O episódio carrega QUEM o observou. Sem isso, a varredura não teria como
+  // saber que aquele crítico veio do provedor — e voltaria a fechá-lo.
+  const episodio =
+    origem === "empurrao" ? `${PREFIXO_EMPURRAO}${aviso.episodio}` : aviso.episodio;
+
   // Mesmo episódio: já foi avisado, e repetir é ruído. Um episódio DIFERENTE
   // (caiu por QR, agora está FAILED) avisa de novo — mudou o que fazer.
-  if (jaEscalado === aviso.episodio) return "ja_avisado";
+  if (jaEscalado === episodio) return "ja_avisado";
 
   await admin.from("agent_inbox_items").insert({
     organization_id: sessao.organization_id,
@@ -210,7 +254,7 @@ export async function sincronizarSaudeDaConexao(
     ref_kind: REF_KIND_SESSAO,
     ref_id: sessao.id,
   });
-  await gravarEpisodio(admin, sessao, aviso.episodio);
+  await gravarEpisodio(admin, sessao, episodio);
   return "avisado";
 }
 

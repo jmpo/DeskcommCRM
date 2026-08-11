@@ -110,6 +110,7 @@ jobs:
         confirmar-dado-do-contato.spec.ts
         risk-radar.spec.ts invite-lifecycle.spec.ts system-update.spec.ts
         agente-papeis-operador.spec.ts prova-painel-provedores.spec.ts
+        followup-linguagem.spec.ts followup-ramos.spec.ts
       SPECS_PARTE_2: >-
         agente-novo-e-uso.spec.ts agente-organiza-operacao.spec.ts
         central-de-avisos-capacidades.spec.ts escalacao-ciclo.spec.ts
@@ -121,11 +122,28 @@ jobs:
         webhooks.spec.ts
         capacidades-do-agente.spec.ts
         escopo-de-funil-do-agente.spec.ts
+        followup-dossie.spec.ts followup-tempo-adaptativo.spec.ts
+        gatilho-de-etapa.spec.ts gatilho-de-caso.spec.ts
       # Cada item aqui tem o motivo MEDIDO, não presumido — e o gate cobra que a
       # lista exista e some com as outras duas.
       #
       # `vps-fresh-onboarding`: 8 referências a WAHA/Resend/Nuvemshop/Redis. É a P0
       # da doutrina de QA Visual e fica fora por dependência de infra.
+      #
+# As CINCO specs da missão "Follow-up Vivo" (`followup-linguagem`,
+      # `followup-ramos`, `followup-dossie`, `followup-tempo-adaptativo`,
+      # `gatilho-de-etapa`) entraram nas listas de execução, e não aqui, porque a
+      # medição não dá motivo para excluí-las: grep de waha/resend/nuvemshop/redis
+      # devolve **0 em todas as cinco** (controle positivo: `vps-fresh-onboarding`
+      # devolve 17). Usam o endpoint de cron, como a `followup-journey` que já roda.
+      #
+      # ⚠️ O QUE NÃO ESTÁ MEDIDO: elas passam LOCALMENTE, e verde local não é verde
+      # de CI. Nenhuma delas rodou num job ainda — foram escritas nesta missão e
+      # ficaram fora de todas as listas, isto é, existiam e nenhum job as invocava.
+      # A primeira execução do `e2e` neste PR é que decide; se alguma reprovar por
+      # ambiente, o lugar dela é aqui embaixo COM o motivo medido, nunca uma
+      # exclusão preventiva "por garantia" — que é exatamente a dívida entrando
+      # pela porta de serviço que este bloco existe para barrar.
       #
       # `prova-painel-provedores` esteve aqui e SAIU: em 2026-08-08 o caso F3 exigia
       # mais de 50 modelos da OpenRouter e o catálogo chegava ao CI com 2 linhas — a

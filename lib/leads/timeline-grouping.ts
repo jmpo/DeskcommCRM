@@ -34,6 +34,16 @@ const NUNCA_COLAPSA = new Set([
   "reactivation_accepted",
   "reactivation_dismissed",
   "reactivation_expired",
+  // As quatro intervenções no follow-up (0145) entram pelo MESMO critério, e não
+  // por analogia: elas só nascem de alguém clicando — o motor não pausa, não
+  // adia e não pula. E a janela de 60s as pegaria todas juntas, porque quem
+  // intervém costuma fazer duas coisas seguidas (pausa e adia). Escondidas atrás
+  // de um "+", o próximo atendente abriria o card e não veria que uma pessoa
+  // segurou o fluxo — que é a única razão de a linha existir.
+  "followup_paused",
+  "followup_resumed",
+  "followup_snoozed",
+  "followup_step_skipped",
 ]);
 
 /** Janela do agrupamento. O contrato fala em "mesmo minuto". */

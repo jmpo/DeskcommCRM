@@ -24,6 +24,19 @@ export interface EventRow {
   metadata: Record<string, unknown>;
   consumed_by: string[];
   attempts: number;
+  /**
+   * Quando o evento foi EMITIDO — não quando foi lido.
+   *
+   * ⚠️ OPCIONAL DE PROPÓSITO, e a razão é o raio: 26 arquivos constroem um
+   * `EventRow`, a maioria fixtures de teste de outras features. Torná-lo
+   * obrigatório quebraria todas elas por uma necessidade de um consumidor só.
+   * O caminho de PRODUÇÃO sempre o traz — `drain.ts` o seleciona.
+   *
+   * Quem depende dele para DESCARTAR (ex.: teto de idade contra backlog de
+   * `pending`) tem de falhar ABERTO quando ele faltar: sem a idade não dá para
+   * afirmar que o evento é velho, e descartar na dúvida perderia um evento bom.
+   */
+  created_at?: string;
 }
 
 export interface HandlerResult {

@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import { useSendMessage } from "@/hooks/inbox/useSendMessage";
 import { fonteDeTemplates, rotaDeTemplates } from "@/lib/channels/templates-fonte";
+import { lerConteudo } from "@/lib/channels/template-conteudo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -39,6 +40,20 @@ interface ModeloAprovado {
   language: string;
   status: string;
   slots?: unknown[];
+  /** A definição aprovada. É de onde sai o texto que vai no `body` do envio. */
+  components?: unknown[];
+}
+
+/**
+ * O texto da definição aprovada, que vai no `body` do envio.
+ *
+ * Cai para o nome do modelo quando a definição não trouxer corpo: um `body`
+ * vazio reprovaria no mesmo schema que este conserto existe para satisfazer, e
+ * a conversa mostraria uma bolha em branco. O nome é pior que o texto e melhor
+ * que nada — e só acontece em definição sem BODY, que a plataforma não aprova.
+ */
+function textoDoModelo(modelo: ModeloAprovado): string {
+  return lerConteudo(modelo.components ?? []).body?.trim() || modelo.name;
 }
 
 export function JanelaFechadaAviso({
@@ -82,6 +97,18 @@ export function JanelaFechadaAviso({
         type: "template",
         template_name: atual.name,
         template_language: atual.language,
+        // ─── O `body` NÃO é decorativo: sem ele o envio nem sai ──────────────
+        //
+        // `sendMessageSchema` exige `body`, `media_url` ou `media_storage_path`.
+        // A primeira versão desta tela mandava só o nome do modelo, e o pedido
+        // morria em 422 ANTES de tocar o transporte — o seletor aparecia, o
+        // operador escolhia, e nada acontecia. Com a janela fechada esta é a
+        // única saída que ele tem, então o botão que não envia é o pior lugar
+        // possível para um defeito silencioso.
+        //
+        // O texto renderizado é também o que a conversa mostra depois: é o
+        // mesmo caminho que o agente já usa quando manda modelo.
+        body: textoDoModelo(atual),
       },
       {
         onSuccess: () => {
