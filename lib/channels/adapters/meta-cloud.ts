@@ -21,7 +21,7 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveMetaCreds } from "../meta/credentials";
-import type { ChannelAdapter, OutboundEnvelope, RecipientInput } from "../types";
+import type { ChannelAdapter, ChannelHealth, OutboundEnvelope, RecipientInput } from "../types";
 
 /** Só dígitos. `+55 (31) 99896-6398` → `5531998966398`. */
 function toE164Digits(raw: string): string {
@@ -80,10 +80,82 @@ export const metaCloudAdapter: ChannelAdapter = {
     return digits.length > 0 ? digits : null;
   },
 
+  /**
+   * DÍVIDA CONHECIDA, deixada de propósito — não é descuido.
+   *
+   * A credencial deste canal também pode viver na SESSÃO (a tela de "Conectar
+   * canal oficial" grava `meta_token_encrypted` desde a 0118), e `isConfigured`
+   * é síncrono: não consulta o banco. Numa instalação que conectou pela tela e
+   * não escreveu `.env`, isto devolve `false`, e o handler (`_handler.ts:370`)
+   * grava `queued` com `queued_reason: meta_not_configured` sem nunca chamar
+   * `send` — mensagem parada no inbox, sem erro, com o canal conectado.
+   *
+   * O canal intermediado JÁ passou por isso e resolveu devolvendo `true` e
+   * fazendo o `send` lançar (ver `adapters/zernio.ts`). O mesmo conserto cabe
+   * aqui, mas ele muda um contrato com dois testes explícitos
+   * (`tests/unit/channel-adapter-meta.test.ts`) cuja justificativa escrita é
+   * "mesmo contrato do outro canal" — justificativa que o fork já não sustenta.
+   *
+   * Trocar contrato testado exige uma mudança própria, com os testes revistos de
+   * propósito e não de passagem. Fica registrado aqui para quem for fazê-la.
+   */
   isConfigured(): boolean {
     // Síncrono por contrato. Com credencial na sessão, quem confirma é o `send`
     // (async) — ver o comentário acima.
     return metaCredsFromEnv() !== null;
+  },
+
+  /**
+   * Pergunta à plataforma se o número ainda responde.
+   *
+   * Sem este método o cron de saúde PULAVA a sessão (`if (!adapter.checkHealth)
+   * continue`), sem log e sem contador: token vencido, número suspenso ou
+   * permissão removida viravam silêncio absoluto com a tela dizendo
+   * "conectado". E este canal não tem sequer o empurrão que o intermediado tem
+   * — `lib/channels/meta/webhook.ts` só trata `messages` e status de template,
+   * não `account_update` nem `phone_number_quality_update`.
+   *
+   * Reusa a MESMA chamada da validação de credencial: `GET /{phone_number_id}`.
+   * O `sessionRef` deste canal É o `phone_number_id` (ver `resolveSessionRef`),
+   * então ele já é a chave da consulta.
+   *
+   * `error` no corpo com HTTP 200 é comportamento real da Graph API, por isso a
+   * checagem olha os dois. Erro de rede devolve `reachable: false` sem status:
+   * uma oscilação virando "canal caído" ensinaria o operador a ignorar o aviso.
+   */
+  async checkHealth(input: { sessionRef: string }): Promise<ChannelHealth> {
+    const creds = await resolveMetaCreds(createAdminClient(), input.sessionRef);
+    if (!creds) return { reachable: false, status: null, detail: "sem_credencial_para_a_sessao" };
+
+    const version = process.env.META_GRAPH_VERSION ?? "v22.0";
+    try {
+      const res = await fetch(
+        `https://graph.facebook.com/${version}/${input.sessionRef}?fields=display_phone_number,quality_rating`,
+        {
+          headers: { Authorization: `Bearer ${creds.token}` },
+          // Teto de espera: um endpoint que pendura a conexão penduraria o cron
+          // junto, e a varredura pararia para TODAS as sessões.
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: { message?: string; code?: number };
+      };
+
+      if (res.status === 401 || res.status === 403) {
+        return { reachable: true, status: "FAILED", detail: null };
+      }
+      if (!res.ok || body.error) {
+        // A Graph devolve 400 com `error.code` para token vencido — que é falha
+        // de credencial, não indisponibilidade. Tratar como "não sei" deixaria
+        // justamente a falha calada sem aviso.
+        return { reachable: true, status: "FAILED", detail: (body.error?.message ?? "").slice(0, 200) || null };
+      }
+      return { reachable: true, status: "WORKING", detail: null };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "erro_desconhecido";
+      return { reachable: false, status: null, detail: detail.slice(0, 200) };
+    }
   },
 
   codes: {
