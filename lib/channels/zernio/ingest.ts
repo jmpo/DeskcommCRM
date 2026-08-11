@@ -119,6 +119,14 @@ export async function ingestZernioInbound(
     }
     if (inseridaNaExistente !== "duplicate") {
       await marcarConversa(admin, existente.id, msg);
+      if (msg.attachments[0]?.url) {
+        await pedirPersistenciaDaMidia(
+          admin,
+          input.organizationId,
+          existente.id,
+          inseridaNaExistente,
+        );
+      }
     }
     return inseridaNaExistente === "duplicate"
       ? { status: "duplicate", conversationId: existente.id }
@@ -154,6 +162,9 @@ export async function ingestZernioInbound(
   if (inserted === "duplicate") return { status: "duplicate", conversationId };
 
   await marcarConversa(admin, conversationId, msg);
+  if (msg.attachments[0]?.url) {
+    await pedirPersistenciaDaMidia(admin, input.organizationId, conversationId, inserted);
+  }
   return { status: "ingested", conversationId, messageId: inserted };
 }
 
@@ -202,6 +213,39 @@ async function marcarConversa(
   if (error) {
     logger.warn("[zernio] carimbo da conversa falhou", {
       conversationId,
+      detail: error.message,
+    });
+  }
+}
+
+/**
+ * Pede a persistência dos bytes do anexo.
+ *
+ * Mesmo evento e mesmo payload que o canal por QR emite — o consumidor é o
+ * único (`workers/media-persist-worker.ts`), e um payload diferente por canal
+ * faria o worker adivinhar de quem veio.
+ *
+ * Best-effort: a mensagem já está gravada e visível. Derrubar a ingestão aqui
+ * devolveria 500 ao provider, que reenviaria tudo — trocaria uma mídia
+ * faltando por uma tempestade de reentregas.
+ */
+async function pedirPersistenciaDaMidia(
+  admin: SupabaseClient,
+  organizationId: string,
+  conversationId: string,
+  messageId: string,
+): Promise<void> {
+  const { error } = await admin.rpc("emit_event" as never, {
+    p_event_type: "media.persist_requested",
+    p_entity_kind: "message",
+    p_entity_id: messageId,
+    p_payload: { message_id: messageId, conversation_id: conversationId },
+    p_metadata: { source: "zernio_webhook" },
+    p_organization_id: organizationId,
+  } as never);
+  if (error) {
+    logger.warn("[zernio] emit media.persist_requested falhou", {
+      messageId,
       detail: error.message,
     });
   }
@@ -349,9 +393,16 @@ async function insertMessage(
       type: temAnexo ? tipoDoAnexo(primeiro?.type) : "text",
       body: msg.text,
       // A URL do anexo NÃO é pública: é endpoint autenticado do provider, e a
-      // plataforma descarta a mídia depois de um tempo. Guardar a URL aqui é
-      // ponteiro para algo que expira — quem for baixar usa
-      // `zernioMediaFetchInit` e persiste os bytes.
+      // plataforma descarta a mídia depois de um tempo. Ela é PONTEIRO, não
+      // conteúdo — e é por isso que grava aqui e o worker baixa os bytes já.
+      //
+      // Antes esta linha guardava os anexos só no `metadata`, e `media_url`
+      // ficava nulo: o worker de persistência saía com "no media_url" e a
+      // mídia do cliente virava linha sem bytes. O atendente via "imagem" sem
+      // imagem — e como ele responde à mão, era o pior defeito do canal.
+      ...(temAnexo && primeiro?.url
+        ? { media_url: primeiro.url, media_mime: mimeDoAnexo(primeiro.type) }
+        : {}),
       metadata: temAnexo ? { provider_attachments: msg.attachments } : {},
       ...(msg.sentAt ? { sent_at: msg.sentAt } : {}),
     })
@@ -366,6 +417,26 @@ async function insertMessage(
   if (error || !data) throw new Error(`zernio_ingest_insert_failed: ${error?.message ?? "sem id"}`);
 
   return (data as { id: string }).id;
+}
+
+/**
+ * Dica de mime a partir do tipo declarado no webhook.
+ *
+ * DICA, não verdade: quem manda é o `content-type` da resposta ao baixar. Serve
+ * para a tela ter o que mostrar antes de os bytes chegarem, e para o caso em
+ * que o provider não devolve o cabeçalho.
+ */
+function mimeDoAnexo(tipo: string | undefined): string | null {
+  switch (tipo) {
+    case "image":
+      return "image/jpeg";
+    case "video":
+      return "video/mp4";
+    case "audio":
+      return "audio/ogg";
+    default:
+      return null;
+  }
 }
 
 /** Tipo do anexo do provider → vocabulário de `messages.type`. */

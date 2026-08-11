@@ -34,9 +34,11 @@
  *    conviverem.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { FetchedMedia } from "@/lib/messaging/media/types";
 
 import { resolveZernioCreds } from "../zernio/credentials";
 import { zernioTemplateOps } from "../zernio/templates";
+import { zernioMediaFetchInit } from "../zernio/webhook";
 import type { ChannelAdapter, OutboundEnvelope, RecipientInput } from "../types";
 
 /** Só dígitos. `+595 (99) 173-3685` → `595991733685`. */
@@ -276,6 +278,39 @@ export const zernioAdapter: ChannelAdapter = {
     }
 
     return { externalId: json?.data?.messageId ?? null };
+  },
+
+  /**
+   * Baixa o anexo que o cliente mandou.
+   *
+   * A URL do provider é endpoint AUTENTICADO, não link público: buscá-la sem o
+   * Bearer devolve 401, e a plataforma descarta a mídia depois de um tempo,
+   * quando passa a devolver 400. Por isso o `zernioMediaFetchInit` existe desde
+   * que o canal entrou — e ficou sem um único chamador de produção, que é
+   * exatamente por que a mídia recebida aqui nunca virou bytes.
+   */
+  async fetchInboundMedia(input: {
+    sessionRef: string;
+    url: string;
+    hintMime?: string | null;
+  }): Promise<FetchedMedia> {
+    const admin = createAdminClient();
+    const creds = await resolveZernioCreds(admin, input.sessionRef);
+    if (!creds) throw new Error("zernio_not_configured: sem credencial para baixar a mídia.");
+
+    const res = await fetch(input.url, zernioMediaFetchInit(creds.apiKey));
+    if (!res.ok) {
+      // 400 costuma ser mídia já descartada pela plataforma, e 401 credencial —
+      // desfechos diferentes, e o status no erro é o que distingue os dois para
+      // quem for investigar depois.
+      throw new Error(`zernio_media_failed: ${res.status} ${res.statusText}`.trim());
+    }
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    // O `content-type` da resposta manda sobre a dica do webhook: é o que o
+    // arquivo REALMENTE é, e é ele que vai no `contentType` do upload.
+    const mime = res.headers.get("content-type")?.split(";")[0]?.trim() || input.hintMime || "application/octet-stream";
+    return { buffer, mime };
   },
 
   /** Gestão das definições aprovadas — ver `../zernio/templates.ts`. */

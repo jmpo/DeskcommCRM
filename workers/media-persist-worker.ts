@@ -11,8 +11,15 @@
  * reprocessar).
  */
 import type { EventRow, HandlerResult } from "@/lib/event-log/dispatcher";
+import {
+  CHANNEL_SESSION_REF_COLUMNS,
+  DEFAULT_CHANNEL_PROVIDER,
+  getAdapter,
+  resolveSessionRef,
+  type ChannelProvider,
+  type ChannelSessionRef,
+} from "@/lib/channels";
 import { storagePathFor } from "@/lib/messaging/media/types";
-import { fetchWahaMedia } from "@/lib/messaging/media/waha-source";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -25,6 +32,7 @@ export const MEDIA_PERSIST_CONSUMER_KEY = "media_persist_v1";
 const DRAIN_MAX_ATTEMPTS = 5;
 
 interface MessageMediaRow {
+  channel_session_id: string;
   id: string;
   organization_id: string;
   conversation_id: string;
@@ -42,7 +50,12 @@ export async function persistMessageMedia(row: EventRow): Promise<HandlerResult>
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("messages")
-    .select("id, organization_id, conversation_id, media_url, media_mime, media_storage_path, metadata")
+    // `channel_session_id` entra no select porque é ele que resolve QUEM baixa.
+    // Sem a coluna, o worker não tem como pedir o adapter e voltaria a
+    // depender de uma função fixa de um canal só.
+    .select(
+      "id, organization_id, conversation_id, channel_session_id, media_url, media_mime, media_storage_path, metadata",
+    )
     .eq("id", messageId)
     .eq("organization_id", row.organization_id)
     .maybeSingle();
@@ -65,7 +78,36 @@ export async function persistMessageMedia(row: EventRow): Promise<HandlerResult>
 
   let media;
   try {
-    media = await fetchWahaMedia(msg.media_url, msg.media_mime);
+    // Pelo ADAPTER, não por uma função fixa. Antes esta linha era
+    // `fetchWahaMedia(...)` direto: mídia recebida por qualquer outro canal
+    // virava linha SEM bytes, e o atendente via "imagem" sem imagem. Medido em
+    // produção: 423 persistências no canal por QR, ZERO no intermediado.
+    //
+    // O worker não pergunta QUAL canal é — o invariante 1 proíbe e o
+    // `lint:channels` reprova. Ele pede a sessão, pede o adapter e testa a
+    // presença do método.
+    const { data: sessao } = await admin
+      .from("channel_sessions")
+      .select(`provider, ${CHANNEL_SESSION_REF_COLUMNS}`)
+      .eq("id", msg.channel_session_id)
+      .maybeSingle();
+
+    const adapter = getAdapter(
+      ((sessao?.provider as string) ?? DEFAULT_CHANNEL_PROVIDER) as ChannelProvider,
+    );
+    const sessionRef = sessao ? resolveSessionRef(sessao as unknown as ChannelSessionRef) : null;
+    if (!adapter.fetchInboundMedia || !sessionRef) {
+      // Canal que não sabe baixar não é erro: é o estado normal de um canal sem
+      // mídia de entrada. Marcar `failed` faria a Central acusar um defeito que
+      // não existe.
+      return { consumer_key, status: "skipped", detail: "canal_sem_midia_de_entrada" };
+    }
+
+    media = await adapter.fetchInboundMedia({
+      sessionRef,
+      url: msg.media_url,
+      hintMime: msg.media_mime,
+    });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     if (isLastAttempt) {

@@ -4,6 +4,7 @@
 // do provider. Quando a Fase 3 absorver `lib/waha/`, este é o único ponteiro a
 // mudar de casa.
 import type { SendMessageInput } from "@/lib/schemas";
+import type { FetchedMedia } from "@/lib/messaging/media/types";
 import type { OutboundMedia } from "@/lib/waha/media-send";
 
 export type { OutboundMedia };
@@ -216,6 +217,32 @@ export interface ChannelAdapter {
    * OPCIONAL como os demais: quem não implementa continua pelo caminho antigo,
    * e quem chama testa a presença em vez de perguntar QUAL provider é.
    */
+  /**
+   * Baixa a mídia que o cliente MANDOU, para persistir os bytes.
+   *
+   * Existe porque `workers/media-persist-worker.ts` chamava `fetchWahaMedia`
+   * fixo: a mídia recebida por qualquer outro canal era gravada como linha SEM
+   * bytes, e o atendente via "imagem" sem imagem. Medido em produção: 423
+   * persistências no canal por QR, ZERO no intermediado.
+   *
+   * O worker não pode perguntar QUAL canal é — o invariante 1 proíbe, e o
+   * `lint:channels` reprova. Ele pede o adapter e chama isto.
+   *
+   * A URL é ponteiro para algo que EXPIRA e quase nunca é pública: um canal
+   * assina com Bearer, outro resolve host próprio. O que cada um faz é
+   * conhecimento do canal, não de quem persiste.
+   *
+   * OPCIONAL: canal sem mídia de entrada não implementa, e quem chama testa a
+   * presença em vez de perguntar quem é.
+   */
+  fetchInboundMedia?(input: {
+    sessionRef: string;
+    /** A URL como o provider a anunciou. Cada canal sabe o que fazer com ela. */
+    url: string;
+    /** Mime declarado no webhook, quando houve. Dica, não verdade. */
+    hintMime?: string | null;
+  }): Promise<FetchedMedia>;
+
   sendTemplate?(input: {
     sessionRef: string;
     to: string;

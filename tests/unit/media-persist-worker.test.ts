@@ -15,12 +15,17 @@ const messageRow = {
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          eq: () => ({ maybeSingle: async () => ({ data: messageRow, error: null }) }),
-        }),
-      }),
+    // Duas consultas agora, e cada uma com um encadeamento diferente: a
+    // mensagem casa por `id` + `organization_id` (dois `eq`), a SESSÃO casa só
+    // por `id` (um `eq`). O dublê responde pela TABELA porque, sem isso, a
+    // consulta da sessão receberia a linha da mensagem — e o worker cairia em
+    // "canal sem mídia" achando que a sessão não existe.
+    from: (tabela: string) => ({
+      select: () => {
+        const linha = tabela === "channel_sessions" ? sessionRow : messageRow;
+        const resolvido = { maybeSingle: async () => ({ data: linha, error: null }) };
+        return { eq: () => ({ ...resolvido, eq: () => resolvido }) };
+      },
       update: (patch: Record<string, unknown>) => {
         updateEqMock(patch);
         return { eq: () => ({ eq: async () => ({ error: null }) }) };
@@ -30,6 +35,21 @@ vi.mock("@/lib/supabase/admin", () => ({
     rpc: rpcMock,
   }),
 }));
+
+/**
+ * A sessão que o worker resolve para escolher QUEM baixa.
+ *
+ * `provider: "waha"` mantém este arquivo exercitando o mesmo caminho de sempre —
+ * o que muda é que agora ele passa pelo adapter em vez de chamar o transporte
+ * fixo. Se o dublê não existisse, o worker sairia em "canal sem mídia" e todos
+ * os casos abaixo passariam por AUSÊNCIA.
+ */
+const sessionRow = {
+  provider: "waha",
+  waha_session_name: "default",
+  meta_phone_number_id: null,
+  zernio_account_id: null,
+};
 
 vi.mock("@/lib/messaging/media/waha-source", () => ({
   fetchWahaMedia: vi.fn(async () => ({ buffer: Buffer.from([1, 2, 3]), mime: "image/jpeg" })),

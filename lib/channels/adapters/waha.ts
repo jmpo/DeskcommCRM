@@ -5,10 +5,12 @@
  *
  * Nenhuma regra de negócio mora neste arquivo (ver `ChannelAdapter` em ../types).
  */
+import { fetchWahaMedia } from "@/lib/messaging/media/waha-source";
 import { getWahaClient } from "@/lib/waha/client";
 import { wahaSendPlanFor } from "@/lib/waha/media-send";
 import { bareWaMessageId, parseWahaMessageId } from "@/lib/waha/message-id";
 import { resolveWahaChatId } from "@/lib/waha/send";
+import type { FetchedMedia } from "@/lib/messaging/media/types";
 import type { ChannelAdapter, ChannelHealth, OutboundEnvelope, RecipientInput } from "../types";
 
 export const wahaAdapter: ChannelAdapter = {
@@ -103,6 +105,25 @@ export const wahaAdapter: ChannelAdapter = {
       if (msg.includes("404")) return { reachable: true, status: "STOPPED", detail: null };
       return { reachable: false, status: null, detail: msg.slice(0, 200) };
     }
+  },
+
+  /**
+   * Baixa o anexo que o cliente mandou.
+   *
+   * Delega em `fetchWahaMedia`, que o worker de persistência chamava FIXO — era
+   * essa linha que fazia a mídia de qualquer outro canal virar linha sem bytes.
+   * O comportamento aqui é idêntico ao de antes: mesma função, mesmos
+   * argumentos. O que mudou é quem a escolhe.
+   */
+  async fetchInboundMedia(input: {
+    sessionRef: string;
+    url: string;
+    hintMime?: string | null;
+  }): Promise<FetchedMedia> {
+    // Devolve o objeto INTEIRO, sem remontar campo a campo: `FetchedMedia` é o
+    // mesmo tipo dos dois lados, e reconstruí-lo faria a próxima adição de
+    // campo sumir em silêncio aqui no meio.
+    return fetchWahaMedia(input.url, input.hintMime ?? null);
   },
 
   async send(envelope: OutboundEnvelope): Promise<{ externalId: string | null }> {
