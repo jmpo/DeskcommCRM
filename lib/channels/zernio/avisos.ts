@@ -27,6 +27,8 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { SaudeObservada } from "../health";
+
 export interface AvisoDeCanal {
   kind: "channel_template_review" | "channel_number_alert";
   severity: "info" | "warn" | "critical";
@@ -112,6 +114,65 @@ export function avisoDoEvento(payload: unknown): AvisoDeCanal | null {
     };
   }
 
+  return null;
+}
+
+/**
+ * O evento fala da CONEXÃO? Então ele é uma observação de saúde.
+ *
+ * ─── Por que isto não podia continuar sendo só um aviso ─────────────────────
+ *
+ * `registrarAviso` insere em `agent_inbox_items` SEM `ref_kind` nem `ref_id`, e
+ * sem tocar em `channel_sessions` nem em `channel_session_health`. Três
+ * consequências, todas medidas na leitura do código:
+ *
+ *   - o resolvedor de `lib/channels/health.ts` fecha avisos filtrando por
+ *     `ref_kind` + `ref_id`. Sem esses campos ele nunca alcança este aviso, e o
+ *     CRÍTICO fica `open` para sempre — mesmo depois da conta voltar;
+ *   - o dedup de `registrarAviso` é por (kind, title, open), e o
+ *     `account.connected` tem título DIFERENTE do `account.disconnected`. Então
+ *     a volta abria um `info` novo em vez de fechar o crítico;
+ *   - a faixa vermelha do topo lê `channel_sessions.status`, que ninguém
+ *     escrevia aqui.
+ *
+ * Aviso que não se fecha sozinho ensina o operador a desconfiar da Central — é
+ * a doutrina escrita no arquivo vizinho, e vale exatamente aqui.
+ *
+ * Devolve `null` para o que NÃO é conexão (revisão de modelo), porque esse
+ * continua sendo aviso puro: não diz nada sobre o canal estar de pé.
+ */
+export function saudeDoEvento(payload: unknown): SaudeObservada | null {
+  const p = obj(payload);
+  if (!p) return null;
+  const evento = str(p.event) ?? "";
+
+  // O canal está de pé de novo. `WORKING` é o que faz o resolvedor fechar o
+  // episódio aberto — e é por isso que a boa notícia precisa passar por aqui.
+  const DE_PE = new Set([
+    "account.connected",
+    "whatsapp.number.activated",
+    "whatsapp.number.reactivated",
+    "verification.approved",
+  ]);
+
+  // Credencial/permissão recusada: existe e não vale mais. O operador troca ou
+  // refaz a verificação.
+  const RECUSADO = new Set([
+    "whatsapp.number.suspended",
+    "whatsapp.number.declined",
+    "verification.failed",
+  ]);
+
+  // A sessão não existe mais do lado de lá. O operador reconecta.
+  const SUMIU = new Set(["account.disconnected", "whatsapp.number.released"]);
+
+  if (DE_PE.has(evento)) return { reachable: true, status: "WORKING", detail: null };
+  if (RECUSADO.has(evento)) return { reachable: true, status: "FAILED", detail: evento };
+  if (SUMIU.has(evento)) return { reachable: true, status: "STOPPED", detail: evento };
+
+  // `verification_required` e `action_required` pedem ação mas NÃO derrubam o
+  // envio. Tratá-los como queda faria a faixa vermelha acender num canal que
+  // está mandando mensagem — e o operador aprenderia a ignorá-la.
   return null;
 }
 

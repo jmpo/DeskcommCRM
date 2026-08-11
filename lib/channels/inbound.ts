@@ -19,7 +19,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { CHANNEL_PROVIDER_ZERNIO } from "./capabilities";
-import { atualizarEspelhoDoTemplate, avisoDoEvento, registrarAviso } from "./zernio/avisos";
+import { sincronizarSaudeDaConexao } from "./health";
+import {
+  atualizarEspelhoDoTemplate,
+  avisoDoEvento,
+  registrarAviso,
+  saudeDoEvento,
+} from "./zernio/avisos";
 import { aplicarEdicaoZernio, ingestZernioInbound } from "./zernio/ingest";
 import { parseZernioEdicao, verifyZernioSignature } from "./zernio/webhook";
 import type { ChannelProvider } from "./types";
@@ -100,6 +106,30 @@ async function zernioInbound(
     // precisa mostrar o estado novo. Ver o estado velho depois de ler o aviso é
     // pior que não ter avisado.
     const espelhado = await atualizarEspelhoDoTemplate(admin, input.session.organization_id, payload);
+
+    // ─── Evento de CONEXÃO passa pelo vigia, não por um insert cru ──────────
+    //
+    // `sincronizarSaudeDaConexao` é quem grava o episódio, carimba
+    // `ref_kind`+`ref_id` no ítem e — a metade que faltava — RESOLVE o aviso
+    // quando a conta volta. Chamando `registrarAviso` direto, o crítico ficava
+    // aberto para sempre e a reconexão abria um `info` novo ao lado dele.
+    //
+    // Um caminho só: quem entra aqui NÃO passa também pelo insert cru, senão a
+    // Central mostraria o mesmo problema duas vezes.
+    const saude = saudeDoEvento(payload);
+    if (saude) {
+      const desfecho = await sincronizarSaudeDaConexao(
+        admin,
+        // O `status` que vai para `channel_session_health` é o OBSERVADO agora,
+        // não o guardado: quem acabou de falar foi o provedor, e a linha do
+        // episódio serve justamente para registrar o que ele disse.
+        { id: input.session.id, organization_id: input.session.organization_id, status: saude.status },
+        saude,
+        aviso.title,
+      );
+      return { ok: true, body: { status: "saude", kind: aviso.kind, desfecho, espelhado } };
+    }
+
     const desfecho = await registrarAviso(admin, input.session.organization_id, aviso);
     return { ok: true, body: { status: "aviso", kind: aviso.kind, desfecho, espelhado } };
   }
