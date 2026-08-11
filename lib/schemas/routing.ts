@@ -9,6 +9,8 @@
  */
 import { z } from "zod";
 
+import { fusoValido } from "@/lib/tempo/fusos";
+
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /** Modos de roteamento no MVP (decisão G1-06b); "load" fica pós-MVP. */
@@ -70,7 +72,25 @@ export type ScheduleWindow = z.infer<typeof scheduleWindowSchema>;
  * falta de janela; janelas EXISTEM para RESTRINGIR.
  */
 export const availabilityScheduleSchema = z.object({
-  timezone: z.string().min(1).max(64).default("America/Sao_Paulo"),
+  /**
+   * VALIDADO contra o runtime, e não só por tamanho.
+   *
+   * `localMoment` (lib/routing/eligibility) usa `Intl.DateTimeFormat` com este
+   * valor, e o `Intl` LANÇA `RangeError` num fuso que não existe. Antes desta
+   * checagem, `z.string().min(1).max(64)` aceitava qualquer coisa: digitar
+   * `America/Asunción` — com o acento que um hispanofalante escreve natural —
+   * salvava sem reclamar e derrubava a avaliação de disponibilidade de TODO
+   * atendente com aquela agenda.
+   *
+   * O defeito não aparecia na tela que o causava: aparecia no roteamento, como
+   * atendente que nunca fica elegível.
+   */
+  timezone: z
+    .string()
+    .min(1)
+    .max(64)
+    .refine(fusoValido, "fuso horário inválido (ex.: America/Asuncion)")
+    .default("America/Sao_Paulo"),
   windows: z.array(scheduleWindowSchema).max(50).default([]),
 });
 export type AvailabilitySchedule = z.infer<typeof availabilityScheduleSchema>;

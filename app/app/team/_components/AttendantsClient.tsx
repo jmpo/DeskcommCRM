@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import { FUSOS_OFERECIDOS } from "@/lib/tempo/fusos";
 
 import {
   useAttendants,
@@ -115,12 +116,22 @@ function ScheduleDialog({
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="tz">Fuso horário</Label>
-            <Input
+            {/* Mesma razão do painel anti-banimento, e aqui o custo é maior:
+                este fuso é lido por `localMoment`, que LANÇA num fuso inexistente
+                — e o atendente com agenda quebrada nunca fica elegível, sem que
+                nada na tela diga por quê. */}
+            <select
               id="tz"
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
-              placeholder="America/Sao_Paulo"
-            />
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            >
+              {FUSOS_OFERECIDOS.map((f) => (
+                <option key={f.codigo} value={f.codigo}>
+                  {f.rotulo} — {f.codigo}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="space-y-2">
