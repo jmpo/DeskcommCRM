@@ -11,7 +11,14 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { fail } from "@/lib/api/wrappers";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
-import { fetchWahaMedia } from "@/lib/messaging/media/waha-source";
+import {
+  CHANNEL_SESSION_REF_COLUMNS,
+  DEFAULT_CHANNEL_PROVIDER,
+  getAdapter,
+  resolveSessionRef,
+  type ChannelProvider,
+  type ChannelSessionRef,
+} from "@/lib/channels";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -45,7 +52,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
   // Filtro explícito de organization_id por doutrina (defense-in-depth).
   const { data: msg, error } = await supabase
     .from("messages")
-    .select("id, media_url, media_mime, media_storage_path")
+    .select("id, media_url, media_mime, media_storage_path, channel_session_id")
     .eq("id", messageId)
     .eq("organization_id", activeOrg.orgId)
     .maybeSingle();
@@ -71,11 +78,40 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
     }
   }
 
-  // Fallback: worker ainda não persistiu — proxy server-side do WAHA
-  // (o browser não alcança o WAHA nem tem a api key).
+  // ── Fallback: o worker ainda não persistiu ──────────────────────────────────
+  //
+  // O drain é cron de minuto a minuto, então esta janela é diária: quem abre a
+  // conversa antes da persistência cai aqui. O browser não alcança o transporte
+  // nem tem a credencial, por isso o proxy é server-side.
+  //
+  // Pelo ADAPTER, não por uma função fixa. Esta era literalmente a linha que o
+  // conserto do worker removeu de lá e esqueceu aqui: com `fetchWahaMedia` em
+  // duro, o path de um anexo do canal intermediado era procurado dentro do
+  // contêiner do canal por QR — 404, e a tela dizia "mídia indisponível".
   if (msg.media_url) {
     try {
-      const media = await fetchWahaMedia(msg.media_url, msg.media_mime);
+      const admin = createAdminClient();
+      const { data: sessao } = await admin
+        .from("channel_sessions")
+        .select(`provider, ${CHANNEL_SESSION_REF_COLUMNS}`)
+        .eq("id", msg.channel_session_id)
+        .maybeSingle();
+
+      const adapter = getAdapter(
+        ((sessao?.provider as string) ?? DEFAULT_CHANNEL_PROVIDER) as ChannelProvider,
+      );
+      const sessionRef = sessao ? resolveSessionRef(sessao as unknown as ChannelSessionRef) : null;
+      if (!adapter.fetchInboundMedia || !sessionRef) {
+        // Canal sem mídia de entrada não é defeito: é estado normal. 404 diz a
+        // verdade ("não há o que servir"); 502 acusaria uma falha inexistente.
+        return fail("not_found", "Mensagem sem mídia.", 404, { requestId });
+      }
+
+      const media = await adapter.fetchInboundMedia({
+        sessionRef,
+        url: msg.media_url,
+        hintMime: msg.media_mime,
+      });
       return new Response(new Uint8Array(media.buffer), {
         status: 200,
         headers: {
