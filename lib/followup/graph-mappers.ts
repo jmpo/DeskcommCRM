@@ -1,5 +1,6 @@
 import type { Node, Edge } from "@xyflow/react";
 
+import { branchIdForCondition, nodeBranches } from "./graph-schema";
 import type { FlowGraph, FlowNode, FlowEdge, NodeType } from "./graph-schema";
 
 /**
@@ -25,12 +26,24 @@ export function toReactFlow(graph: FlowGraph): { nodes: RFNode[]; edges: RFEdge[
     position: { x: n.position.x, y: n.position.y },
     data: { label: n.label, config: n.config },
   }));
-  const edges: RFEdge[] = graph.edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    data: { priority: e.priority, condition: e.condition },
-  }));
+  const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const edges: RFEdge[] = graph.edges.map((e) => {
+    const source = nodesById.get(e.source);
+    // `sourceHandle` é DERIVADO, nunca guardado: a verdade da aresta é a
+    // `condition`. Sem recalcular aqui, reabrir um fluxo salvo desenharia toda
+    // aresta saindo da primeira bolinha — o roteamento continuaria certo e só o
+    // desenho mentiria, que é o tipo de defeito que ninguém percebe a tempo.
+    const branches = source ? nodeBranches(source) : [];
+    const branchId = source ? branchIdForCondition(source, e.condition) : null;
+    const sourceHandle = branches.length > 1 && branchId !== null ? branchId : undefined;
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      ...(sourceHandle !== undefined ? { sourceHandle } : {}),
+      data: { priority: e.priority, condition: e.condition },
+    };
+  });
   return { nodes, edges };
 }
 

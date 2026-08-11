@@ -23,6 +23,7 @@ ser fonte sem ninguém decidir isso.
 | `ia-360-organizar.architecture.json` | IA 360 W4 — o agente organiza a operação: 18 peças, 24 arestas; uma regra por operação servindo REST e MCP, a autoria da configuração ao lado do estado, e **quatro não-ligações declaradas** (autoria não aponta para `ai_agents`; o agente não escreve regra automática, nem resposta pronta, nem o vocabulário canônico de marcadores) |
 | `ia-360-retencao.architecture.json` | pacote **Não perder o cliente** (IA 360 · wave 2) — 26 peças, 36 arestas; a regra única do retorno para o motor e para a capacidade configurável, e por que cancelado precisou deixar de ser igual a disparado |
 | `escalacao-ciclo-humano.architecture.json` | o ciclo agente ↔ pessoa — 30 peças, 38 arestas; as **três** travas da passagem (só uma era solta) e por onde a decisão da pessoa volta ao contexto do turno |
+| `followup-dossie.architecture.json` | dossiê do follow-up e intervenção humana — 20 peças, 30 arestas; as **duas metades** da corrida contra o motor (o tick reclamado e o turno em voo) e quatro não-ligações declaradas |
 
 
 ### Aviso: só o `agent-turn.workflow.json` é renderizável hoje

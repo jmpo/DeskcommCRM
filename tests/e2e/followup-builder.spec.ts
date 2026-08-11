@@ -134,8 +134,19 @@ test.describe("followup flows — lista + criação (Task 6.1)", () => {
  * `steps` on the 2nd move gives React Flow's connection-line drag enough
  * intermediate pointermove events to register the gesture reliably.
  */
-async function connectHandles(page: Page, sourceNodeId: string, targetNodeId: string): Promise<void> {
-  const source = page.locator(`.react-flow__node[data-id="${sourceNodeId}"] .react-flow__handle.source`);
+async function connectHandles(
+  page: Page,
+  sourceNodeId: string,
+  targetNodeId: string,
+  sourceHandleId?: string,
+): Promise<void> {
+  // Um nó que ramifica tem AGORA uma bolinha por saída, então `.source` sozinho
+  // casa várias e o modo estrito do Playwright recusa. Quem arrasta de um nó
+  // desses diz de qual saída — que é exatamente o ponto da funcionalidade.
+  const sourceSel = sourceHandleId
+    ? `.react-flow__node[data-id="${sourceNodeId}"] .react-flow__handle.source[data-handleid="${sourceHandleId}"]`
+    : `.react-flow__node[data-id="${sourceNodeId}"] .react-flow__handle.source`;
+  const source = page.locator(sourceSel).first();
   const target = page.locator(`.react-flow__node[data-id="${targetNodeId}"] .react-flow__handle.target`);
   const sBox = await source.boundingBox();
   const tBox = await target.boundingBox();
@@ -530,10 +541,14 @@ test.describe("followup flow builder — editor de condição de aresta / ai_cla
     // 4. Connect the graph. Order fixes each edge's deterministic id (edge-1..edge-7 —
     // FlowCanvas assigns ids from a monotonic counter in connection order).
     await connectHandles(page, triggerId, classifyId); // edge-1: trigger -> classify
-    await connectHandles(page, classifyId, action1Id); // edge-2: classify -> action1
-    await connectHandles(page, classifyId, action2Id); // edge-3: classify -> action2
-    await connectHandles(page, classifyId, end1Id); // edge-4: classify -> end1 (will become no_reply)
-    await connectHandles(page, classifyId, end2Id); // edge-5: classify -> end2 (stays always-fallback)
+    // Todas as 4 saem da bolinha "nenhuma delas" de propósito: é o que reproduz o
+    // estado `always` em todas as arestas do classify que a checagem negativa
+    // abaixo exige. Arrastando da bolinha de cada classe a aresta já nasceria
+    // certa — e aí não haveria 422 para o editor de aresta consertar.
+    await connectHandles(page, classifyId, action1Id, "else"); // edge-2: classify -> action1
+    await connectHandles(page, classifyId, action2Id, "else"); // edge-3: classify -> action2
+    await connectHandles(page, classifyId, end1Id, "else"); // edge-4: classify -> end1 (will become no_reply)
+    await connectHandles(page, classifyId, end2Id, "else"); // edge-5: classify -> end2 (stays always-fallback)
     await connectHandles(page, action1Id, end1Id); // edge-6: action1 -> end1
     await connectHandles(page, action2Id, end1Id); // edge-7: action2 -> end1
     await expect(page.locator(".react-flow__edge")).toHaveCount(7);
@@ -710,7 +725,7 @@ test.describe("followup flow selector no editor do agente (Task 7.2)", () => {
 });
 
 test.describe("followup flow builder — controle de gatilho na PublishBar (Task 8.5)", () => {
-  test("operador arma o gatilho de Silêncio (threshold) pela UI; oferece só Manual/Silêncio; PATCH round-trips", async ({
+  test("operador arma o gatilho de Silêncio (threshold) pela UI; oferece só os kinds com motor; PATCH round-trips", async ({
     page,
   }) => {
     await login(page, creds.users.manager!.email);
@@ -734,13 +749,26 @@ test.describe("followup flow builder — controle de gatilho na PublishBar (Task
       await expect(panel).toBeVisible();
       await page.screenshot({ path: "e2e-artifacts/followup-8.5-01-trigger-panel-manual.png", fullPage: true });
 
-      // Só Manual e Silêncio são oferecidos — stage_change/conversation_end não têm motor de enrollment.
+      // Só o que tem motor de enrollment é oferecido. Eram 2 até a frente de
+      // gatilhos entregar o produtor de `stage_change`
+      // (`lib/followup/gatilho-etapa.ts`), e viraram 4 com `case_opened`
+      // (`lib/followup/gatilho-caso.ts`); `conversation_end` continua fora,
+      // porque continua sem produtor — e o publish o recusa.
+      //
+      // ⚠️ A LISTA, E NÃO A CONTAGEM. Este bloco cobrava `toHaveCount(3)`, e o
+      // gatilho novo o derrubou — uma spec alheia vermelha por uma mudança que
+      // ninguém pediu ali. Contagem também diz menos do que parece: ela reprova
+      // igual se alguém TROCAR um kind por outro, e passa se o conjunto certo
+      // aparecer pelo motivo errado. Cobrar o conjunto nomeado pega as duas
+      // coisas — e é o que o operador de fato vê.
       const kindSelect = panel.getByRole("combobox");
       await kindSelect.click();
-      await expect(page.getByRole("option")).toHaveCount(2);
-      await expect(page.getByRole("option", { name: "Manual", exact: true })).toBeVisible();
-      await expect(page.getByRole("option", { name: "Silêncio", exact: true })).toBeVisible();
-      await expect(page.getByRole("option", { name: /stage_change|conversation_end/i })).toHaveCount(0);
+      const OFERECIDOS = ["Manual", "Silêncio", "Etapa do funil", "Agente pediu ajuda"];
+      for (const nome of OFERECIDOS) {
+        await expect(page.getByRole("option", { name: nome, exact: true })).toBeVisible();
+      }
+      await expect(page.getByRole("option")).toHaveCount(OFERECIDOS.length);
+      await expect(page.getByRole("option", { name: /conversation_end|fim do atendimento/i })).toHaveCount(0);
 
       await page.getByRole("option", { name: "Silêncio", exact: true }).click();
       await expect(panel.getByLabel("Minutos de silêncio")).toBeVisible();

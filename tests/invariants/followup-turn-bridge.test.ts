@@ -1,9 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
 
 import { runFollowupTick, type FollowupJobRequest, type TickDeps } from "@/lib/followup/engine";
 import { completeTurnForEnrollment, createPgAdminClient } from "@/lib/followup/turn-bridge";
 import { flowGraphSchema, type FlowGraph } from "@/lib/followup/graph-schema";
+// O schema do OUTRO lado da fila. Importado só aqui, e só no teste: agent-engine
+// nunca importa followup/* (a dependência é numa direção só) — mas provar que as
+// duas metades do contrato casam exige ver as duas no mesmo lugar.
+import { followupTurnPayloadSchema } from "@/lib/agent-engine/agent/followup-turn";
+
+import { isolarFixtureDeFollowup } from "./followup-isolamento";
+import { relogioAncoradoNoBanco } from "./followup-relogio";
 
 /**
  * Task 5.1 — a ponte engine ⇄ job_queue contra Postgres real (baseline
@@ -95,7 +102,7 @@ async function getEnrollment(id: string): Promise<Record<string, unknown>> {
 }
 
 function makeTickDeps(jobs: FollowupJobRequest[]): TickDeps {
-  return { db, clock: () => new Date(), enqueueJob: async (job) => void jobs.push(job) };
+  return { db, clock: relogioAncoradoNoBanco(), enqueueJob: async (job) => void jobs.push(job) };
 }
 
 // ---- graphs ----
@@ -126,24 +133,56 @@ const CLASSIFY_GRAPH: FlowGraph = {
   ],
 };
 
+/** Acionamento → espera adaptativa → fim. O grafo do ciclo do plano de tempo. */
 const SMART_WAIT_GRAPH: FlowGraph = {
   nodes: [
+    { id: "t1", type: "trigger", label: "Início", position: { x: 0, y: 0 }, config: {} },
     {
       id: "w1",
       type: "wait",
       label: "Wait smart",
       position: { x: 0, y: 0 },
-      config: { mode: "smart", min_ms: 600_000, max_ms: 1_800_000 },
+      config: { mode: "smart", min_ms: 600_000, max_ms: 1_800_000, guidance: "não insistir de madrugada" },
     },
     { id: "e1", type: "end", label: "Done", position: { x: 0, y: 0 }, config: { outcome: "converted" } },
   ],
-  edges: [{ id: "w1-e1", source: "w1", target: "e1", priority: 0, condition: { type: "always" } }],
+  edges: [
+    { id: "t1-w1", source: "t1", target: "w1", priority: 0, condition: { type: "always" } },
+    { id: "w1-e1", source: "w1", target: "e1", priority: 0, condition: { type: "always" } },
+  ],
+};
+
+/** Mesmo fluxo, mas com a espera FIXA: o acionamento não pode pagar planejamento. */
+const FIXED_WAIT_GRAPH: FlowGraph = {
+  nodes: [
+    { id: "t1", type: "trigger", label: "Início", position: { x: 0, y: 0 }, config: {} },
+    {
+      id: "w1",
+      type: "wait",
+      label: "Wait fixo",
+      position: { x: 0, y: 0 },
+      config: { mode: "fixed", duration_ms: 600_000 },
+    },
+    { id: "e1", type: "end", label: "Done", position: { x: 0, y: 0 }, config: { outcome: "converted" } },
+  ],
+  edges: [
+    { id: "t1-w1", source: "t1", target: "w1", priority: 0, condition: { type: "always" } },
+    { id: "w1-e1", source: "w1", target: "e1", priority: 0, condition: { type: "always" } },
+  ],
 };
 
 beforeAll(() => {
   flowGraphSchema.parse(ACTION_GRAPH);
   flowGraphSchema.parse(CLASSIFY_GRAPH);
   flowGraphSchema.parse(SMART_WAIT_GRAPH);
+  flowGraphSchema.parse(FIXED_WAIT_GRAPH);
+});
+
+// Este arquivo compara `tick.scheduled`/`jobs.length` com números exatos e roda
+// com `limit: 5`. Sem isolar, o lote pode vir inteiro de enrollments alheios —
+// ver ./followup-isolamento.ts para a medição.
+beforeEach(async () => {
+  await isolarFixtureDeFollowup(pool);
 });
 
 // ---- 1. action: enqueue → completeTurnForEnrollment → advance; idempotente ----
@@ -271,26 +310,134 @@ describe("runFollowupTick — grace do ai_classify vence sem classificação: no
   });
 });
 
-// ---- 4. wait smart: clamp contra o grafo pinado real ----
+// ---- 4. plano de tempo: o ciclo inteiro do modo adaptativo, contra o banco ----
 
-describe("completeTurnForEnrollment — wait smart, clamp real", () => {
-  it("clampa a proposta acima de max_ms e permanece no mesmo nó de espera", async () => {
+describe("plano de tempo — acionamento decide, espera obedece", () => {
+  it("ciclo completo: o trigger pede o plano, a ponte grava, e a espera usa o instante PLANEJADO (não o máximo)", async () => {
     const org = "bbbbbbb5-0000-4000-8000-000000000001";
+    await seedOrg(org);
+    const contactId = await seedContact(org);
+    const { pointerId, versionId } = await seedFlow(org, SMART_WAIT_GRAPH);
+    const enrollmentId = await seedEnrollment({ org, pointerId, versionId, contactId, currentNodeId: "t1" });
+
+    // 1. O acionamento enfileira o planejamento, levando as esperas do fluxo.
+    const jobs: FollowupJobRequest[] = [];
+    await runFollowupTick(makeTickDeps(jobs), { limit: 5 });
+    const planJob = jobs.find((j) => j.payload.followup_enrollment_id === enrollmentId);
+    expect(planJob?.payload).toMatchObject({ node_id: "t1", purpose: "plan_timing" });
+    expect(planJob?.payload.waits).toEqual([
+      {
+        node_id: "w1",
+        label: "Wait smart",
+        min_ms: 600_000,
+        max_ms: 1_800_000,
+        guidance: "não insistir de madrugada",
+      },
+    ]);
+
+    // CONTRATO entre as duas pontas. O engine emite este payload e quem o lê é o
+    // handler do worker, do outro lado da fila — e as duas metades só casam por
+    // convenção: o schema tem `.passthrough()` e `waits` é opcional, então um
+    // nome de campo divergente passa pela validação e só explode no worker, em
+    // produção. Aqui o payload REAL do engine atravessa o schema REAL do handler.
+    const aceito = followupTurnPayloadSchema.parse(planJob!.payload);
+    expect(aceito.purpose).toBe("plan_timing");
+    expect(aceito.waits).toEqual(planJob!.payload.waits);
+    expect((await getEnrollment(enrollmentId)).current_node_id).toBe("t1"); // ainda no trigger
+
+    // 2. O turno volta com a proposta; a ponte clampa contra o grafo e grava.
+    await completeTurnForEnrollment(db, org, enrollmentId, "t1", {
+      kind: "planned",
+      modelo: "anthropic/claude-sonnet-4-6",
+      propostas: [{ node_id: "w1", aguardar_ms: 900_000, motivo: "lead engajado, retomar no mesmo dia" }],
+    });
+
+    const planejado = await getEnrollment(enrollmentId);
+    expect(planejado.current_node_id).toBe("w1");
+    const plano = planejado.timing_plan as { esperas: Record<string, { escolhido_ms: number; motivo: string }> };
+    expect(plano.esperas.w1).toMatchObject({
+      escolhido_ms: 900_000,
+      motivo: "lead engajado, retomar no mesmo dia",
+      clampado: false,
+    });
+
+    // 3. A ESPERA. É aqui que a versão anterior falhava: ela agendava max_ms
+    //    (30min) qualquer que fosse o plano — a tela oferecia adaptativo e o
+    //    motor esperava sempre o teto.
+    //
+    //    O empurrão de `next_eval_at` para o passado não é conveniência: a ponte
+    //    grava o instante com o relógio do PROCESSO e o claim compara com o
+    //    `now()` do POSTGRES. Os dois relógios não são o mesmo, e quando o do
+    //    processo está à frente por alguns milissegundos o enrollment não é
+    //    devido, o tick não o reclama, e `next_eval_at` fica valendo o instante
+    //    do passo anterior — o teste falharia por corrida de relógio, sem nada a
+    //    ver com o plano. Em produção isso é invisível (o tick seguinte vem em
+    //    um minuto); aqui os dois passos são consecutivos.
+    await pool.query(`update followup_enrollments set next_eval_at = now() - interval '1 second' where id = $1`, [
+      enrollmentId,
+    ]);
+    const antes = Date.now();
+    await runFollowupTick(makeTickDeps(jobs), { limit: 5 });
+    const esperando = await getEnrollment(enrollmentId);
+    expect(esperando.current_node_id).toBe("w1"); // fica no nó, só agenda
+    const nextEvalAt = new Date(esperando.next_eval_at as string).getTime();
+    expect(nextEvalAt).toBeGreaterThanOrEqual(antes + 900_000 - 2_000);
+    expect(nextEvalAt).toBeLessThan(antes + 900_000 + 5_000);
+    // e a diferença é observável: o máximo do nó fica MUITO acima do agendado.
+    expect(nextEvalAt).toBeLessThan(antes + 1_800_000 - 60_000);
+  });
+
+  it("proposta acima do máximo é grampeada no nó, com o pedido original preservado", async () => {
+    const org = "bbbbbbb6-0000-4000-8000-000000000001";
+    await seedOrg(org);
+    const contactId = await seedContact(org);
+    const { pointerId, versionId } = await seedFlow(org, SMART_WAIT_GRAPH);
+    const enrollmentId = await seedEnrollment({ org, pointerId, versionId, contactId, currentNodeId: "t1", stepsTaken: 2 });
+
+    await completeTurnForEnrollment(db, org, enrollmentId, "t1", {
+      kind: "planned",
+      modelo: "m",
+      propostas: [{ node_id: "w1", aguardar_ms: 3 * 86_400_000, motivo: "esperar 3 dias" }],
+    });
+
+    const plano = (await getEnrollment(enrollmentId)).timing_plan as {
+      esperas: Record<string, { escolhido_ms: number; proposto_ms: number; clampado: boolean }>;
+    };
+    expect(plano.esperas.w1).toMatchObject({
+      escolhido_ms: 1_800_000,
+      proposto_ms: 3 * 86_400_000,
+      clampado: true,
+    });
+  });
+
+  it("fluxo SEM espera adaptativa não pede plano nenhum — o acionamento não paga modelo", async () => {
+    const org = "bbbbbbb7-0000-4000-8000-000000000001";
+    await seedOrg(org);
+    const contactId = await seedContact(org);
+    const { pointerId, versionId } = await seedFlow(org, FIXED_WAIT_GRAPH);
+    const enrollmentId = await seedEnrollment({ org, pointerId, versionId, contactId, currentNodeId: "t1" });
+
+    const jobs: FollowupJobRequest[] = [];
+    await runFollowupTick(makeTickDeps(jobs), { limit: 5 });
+
+    expect(jobs.some((j) => j.payload.followup_enrollment_id === enrollmentId)).toBe(false);
+    const after = await getEnrollment(enrollmentId);
+    expect(after.current_node_id).toBe("w1"); // avançou direto, como antes desta feature
+    expect(after.timing_plan).toBeNull();
+  });
+
+  it("enrollment sem plano na espera adaptativa cai no máximo — compatibilidade v1", async () => {
+    const org = "bbbbbbb8-0000-4000-8000-000000000001";
     await seedOrg(org);
     const contactId = await seedContact(org);
     const { pointerId, versionId } = await seedFlow(org, SMART_WAIT_GRAPH);
     const enrollmentId = await seedEnrollment({ org, pointerId, versionId, contactId, currentNodeId: "w1", stepsTaken: 2 });
 
-    const before = Date.now();
-    const proposedAt = new Date(before + 10_000_000).toISOString(); // muito além do max de 30min
-
-    await completeTurnForEnrollment(db, org, enrollmentId, "w1", { kind: "timing", proposed_at: proposedAt });
+    const antes = Date.now();
+    await runFollowupTick(makeTickDeps([]), { limit: 5 });
 
     const after = await getEnrollment(enrollmentId);
-    expect(after.current_node_id).toBe("w1"); // fica no mesmo nó — só reagenda
-    expect(after.steps_taken).toBe(3);
     const nextEvalAt = new Date(after.next_eval_at as string).getTime();
-    expect(nextEvalAt).toBeLessThanOrEqual(before + 1_800_000 + 2_000); // clampado no max_ms (+ folga de execução)
-    expect(nextEvalAt).toBeGreaterThan(before + 1_700_000);
+    expect(nextEvalAt).toBeGreaterThanOrEqual(antes + 1_800_000 - 2_000);
   });
 });

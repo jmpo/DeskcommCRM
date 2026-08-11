@@ -6,6 +6,9 @@ import { flowGraphSchema, type FlowGraph } from "@/lib/followup/graph-schema";
 import { MAX_ACTION_RECHECKS, type EnrollmentEventRef, type EnrollmentRow } from "@/lib/followup/node-handlers";
 import { completeTurnForEnrollment, createPgAdminClient } from "@/lib/followup/turn-bridge";
 
+import { isolarFixtureDeFollowup } from "./followup-isolamento";
+import { relogioAncoradoNoBanco } from "./followup-relogio";
+
 /**
  * Task 4.1 — motor do worker de follow-up (tick + node-handlers) contra
  * Postgres real (baseline aplicado, inclui o apêndice 0054/0057).
@@ -37,19 +40,12 @@ afterAll(async () => {
   await pool.end();
 });
 
-// fn_claim_due_followup_enrollments é GLOBAL (sem filtro de org — mesmo
-// design usado em produção, SKIP LOCKED entre workers, provado em Task 1.2).
-// tests/invariants/** compartilha UM container Postgres não resetado entre
-// arquivos (vitest.db.config.ts, fileParallelism:false) — sem isto, uma
-// enrollment devida deixada por um `it` anterior (ex.: o wake de
-// followup-reactivity.test.ts empurra next_eval_at=now) entra no
-// `runFollowupTick({limit:5})` de outro `it` que espera `claimed`/
-// `advanced`/`jobs.length` exatos, corrompendo as contagens agregadas
-// (fix de review — Task 5.2). `followup_enrollment_events.enrollment_id` tem
-// `on delete cascade` (migration 0054) — deletar só `followup_enrollments`
-// já limpa os eventos junto; nenhuma outra tabela referencia essa FK.
+// Isolamento da fixture — a razão inteira está em ./followup-isolamento.ts.
+// Era um `delete` solto aqui desde a Task 5.2; virou helper compartilhado
+// porque os OUTROS arquivos que rodam tick não o tinham, e eram justamente os
+// que pintavam o CI de vermelho de forma intermitente.
 beforeEach(async () => {
-  await pool.query(`delete from followup_enrollments`);
+  await isolarFixtureDeFollowup(pool);
 });
 
 // ---- pg-backed AdminClient (test-only adapter; prod uses createSupabaseAdminClient) ----
@@ -234,7 +230,7 @@ async function getEnrollment(id: string): Promise<Record<string, unknown>> {
 function makeDeps(jobs: FollowupJobRequest[], db: AdminClient = pgAdminClient()): TickDeps {
   return {
     db,
-    clock: () => new Date(),
+    clock: relogioAncoradoNoBanco(),
     enqueueJob: async (job) => {
       jobs.push(job);
     },

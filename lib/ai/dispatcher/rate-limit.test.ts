@@ -4,10 +4,15 @@
  * ## Por que este arquivo existe
  *
  * O caminho em memória não era "o plano B improvável": em 2026-08-10, num único job
- * de e2e, ele foi usado **120 vezes** (`redis incr failed` com `fetch failed`, porque
- * a suíte não tem Upstash). E no kit self-host as duas variáveis do Upstash são
- * opcionais — sem elas o `getRedis()` devolve `null` e o caminho em memória é o
- * NORMAL, não a exceção. Ou seja: é código de produção de quem instala.
+ * de e2e, ele foi usado **120 vezes** (`redis incr failed` com `fetch failed`).
+ *
+ * A primeira versão deste cabeçalho justificava a severidade dizendo que as duas
+ * variáveis do Upstash são "opcionais no kit self-host". Isso é FALSO, e uma auditoria
+ * pegou: `lib/env.ts:83-84` as declara `required()` — o app não sobe sem elas — e o
+ * `.env.hostgator.example` as entrega apontando para o contêiner `srh`. O caminho em
+ * memória é alcançado por Redis INALCANÇÁVEL (contêiner parado, rede caída, URL
+ * errada), não por configuração ausente. A consequência para este teste é a mesma; o
+ * que muda é não vender uma razão que o `env.ts` desmente.
  *
  * A chave embute a janela (`<bucket>:<windowStart>`), então cada janela nova cria uma
  * chave nova. O `Map` só sobrescrevia a entrada quando a MESMA chave voltava — e ela

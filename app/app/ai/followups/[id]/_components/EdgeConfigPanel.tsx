@@ -9,8 +9,10 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { ArrowRight } from "@/lib/ui/icons";
-import { edgeConditionOptions, conditionKey } from "@/lib/followup/edge-condition-options";
+import { conditionKey } from "@/lib/followup/edge-condition-options";
+import { branchIdForCondition, nodeBranches } from "@/lib/followup/graph-schema";
 import type { FlowEdge, FlowNode } from "@/lib/followup/graph-schema";
+import { rotuloDoRamo } from "@/lib/followup/rotulo-do-ramo";
 
 interface Props {
   sourceNode: FlowNode | undefined;
@@ -20,14 +22,28 @@ interface Props {
 }
 
 /**
- * Docked (non-modal) panel for the selected edge's routing condition — mirrors
- * NodeConfigPanel's shell/style. The option list is exhaustive per the source
- * node's type (`edgeConditionOptions`), so an `ai_classify` source can only
- * ever be wired to exactly what `validateFlowForPublish` accepts.
+ * Painel da aresta selecionada. As opções são as SAÍDAS DO NÓ DE ORIGEM, as
+ * mesmas que o canvas desenha e com o mesmo texto — coerência por construção,
+ * não por duas listas mantidas em paralelo.
+ *
+ * Antes a lista vinha do TIPO do nó, e por isso um nó no modo uma-saída-por-
+ * regra continuava oferecendo "Sim"/"Não": opções que nenhum ramo dele casa.
+ * Um controle que a tela oferece e o motor ignora é pior que um ausente — o
+ * ausente o usuário contorna, o decorativo ele acredita.
  */
 export function EdgeConfigPanel({ sourceNode, targetNode, condition, onChange }: Props) {
-  const options = edgeConditionOptions(sourceNode);
-  const currentKey = conditionKey(condition);
+  const options = nodeBranches(
+    sourceNode ?? { type: "trigger", config: {} },
+  ).map((branch) => ({
+    key: conditionKey(branch.condition),
+    label: rotuloDoRamo(branch),
+    condition: branch.condition,
+  }));
+  // Aresta apontando para um ramo que não existe mais (a regra foi apagada):
+  // nenhuma opção casa, o Select fica vazio em vez de mentir que está tudo bem,
+  // e o publish reprova com `missing_branch_edge` dizendo qual ramo ficou só.
+  const ramoAtual = branchIdForCondition(sourceNode, condition);
+  const currentKey = ramoAtual === null ? "" : conditionKey(condition);
 
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto" data-testid="edge-config-panel">
@@ -60,9 +76,9 @@ export function EdgeConfigPanel({ sourceNode, targetNode, condition, onChange }:
             ))}
           </SelectContent>
         </Select>
-        {sourceNode?.type === "ai_classify" && (
+        {sourceNode && nodeBranches(sourceNode).length > 1 && (
           <p className="text-xs text-text-muted">
-            As opções vêm das classes configuradas no nó "{sourceNode.label}".
+            São as saídas do nó &quot;{sourceNode.label}&quot; — as mesmas que aparecem no card.
           </p>
         )}
       </div>

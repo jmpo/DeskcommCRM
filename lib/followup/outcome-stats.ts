@@ -4,8 +4,10 @@
  * gravado pelo engine/reactivity nas Ondas 4/5); este módulo só soma.
  *
  * Definições (ver check constraints do baseline, migration 0054):
- * - `in_flight` = enrollments vivos (status active/waiting_reply/paused_handoff);
- *   outcome é sempre null nesses estados.
+ * - `in_flight` = enrollments vivos (status active/waiting_reply/paused_handoff/
+ *   paused_manual); outcome é sempre null nesses estados. Pausado por uma pessoa
+ *   (0145) conta como vivo porque é isso que ele é: não terminou, e some do
+ *   painel se não for contado — o fluxo pareceria ter menos gente do que tem.
  * - terminal (denominador de conversion_rate) = status completed OU cancelled.
  *   'dead' (worker desistiu por erro/max_attempts) é EXCLUÍDO do terminal de
  *   propósito — é falha de infra, não resultado do fluxo, e não deve puxar a
@@ -61,7 +63,7 @@ export async function aggregateFollowupOutcomes(pool: pg.Pool, orgId: string): P
        count(*) filter (where e.outcome = 'exhausted') as exhausted,
        count(*) filter (where e.outcome = 'opted_out') as opted_out,
        count(*) filter (where e.outcome = 'handoff') as handoff,
-       count(*) filter (where e.status in ('active', 'waiting_reply', 'paused_handoff')) as in_flight,
+       count(*) filter (where e.status in ('active', 'waiting_reply', 'paused_handoff', 'paused_manual')) as in_flight,
        count(*) filter (where e.status in ('completed', 'cancelled')) as terminal
      from followup_enrollments e
      join followup_flow_pointers p on p.id = e.pointer_id

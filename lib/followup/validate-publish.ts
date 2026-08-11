@@ -1,4 +1,6 @@
 import type { FlowGraph, FlowEdge, FlowNode } from './graph-schema';
+import { branchIdForCondition, nodeBranches } from './graph-schema';
+import { rotuloDoRamo } from './rotulo-do-ramo';
 
 /**
  * Structural publish validator for follow-up flow graphs.
@@ -11,6 +13,7 @@ export const PUBLISH_ERROR_CODES = [
   'unreachable_node',
   'no_end_path',
   'missing_class_edge',
+  'missing_branch_edge',
   'missing_no_reply_edge',
   'missing_always_fallback',
   'grace_too_short',
@@ -24,6 +27,8 @@ export type PublishValidationError = {
   node_id: string | null;
   code: PublishErrorCode;
   message: string;
+  /** Qual saída do nó ficou descoberta — o editor ancora o aviso na bolinha certa, não no nó inteiro. */
+  branch_id?: string;
 };
 
 export type PublishValidationResult =
@@ -229,6 +234,39 @@ function byId(a: { id: string }, b: { id: string }): number {
   return a.id.localeCompare(b.id);
 }
 
+
+/**
+ * Toda saída declarada do nó precisa levar a algum lugar, e a mensagem nomeia
+ * QUAL ficou solta. Serve tanto ao `condition` por regra quanto ao
+ * `ai_classify` migrado: a pergunta é a mesma — "existe aresta para este
+ * ramo?" — e escrevê-la duas vezes é como a cobertura de classes ficou para
+ * trás quando os ramos nasceram.
+ */
+function cobrirRamos(
+  node: FlowNode,
+  outgoing: FlowEdge[],
+  errors: PublishValidationError[]
+): void {
+  for (const branch of nodeBranches(node)) {
+    if (outgoing.some((e) => branchIdForCondition(node, e.condition) === branch.id)) continue;
+    if (branch.kind === 'fallback') {
+      errors.push({
+        node_id: node.id,
+        code: 'missing_always_fallback',
+        branch_id: branch.id,
+        message: `Nó "${node.id}" não tem a saída de escape: um lead que não se encaixar em nenhuma saída fica parado aqui.`,
+      });
+      continue;
+    }
+    errors.push({
+      node_id: node.id,
+      code: 'missing_branch_edge',
+      branch_id: branch.id,
+      message: `Nó "${node.id}": a saída "${rotuloDoRamo(branch)}" não está ligada a nada.`,
+    });
+  }
+}
+
 export function validateFlowForPublish(graph: FlowGraph): PublishValidationResult {
   const { nodes, edges } = graph;
   const errors: PublishValidationError[] = [];
@@ -301,9 +339,36 @@ export function validateFlowForPublish(graph: FlowGraph): PublishValidationResul
     }
   }
 
+  // Cobertura por ramo — SÓ no modo 'per_check'. É deliberado que o modo
+  // combinado fique de fora: hoje nenhuma regra exige aresta por resultado num
+  // nó de condição, e passar a exigir reprovaria no publish fluxos v1 que estão
+  // rodando. Regra nova só vale para a forma nova.
+  for (const node of [...nodes].sort(byId)) {
+    if (node.type !== 'condition' || node.config.branching !== 'per_check') continue;
+    const outgoing = outEdges.get(node.id) ?? [];
+
+    cobrirRamos(node, outgoing, errors);
+  }
+
   for (const node of [...nodes].sort(byId)) {
     if (node.type !== 'ai_classify') continue;
     const outgoing = outEdges.get(node.id) ?? [];
+
+    // Nó migrado para ramos nomeados: a aresta referencia o id estável, não o
+    // texto da classe. Exigir `class_match` aqui reprovaria um grafo VÁLIDO — e
+    // o operador ficaria sem publicar sem entender por quê. As regras v1 abaixo
+    // continuam valendo, intactas, para todo nó que não declarou ramos.
+    if (node.config.branches !== undefined) {
+      cobrirRamos(node, outgoing, errors);
+      if (node.config.grace_timeout_ms < 900_000) {
+        errors.push({
+          node_id: node.id,
+          code: 'grace_too_short',
+          message: `Nó "${node.id}" tem grace_timeout_ms abaixo do mínimo de 15min.`,
+        });
+      }
+      continue;
+    }
 
     for (const cls of node.config.classes) {
       const hasEdge = outgoing.some(

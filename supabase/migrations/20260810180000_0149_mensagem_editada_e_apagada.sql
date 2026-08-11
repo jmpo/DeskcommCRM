@@ -1,4 +1,4 @@
--- 0143 — a mensagem editada e a mensagem apagada, do lado de fora.
+-- 0149 — a mensagem editada e a mensagem apagada, do lado de fora.
 --
 -- ─── O que estava invisível ────────────────────────────────────────────────
 --

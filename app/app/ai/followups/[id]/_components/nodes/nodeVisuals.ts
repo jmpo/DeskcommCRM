@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 
 import { Play, Clock, GitBranch, Brain, PaperPlaneTilt, Flag } from "@/lib/ui/icons";
 import type { FlowNode, NodeType } from "@/lib/followup/graph-schema";
+import { RESULTADOS_DO_FIM } from "@/lib/followup/vocabulario";
 
 /**
  * Visual identity per node type — shared by the palette (Task 6.2 increment 2)
@@ -89,12 +90,6 @@ export const NODE_VISUALS: Record<NodeType, NodeVisual> = {
 
 export const NODE_VISUAL_LIST = Object.values(NODE_VISUALS);
 
-const OUTCOME_LABEL: Record<string, string> = {
-  converted: "Convertido",
-  exhausted: "Esgotado",
-  custom: "Personalizado",
-};
-
 type ConfigOf<T extends NodeType> = Extract<FlowNode, { type: T }>["config"];
 
 /**
@@ -114,6 +109,10 @@ export function describeNodeConfig(type: NodeType, config: FlowNode["config"]): 
     }
     case "condition": {
       const c = config as ConfigOf<"condition">;
+      // No modo uma-saída-por-regra o combinador NÃO é consultado (a regra não
+      // vota, ela roteia). Continuar anunciando "E"/"OU" ali seria o card
+      // afirmando uma coisa que o motor ignora — e o usuário acredita no card.
+      if (c.branching === "per_check") return `${c.checks.length} regras · uma saída por regra`;
       return `${c.checks.length} condição(ões) · ${c.combinator === "and" ? "E" : "OU"}`;
     }
     case "ai_classify": {
@@ -126,7 +125,7 @@ export function describeNodeConfig(type: NodeType, config: FlowNode["config"]): 
     }
     case "end": {
       const c = config as ConfigOf<"end">;
-      return OUTCOME_LABEL[c.outcome] ?? c.outcome;
+      return RESULTADOS_DO_FIM[c.outcome];
     }
     default: {
       const exhaustive: never = type;

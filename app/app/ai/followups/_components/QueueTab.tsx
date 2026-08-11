@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -32,6 +33,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Clock, MagnifyingGlass, Trash } from "@/lib/ui/icons";
+import { rotuloDoStatus, tomDoStatus } from "@/lib/followup/eventos-legiveis";
 import { useFollowupFlows } from "@/hooks/followup/useFollowupFlows";
 import {
   useCancelFollowupEnrollment,
@@ -45,40 +47,23 @@ interface Props {
   canWrite: boolean;
 }
 
-const STATUS_OPTIONS: { value: FollowupEnrollmentStatus; label: string }[] = [
-  { value: "active", label: "Ativo" },
-  { value: "waiting_reply", label: "Aguardando resposta" },
-  { value: "paused_handoff", label: "Pausado (handoff)" },
-  { value: "completed", label: "Concluído" },
-  { value: "cancelled", label: "Cancelado" },
-  { value: "dead", label: "Morto" },
+/**
+ * Os status filtráveis, na ordem em que fazem sentido para quem opera: primeiro
+ * o que está andando, depois o que parou, depois o que terminou. O RÓTULO vem de
+ * `rotuloDoStatus` — a tabela morava aqui, e a segunda tela que mostrasse status
+ * (o dossiê) nasceria com a segunda cópia.
+ */
+const STATUS_OPTIONS: FollowupEnrollmentStatus[] = [
+  "active",
+  "waiting_reply",
+  "paused_manual",
+  "paused_handoff",
+  "completed",
+  "cancelled",
+  "dead",
 ];
 
-const STATUS_LABEL: Record<string, string> = {
-  active: "Ativo",
-  waiting_reply: "Aguardando resposta",
-  paused_handoff: "Pausado",
-  completed: "Concluído",
-  cancelled: "Cancelado",
-  dead: "Morto",
-  agendada: "Agendada",
-  "concluída": "Concluída",
-  cancelada: "Cancelada",
-};
-
-const STATUS_VARIANT: Record<string, "neutral" | "success" | "warning" | "error" | "info"> = {
-  active: "success",
-  waiting_reply: "info",
-  paused_handoff: "warning",
-  completed: "neutral",
-  cancelled: "neutral",
-  dead: "error",
-  agendada: "info",
-  "concluída": "neutral",
-  cancelada: "neutral",
-};
-
-const LIVE_ENROLLMENT_STATUSES = new Set(["active", "waiting_reply", "paused_handoff"]);
+const LIVE_ENROLLMENT_STATUSES = new Set(["active", "waiting_reply", "paused_handoff", "paused_manual"]);
 
 /**
  * O que ainda dá para desmarcar.
@@ -97,8 +82,8 @@ function podeCancelar(row: FollowupQueueRow): boolean {
 
 function QueueStatusBadge({ status }: { status: string }) {
   return (
-    <Badge variant={STATUS_VARIANT[status] ?? "neutral"} aria-label={`status: ${STATUS_LABEL[status] ?? status}`}>
-      {STATUS_LABEL[status] ?? status}
+    <Badge variant={tomDoStatus(status)} aria-label={`status: ${rotuloDoStatus(status)}`}>
+      {rotuloDoStatus(status)}
     </Badge>
   );
 }
@@ -168,8 +153,8 @@ export function QueueTab({ canWrite }: Props) {
           <SelectContent>
             <SelectItem value="all">Todos os status</SelectItem>
             {STATUS_OPTIONS.map((s) => (
-              <SelectItem key={s.value} value={s.value}>
-                {s.label}
+              <SelectItem key={s} value={s}>
+                {rotuloDoStatus(s)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -216,7 +201,25 @@ export function QueueTab({ canWrite }: Props) {
                 const canCancel = canWrite && podeCancelar(row);
                 return (
                   <TableRow key={`${row.source}:${row.id}`} data-testid="queue-row">
-                    <TableCell className="font-medium">{row.contact.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {/*
+                        A porta do dossiê. Só enrollment tem história para contar:
+                        a promessa (`cron_jobs`) é uma linha só — um horário e um
+                        motivo — e um link que abrisse uma tela vazia ensinaria
+                        que o dossiê às vezes não funciona.
+                      */}
+                      {row.source === "enrollment" ? (
+                        <Link
+                          href={`/app/ai/followups/enrollments/${row.id}`}
+                          className="underline-offset-2 hover:underline"
+                          data-testid="queue-abrir-dossie"
+                        >
+                          {row.contact.name}
+                        </Link>
+                      ) : (
+                        row.contact.name
+                      )}
+                    </TableCell>
                     <TableCell>
                       <div className="flex flex-col">
                         <span>{row.flow_name ?? <span className="text-text-muted">Promessa</span>}</span>

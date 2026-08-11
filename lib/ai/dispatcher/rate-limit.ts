@@ -51,10 +51,17 @@ const _memBuckets = new Map<string, MemBucket>();
  * outra chave. O `set` só sobrescrevia a MESMA chave, e nada apagava as anteriores —
  * o processo acumulava uma entrada por bucket por janela, indefinidamente.
  *
- * E o caminho em memória não é hipótese remota: as duas variáveis do Upstash são
- * OPCIONAIS no kit self-host, então sem elas este é o caminho normal. Medido num
- * único job de e2e: 120 quedas para memória. Com `webhook_in:<token>` (janela de 60s)
- * são 1.440 chaves por dia por token, nenhuma delas relida.
+ * E o caminho em memória não é hipótese remota — mas a razão NÃO é a que este
+ * comentário afirmava. A versão anterior dizia que as duas variáveis do Upstash são
+ * "opcionais no kit self-host, então sem elas este é o caminho normal": falso, e
+ * medido — `lib/env.ts:83-84` as declara `required()`, o app não sobe sem elas, e o
+ * `.env.hostgator.example` as entrega apontando para o contêiner `srh`.
+ *
+ * O que de fato leva para cá é Redis INALCANÇÁVEL com a variável presente: contêiner
+ * `srh` parado, rede caída, URL errada. O `catch` abaixo trata exatamente isso, e é o
+ * estado normal da suíte de e2e — 120 quedas num único job, todas por `fetch failed`.
+ * Num processo de longa duração, cada janela dessas deixava uma chave para trás: com
+ * `webhook_in:<token>` (janela de 60s) são 1.440 por dia por token, nenhuma relida.
  *
  * Oportunista, e não um timer: um `setInterval` num módulo de request handler segura
  * o processo vivo e roda em todo runtime que importar o arquivo, inclusive edge. Aqui

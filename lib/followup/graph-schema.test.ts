@@ -13,7 +13,16 @@ import {
   FlowGraph,
   FlowNode,
   FlowEdge,
+  FALLBACK_BRANCH_ID,
+  NO_REPLY_BRANCH_ID,
+  CONDITION_TRUE_BRANCH_ID,
+  CONDITION_FALSE_BRANCH_ID,
+  RESERVED_BRANCH_IDS,
+  nodeBranches,
+  branchIdForCondition,
+  conditionForBranch,
 } from './graph-schema';
+import { toReactFlow, fromReactFlow } from './graph-mappers';
 
 describe('graph-schema', () => {
   describe('NODE_TYPES & NodeType', () => {
@@ -900,6 +909,410 @@ describe('graph-schema', () => {
         condition: { type: 'always' },
       };
       expect(edge).toBeTruthy();
+    });
+  });
+
+  /**
+   * A graph exactly as a clone has it stored in `followup_flow_versions.graph`
+   * TODAY: written by the pre-branches contract, already through `parse` once
+   * (so `combinator`, `target` and `priority` are materialised), fan-out done
+   * with `class_match` / `cond_result`. Frozen on purpose — nothing in here may
+   * be "modernised" to keep a test green; the point is that the OLD bytes still
+   * work. Published flows in the wild depend on every assertion below.
+   */
+  const LEGACY_V1_GRAPH = {
+    nodes: [
+      { id: 't1', type: 'trigger', label: 'Início', position: { x: 0, y: 0 }, config: {} },
+      {
+        id: 'a1',
+        type: 'action',
+        label: 'Primeiro toque',
+        position: { x: 0, y: 120 },
+        config: { mode: 'ai_message', prompt_hint: 'pergunte se ainda faz sentido' },
+      },
+      {
+        id: 'ac1',
+        type: 'ai_classify',
+        label: 'Leu a resposta?',
+        position: { x: 0, y: 240 },
+        config: {
+          classes: ['quente', 'frio'],
+          grace_timeout_ms: 900_000,
+          target: 'last_reply',
+        },
+      },
+      {
+        id: 'c1',
+        type: 'condition',
+        label: 'É VIP?',
+        position: { x: 0, y: 360 },
+        config: {
+          combinator: 'and',
+          checks: [
+            { field: 'tag', op: 'contains', value: 'vip' },
+            { field: 'steps_taken', op: 'gte', value: 2 },
+          ],
+        },
+      },
+      {
+        id: 'e1',
+        type: 'end',
+        label: 'Fim',
+        position: { x: 0, y: 480 },
+        config: { outcome: 'exhausted' },
+      },
+    ],
+    edges: [
+      { id: 'x1', source: 't1', target: 'a1', priority: 0, condition: { type: 'always' } },
+      { id: 'x2', source: 'a1', target: 'ac1', priority: 0, condition: { type: 'always' } },
+      { id: 'x3', source: 'ac1', target: 'c1', priority: 5, condition: { type: 'class_match', value: 'quente' } },
+      { id: 'x4', source: 'ac1', target: 'e1', priority: 5, condition: { type: 'class_match', value: 'frio' } },
+      { id: 'x5', source: 'ac1', target: 'e1', priority: 5, condition: { type: 'class_match', value: 'no_reply' } },
+      { id: 'x6', source: 'ac1', target: 'e1', priority: 0, condition: { type: 'always' } },
+      { id: 'x7', source: 'c1', target: 'e1', priority: 5, condition: { type: 'cond_result', value: true } },
+      { id: 'x8', source: 'c1', target: 'e1', priority: 5, condition: { type: 'cond_result', value: false } },
+    ],
+  } as const;
+
+  function parseLegacy(): FlowGraph {
+    const result = flowGraphSchema.safeParse(LEGACY_V1_GRAPH);
+    if (!result.success) {
+      throw new Error(`legacy graph no longer parses: ${JSON.stringify(result.error.issues)}`);
+    }
+    return result.data;
+  }
+
+  describe('v1 graph compatibility (published flows in clones)', () => {
+    it('parses a stored v1 graph back byte-identical — the v2 fields are additive, never injected', () => {
+      const parsed = parseLegacy();
+      // toStrictEqual, not toEqual: a defaulted `branching`/`branches` would show
+      // up as an added (or explicitly-undefined) key and must fail here.
+      expect(parsed).toStrictEqual(LEGACY_V1_GRAPH);
+    });
+
+    it('survives the builder round-trip (parse -> mappers -> fromReactFlow -> parse) unchanged', () => {
+      const parsed = parseLegacy();
+      const { nodes, edges } = toReactFlow(parsed);
+      const rebuilt = flowGraphSchema.safeParse(fromReactFlow(nodes, edges));
+      expect(rebuilt.success).toBe(true);
+      if (rebuilt.success) {
+        expect(rebuilt.data).toStrictEqual(parsed);
+      }
+    });
+
+    it('keeps emitting the v1 edge dialect for a v1 ai_classify node — a published flow is never rewritten', () => {
+      const node = parseLegacy().nodes.find((n) => n.id === 'ac1')!;
+      expect(nodeBranches(node)).toStrictEqual([
+        { id: 'quente', label: 'quente', check: null, kind: 'match', condition: { type: 'class_match', value: 'quente' } },
+        { id: 'frio', label: 'frio', check: null, kind: 'match', condition: { type: 'class_match', value: 'frio' } },
+        {
+          id: NO_REPLY_BRANCH_ID,
+          label: 'Sem resposta',
+          check: null,
+          kind: 'match',
+          condition: { type: 'class_match', value: 'no_reply' },
+        },
+        { id: FALLBACK_BRANCH_ID, label: 'Sempre', check: null, kind: 'fallback', condition: { type: 'always' } },
+      ]);
+    });
+
+    it('keeps emitting the v1 edge dialect for a v1 condition node (combined Sim/Não)', () => {
+      const node = parseLegacy().nodes.find((n) => n.id === 'c1')!;
+      expect(nodeBranches(node)).toStrictEqual([
+        {
+          id: CONDITION_TRUE_BRANCH_ID,
+          label: 'Sim',
+          check: null,
+          kind: 'match',
+          condition: { type: 'cond_result', value: true },
+        },
+        {
+          id: CONDITION_FALSE_BRANCH_ID,
+          label: 'Não',
+          check: null,
+          kind: 'match',
+          condition: { type: 'cond_result', value: false },
+        },
+        { id: FALLBACK_BRANCH_ID, label: 'Sempre', check: null, kind: 'fallback', condition: { type: 'always' } },
+      ]);
+    });
+
+    it('resolves every stored v1 edge to a branch that exists on its source node', () => {
+      const graph = parseLegacy();
+      const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+      for (const edge of graph.edges) {
+        const branchId = branchIdForCondition(byId.get(edge.source), edge.condition);
+        expect(branchId, `edge ${edge.id} lost its branch`).not.toBeNull();
+        expect(conditionForBranch(byId.get(edge.source)!, branchId!)).toStrictEqual(edge.condition);
+      }
+    });
+
+    it('leaves a node with a single output with exactly one branch: the fallback', () => {
+      const graph = parseLegacy();
+      for (const id of ['t1', 'a1', 'e1']) {
+        const branches = nodeBranches(graph.nodes.find((n) => n.id === id)!);
+        expect(branches).toStrictEqual([
+          { id: FALLBACK_BRANCH_ID, label: 'Sempre', check: null, kind: 'fallback', condition: { type: 'always' } },
+        ]);
+      }
+    });
+  });
+
+  describe('named branches (graph v2)', () => {
+    const perCheckConfig = {
+      combinator: 'and' as const,
+      branching: 'per_check' as const,
+      checks: [
+        { id: 'chk_vip', label: 'Cliente VIP', field: 'tag' as const, op: 'contains' as const, value: 'vip' },
+        { id: 'chk_frio', field: 'steps_taken' as const, op: 'gte' as const, value: 3 },
+      ],
+    };
+
+    function conditionNode(config: unknown): FlowNode {
+      const parsed = flowNodeSchema.safeParse({
+        id: 'c9',
+        type: 'condition',
+        label: 'Triagem',
+        position: { x: 0, y: 0 },
+        config,
+      });
+      if (!parsed.success) throw new Error(JSON.stringify(parsed.error.issues));
+      return parsed.data;
+    }
+
+    describe('condition config', () => {
+      it('accepts per_check branching when every check carries an id', () => {
+        expect(conditionConfigSchema.safeParse(perCheckConfig).success).toBe(true);
+      });
+
+      it('rejects per_check when a check has no id — the edge would reference nothing', () => {
+        const result = conditionConfigSchema.safeParse({
+          ...perCheckConfig,
+          checks: [perCheckConfig.checks[0], { field: 'tag', op: 'eq', value: 'x' }],
+        });
+        expect(result.success).toBe(false);
+      });
+
+      it('rejects duplicate check ids', () => {
+        const result = conditionConfigSchema.safeParse({
+          ...perCheckConfig,
+          checks: [
+            { id: 'same', field: 'tag', op: 'eq', value: 'a' },
+            { id: 'same', field: 'tag', op: 'eq', value: 'b' },
+          ],
+        });
+        expect(result.success).toBe(false);
+      });
+
+      it.each(RESERVED_BRANCH_IDS)('rejects the reserved branch id %s on a check', (reserved) => {
+        const result = conditionConfigSchema.safeParse({
+          ...perCheckConfig,
+          checks: [{ id: reserved, field: 'tag', op: 'eq', value: 'a' }],
+        });
+        expect(result.success).toBe(false);
+      });
+
+      it('keeps the v1 config valid with no branching field at all', () => {
+        const result = conditionConfigSchema.safeParse({
+          combinator: 'or',
+          checks: [{ field: 'tag', op: 'contains', value: 'vip' }],
+        });
+        expect(result.success).toBe(true);
+        if (result.success) expect(result.data).toStrictEqual({
+          combinator: 'or',
+          checks: [{ field: 'tag', op: 'contains', value: 'vip' }],
+        });
+      });
+    });
+
+    describe('ai_classify config', () => {
+      const withBranches = {
+        classes: ['quente', 'frio'],
+        branches: [
+          { id: 'br_q', label: 'quente' },
+          { id: 'br_f', label: 'frio' },
+        ],
+        grace_timeout_ms: 900_000,
+        target: 'last_reply' as const,
+      };
+
+      it('accepts branches that mirror classes in order', () => {
+        expect(aiClassifyConfigSchema.safeParse(withBranches).success).toBe(true);
+      });
+
+      it('rejects branches drifting from classes — the engine feeds the LLM from classes', () => {
+        const result = aiClassifyConfigSchema.safeParse({
+          ...withBranches,
+          classes: ['quente', 'morno'],
+        });
+        expect(result.success).toBe(false);
+      });
+
+      it('rejects branches ordered differently from classes', () => {
+        const result = aiClassifyConfigSchema.safeParse({
+          ...withBranches,
+          branches: [
+            { id: 'br_f', label: 'frio' },
+            { id: 'br_q', label: 'quente' },
+          ],
+        });
+        expect(result.success).toBe(false);
+      });
+
+      it('rejects duplicate branch ids', () => {
+        const result = aiClassifyConfigSchema.safeParse({
+          ...withBranches,
+          branches: [
+            { id: 'dup', label: 'quente' },
+            { id: 'dup', label: 'frio' },
+          ],
+        });
+        expect(result.success).toBe(false);
+      });
+
+      it.each(RESERVED_BRANCH_IDS)('rejects the reserved branch id %s', (reserved) => {
+        const result = aiClassifyConfigSchema.safeParse({
+          classes: ['quente'],
+          branches: [{ id: reserved, label: 'quente' }],
+          grace_timeout_ms: 900_000,
+        });
+        expect(result.success).toBe(false);
+      });
+    });
+
+    describe('edge condition', () => {
+      it('accepts a branch condition', () => {
+        const result = flowEdgeSchema.safeParse({
+          id: 'e1',
+          source: 'c9',
+          target: 'end',
+          condition: { type: 'branch', branch_id: 'chk_vip' },
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it(`rejects branch_id "${FALLBACK_BRANCH_ID}" — the fallback has exactly one spelling on the wire`, () => {
+        const result = flowEdgeSchema.safeParse({
+          id: 'e1',
+          source: 'c9',
+          target: 'end',
+          condition: { type: 'branch', branch_id: FALLBACK_BRANCH_ID },
+        });
+        expect(result.success).toBe(false);
+      });
+    });
+
+    describe('nodeBranches', () => {
+      it('gives a per_check condition one output per rule plus the mandatory fallback, last', () => {
+        const branches = nodeBranches(conditionNode(perCheckConfig));
+        expect(branches).toStrictEqual([
+          {
+            id: 'chk_vip',
+            label: 'Cliente VIP',
+            check: { id: 'chk_vip', label: 'Cliente VIP', field: 'tag', op: 'contains', value: 'vip' },
+            kind: 'match',
+            condition: { type: 'branch', branch_id: 'chk_vip' },
+          },
+          {
+            id: 'chk_frio',
+            label: null,
+            check: { id: 'chk_frio', field: 'steps_taken', op: 'gte', value: 3 },
+            kind: 'match',
+            condition: { type: 'branch', branch_id: 'chk_frio' },
+          },
+          {
+            id: FALLBACK_BRANCH_ID,
+            label: 'Nenhuma delas',
+            check: null,
+            kind: 'fallback',
+            condition: { type: 'always' },
+          },
+        ]);
+      });
+
+      /**
+       * O contrato não inventa pt-br derivado de uma regra: quem compõe a frase é
+       * `vocabulario.ts` (`fraseDaCondicao`), que já tem um dicionário por par
+       * campo-operador. Este teste é a trava contra um SEGUNDO dicionário nascer
+       * aqui — foi o que aconteceu quando duas frentes convergiram sozinhas e o
+       * merge não acusou conflito.
+       */
+      it('leaves an unnamed rule without text and hands the rule over for the vocabulary to phrase', () => {
+        const semRotulo = nodeBranches(conditionNode(perCheckConfig))[1]!;
+        expect(semRotulo.label).toBeNull();
+        expect(semRotulo.check).toStrictEqual({
+          id: 'chk_frio',
+          field: 'steps_taken',
+          op: 'gte',
+          value: 3,
+        });
+      });
+
+      it('carries no rule on a branch that is not per_check — nothing to phrase there', () => {
+        const combinado = nodeBranches(
+          conditionNode({ combinator: 'and', checks: [{ field: 'tag', op: 'eq', value: 'a' }] })
+        );
+        expect(combinado.every((b) => b.check === null)).toBe(true);
+        expect(combinado.every((b) => typeof b.label === 'string')).toBe(true);
+      });
+
+      it('exposes exactly one fallback branch per node, always last', () => {
+        const nodes = [conditionNode(perCheckConfig), conditionNode({ combinator: 'and', checks: [{ field: 'tag', op: 'eq', value: 'a' }] })];
+        for (const node of nodes) {
+          const branches = nodeBranches(node);
+          expect(branches.filter((b) => b.kind === 'fallback')).toHaveLength(1);
+          expect(branches.at(-1)!.kind).toBe('fallback');
+        }
+      });
+    });
+
+    describe('the reported bug: renaming an output must not detach its edge', () => {
+      function classifyNode(branches: { id: string; label: string }[]): FlowNode {
+        const parsed = flowNodeSchema.safeParse({
+          id: 'ac9',
+          type: 'ai_classify',
+          label: 'Triagem',
+          position: { x: 0, y: 0 },
+          config: {
+            classes: branches.map((b) => b.label),
+            branches,
+            grace_timeout_ms: 900_000,
+            target: 'last_reply',
+          },
+        });
+        if (!parsed.success) throw new Error(JSON.stringify(parsed.error.issues));
+        return parsed.data;
+      }
+
+      it('keeps the edge pointing at the same branch after the class is renamed', () => {
+        const before = classifyNode([{ id: 'br_q', label: 'quente' }]);
+        const edgeCondition = conditionForBranch(before, 'br_q');
+        expect(edgeCondition).toStrictEqual({ type: 'branch', branch_id: 'br_q' });
+
+        const after = classifyNode([{ id: 'br_q', label: 'muito quente' }]);
+        expect(branchIdForCondition(after, edgeCondition!)).toBe('br_q');
+      });
+
+      it('shows the v1 failure mode it replaces: a class_match edge detaches on rename', () => {
+        const renamed = flowNodeSchema.parse({
+          id: 'ac9',
+          type: 'ai_classify',
+          label: 'Triagem',
+          position: { x: 0, y: 0 },
+          config: { classes: ['muito quente'], grace_timeout_ms: 900_000, target: 'last_reply' },
+        });
+        expect(branchIdForCondition(renamed, { type: 'class_match', value: 'quente' })).toBeNull();
+      });
+
+      it('returns null for a branch id that names nothing on the source node', () => {
+        const node = conditionNode(perCheckConfig);
+        expect(branchIdForCondition(node, { type: 'branch', branch_id: 'chk_apagado' })).toBeNull();
+      });
+
+      it('still resolves a leftover v1 edge hanging off a migrated v2 node', () => {
+        const node = classifyNode([{ id: 'br_q', label: 'quente' }]);
+        expect(branchIdForCondition(node, { type: 'class_match', value: 'quente' })).toBe('br_q');
+      });
     });
   });
 });

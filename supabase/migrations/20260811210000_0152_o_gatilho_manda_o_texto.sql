@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0146 — O GATILHO PASSA A MANDAR O TEXTO E A CONEXÃO.
+-- 0152 — O GATILHO PASSA A MANDAR O TEXTO E A CONEXÃO.
 --
 -- A 0145 (e o commit que a acompanha) apagou a SEGUNDA emissão de
 -- `message.received` que o ingest por QR fazia, porque o gatilho

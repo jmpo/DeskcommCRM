@@ -164,3 +164,57 @@ describe("graphsEqual", () => {
     expect(graphsEqual(a, b)).toBe(false);
   });
 });
+
+/**
+ * `sourceHandle` é derivado da condição da aresta, nunca guardado no grafo. Sem
+ * isto, reabrir um fluxo salvo desenharia TODA aresta saindo da primeira
+ * bolinha: o roteamento seguiria certo e só o desenho mentiria — defeito que
+ * ninguém percebe a tempo, porque nada quebra.
+ */
+describe("toReactFlow — de qual bolinha a aresta sai", () => {
+  const GRAFO: FlowGraph = {
+    nodes: [
+      { id: "t1", type: "trigger", label: "Início", position: { x: 0, y: 0 }, config: {} },
+      {
+        id: "c1",
+        type: "condition",
+        label: "Triagem",
+        position: { x: 0, y: 100 },
+        config: {
+          combinator: "and",
+          branching: "per_check",
+          checks: [
+            { id: "chk_vip", label: "VIP", field: "tag", op: "contains", value: "vip" },
+            { id: "chk_frio", field: "steps_taken", op: "gte", value: 3 },
+          ],
+        },
+      },
+      { id: "fim", type: "end", label: "Fim", position: { x: 0, y: 200 }, config: { outcome: "exhausted" } },
+    ],
+    edges: [
+      { id: "x1", source: "t1", target: "c1", priority: 0, condition: { type: "always" } },
+      { id: "x2", source: "c1", target: "fim", priority: 0, condition: { type: "branch", branch_id: "chk_vip" } },
+      { id: "x3", source: "c1", target: "fim", priority: 0, condition: { type: "branch", branch_id: "chk_frio" } },
+      { id: "x4", source: "c1", target: "fim", priority: 0, condition: { type: "always" } },
+    ],
+  };
+
+  const bySourceHandle = () =>
+    Object.fromEntries(toReactFlow(GRAFO).edges.map((e) => [e.id, e.sourceHandle]));
+
+  it("cada aresta de um nó que ramifica volta ancorada no SEU ramo", () => {
+    const handles = bySourceHandle();
+    expect(handles.x2).toBe("chk_vip");
+    expect(handles.x3).toBe("chk_frio");
+    expect(handles.x4).toBe("else"); // a saída "nenhuma delas"
+  });
+
+  it("nó de saída única não ganha handle nomeado — a bolinha de sempre no rodapé", () => {
+    expect(bySourceHandle().x1).toBeUndefined();
+  });
+
+  it("o campo é derivado: a volta pelo mapper não o grava no grafo", () => {
+    const { nodes, edges } = toReactFlow(GRAFO);
+    expect(fromReactFlow(nodes, edges)).toEqual(GRAFO);
+  });
+});

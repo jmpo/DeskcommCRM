@@ -20,7 +20,10 @@ import { createClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const LIVE_STATUSES = ["active", "waiting_reply", "paused_handoff"];
+// `paused_manual` (0145) é cancelável: quem pausou tem o direito de desistir sem
+// ter de retomar antes só para poder encerrar — retomar reagendaria o próximo
+// passo, e entre o retomar e o cancelar o motor poderia mandar a mensagem.
+const LIVE_STATUSES = ["active", "waiting_reply", "paused_handoff", "paused_manual"];
 
 type RouteCtx = { params: Promise<{ id: string }> };
 

@@ -26,6 +26,7 @@ import {
   type LeadFacts,
   type NodeResult,
 } from "./node-handlers";
+import { coletarEsperasAdaptativas, type EsperaAdaptativa, type TimingPlan } from "./timing-plan";
 
 const MAX_STEPS = 30;
 const CLAIM_LEASE_SECONDS = 120;
@@ -44,6 +45,8 @@ export interface EnrollmentPatch {
   cancel_reason?: string | null;
   completed_at?: string | null;
   updated_at?: string;
+  /** Plano de tempo decidido no acionamento (migration 0144) — escrito uma vez, pela ponte. */
+  timing_plan?: TimingPlan;
 }
 
 export interface FollowupJobRequest {
@@ -52,14 +55,16 @@ export interface FollowupJobRequest {
   payload: {
     followup_enrollment_id: string;
     node_id: string;
-    purpose: "send_message" | "classify" | "decide_timing";
+    purpose: "send_message" | "classify" | "plan_timing";
     /** action (mode 'ai_message') — Task 5.1: repassado ao turno pra virar o bloco de orientação. */
     prompt_hint?: string;
     /** ai_classify — Task 5.1: classes possíveis + dica opcional pro classificador. */
     classes?: string[];
     hint?: string;
-    /** wait (mode 'smart') — Task 5.1: orientação opcional pro instante proposto. */
-    guidance?: string;
+    /** trigger (purpose 'plan_timing'): TODAS as esperas adaptativas do fluxo, com o
+     *  intervalo e a orientação de cada uma. O planejador precisa ver a sequência
+     *  inteira — decidir bem a 1ª espera e mal a 3ª não é um plano. */
+    waits?: EsperaAdaptativa[];
   };
 }
 
@@ -113,7 +118,10 @@ function errorMessage(err: unknown): string {
 function eventTypeFor(result: NodeResult): string {
   switch (result.kind) {
     case "advance":
-      return "node_advanced";
+      // O trigger desistiu de esperar o plano de tempo. Evento PRÓPRIO porque a
+      // consequência é visível pro operador (as esperas do fluxo saem no máximo);
+      // enterrá-lo como mais um `node_advanced` esconderia o motivo.
+      return result.reason === "plan_timeout" ? "timing_plan_desistido" : "node_advanced";
     case "wait":
       return "wait_started";
     case "enqueue_turn":
@@ -134,7 +142,10 @@ function eventTypeFor(result: NodeResult): string {
 function eventPayload(result: NodeResult): Record<string, unknown> {
   switch (result.kind) {
     case "advance":
-      return { next_node_id: result.next_node_id };
+      return {
+        next_node_id: result.next_node_id,
+        ...(result.reason !== undefined ? { reason: result.reason } : {}),
+      };
     case "wait":
     case "recheck":
       return { next_eval_at: result.next_eval_at.toISOString() };
@@ -155,15 +166,17 @@ function eventPayload(result: NodeResult): Record<string, unknown> {
  * action, classes/hint do ai_classify, guidance do wait smart) pra saber o que
  * fazer; sem isso o job só teria os 3 campos genéricos (enrollment/node/purpose).
  */
-function turnPayloadExtras(node: FlowNode): Partial<FollowupJobRequest["payload"]> {
+function turnPayloadExtras(node: FlowNode, smartWaits: EsperaAdaptativa[]): Partial<FollowupJobRequest["payload"]> {
   if (node.type === "action" && node.config.mode === "ai_message") {
     return { prompt_hint: node.config.prompt_hint };
   }
   if (node.type === "ai_classify") {
     return { classes: node.config.classes, ...(node.config.hint !== undefined ? { hint: node.config.hint } : {}) };
   }
-  if (node.type === "wait" && node.config.mode === "smart") {
-    return node.config.guidance !== undefined ? { guidance: node.config.guidance } : {};
+  if (node.type === "trigger") {
+    // As esperas vêm do GRAFO PINADO, não do nó — o trigger não as conhece, e é
+    // o grafo que manda (o payload do modelo nunca decide o intervalo).
+    return { waits: smartWaits };
   }
   return {};
 }
@@ -244,6 +257,7 @@ async function applyResult(
   node: FlowNode,
   result: NodeResult,
   summary: TickSummary,
+  smartWaits: EsperaAdaptativa[] = [],
 ): Promise<void> {
   const { db, clock, enqueueJob } = deps;
 
@@ -321,7 +335,7 @@ async function applyResult(
             followup_enrollment_id: enrollment.id,
             node_id: node.id,
             purpose: result.purpose,
-            ...turnPayloadExtras(node),
+            ...turnPayloadExtras(node, smartWaits),
           },
         });
       }
@@ -369,6 +383,23 @@ async function processEnrollment(deps: TickDeps, enrollment: EnrollmentRow, summ
   let wokeEarly: boolean | undefined;
   let actionEnqueued: boolean | undefined;
   let actionRecheckCount: number | undefined;
+  let planEnqueued: boolean | undefined;
+  let planRecheckCount: number | undefined;
+
+  // Acionamento: as esperas adaptativas do fluxo. Só o trigger precisa delas (é
+  // ele quem manda planejar), e só quando ainda não há plano — fluxo v1 e
+  // enrollment já planejado não pagam nem a coleta nem a leitura de eventos.
+  const smartWaits = node.type === "trigger" ? coletarEsperasAdaptativas(graph.nodes) : [];
+  const vaiPlanejar = smartWaits.length > 0 && (enrollment.timing_plan ?? null) === null;
+
+  if (vaiPlanejar) {
+    const events = await db.loadEnrollmentEvents(enrollment.id);
+    // Mesmo guard de ocupação do action: "um turno para ESTA estadia no nó já
+    // foi enfileirado?" — sem ele, cada recheck geraria um 2º job de plano.
+    planEnqueued = resolveWaitPhase(events, node.id, enrollment.steps_taken);
+    planRecheckCount = events.filter((e) => e.node_id === node.id).length;
+  }
+
   if (node.type === "wait" || node.type === "ai_classify" || node.type === "action") {
     const events = await db.loadEnrollmentEvents(enrollment.id);
     // Same prior-step-event check for all three: "did we already act on this node at this
@@ -403,8 +434,11 @@ async function processEnrollment(deps: TickDeps, enrollment: EnrollmentRow, summ
     wokeEarly,
     actionEnqueued,
     actionRecheckCount,
+    smartWaits,
+    planEnqueued,
+    planRecheckCount,
   });
-  await applyResult(deps, enrollment, node, result, summary);
+  await applyResult(deps, enrollment, node, result, summary, smartWaits);
 }
 
 export async function runFollowupTick(deps: TickDeps, opts?: { limit?: number }): Promise<TickSummary> {

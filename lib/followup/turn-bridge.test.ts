@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 
-import { clampProposedAt, completeTurnForEnrollment, type TurnBridgeAdminClient } from "./turn-bridge";
+import { completeTurnForEnrollment, type TurnBridgeAdminClient } from "./turn-bridge";
 import type { EnrollmentRow } from "./node-handlers";
 import type { FlowGraph } from "./graph-schema";
 
@@ -58,18 +58,31 @@ const CLASSIFY_GRAPH: FlowGraph = {
   ],
 };
 
-const SMART_WAIT_GRAPH: FlowGraph = {
+/** Acionamento → duas esperas adaptativas: o plano decide as DUAS de uma vez. */
+const PLAN_GRAPH: FlowGraph = {
   nodes: [
+    { id: "t1", type: "trigger", label: "Início", position: { x: 0, y: 0 }, config: {} },
     {
       id: "w1",
       type: "wait",
-      label: "Wait smart",
+      label: "Primeira espera",
       position: { x: 0, y: 0 },
       config: { mode: "smart", min_ms: 600_000, max_ms: 1_800_000 },
     },
+    {
+      id: "w2",
+      type: "wait",
+      label: "Segunda espera",
+      position: { x: 0, y: 0 },
+      config: { mode: "smart", min_ms: 3_600_000, max_ms: 86_400_000 },
+    },
     { id: "e1", type: "end", label: "Done", position: { x: 0, y: 0 }, config: { outcome: "converted" } },
   ],
-  edges: [{ id: "w1-e1", source: "w1", target: "e1", priority: 0, condition: { type: "always" } }],
+  edges: [
+    { id: "t1-w1", source: "t1", target: "w1", priority: 0, condition: { type: "always" } },
+    { id: "w1-w2", source: "w1", target: "w2", priority: 0, condition: { type: "always" } },
+    { id: "w2-e1", source: "w2", target: "e1", priority: 0, condition: { type: "always" } },
+  ],
 };
 
 /** Fake in-memory TurnBridgeAdminClient — mirrors the pg-backed adapter's contract without a DB. */
@@ -98,31 +111,6 @@ function fakeDb(opts: {
   };
   return { db, updateEnrollment, insertEnrollmentEvent };
 }
-
-describe("clampProposedAt", () => {
-  it("clamps a proposal below min_ms up to now + min_ms", () => {
-    const proposed = new Date(NOW.getTime() + 60_000).toISOString(); // 1min — abaixo do min de 10min
-    const result = clampProposedAt(proposed, NOW, 600_000, 1_800_000);
-    expect(result).toEqual(new Date(NOW.getTime() + 600_000));
-  });
-
-  it("clamps a proposal above max_ms down to now + max_ms", () => {
-    const proposed = new Date(NOW.getTime() + 10_000_000).toISOString(); // muito além do max de 30min
-    const result = clampProposedAt(proposed, NOW, 600_000, 1_800_000);
-    expect(result).toEqual(new Date(NOW.getTime() + 1_800_000));
-  });
-
-  it("keeps a proposal already inside the range untouched", () => {
-    const proposed = new Date(NOW.getTime() + 900_000).toISOString(); // 15min — dentro de [10,30]
-    const result = clampProposedAt(proposed, NOW, 600_000, 1_800_000);
-    expect(result).toEqual(new Date(NOW.getTime() + 900_000));
-  });
-
-  it("degrades an unparseable instant to min_ms (safe side)", () => {
-    const result = clampProposedAt("not-a-date", NOW, 600_000, 1_800_000);
-    expect(result).toEqual(new Date(NOW.getTime() + 600_000));
-  });
-});
 
 describe("completeTurnForEnrollment — 'sent' (action)", () => {
   it("advances to the next node via the 'always' edge and writes an idempotent 'action_sent' event", async () => {
@@ -171,6 +159,50 @@ describe("completeTurnForEnrollment — 'classified' (ai_classify)", () => {
     );
   });
 
+  /**
+   * Nó já migrado para ramos nomeados: a aresta referencia o id ESTÁVEL do ramo,
+   * não o texto da classe. Resolver por texto aqui não acha aresta nenhuma e cai
+   * no fallback — o lead classificado como "quente" iria para o mesmo lugar de
+   * quem não foi classificado, sem erro nenhum aparecer. Renomear a classe passa
+   * a ser seguro exatamente porque a aresta não depende do nome.
+   */
+  it("nó com ramos nomeados: a classe conhecida vai pelo RAMO dela, não pelo fallback", async () => {
+    const grafoV2: FlowGraph = {
+      nodes: [
+        {
+          id: "ac1",
+          type: "ai_classify",
+          label: "Classify",
+          position: { x: 0, y: 0 },
+          config: {
+            classes: ["quente", "frio"],
+            branches: [
+              { id: "br_quente", label: "quente" },
+              { id: "br_frio", label: "frio" },
+            ],
+            grace_timeout_ms: 900_000,
+            target: "last_reply",
+          },
+        },
+        { id: "no-quente", type: "end", label: "Quente", position: { x: 0, y: 0 }, config: { outcome: "converted" } },
+        { id: "escape", type: "end", label: "Escape", position: { x: 0, y: 0 }, config: { outcome: "exhausted" } },
+      ],
+      edges: [
+        { id: "e-quente", source: "ac1", target: "no-quente", priority: 5, condition: { type: "branch", branch_id: "br_quente" } },
+        { id: "e-escape", source: "ac1", target: "escape", priority: 0, condition: { type: "always" } },
+      ],
+    };
+    const { db, updateEnrollment } = fakeDb({ enrollment: enrollment({ current_node_id: "ac1" }), graph: grafoV2 });
+
+    await completeTurnForEnrollment(db, "org-1", "enr-1", "ac1", { kind: "classified", class: "quente" }, clock);
+
+    expect(updateEnrollment).toHaveBeenCalledWith(
+      "enr-1",
+      "org-1",
+      expect.objectContaining({ current_node_id: "no-quente" }),
+    );
+  });
+
   it("routes an unknown class through the 'always' fallback edge", async () => {
     const { db, updateEnrollment } = fakeDb({ enrollment: enrollment({ current_node_id: "ac1" }), graph: CLASSIFY_GRAPH });
 
@@ -184,21 +216,100 @@ describe("completeTurnForEnrollment — 'classified' (ai_classify)", () => {
   });
 });
 
-describe("completeTurnForEnrollment — 'timing' (wait smart)", () => {
-  it("clamps the proposed instant and stays on the same wait node", async () => {
-    const { db, updateEnrollment } = fakeDb({ enrollment: enrollment({ current_node_id: "w1" }), graph: SMART_WAIT_GRAPH });
-    const proposedAt = new Date(NOW.getTime() + 10_000_000).toISOString(); // acima do max
+describe("completeTurnForEnrollment — 'planned' (acionamento, no trigger)", () => {
+  const noTrigger = () => enrollment({ current_node_id: "t1" });
 
-    await completeTurnForEnrollment(db, "org-1", "enr-1", "w1", { kind: "timing", proposed_at: proposedAt }, clock);
+  it("grava o plano das DUAS esperas e sai do trigger para o 1º nó", async () => {
+    const { db, updateEnrollment, insertEnrollmentEvent } = fakeDb({ enrollment: noTrigger(), graph: PLAN_GRAPH });
 
-    expect(updateEnrollment).toHaveBeenCalledWith(
-      "enr-1",
+    await completeTurnForEnrollment(
+      db,
       "org-1",
-      expect.objectContaining({
-        current_node_id: "w1",
-        next_eval_at: new Date(NOW.getTime() + 1_800_000).toISOString(),
-      }),
+      "enr-1",
+      "t1",
+      {
+        kind: "planned",
+        modelo: "anthropic/claude-sonnet-4-6",
+        propostas: [
+          { node_id: "w1", aguardar_ms: 900_000, motivo: "lead engajado, retomar no mesmo dia" },
+          { node_id: "w2", aguardar_ms: 7_200_000, motivo: "segunda tentativa pode respirar mais" },
+        ],
+      },
+      clock,
     );
+
+    const patch = updateEnrollment.mock.calls[0]![2] as { timing_plan: { esperas: Record<string, unknown> } };
+    expect(patch).toMatchObject({ current_node_id: "w1", status: "active" });
+    expect(patch.timing_plan.esperas).toEqual({
+      w1: {
+        escolhido_ms: 900_000,
+        min_ms: 600_000,
+        max_ms: 1_800_000,
+        proposto_ms: 900_000,
+        clampado: false,
+        motivo: "lead engajado, retomar no mesmo dia",
+      },
+      w2: {
+        escolhido_ms: 7_200_000,
+        min_ms: 3_600_000,
+        max_ms: 86_400_000,
+        proposto_ms: 7_200_000,
+        clampado: false,
+        motivo: "segunda tentativa pode respirar mais",
+      },
+    });
+    expect(insertEnrollmentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ event_type: "timing_plan_decidido", idempotency_key: "t1:4" }),
+    );
+  });
+
+  it("proposta fora do intervalo do nó é grampeada e marcada — nunca aceita, nunca descartada em silêncio", async () => {
+    const { db, updateEnrollment } = fakeDb({ enrollment: noTrigger(), graph: PLAN_GRAPH });
+
+    await completeTurnForEnrollment(
+      db,
+      "org-1",
+      "enr-1",
+      "t1",
+      {
+        kind: "planned",
+        modelo: "m",
+        propostas: [{ node_id: "w1", aguardar_ms: 3 * 86_400_000, motivo: "esperar 3 dias" }],
+      },
+      clock,
+    );
+
+    const patch = updateEnrollment.mock.calls[0]![2] as {
+      timing_plan: { esperas: Record<string, { escolhido_ms: number; proposto_ms: number; clampado: boolean }> };
+    };
+    expect(patch.timing_plan.esperas.w1).toMatchObject({
+      escolhido_ms: 1_800_000, // o máximo do nó
+      proposto_ms: 3 * 86_400_000, // o que a IA pediu, preservado para o dossiê
+      clampado: true,
+    });
+  });
+
+  it("espera sem proposta fica FORA do plano — o nó cai no máximo, não num número inventado", async () => {
+    const { db, updateEnrollment } = fakeDb({ enrollment: noTrigger(), graph: PLAN_GRAPH });
+
+    await completeTurnForEnrollment(
+      db,
+      "org-1",
+      "enr-1",
+      "t1",
+      { kind: "planned", modelo: "m", propostas: [{ node_id: "w1", aguardar_ms: 900_000, motivo: "ok" }] },
+      clock,
+    );
+
+    const patch = updateEnrollment.mock.calls[0]![2] as { timing_plan: { esperas: Record<string, unknown> } };
+    expect(Object.keys(patch.timing_plan.esperas)).toEqual(["w1"]);
+  });
+
+  it("lança quando o nó do turno não é o trigger", async () => {
+    const { db } = fakeDb({ enrollment: enrollment({ current_node_id: "w1" }), graph: PLAN_GRAPH });
+    await expect(
+      completeTurnForEnrollment(db, "org-1", "enr-1", "w1", { kind: "planned", modelo: "m", propostas: [] }, clock),
+    ).rejects.toThrow();
   });
 });
 

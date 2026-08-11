@@ -27,7 +27,15 @@ import {
   type RFNodeData,
 } from "@/lib/followup/graph-mappers";
 import { conditionLabel } from "@/lib/followup/edge-condition-options";
-import type { FlowEdge, FlowGraph, NodeType } from "@/lib/followup/graph-schema";
+import {
+  branchIdForCondition,
+  conditionForBranch,
+  nodeBranches,
+  type FlowEdge,
+  type FlowGraph,
+  type NodeType,
+} from "@/lib/followup/graph-schema";
+import { rotuloDoRamo } from "@/lib/followup/rotulo-do-ramo";
 import { useFollowupFlow, type FollowupFlowDetailRow } from "@/hooks/followup/useFollowupFlow";
 import { NodeConfigPanel } from "./NodeConfigPanel";
 import { EdgeConfigPanel } from "./EdgeConfigPanel";
@@ -127,29 +135,62 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
 
   // Wire label: derived at render time from `data.condition`, never persisted on the edge
   // itself — `condition` alone stays the source of truth the mapper round-trips.
+  // Num nó que ramifica o texto vem do RAMO (o rótulo que o usuário leu na
+  // bolinha de onde arrastou), não da condição crua: `conditionLabel` sozinho
+  // mostraria o id do ramo, que não é palavra nenhuma para quem não programa.
   const edgesForRender = useMemo(
     () =>
-      edges.map((e) => ({
-        ...e,
-        label: conditionLabel(e.data?.condition ?? { type: "always" }),
-        selected: e.id === selectedEdgeId,
-      })),
-    [edges, selectedEdgeId],
+      edges.map((e) => {
+        const condition = e.data?.condition ?? { type: "always" as const };
+        const source = nodes.find((n) => n.id === e.source);
+        const branch = source
+          ? nodeBranches(toFlowNode(source)).find(
+              (b) => b.id === branchIdForCondition(toFlowNode(source), condition),
+            )
+          : undefined;
+        return {
+          ...e,
+          label: branch ? rotuloDoRamo(branch) : conditionLabel(condition),
+          selected: e.id === selectedEdgeId,
+        };
+      }),
+    [edges, nodes, selectedEdgeId],
   );
+
+  // Quais saídas do nó selecionado já têm aresta. Quem sabe isso é o canvas —
+  // o formulário não vê o grafo, e sem esse dado ele trocaria o modo do nó
+  // deixando ligações órfãs sem conseguir dizer quantas.
+  const ramosLigadosDoSelecionado = useMemo(() => {
+    if (!selectedNode) return [];
+    const source = toFlowNode(selectedNode);
+    return edges
+      .filter((e) => e.source === selectedNode.id)
+      .map((e) => branchIdForCondition(source, e.data?.condition ?? { type: "always" }))
+      .filter((id): id is string => id !== null);
+  }, [selectedNode, edges]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      // A bolinha de onde o usuário arrastou É a saída escolhida: o React Flow
+      // devolve o id do ramo em `sourceHandle`. Antes a aresta nascia sempre
+      // `always` e o usuário tinha que ir ao painel dizer de novo, de qual regra
+      // ela saía — o que, com uma bolinha só, era impossível de expressar.
+      const source = nodes.find((n) => n.id === connection.source);
+      const fromBranch =
+        source && connection.sourceHandle
+          ? conditionForBranch(toFlowNode(source), connection.sourceHandle)
+          : null;
       const newEdge: RFEdge = {
         id: `edge-${nextEdgeId.current++}`,
         source: connection.source,
         target: connection.target,
         sourceHandle: connection.sourceHandle,
         targetHandle: connection.targetHandle,
-        data: { priority: 0, condition: { type: "always" } },
+        data: { priority: 0, condition: fromBranch ?? { type: "always" } },
       };
       setEdges((eds) => addEdge(newEdge, eds));
     },
-    [setEdges],
+    [setEdges, nodes],
   );
 
   const addNodeAt = useCallback(
@@ -235,6 +276,7 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
               key={selectedNode.id}
               node={selectedNode}
               onChange={(patch) => updateNodeData(selectedNode.id, patch)}
+              ramosLigados={ramosLigadosDoSelecionado}
             />
           </aside>
         )}

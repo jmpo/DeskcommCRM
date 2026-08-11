@@ -60,10 +60,14 @@ const INVALID_GRAPH: FlowGraph = {
 
 type Row = Record<string, unknown>;
 
-function makeDb(pointers: Row[], versions: Row[]) {
+function makeDb(pointers: Row[], versions: Row[], stages: Row[] = []) {
   const tables: Record<string, Row[]> = {
     followup_flow_pointers: pointers,
     followup_flow_versions: versions,
+    // O publish do gatilho de etapa LÊ a etapa antes de deixar publicar (etapa
+    // apagada/arquivada = fluxo `active` que nunca matricula ninguém). Sem esta
+    // tabela no mock, o caso positivo do `stage_change` não teria como existir.
+    crm_stages: stages,
   };
 
   function builder(table: string) {
@@ -495,7 +499,23 @@ describe("POST /api/v1/ai/followup-flows/:id/publish", () => {
     expect(res.status).toBe(404);
   });
 
-  it("trigger_config.kind='stage_change' (sem motor de enrollment) → 422 trigger_kind_not_implemented, sem publicar", async () => {
+  /**
+   * O CASO POSITIVO DO KIND QUE GANHOU MOTOR.
+   *
+   * Aqui havia uma cópia do caso de `conversation_end` que já existe logo
+   * abaixo — eu a criei ao repontar um caso obsoleto (ele afirmava que
+   * `stage_change` era recusado, e a wave do gatilho de etapa entregou o
+   * consumidor de `lead.stage_changed`). Duplicata medida por
+   * `@MaestroConexoes`, e a proposta dele é melhor que o repontamento: a
+   * propriedade "kind sem motor não publica" já está guardada no caso de baixo,
+   * e o que FALTAVA era a guarda do caminho novo.
+   *
+   * Sem ela, publicar com `stage_change` só era coberto por
+   * `tests/e2e/gatilho-de-etapa.spec.ts` — e o `e2e` não segura merge neste
+   * repo, então uma regressão passaria pelos checks obrigatórios.
+   */
+  it("trigger_config.kind='stage_change' com etapa válida → publica (kind com motor)", async () => {
+    const STAGE_ID = "44444444-4444-4444-8444-444444444444";
     const db = makeDb(
       [
         {
@@ -503,26 +523,25 @@ describe("POST /api/v1/ai/followup-flows/:id/publish", () => {
           organization_id: ORG_ID,
           status: "draft",
           draft_graph: VALID_GRAPH,
-          trigger_config: { kind: "stage_change", params: { stage_id: "44444444-4444-4444-8444-444444444444" } },
+          trigger_config: { kind: "stage_change", params: { stage_id: STAGE_ID } },
         },
       ],
       [],
+      [{ id: STAGE_ID, organization_id: ORG_ID, name: "Proposta enviada", is_archived: false }],
     );
     session("manager", db);
     const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
     const res = await POST(req("POST"), ctx("33333333-3333-4333-8333-333333333333"));
-    expect(res.status).toBe(422);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("trigger_kind_not_implemented");
+    expect(res.status).toBe(200);
 
     const { data: pointerRows } = (await db
       .from("followup_flow_pointers")
       .select()
       .eq("id", "33333333-3333-4333-8333-333333333333")) as { data: Row[] };
-    expect(pointerRows[0]!.status).toBe("draft");
+    expect(pointerRows[0]!.status).toBe("active");
   });
 
-  it("trigger_config.kind='conversation_end' (sem motor de enrollment) → 422 trigger_kind_not_implemented", async () => {
+  it("kind conhecido mas SEM motor ('conversation_end') → 422 trigger_kind_not_implemented", async () => {
     const db = makeDb(
       [
         {
@@ -541,6 +560,40 @@ describe("POST /api/v1/ai/followup-flows/:id/publish", () => {
     expect(res.status).toBe(422);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("trigger_kind_not_implemented");
+  });
+
+  /**
+   * ⚠️ ESTE CASO É A DIFERENÇA ENTRE DENYLIST E ALLOWLIST, e é o que a versão
+   * anterior deixava passar. Ela recusava UM literal (`conversation_end`); um
+   * kind que ela nunca tinha visto publicava com 200 e ficava `active` sem
+   * enrollar ninguém — fluxo morto com cara de vivo.
+   *
+   * O caminho não é teórico: `trigger_config` é `jsonb` sem CHECK e o publish lê
+   * a linha CRUA (não passa pelo Zod do PATCH), então SQL à mão, clone
+   * open-source ou versão futura do produto chegam aqui com qualquer coisa.
+   */
+  it("kind DESCONHECIDO pelo produto → 422 (a denylist antiga publicaria)", async () => {
+    const db = makeDb(
+      [
+        {
+          id: "33333333-3333-4333-8333-333333333333",
+          organization_id: ORG_ID,
+          status: "draft",
+          draft_graph: VALID_GRAPH,
+          trigger_config: { kind: "kind_que_nunca_existiu", params: {} },
+        },
+      ],
+      [],
+    );
+    session("manager", db);
+    const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
+    const res = await POST(req("POST"), ctx("33333333-3333-4333-8333-333333333333"));
+    expect(res.status, "kind sem motor não pode publicar, mesmo sendo desconhecido").toBe(422);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("trigger_kind_not_implemented");
+    // A mensagem nomeia o kind recusado: erro que não diz O QUÊ manda o operador
+    // adivinhar, e aqui quem lê pode ser um self-hoster com dado legado.
+    expect(body.error.message).toContain("kind_que_nunca_existiu");
   });
 
   it("trigger_config.kind='silence' → publica normalmente (kind com motor)", async () => {
