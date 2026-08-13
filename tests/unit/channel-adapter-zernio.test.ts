@@ -302,3 +302,66 @@ describe("códigos que o handler grava", () => {
     });
   });
 });
+
+/**
+ * A MÍDIA RECEBIDA NÃO PODE LEVAR A CREDENCIAL PARA ONDE O PAYLOAD MANDAR.
+ *
+ * `fetchInboundMedia` busca o anexo pela URL que veio no payload do webhook, e
+ * manda a API key do tenant no `Authorization`. Sem guarda, isso é pior que o
+ * SSRF comum: além de fazer o servidor bater num endereço interno
+ * (`169.254.169.254` é o metadado de nuvem), ele ENTREGA a credencial ao host
+ * que o payload escolheu.
+ *
+ * O irmão WAHA resolve por construção — `lib/messaging/media/waha-source.ts`
+ * descarta host e porta do payload e reconstrói sobre `WAHA_API_BASE_URL`.
+ * Aqui não dá para fixar a base (o provedor pode servir mídia de outro host),
+ * então vale o par que o repo já usa em `lib/automation/actions/call-webhook.ts`.
+ *
+ * O que estes casos guardam é COMPORTAMENTO, não a presença do import: o
+ * critério é `fetch` NÃO ter sido chamado. Um guard que lance depois do fetch
+ * deixaria a credencial sair na mesma e ainda assim "passaria" num teste que
+ * só checasse a exceção.
+ */
+describe("fetchInboundMedia não busca onde o payload mandar", () => {
+  const PROIBIDAS = [
+    ["metadado de nuvem", "http://169.254.169.254/latest/meta-data/"],
+    ["loopback", "http://127.0.0.1:9000/interno"],
+    ["localhost por nome", "http://localhost:3000/interno"],
+    ["rede privada", "http://10.0.0.5/interno"],
+    ["literal IPv6", "http://[::1]:9000/interno"],
+    ["esquema que não é http(s)", "file:///etc/passwd"],
+  ] as const;
+
+  for (const [rotulo, url] of PROIBIDAS) {
+    it(`recusa ${rotulo} — e sem chamar fetch`, async () => {
+      credsRef.current = CREDS;
+      fetchMock.mockClear();
+      await expect(
+        zernioAdapter.fetchInboundMedia!({ sessionRef: CREDS.accountId, url }),
+      ).rejects.toThrow();
+      expect(
+        fetchMock,
+        "a credencial não pode sair: o guard tem de barrar ANTES do fetch",
+      ).not.toHaveBeenCalled();
+    });
+  }
+
+  it("deixa passar uma URL pública do provedor (guarda de vacuidade)", async () => {
+    // Sem este caso, um guard que recusasse TUDO deixaria os de cima verdes e
+    // quebraria a feature em silêncio.
+    credsRef.current = CREDS;
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new ArrayBuffer(4),
+      headers: new Headers({ "content-type": "image/png" }),
+    });
+    const r = await zernioAdapter.fetchInboundMedia!({
+      sessionRef: CREDS.accountId,
+      url: "https://zernio.com/api/v1/media/abc123",
+    });
+    expect(r.mime).toBe("image/png");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

@@ -185,10 +185,40 @@ check "a chave APP_IMAGE não duplicou" test "$(grep -c '^APP_IMAGE=' .env)" -eq
 run_update --to v1.1.0 --force
 check "segunda execução também não duplica" test "$(grep -c '^APP_IMAGE=' .env)" -eq 1
 check "as outras chaves do .env sobreviveram" grep -q '^INTERNAL_SECRET=segredo$' .env
-check "a política de pull volta a 'always' (senão o up -d do dono nunca mais puxa imagem)" \
-  grep -q '^APP_PULL_POLICY=always$' .env
+check "a política de pull vira 'missing' — a tag é imutável, e 'always' derrubaria o CRM se o GHCR caísse" \
+  grep -q '^APP_PULL_POLICY=missing$' .env
 check "e sem duplicar a chave" test "$(grep -c '^APP_PULL_POLICY=' .env)" -eq 1
 check ".env continua 600 (só o dono lê)" test -n "$(find .env -perm 600)"
+
+# Esta prova exigia 'always' até 2026-08-13, e o motivo escrito era real: um
+# rollback deixava 'missing' no .env com um ID de imagem LOCAL, e ninguém
+# desfazia — o `up -d` manual do dono parava de puxar imagem para sempre.
+#
+# O que mudou não foi a preocupação, foi a régua. Medido: com 'always' e o
+# registro sem responder para aquela referência, o `up -d` FALHA e o contêiner
+# NÃO SOBE, mesmo com a imagem já no disco. Como a instalação agora nasce e
+# permanece pinada numa tag imutável, 'always' deixou de proteger de qualquer
+# coisa e passou a amarrar a subida do CRM de um cliente pago à disponibilidade
+# do GHCR. O medo original continua coberto por outro caminho: o update.sh faz
+# `dc pull` EXPLÍCITO, que independe do pull_policy, e regrava a tag por cima do
+# ID local do rollback — que é o que a prova logo acima verifica.
+# Ver docs/doctrine/packaging.md, invariante 5.
+
+echo "── 4b. As três imagens sobem juntas, na mesma versão"
+# O worker e o scheduler eram `build:`-only no compose: `dc pull` os pulava e o
+# `up -d` sem --build recriava o contêiner sobre a imagem velha. O worker — o
+# runtime do agente de IA — ficava congelado no código do dia da instalação.
+# Se estas três linhas voltarem a divergir, o defeito voltou.
+check "o worker é pinado na MESMA versão do app" \
+  grep -q '^WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:1.1.0$' .env
+check "o scheduler é pinado na MESMA versão do app" \
+  grep -q '^SCHEDULER_IMAGE=ghcr.io/melgarafael/deskcomm-scheduler:1.1.0$' .env
+check "o worker herda a política da tag imutável" \
+  grep -q '^WORKER_PULL_POLICY=missing$' .env
+check "o scheduler herda a política da tag imutável" \
+  grep -q '^SCHEDULER_PULL_POLICY=missing$' .env
+check "nenhuma das chaves novas duplicou" \
+  test "$(grep -cE '^(WORKER|SCHEDULER)_(IMAGE|PULL_POLICY)=' .env)" -eq 4
 
 # ── Clone RASO: a topologia que o install.sh realmente entrega ───────────────
 # `install.sh` instala com `git clone --depth 1`. Num repositório raso o

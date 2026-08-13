@@ -11176,6 +11176,356 @@ notify pgrst, 'reload schema';
 
 
 
+-- ---- definer valida a organização de quem chamou (migration 0149) ----
+--
+-- Relatório de segurança da comunidade, auditando a tag v1.0.0. A metade sobre
+-- ACL ("definer executáveis por anon") já estava fechada pela 0108/0116 — 0 de
+-- 31 hoje. Mas ACL e MEMBERSHIP são defeitos independentes: `emit_event` e
+-- `retrieve_top_k_chunks` continuavam usando o `p_organization_id` do ARGUMENTO
+-- como único filtro de tenant, e ambas são (corretamente) executáveis por
+-- `authenticated`.
+--
+-- Medido num pg17 com este baseline, usuário papel `viewer` membro só da org A,
+-- rodando como role `authenticated` com o `sub` dele em request.jwt.claims:
+--
+--   INSERT direto em event_log da org B  -> permission denied   (a RLS vale)
+--   SELECT direto em ai_chunks da org B  -> 0 linhas            (a RLS vale)
+--   emit_event(..., org => B)            -> GRAVOU na org B     ← furo
+--   retrieve_top_k_chunks(B, kbv)        -> devolveu o conteúdo ← furo
+--
+-- Depois deste bloco, os dois furos devolvem `caller_not_authorized_for_org`, e
+-- os dois controles positivos seguem verdes: emitir na PRÓPRIA org funciona, e
+-- o worker com `service_role` (sem JWT, auth.uid() null) funciona.
+--
+-- `fn_log_event` delega a `emit_event` e herda o guard — não ganha cópia da regra.
+create or replace function public.emit_event(
+  p_event_type text,
+  p_entity_kind text,
+  p_entity_id uuid,
+  p_payload jsonb default '{}'::jsonb,
+  p_metadata jsonb default '{}'::jsonb,
+  p_organization_id uuid default null
+) returns uuid
+  language plpgsql security definer
+  set search_path to 'public'
+as $$
+declare
+  v_org_id uuid;
+  v_event_id uuid;
+begin
+  v_org_id := p_organization_id;
+  if v_org_id is null then
+    select organization_id into v_org_id
+      from public.user_organizations
+      where user_id = auth.uid() and revoked_at is null
+      limit 1;
+  end if;
+  if v_org_id is null then
+    raise exception 'emit_event: organization_id obrigatorio';
+  end if;
+
+  if auth.uid() is not null
+     and not public.fn_role_at_least(v_org_id, 'viewer') then
+    raise exception 'caller_not_authorized_for_org'
+      using hint = 'emit_event: caller must be an active member of the organization';
+  end if;
+
+  insert into public.event_log
+    (organization_id, event_type, entity_kind, entity_id, payload, metadata)
+  values
+    (v_org_id, p_event_type, p_entity_kind, p_entity_id,
+     coalesce(p_payload, '{}'::jsonb),
+     coalesce(p_metadata, '{}'::jsonb)
+       || jsonb_build_object('emitted_at', extract(epoch from now())))
+  returning id into v_event_id;
+
+  return v_event_id;
+end $$;
+
+-- Os nomes de parâmetro e das colunas de retorno abaixo são os que estão no
+-- banco (`p_embedding`, `p_threshold` default 0.40, coluna `knowledge_source_id`):
+-- `create or replace` recusa renomear qualquer um dos dois, e um clone que
+-- receba nomes diferentes ganharia uma SOBRECARGA nova, deixando a versão sem
+-- guard viva. O `do $$` no fim deste bloco avisa se isso acontecer.
+create or replace function public.retrieve_top_k_chunks(
+  p_organization_id uuid,
+  p_kb_version_id uuid,
+  p_embedding public.vector,
+  p_k integer default 5,
+  p_threshold real default 0.40
+) returns table (
+  chunk_id uuid,
+  knowledge_source_id uuid,
+  content text,
+  similarity real,
+  metadata jsonb
+)
+  language plpgsql stable security definer
+  set search_path to 'public'
+as $$
+begin
+  if auth.uid() is not null
+     and not public.fn_role_at_least(p_organization_id, 'viewer') then
+    raise exception 'caller_not_authorized_for_org'
+      using hint = 'retrieve_top_k_chunks: caller must be an active member of the organization';
+  end if;
+
+  return query
+  select
+    c.id as chunk_id,
+    c.knowledge_source_id,
+    c.content,
+    (1 - (c.embedding <=> p_embedding))::real as similarity,
+    c.metadata
+  from public.ai_chunks c
+  where c.organization_id = p_organization_id
+    and c.kb_version_id   = p_kb_version_id
+    and (1 - (c.embedding <=> p_embedding)) >= p_threshold
+  order by c.embedding <=> p_embedding asc
+  limit greatest(p_k, 0);
+end $$;
+
+revoke execute on function public.emit_event(text, text, uuid, jsonb, jsonb, uuid) from public, anon;
+grant  execute on function public.emit_event(text, text, uuid, jsonb, jsonb, uuid) to authenticated, service_role;
+
+revoke execute on function public.retrieve_top_k_chunks(uuid, uuid, public.vector, integer, real) from public, anon;
+grant  execute on function public.retrieve_top_k_chunks(uuid, uuid, public.vector, integer, real) to authenticated, service_role;
+
+do $$
+declare
+  v_extra text;
+begin
+  select string_agg(p.oid::regprocedure::text, ', ') into v_extra
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname = 'retrieve_top_k_chunks'
+     and p.oid::regprocedure::text <> 'retrieve_top_k_chunks(uuid,uuid,vector,integer,real)';
+  if v_extra is not null then
+    raise warning '0149: sobrecarga inesperada de retrieve_top_k_chunks sem o guard de membership: %', v_extra;
+  end if;
+end $$;
+
+notify pgrst, 'reload schema';
+
+
+
+-- ---- RBAC na configuração de IA e canais (migration 0150) ----
+--
+-- Segundo achado do relatório de segurança da comunidade, e o mais consistente
+-- dele. Medido no baseline da main: das 82 policies `ALL` de `public`, **71**
+-- não citam `fn_role_at_least` — só tenancy, via `fn_user_org_ids()`, que
+-- devolve organizações e nada mais. `authenticated` tem
+-- SELECT/INSERT/UPDATE/DELETE nessas tabelas.
+--
+-- Isso importa porque o `requireRole()` das rotas Next NÃO é a única porta: o
+-- PostgREST do Supabase é exposto ao browser por construção (a `anon key` e a
+-- URL vão no bundle), e um usuário logado fala com ele DIRETO, com o próprio
+-- JWT. Provado num pg17 com este baseline, membro papel `viewer`, rodando como
+-- role `authenticated` com o `sub` dele: derrubou `channel_sessions` (o canal de
+-- WhatsApp), reescreveu `ai_agents.system_prompt` (o texto que o bot fala com
+-- cliente real), subiu `ai_budgets.monthly_limit_cents` de 5.000 para
+-- 99.999.999 e DELETOU a linha de `ai_provider_credentials` (mata a IA da org).
+-- Controle no mesmo probe: o viewer NÃO alcança a organização vizinha — a
+-- tenancy vale, o que falta é o papel.
+--
+-- ESCOPO DELIBERADO: só as tabelas de CONFIGURAÇÃO de IA e canais, onde o dano
+-- é inequívoco e onde a rota Next já exige `admin` hoje (channel-sessions
+-- route.ts:61, ai/agents route.ts:67, ai/budget route.ts:46) — a policy passa a
+-- espelhar a API, em vez de ficar três níveis mais frouxa que ela. As outras ~63
+-- ficam para depois, de propósito: `job_queue`, `llm_calls`, `send_ledger`,
+-- `metrics` e afins são escritas pelo motor, e apertá-las no mesmo fôlego
+-- trocaria um furo de segurança por uma parada de produção. O gate que impede a
+-- lista de crescer vem em `tests/invariants/rbac-config-ia-canais.test.ts`.
+--
+-- FORMA: cada tabela vira PAR — SELECT só-tenancy (todo membro continua LENDO,
+-- inclusive o viewer, senão a tela quebra) + escrita com `fn_role_at_least`.
+-- Onde a policy atual tem `or fn_is_platform_admin()`, o par PRESERVA os dois
+-- lados: sem isso o super-admin de plataforma perde acesso e o suporte cega.
+--
+-- O worker não entra nesta conta: usa `service_role`, que é `bypassrls`.
+
+-- ---- canais ----
+drop policy if exists channel_sessions_tenant_isolation_all on public.channel_sessions;
+
+drop policy if exists channel_sessions_tenant_select on public.channel_sessions;
+create policy channel_sessions_tenant_select on public.channel_sessions
+  for select using (
+    organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin()
+  );
+
+drop policy if exists channel_sessions_tenant_write on public.channel_sessions;
+create policy channel_sessions_tenant_write on public.channel_sessions
+  for all using (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  ) with check (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  );
+
+-- ---- agentes de IA ----
+drop policy if exists tenant_isolation_ai_agents_all on public.ai_agents;
+
+drop policy if exists tenant_isolation_ai_agents_select on public.ai_agents;
+create policy tenant_isolation_ai_agents_select on public.ai_agents
+  for select using (
+    organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin()
+  );
+
+drop policy if exists tenant_isolation_ai_agents_write on public.ai_agents;
+create policy tenant_isolation_ai_agents_write on public.ai_agents
+  for all using (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  ) with check (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  );
+
+-- ---- versões de agente ----
+drop policy if exists tenant_isolation_ai_agent_versions_all on public.ai_agent_versions;
+
+drop policy if exists tenant_isolation_ai_agent_versions_select on public.ai_agent_versions;
+create policy tenant_isolation_ai_agent_versions_select on public.ai_agent_versions
+  for select using (organization_id in (select public.fn_user_org_ids()));
+
+drop policy if exists tenant_isolation_ai_agent_versions_write on public.ai_agent_versions;
+create policy tenant_isolation_ai_agent_versions_write on public.ai_agent_versions
+  for all using (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  ) with check (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  );
+
+-- ---- orçamento de IA ----
+drop policy if exists tenant_isolation_ai_budgets_all on public.ai_budgets;
+
+drop policy if exists tenant_isolation_ai_budgets_select on public.ai_budgets;
+create policy tenant_isolation_ai_budgets_select on public.ai_budgets
+  for select using (
+    organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin()
+  );
+
+drop policy if exists tenant_isolation_ai_budgets_write on public.ai_budgets;
+create policy tenant_isolation_ai_budgets_write on public.ai_budgets
+  for all using (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  ) with check (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  );
+
+-- ---- roteadores de IA ----
+drop policy if exists tenant_isolation_ai_routers_all on public.ai_routers;
+
+drop policy if exists tenant_isolation_ai_routers_select on public.ai_routers;
+create policy tenant_isolation_ai_routers_select on public.ai_routers
+  for select using (organization_id in (select public.fn_user_org_ids()));
+
+drop policy if exists tenant_isolation_ai_routers_write on public.ai_routers;
+create policy tenant_isolation_ai_routers_write on public.ai_routers
+  for all using (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  ) with check (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  );
+
+drop policy if exists tenant_isolation_ai_router_members_all on public.ai_router_members;
+
+drop policy if exists tenant_isolation_ai_router_members_select on public.ai_router_members;
+create policy tenant_isolation_ai_router_members_select on public.ai_router_members
+  for select using (organization_id in (select public.fn_user_org_ids()));
+
+drop policy if exists tenant_isolation_ai_router_members_write on public.ai_router_members;
+create policy tenant_isolation_ai_router_members_write on public.ai_router_members
+  for all using (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  ) with check (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  );
+
+drop policy if exists tenant_isolation_ai_purpose_bindings_all on public.ai_purpose_bindings;
+
+drop policy if exists tenant_isolation_ai_purpose_bindings_select on public.ai_purpose_bindings;
+create policy tenant_isolation_ai_purpose_bindings_select on public.ai_purpose_bindings
+  for select using (organization_id in (select public.fn_user_org_ids()));
+
+drop policy if exists tenant_isolation_ai_purpose_bindings_write on public.ai_purpose_bindings;
+create policy tenant_isolation_ai_purpose_bindings_write on public.ai_purpose_bindings
+  for all using (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  ) with check (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  );
+
+-- ---- credenciais de provedor de IA: remover a superfície, não negociá-la ----
+--
+-- Aqui a policy não é o remédio suficiente. NENHUM caminho de browser precisa
+-- desta tabela: o servidor lê as colunas cifradas com `service_role`
+-- (lib/ai/credentials.ts, lib/ai/gateway-binding.ts) e a TELA já consome a view
+-- `ai_provider_credentials_safe`, que existe justamente para não expor
+-- `api_key_encrypted`/`iv`/`tag`. Então o SELECT de `authenticated` sai inteiro
+-- em vez de continuar ali sob a promessa de que o ciphertext basta.
+--
+-- (O ciphertext DE FATO protege a chave — é AES com iv+tag, e um viewer leria
+-- bytes inúteis. O que ele não protege é o resto: `provider`, `label`,
+-- `api_key_last4`, `validation_error`. E, sobretudo, a linha continuava
+-- DELETÁVEL, que é o dano real.)
+drop policy if exists tenant_isolation_ai_provider_credentials_select on public.ai_provider_credentials;
+drop policy if exists tenant_isolation_ai_provider_credentials_modify on public.ai_provider_credentials;
+
+drop policy if exists tenant_isolation_ai_provider_credentials_write on public.ai_provider_credentials;
+create policy tenant_isolation_ai_provider_credentials_write on public.ai_provider_credentials
+  for all using (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  ) with check (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  );
+
+-- O SELECT sai por COLUNA, não pela tabela inteira, e a razão é a view:
+-- `ai_provider_credentials_safe` é `security_invoker=true` — de propósito, para
+-- que a RLS da tabela base valha para o usuário que a consulta. Revogar o SELECT
+-- da tabela inteira quebraria a view (o invoker não tem privilégio para ler a
+-- base) e, com ela, a tela de provedores. Torná-la `security_invoker=false` para
+-- contornar isso seria trocar um furo pequeno por um grande: a RLS pararia de se
+-- aplicar e a view passaria a devolver linha de qualquer organização.
+--
+-- Com grant por coluna, as três colunas do segredo ficam inalcançáveis pelo
+-- PostgREST e a view — que só lê as outras doze — continua funcionando. Medido
+-- por controle positivo em tests/invariants/rbac-config-ia-canais.test.ts: a
+-- primeira versão desta migration revogava a tabela toda, e foi esse controle
+-- que reprovou.
+revoke select on public.ai_provider_credentials from authenticated, anon;
+grant select (
+  id, organization_id, provider, label, api_key_last4, validated_at,
+  validation_error, models_available, is_active, created_by, created_at, updated_at
+) on public.ai_provider_credentials to authenticated;
+grant select on public.ai_provider_credentials_safe to authenticated;
+
+-- O PostgREST guarda o schema em cache; sem isto as policies novas só valem no
+-- próximo reload dele.
+notify pgrst, 'reload schema';
+
+
+
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
 -- ⚠️ ESTE BLOCO É, DE PROPÓSITO, O ÚLTIMO DO ARQUIVO. Apêndice novo entra ANTES
@@ -11250,7 +11600,7 @@ grant execute on function public.fn_encrypt_oauth(text) to service_role;
 grant execute on function public.fn_lgpd_cascade_redact_contact(uuid, uuid, uuid) to service_role;
 grant execute on function public.fn_update_budget_consumption() to service_role;
 
--- ---- mensagem editada e mensagem apagada (migration 0149) ----
+-- ---- mensagem editada e mensagem apagada (migration 0153) ----
 -- O cliente edita ou apaga no aplicativo e o CRM seguia mostrando a versão
 -- velha — sem erro em lugar nenhum. Combinar preço ou endereço a partir de um
 -- texto que o cliente já corrigiu gera um erro que ninguém rastreia depois.
@@ -11261,7 +11611,7 @@ grant execute on function public.fn_update_budget_consumption() to service_role;
 alter table public.messages add column if not exists edited_at timestamptz;
 alter table public.messages add column if not exists revoked_at timestamptz;
 
--- ---- definição sabe de qual conexão é (migration 0150) ----
+-- ---- definição sabe de qual conexão é (migration 0154) ----
 -- `meta_templates` nasceu para um canal só: a única marca de origem é
 -- `waba_id`, o id da conta na plataforma da Meta. Um segundo canal não tem onde
 -- entrar sem mentir sobre o que aquele campo significa — e o endpoint, que

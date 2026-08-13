@@ -159,6 +159,27 @@ isso é bloqueador com explicação.
 
 ---
 
+## 9-bis. ~~A imagem Docker não tinha gate nenhum~~ — VIROU GATE (PR #233, 2026-08-12)
+
+**Saiu desta lista.** `publish-image.yml` roda agora em `pull_request` também: em PR ele CONSTRÓI a
+imagem (que é o gate) e não publica (`push: false`, login no GHCR pulado — fork não tem escrita no
+registry).
+
+Fica registrado como o buraco se manifestou, porque a forma é instrutiva: o workflow rodava só em
+push na `main`, em tag e em release. **Nenhum PR conseguia revelar que quebrava a imagem** — e o
+artefato que o self-hoster instala era o único sem gate. Um bump de `next` (16.2.12 → 16.3.0) passou
+por `verify`, `build-and-size`, `invariants` e `e2e` — os quatro obrigatórios — e derrubou o build do
+Dockerfile na `main`.
+
+A causa era fina: `.dockerignore` deixa `tests/` fora da imagem, e a partir do next 16.3 o
+`next build` typecheca os `*.test.ts` **colocados** (os que moram em `app/`, `components/`, `lib/`).
+Sete deles importam `@/tests/helpers/*`. Dentro da imagem, os módulos não existem.
+
+**Falta um passo do mantenedor:** incluir `build-and-push` na branch protection. Enquanto não
+estiver lá, o check informa mas não barra.
+
+---
+
 ## 10. O que TEM gate — não refaça
 
 Para não gastar passe à toa:
@@ -170,6 +191,9 @@ Para não gastar passe à toa:
 | baseline aplica fresh **e** idempotente | `pnpm test:db` (job `invariants`) |
 | isolamento RLS nas 10 tabelas listadas | `pnpm test:db` |
 | tipos, lint, unit, shell, build | job `verify` + `build-and-size` |
+| a imagem Docker do self-host constrói | job `build-and-push` (PR #233) — **ainda não obrigatório** |
+| link do e-mail de auth tem uma query só | `pnpm test:unit` → `link-de-email-tem-uma-query-so.test.ts` (PR #176) |
+| `viewer` barrado na rota de upload de mídia | `pnpm test:unit` → `rbac-matrix.test.ts` (PR #232) |
 
 ---
 

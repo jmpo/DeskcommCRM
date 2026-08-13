@@ -15,6 +15,7 @@ import type { AuthUser } from "@/lib/auth/types";
  */
 
 vi.mock("@/lib/auth/server", () => ({
+  mfaEmDivida: vi.fn(async () => false),
   loadAuthUser: vi.fn(),
   resolveActiveOrg: vi.fn(),
 }));

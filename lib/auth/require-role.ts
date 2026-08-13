@@ -20,7 +20,7 @@ import type { NextResponse } from "next/server";
 
 import { fail, type ApiError } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
-import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
+import { loadAuthUser, mfaEmDivida, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK, type ActiveOrg, type AuthUser, type Role } from "@/lib/auth/types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -92,6 +92,39 @@ export async function requireRole(min: Role, opts: RequireRoleOpts = {}): Promis
   }
 
   const rank = effectiveRole ? (ROLE_RANK[effectiveRole as Role] ?? 0) : 0;
+
+  // MFA como política de SESSÃO, não só de cadastro.
+  //
+  // O gate de MFA vivia em `app/app/layout.tsx`, e layout não roda em rota de
+  // API: uma sessão `aal1` de admin com TOTP cadastrado chamava direto as 33
+  // rotas gateadas por `requireRole("admin")` — criar token de API (plaintext
+  // mostrado uma vez), convidar membro, LGPD anonymize, publicar agente,
+  // credenciais. Pior, o layout perguntava a coisa errada: `isMfaEnrolled()` é
+  // "tem fator", não "provou o fator agora".
+  //
+  // Fica DEPOIS do rank e ANTES do retorno de sucesso, de propósito: quem não
+  // tem papel suficiente continua levando 403 por falta de papel, sem que a
+  // resposta revele o estado de MFA de quem nem chegaria lá.
+  if (rank >= ROLE_RANK[min] && (await mfaEmDivida(effectiveRole as Role, user.is_platform_admin))) {
+    void audit({
+      action: "authz.denied",
+      actorUserId: user.id,
+      organizationId: org.orgId,
+      resourceType: resource ?? null,
+      requestId,
+      metadata: { reason: "mfa_required", effective_role: effectiveRole ?? null },
+    });
+    return {
+      ok: false,
+      response: fail(
+        "mfa_required",
+        "Esta sessão precisa da verificação em duas etapas. Entre novamente com o código do aplicativo.",
+        403,
+        { requestId },
+      ),
+    };
+  }
+
   if (rank < ROLE_RANK[min]) {
     // Fire-and-forget: falha de audit alerta, não bloqueia o 403.
     void audit({

@@ -260,7 +260,7 @@ Critério: nenhuma tela quebra, nenhum stack trace, nenhum texto de erro cru.
 |----|--------|--------|-----------|
 | M1 | `supabase/config.toml` trava `major_version = 15`, mas `baseline.sql` exige PG17 (`GRANT MAINTAIN`) — contribuidor open-source não sobe ambiente local | reproduzido | Alta (DX) |
 | M2 | Trilha manual do `docs/deploy-selfhost/README.md` não configura o cron do drain → automações mortas em silêncio | explorer webhooks | Alta |
-| M3 | README self-host aponta repo/imagem `deskcommcrm/*`; kit usa `melgarafael/*` | explorer webhooks | Alta |
+| M3 | ~~README self-host aponta repo/imagem `deskcommcrm/*`; kit usa `melgarafael/*`~~ **CORRIGIDO 2026-08-13** — era um `git clone` de uma org que não existe (404) em `docs/deploy-selfhost/README.md:26`. Uma consultoria externa leu essa string e concluiu que o compose apontava para uma org desvinculada; o compose sempre apontou para `melgarafael`. | explorer webhooks | — |
 | M4 | `INVITE_TOKEN_SECRET` ausente → fallback `"dev-fallback"` → convite forjável em VPS mal configurada | explorer CRM/time | Alta (segurança) |
 | M5 | AI Gateway key ausente → bot mudo sem NENHUM feedback na UI | explorer IA | Média |
 | M6 | Knowledge sources: botões de upload/configurar são stubs "Em breve" | explorer IA | Média |
@@ -511,3 +511,42 @@ edição de invariante é congelada por hook; usei a válvula
 `DESKCOMM_GOV_INVARIANTS_EDIT=1` **declarando o uso no commit** (`685d6e7`) em vez
 de contornar em silêncio. CI verde em `2c045c4` (invariants, verify, e2e,
 build-and-size, build-and-push).
+
+---
+
+## A atualização alcança o worker? (2026-08-13)
+
+**Jornada nova, e ela nasceu de um defeito que nenhuma jornada existente cobria.** Todas as
+jornadas do mapa exercitam o produto DEPOIS de instalado; nenhuma perguntava se uma correção
+entregue numa versão nova chega mesmo a cada peça da VPS.
+
+O serviço `worker` — o runtime do agente de IA — não tinha `image:` no `docker-compose.prod.yml`,
+só `build:`. Isso o tornava invisível para `docker compose pull` ("Skipped — No image to be
+pulled") e imune a `up -d` sem `--build`. Ele era construído na VPS no dia da instalação e
+**nenhum `update.sh` jamais o reconstruiu**. Correções do agente não chegavam a instalação
+nenhuma, e nada na tela nem no log dizia isso.
+
+O dossiê desta suíte já tinha registrado o sintoma sem tirar a conclusão: a linha 295 anota,
+do QA de instalação real, *"cache de build do Docker zerado (a VPS realmente compila o
+worker)"*. O fato estava medido; a pergunta é que faltava.
+
+**Casos desta jornada** (`[P0]` = primeira impressão / parque instalado):
+
+| # | Caso | Estado |
+|---|---|---|
+| U1 `[P0]` | Instalação nova nasce pinada numa VERSÃO, não em canal móvel | coberto — `hostgator-setup-kit/test-validators.sh` roda o `install.sh` contra um remoto local com tags e cobra o `.env` |
+| U2 `[P0]` | `update.sh` grava as TRÊS imagens na mesma versão | coberto — `tests/shell/update-guard.test.sh` §4b |
+| U3 `[P0]` | Nenhum serviço de produção fica `build:`-only | coberto — `tests/unit/packaging-artefato-do-cliente.test.ts` |
+| U4 | O crontab do scheduler não perde rota ao mudar de arquivo | coberto — `tests/shell/scheduler-entrypoint.test.sh` + `tests/unit/cron-routes-scheduled.test.ts` |
+| U5 | `/api/v1/health` responde a versão real da imagem | coberto — medido no app real: com `APP_VERSION=9.9.9-teste` responde `9.9.9-teste`; sem ela, `desconhecido` |
+| U6 `[P0]` | **Ensaio de atualização numa VPS real, de uma versão anterior para a nova, e o worker passa a rodar o código novo** | **EXECUTADO 2026-08-13** — estado legado reproduzido do commit `ee520110`, worker migrou para a imagem publicada, nada perdido. **Com ressalva:** a 1ª execução do `update.sh` não conserta enquanto o canal `stable` não existir; a 2ª conserta. Evidência e limites em [`../runbooks/remediar-worker-congelado.md`](../runbooks/remediar-worker-congelado.md) §6 |
+
+U6 deixou de ser buraco em 2026-08-13, e o ensaio pagou o próprio custo: revelou que a
+primeira execução do `update.sh` não conserta o worker enquanto o canal `stable` não
+existir — coisa que nenhum teste do CI podia mostrar, porque não é sobre o que os scripts
+fazem, e sim sobre a ORDEM em que o parque encontra as peças.
+
+O que continua fora: o app contra um Supabase real (o ensaio usou Postgres em contêiner),
+uma sessão de WhatsApp pareada de verdade (foi um marcador no volume), e o `install.sh`
+completo da época (exige projeto Supabase). Segue valendo a régua de `vps-fresh-onboarding`:
+o CI prova que os scripts fazem o que dizem, não que a máquina de alguém mudou de estado.

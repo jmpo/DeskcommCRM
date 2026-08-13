@@ -2,9 +2,19 @@
   <body style="font-family: sans-serif; color: #1a1a1a; max-width: 480px; margin: 0 auto; padding: 24px;">
     <h2 style="font-size: 18px;">Redefinir senha</h2>
     <p>Recebemos um pedido para redefinir a senha da sua conta no DeskcommCRM. Clique no botão abaixo para escolher uma nova senha:</p>
+    <!--
+      `&`, nunca `?`: `.RedirectTo` já chega com `?type=recovery` embutido
+      (app/actions/auth/requestPasswordReset.ts) — é o que sobrevive ao hop
+      pelo GoTrue quando o link chega via PKCE (`code`) em vez de token_hash.
+      Usar `?` aqui duplica o separador (`...?type=recovery?token_hash=...`),
+      o parser de URL do browser para de reconhecer `token_hash` como
+      parâmetro (vira parte do valor de `type`), e /auth/confirm redireciona
+      pra `/login?error=link_invalido` mesmo com o link correto — medido nas
+      specs password-recovery.spec.ts e signup-journey.spec.ts.
+    -->
     <p style="margin: 24px 0;">
       <a
-        href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=recovery"
+        href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}"
         style="background: #4a5d52; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; display: inline-block;"
         >Redefinir senha</a
       >

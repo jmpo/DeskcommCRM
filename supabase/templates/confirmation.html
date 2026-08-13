@@ -2,9 +2,13 @@
   <body style="font-family: sans-serif; color: #1a1a1a; max-width: 480px; margin: 0 auto; padding: 24px;">
     <h2 style="font-size: 18px;">Confirme seu e-mail</h2>
     <p>Sua conta no DeskcommCRM está quase pronta. Clique no botão abaixo para confirmar seu e-mail e ativar sua conta:</p>
+    <!--
+      `&`, nunca `?`: ver comentário equivalente em recovery.html. `.RedirectTo`
+      já chega com `?type=signup` embutido (app/actions/auth/signUp.ts).
+    -->
     <p style="margin: 24px 0;">
       <a
-        href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=signup"
+        href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}"
         style="background: #4a5d52; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; display: inline-block;"
         >Confirmar e-mail</a
       >

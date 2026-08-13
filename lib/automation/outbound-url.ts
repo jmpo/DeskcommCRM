@@ -6,9 +6,11 @@
  *     (ULA) contornariam uma regex parcial. Alvo real de webhook (Zapier/n8n/
  *     self-host) usa hostname ou IPv4 público — allowlist de faixas IPv6
  *     públicas só se aparecer demanda real.
- *  2) DNS-rebinding não coberto — hostname público que resolve pra IP privado
- *     no momento do fetch passa o guard; upgrade: resolver DNS e validar o IP
- *     resolvido (e fixá-lo) antes do fetch, se necessário.
+ *  2) DNS-rebinding: este guard é TEXTUAL e não resolve nome. Quem faz a
+ *     resolução é `assertDestinoResolvidoSeguro` (lib/automation/outbound-ip.ts),
+ *     chamado logo depois deste em call-webhook.ts. Os dois juntos: este recusa
+ *     o que dá para recusar de graça (esquema, http em produção, literal), o
+ *     outro paga o custo do DNS e julga o IP de verdade.
  */
 const PRIVATE_HOST_RX =
   /^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.)/i;

@@ -228,7 +228,9 @@ describe("os elos que somem sem barulho", () => {
   });
 
   it("o vigia está AGENDADO — rota sem cron nunca roda", () => {
-    const compose = readFileSync("docker-compose.prod.yml", "utf8");
+    // O crontab mora no entrypoint da imagem do scheduler desde que ele deixou
+    // de rodar `apk add` a cada start (docs/doctrine/packaging.md, invariante 1).
+    const compose = readFileSync("docker/scheduler/entrypoint.sh", "utf8");
     // Com o fim ancorado: `channel-healthXX` CONTÉM `channel-health`, e a
     // primeira versão deste caso passou verde com a rota apontando para o nada.
     expect(compose, "o cron não foi agendado no scheduler").toMatch(

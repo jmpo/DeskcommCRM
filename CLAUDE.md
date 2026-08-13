@@ -5,7 +5,7 @@
 **Este arquivo é a doutrina — a autoridade final sobre convenção e anti-pattern.** Complementos, na ordem em que ajudam:
 
 - [`AGENTS.md`](AGENTS.md) — mesmo contrato em forma portável (para Codex/Cursor/Copilot e afins). É derivado deste arquivo, não o substitui. **Ao mudar doutrina aqui, verifique se `AGENTS.md` desatualizou.**
-- [`docs/index.md`](docs/index.md) — índice dos 123 docs, com regra de precedência quando dois docs discordam. Use antes de sair varrendo `docs/`.
+- [`docs/index.md`](docs/index.md) — índice dos 149 docs, com regra de precedência quando dois docs discordam. Use antes de sair varrendo `docs/`.
 - [`docs/current-state.md`](docs/current-state.md) — o que está pronto, incompleto e quebrado. **Leia antes de estimar ou prometer qualquer coisa.**
 - [`docs/harness-audit.md`](docs/harness-audit.md) — onde a verificação tem buraco. Importante: `pnpm gov:verify` **não** cobre `test:db` nem `test:e2e` — verde ali não é prova para mudança de schema ou de UI.
 - [`docs/threat-model.md`](docs/threat-model.md) — superfície de ataque real do self-host.
@@ -178,6 +178,45 @@ O caminho normal **não constrói nada na VPS**: commit → push → PR → merg
 de emergência e é dívida: existe só naquele disco e qualquer `up -d` sem
 `APP_PULL_POLICY=never` a substitui em silêncio.
 
+Essa frase já foi meia-verdade: valia para o `app` e era falsa para o produto,
+porque o serviço `worker` não tinha `image:` — era construído na VPS de todo
+cliente e nunca reconstruído por nenhum `update.sh`. Hoje os três serviços
+nossos (`app`, `worker`, `scheduler`) são imagens publicadas, e um teste
+reprova o retorno do padrão. Ver a doutrina abaixo.
+
+---
+
+## Packaging e distribuição — DOUTRINA (NÃO NEGOCIÁVEL)
+
+Lei completa em [`docs/doctrine/packaging.md`](docs/doctrine/packaging.md);
+decisões estruturais e o que foi recusado em
+[`docs/adr/0001-packaging-e-distribuicao.md`](docs/adr/0001-packaging-e-distribuicao.md).
+O não-negociável, em quatro linhas:
+
+1. **Nenhum serviço de `docker-compose.prod.yml` constrói na máquina do
+   cliente.** Todo serviço declara `image:` de uma imagem publicada; `build:`
+   só existe **ao lado**, como escape. Serviço `build:`-only é invisível para
+   `docker compose pull` e imune a `up -d` sem `--build` — ele não é só caro de
+   instalar, ele **nunca é atualizado**.
+2. **Publicação é ato do CI.** Nunca da sua máquina: build ARM local não roda
+   na VPS amd64 do cliente, e a falha só aparece no `up -d` dele. O job
+   `imagens-ok` reprova quando qualquer uma das três imagens não constrói —
+   mas **ainda não é status check obrigatório** (a branch protection tem
+   `verify, build-and-size, invariants, e2e`). Ativá-lo é o passo final do
+   merge desta doutrina: um required check ausente na base dos PRs abertos
+   travaria todos eles. Confira na fonte antes de confiar nesta linha.
+3. **Instalação de cliente aponta para número de versão, nunca para tag móvel.**
+   `latest` aqui significa **topo da `main`**, não última release — quem quer a
+   última release usa `stable`. `pull_policy` acompanha a mutabilidade da tag:
+   imutável → `missing`, móvel → `always`.
+4. **Dependência upstream é referenciada com tag fixa, nunca republicada.**
+   Vale para WAHA (licenciado — republicar é passivo jurídico), Redis, Caddy e
+   `serverless-redis-http`.
+
+Bump de versão **não pode** exigir que o operador da VPS edite `.env`, compose
+ou qualquer arquivo à mão. Se exigir, não entra: vira issue com plano de
+migração e vai para uma major.
+
 ---
 
 ## Como rodar local
@@ -323,5 +362,6 @@ Antes de declarar uma task pronta:
 12. **Se tocou UI/fluxo de usuário: provado pela tela como um leigo faria**, em ambiente fresco estilo VPS, com evidência visual (ver Doutrina de QA Visual com Recursos Reais) — curl não conta
 13. **Living System Checklist respondido** (lei em `docs/doctrine/sistema-vivo.md`; racional no manual `docs/doctrine/sistema-vivo/`) — a feature não é ilha: tem entrada + saída, emite atividade/log, aparece na tela, tem porta na navegação, tem mecanismo anti-morte, **declara seu laço de retorno** (invariante 7 — o que muda no sistema quando ela erra), e o mapa vivo (`docs/architecture/`) reflete peça nova com ≥2 arestas. Resposta que não **nomeia o artefato concreto** (consumidor real, tela real, log real) não conta
 14. **Tela nova tem porta** — declarada em `lib/navigation/registry.ts` com seu grupo, ou na allowlist de `tests/unit/navegacao-completude.test.ts` **com justificativa escrita**. Ter tela e ser alcançável são coisas diferentes: o CI reprova tela que existe mas em que só se chega digitando a URL
+15. **Se tocou Dockerfile, compose ou setup kit: a mudança chega a quem já instalou** (lei em `docs/doctrine/packaging.md`) — nenhum serviço de produção ficou `build:`-only; variável nova tem default que não quebra `.env` antigo; a atualização não pede edição manual de arquivo; e, se mudou o que a imagem contém, o `update.sh` alcança essa peça. Rode `pnpm test:shell` — é o único gate que exercita o kit
 
 Um staff engineer aprovaria? Se não, itera.

@@ -8,6 +8,106 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
 ## [Não lançado]
 
+## [1.3.0] — 2026-08-13
+
+Esta versão mexe em como o sistema **chega e se atualiza** no seu servidor. Em uso, três
+coisas mudam para melhor: a instalação deixa de ter uma etapa que podia falhar por falta de
+memória no meio (o servidor não compila mais nada — tudo vem pronto), fica bem mais rápida, e
+o agente de IA passa a receber as correções de cada versão. A recomendação de servidor
+**continua exatamente a mesma**: o que consome memória é operar o sistema no dia a dia — 7
+serviços e cerca de 150 MB por número de WhatsApp conectado —, e isso não mudou nem um pouco.
+
+### Corrigido
+
+- **O agente de IA nunca recebia atualização.** O worker — o processo que faz o agente
+  atender 24 horas por dia — era compilado dentro do seu servidor no dia da instalação, e
+  nenhuma atualização o reconstruía. Na prática: você atualizava o CRM, o site mudava, e o
+  agente continuava rodando exatamente o código do dia em que você instalou, para sempre.
+  Correções e melhorias do agente não chegavam. Agora ele é uma imagem pronta, publicada
+  junto com o resto, e o `update.sh` a traz como traz o app.
+- **Duas instalações "na mesma versão" rodavam código diferente.** Uma instalação nova ficava
+  apontada para o canal `latest`, que — apesar do nome — acompanha o desenvolvimento em
+  andamento, não a última versão lançada. Quem instalou em semanas diferentes tinha software
+  diferente, e não havia como dizer qual. Agora o instalador grava o **número da versão**
+  (ex.: `1.2.1`), e é essa versão que fica no seu servidor até você decidir atualizar.
+- **O CRM podia não subir por causa de um serviço externo fora do ar.** A configuração pedia
+  ao Docker que verificasse o registro de imagens a cada subida; se ele não respondesse, o
+  contêiner não subia — mesmo com a imagem já baixada no seu disco. Agora que o seu servidor
+  fica numa versão fixa, essa verificação deixa de ser feita **na sua instalação** (quem
+  acompanha um canal móvel continua com ela, que é onde ela serve para alguma coisa).
+- **O agendador de tarefas dependia da internet para voltar.** A cada reinício ele baixava
+  dois programas antes de começar. Sem internet no momento do reboot — justo quando a máquina
+  está se recuperando de alguma coisa —, as tarefas automáticas não voltavam. Agora já vêm
+  dentro da imagem.
+- **A versão mostrada em `/api/v1/health` era sempre `0.1.0`**, em qualquer instalação. Agora
+  é a versão de verdade.
+- O WhatsApp (WAHA) e o serviço de limites deixaram de acompanhar automaticamente qualquer
+  versão nova publicada por terceiros. Passam a mudar só quando nós testamos e lançamos.
+
+### ⚠️ Requer atenção
+
+**Se o seu servidor foi instalado antes desta versão, rode o `update.sh` e depois confira.**
+Medido num ensaio em VPS: a primeira execução atualiza o sistema mas pode não trocar o
+agente, porque quem conduz a atualização é o script que já estava no seu servidor — e ele
+não conhece as peças novas. A segunda execução resolve.
+
+Para saber em que pé você está, sem mexer em nada:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/hostgator-setup-kit/diagnostico.sh | bash
+```
+
+Ele só lê e explica — não escreve, não reinicia, não atualiza. Se disser que está afetada,
+o passo a passo (com como voltar atrás) está em `docs/runbooks/remediar-worker-congelado.md`.
+
+Fora isso, nada exige ação sua. Um `.env` antigo continua funcionando: as configurações
+novas têm valor padrão e o próprio `update.sh` as acrescenta.
+
+## [1.2.1] — 2026-08-12
+
+**Versão de segurança. Se você roda o DeskcommCRM numa VPS, atualize.**
+
+Um usuário da comunidade auditou o código e mandou um relatório. Parte do que ele apontou já
+tinha sido corrigida nas versões seguintes à que ele analisou — mas **seis** problemas estavam
+de pé, e um deles deixava dados de uma empresa visíveis para outra. Todos foram corrigidos,
+cada um com um teste automático que impede o problema de voltar.
+
+### Corrigido
+
+- **Uma empresa conseguia ler a base de conhecimento de outra, e escrever no histórico dela.**
+  Duas funções internas aceitavam o identificador da empresa como se fosse confiável, sem
+  conferir se quem pediu era mesmo de lá. O isolamento entre empresas estava de pé em todo o
+  resto — o furo era só nessas duas portas, e elas agora conferem.
+- **Quem tinha permissão de apenas visualizar conseguia mudar configurações importantes.** Um
+  usuário "visualizador" podia reescrever as instruções do agente de IA (o texto que ele fala
+  com o seu cliente), desligar o canal de WhatsApp, mexer no limite de gastos e apagar a chave
+  do provedor de IA — bastava falar direto com o banco de dados, sem passar pelas telas. Agora
+  essas mudanças exigem administrador, como as telas já exigiam.
+- **A verificação em duas etapas do administrador valia só na tela.** Quem tinha a senha de um
+  administrador, mas não o segundo fator, ficava barrado na interface e mesmo assim alcançava
+  as funções sensíveis por fora dela — criar chave de API, convidar gente para a equipe, pedir
+  exportação de dados. Agora o servidor confere o segundo fator em todas elas.
+- **Link de login podia levar para um site estranho.** Um endereço preparado por terceiros
+  fazia você digitar a senha no site certo e, logo depois de entrar, ser jogado para outro
+  lugar — o momento em que se confia mais na próxima tela.
+- **Envio de arquivo na conversa não conferia permissão.** Era a única ação de escrita da
+  conversa sem essa checagem; um usuário "visualizador" podia enviar arquivos de até 50 MB.
+- **Automação de webhook podia alcançar a rede interna do servidor.** A checagem olhava só o
+  texto do endereço; um domínio preparado para apontar "para dentro" passava, e alcançava
+  serviços internos e a área de credenciais do provedor de nuvem. Agora o endereço é resolvido
+  de verdade antes de qualquer envio.
+
+### ⚠️ Requer atenção
+
+- **Administradores vão precisar entrar de novo, com o código do aplicativo.** Se você já tem a
+  verificação em duas etapas cadastrada e está com a sessão aberta, as ações de administrador
+  passam a pedir o segundo fator. Sair e entrar novamente resolve. Quem ainda **não** cadastrou
+  o segundo fator não é afetado e continua conseguindo cadastrá-lo normalmente.
+- **Usuários "visualizador" e "gerente" perdem a escrita em configuração de IA e canais.** Se
+  alguém do seu time mexia nessas telas sem ser administrador, promova a pessoa a
+  administrador antes de atualizar — ou ela vai encontrar as ações bloqueadas.
+- **Nenhuma ação manual no banco é necessária.** O `update.sh` aplica tudo sozinho.
+
 ## [1.2.0] — 2026-08-11
 
 A maior versão até aqui: **126 novidades e 205 correções** desde a 1.1.0 (contadas por commit).
@@ -240,6 +340,8 @@ Primeira versão marcada do DeskcommCRM. O projeto vinha sendo desenvolvido publ
 
 - **Node 22 é obrigatório para desenvolvimento.** A suíte de invariantes instancia o cliente do Supabase, que exige o `WebSocket` global — nativo apenas a partir do Node 22. Isso não afeta quem apenas hospeda: a VPS roda a imagem pronta.
 
-[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.1.0...HEAD
+[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/melgarafael/DeskcommCRM/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/melgarafael/DeskcommCRM/releases/tag/v1.0.0
