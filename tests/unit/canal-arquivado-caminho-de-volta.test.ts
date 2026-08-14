@@ -39,6 +39,7 @@ import { encryptWebhookSecret } from "@/lib/webhooks/secrets";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/auth/server", () => ({
+  mfaEmDivida: vi.fn(async () => false),
   requireAuth: vi.fn(),
   loadAuthUser: vi.fn(),
   resolveActiveOrg: vi.fn(),

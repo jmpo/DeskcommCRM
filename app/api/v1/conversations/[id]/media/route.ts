@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 
 import { fail, ok } from "@/lib/api/wrappers";
+import { requireRole } from "@/lib/auth/require-role";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { extFromMime, MAX_MEDIA_BYTES } from "@/lib/messaging/media/types";
 import { validateOutboundMedia } from "@/lib/messaging/media/upload-validation";
@@ -25,11 +26,14 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   const { id: conversationId } = await ctx.params;
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: authErr,
-  } = await supabase.auth.getUser();
-  if (authErr || !user) return fail("unauthenticated", "Auth required.", 401, { requestId });
+  // spec 13 §4: escrita é agent+ (viewer é read-only). Esta rota era a ÚNICA de
+  // escrita em conversations/[id]/* sem o gate — e como a policy de SELECT deixa
+  // o viewer enxergar toda conversa da org, o papel mais fraco do tenant tinha
+  // escrita irrestrita no bucket (50 MB por arquivo, com service_role). A irmã
+  // claim/route.ts:35 é o modelo literal.
+  const authz = await requireRole("agent", { requestId, resource: "conversation_media" });
+  if (!authz.ok) return authz.response;
+  const user = authz.user;
   const authUser = await loadAuthUser();
   const activeOrg = authUser ? await resolveActiveOrg(authUser) : null;
   if (!activeOrg) return fail("no_active_org", "No active organization.", 403, { requestId });

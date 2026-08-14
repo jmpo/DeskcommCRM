@@ -38,6 +38,8 @@ import type { FetchedMedia } from "@/lib/messaging/media/types";
 
 import { resolveZernioCreds } from "../zernio/credentials";
 import { zernioTemplateOps } from "../zernio/templates";
+import { assertDestinoResolvidoSeguro } from "@/lib/automation/outbound-ip";
+import { assertSafeOutboundUrl } from "@/lib/automation/outbound-url";
 import { zernioMediaFetchInit } from "../zernio/webhook";
 import type { ChannelAdapter, ChannelHealth, OutboundEnvelope, RecipientInput } from "../types";
 
@@ -297,6 +299,20 @@ export const zernioAdapter: ChannelAdapter = {
     const admin = createAdminClient();
     const creds = await resolveZernioCreds(admin, input.sessionRef);
     if (!creds) throw new Error("zernio_not_configured: sem credencial para baixar a mídia.");
+
+    // A URL do anexo vem do PAYLOAD do webhook, e este fetch leva a API key do
+    // tenant no Authorization. Sem guarda, um payload com
+    // `http://169.254.169.254/...` faz o servidor buscar metadado de nuvem —
+    // e, pior que o SSRF comum, ENTREGA a credencial ao host que o payload
+    // escolheu. O irmão WAHA resolve por construção
+    // (`lib/messaging/media/waha-source.ts`), descartando host e porta do
+    // payload; aqui não dá para reconstruir sobre uma base fixa porque o
+    // provedor pode servir mídia de outro host, então vale o par que o repo
+    // já usa em `lib/automation/actions/call-webhook.ts`: o textual recusa de
+    // graça o que dá (esquema, http em produção, literal IPv6, faixa privada)
+    // e o outro paga o DNS e julga o IP resolvido, fechando o rebinding.
+    assertSafeOutboundUrl(input.url);
+    await assertDestinoResolvidoSeguro(new URL(input.url).hostname);
 
     const res = await fetch(input.url, zernioMediaFetchInit(creds.apiKey));
     if (!res.ok) {

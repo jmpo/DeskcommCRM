@@ -14,7 +14,7 @@
 [![CI](https://github.com/melgarafael/DeskcommCRM/actions/workflows/ci.yml/badge.svg)](https://github.com/melgarafael/DeskcommCRM/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[**🧭 Vision**](VISION.md) · [**📘 Setup Guide**](docs/SETUP.md) · [**🏗️ Architecture**](ARCHITECTURE.md) · [**🤝 Contributing**](CONTRIBUTING.md) · [**📋 PRDs**](docs/prd/) · [**🗺️ Roadmap**](#%EF%B8%8F-roadmap)
+[**⚡ Install**](#-install-on-your-vps-the-main-path) · [**🔄 Update**](#-updating) · [**🧭 Vision**](VISION.md) · [**🏗️ Architecture**](ARCHITECTURE.md) · [**🤝 Contributing**](CONTRIBUTING.md) · [**🗺️ Roadmap**](#%EF%B8%8F-roadmap)
 
 </div>
 
@@ -23,27 +23,180 @@
 > ### ☁️ Run this CRM in production with one command
 >
 > DeskcommCRM is developed in **partnership with HostGator**: the [`hostgator-setup-kit/`](hostgator-setup-kit/)
-> installs the full CRM (app + WAHA + database) on a VPS with a single command, and the
+> installs the full CRM (app + WhatsApp + database) on a VPS with a single command, and the
 > [production runbook](docs/runbooks/waha-hostgator.md) assumes that environment.
 >
 > **[👉 Get the HostGator VPS with the partnership discount](https://www.hostgator.com.br/52708-141-3-52.html)** —
 > São Paulo datacenter, ideal for WhatsApp running 24/7. *(partner link — subscribing through it supports the project and costs you less)*
 >
-> Already have the VPS? SSH into it and run:
+> **No server yet?** Run this **on your own computer** (macOS, Linux or WSL). It tells you which
+> plan to buy — with the runbook's real numbers, not a "it depends" — and hands you the exact
+> command for your case:
 >
 > ```bash
-> git clone https://github.com/melgarafael/DeskcommCRM.git
-> cd DeskcommCRM
-> bash hostgator-setup-kit/install.sh
+> curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/hostgator-setup-kit/comecar.sh | bash
 > ```
 >
-> The installer asks for what only you have (domain, Supabase keys, AI key, admin password),
-> validates each one before moving on, generates every other secret, applies the database
-> schema and brings the whole stack up with HTTPS. Details in
-> [`hostgator-setup-kit/README.md`](hostgator-setup-kit/README.md).
->
-> ⚠️ The **Quickstart** below is the *development* path (running the app on your machine).
-> If you bought a VPS to run the CRM, use the command above, not the Quickstart.
+> *(prefer to read before executing? clone the repo and run `bash hostgator-setup-kit/comecar.sh` —
+> it installs nothing without your confirmation.)*
+
+---
+
+## ⚡ Install on your VPS (the main path)
+
+### 1. Connect to your VPS
+
+Open a **Terminal** on your computer (**PowerShell** on Windows; **Terminal** on macOS or Linux)
+and connect using the IP and port your host emailed you:
+
+```bash
+ssh -p PORT root@YOUR_IP
+```
+
+Replace `PORT` and `YOUR_IP` with yours. If your host never mentioned a port, it's the default
+(22) and you can omit it: `ssh root@YOUR_IP`.
+
+It will ask for your password. **As you type, nothing appears on screen — not even asterisks.**
+That is not a freeze: the terminal is hiding your password. Type (or paste) it and press Enter.
+
+> On the first connection it asks `Are you sure you want to continue connecting?` — answer
+> `yes`. That's the server introducing itself for the first time.
+
+### 2. Run the installer
+
+Once inside the VPS:
+
+```bash
+git clone https://github.com/melgarafael/DeskcommCRM.git
+cd DeskcommCRM
+bash hostgator-setup-kit/install.sh
+```
+
+That's it. **You don't install Node, or pnpm, or compile anything** — the app image is
+prebuilt. If Docker is missing, the installer asks and installs it for you.
+
+### What you need on hand
+
+| Item | Where to get it |
+|---|---|
+| **VPS with Docker** | [HostGator](https://www.hostgator.com.br/52708-141-3-52.html) (partnership) — or any VPS with Docker. 4 GB RAM recommended |
+| **Domain** | An **A** record pointing to your VPS IP (e.g. `crm.yourcompany.com`) |
+| **Database** | Free account at [supabase.com](https://supabase.com) — 3 keys + the **Session pooler** connection string |
+| **AI** | An **OpenRouter**, **Anthropic** or **OpenAI** key — the installer asks which one you want |
+| **WhatsApp** | Your number, connected via QR code during onboarding (or Meta's official channel) |
+
+> 💡 **Supabase can be created by the installer itself.** Export a `SUPABASE_ACCESS_TOKEN`
+> before running and it creates the project, waits for the database to become healthy, fetches
+> all 4 credentials and discovers the pooler host by testing a real connection — no copy-paste.
+
+### What the installer does for you
+
+It **only asks for what's yours** (domain, keys, admin password), **validates every answer
+before moving on** — a wrong key is rejected right there, not three steps later — and handles
+the rest:
+
+1. Generates every technical secret itself (you invent no passwords).
+2. Creates the Postgres extensions and applies the full schema (`supabase/baseline.sql`).
+3. Creates the first admin with the email and password you chose.
+4. Brings the whole stack up with **automatic HTTPS** and checks its health at the end.
+5. Installs the **automations cron** (without it, WHEN/IF/THEN rules pile up in the queue) and
+   the **update agent**, which is what makes the "Update now" button exist on screen.
+
+**Running it again breaks nothing** — `install.sh` is idempotent: it doesn't duplicate the cron,
+doesn't recreate the user, and resumes where it stopped.
+
+> **Non-interactive mode:** copy `.env.hostgator.example` to `.env`, fill it in and run
+> `bash hostgator-setup-kit/install.sh --yes`.
+
+### Another host? (Hostinger, Coolify, Dokploy, CapRover…)
+
+It works. If your VPS already ships with its **own reverse proxy** occupying ports 80/443, the
+installer **detects that on its own** and publishes the CRM through it, instead of trying to
+start a Caddy that wouldn't fit. In one specific case — a proxy on `--network host`, as
+Hostinger does — it **asks instead of guessing**, because publishing behind the wrong proxy
+"successfully" installs a mute website. Details in
+[`hostgator-setup-kit/README.md`](hostgator-setup-kit/README.md).
+
+### First access
+
+Open `https://<your-domain>` (the padlock takes ~1 min to appear), sign in as the admin, and
+have **Google Authenticator** or **Authy** at hand — the first admin login requires MFA. During
+onboarding, scan the QR code with your WhatsApp number.
+
+### 🤖 Rather have an AI install it for you?
+
+Drop the `hostgator-setup-kit/` folder into **Claude Code** running inside the VPS and say
+*"install DeskcommCRM for me"*. It reads the kit's [`CLAUDE.md`](hostgator-setup-kit/CLAUDE.md)
+— which carries the step-by-step and the already-mapped pitfalls — and walks you through it.
+
+---
+
+## 🔄 Updating
+
+New version out? There are two paths, and the first one needs no terminal.
+
+### From the screen (recommended)
+
+When a new version exists, the sidebar footer lights up **"Nova versão"** — only for the server
+owner, because alerting someone who can't update is noise. Click it and you land on
+**Settings → Update**, which shows what changed, **takes a database backup by itself** and
+follows every phase (backup → code → database → live) to the end. No SSH.
+
+If the new version comes up broken, the agent **rolls back to the previous image on its own**
+and records that rollback in `.env` — without it, the next restart would silently bring the
+broken app back.
+
+> Under the hood: the app only records the request; the executor is the agent `install.sh` left
+> on your VPS, on a cron that checks **every 5 minutes** — so the update starts within 5 minutes
+> of the click. If that agent is down, the screen says **"Atualização automática indisponível"**
+> and shows the command below — it never pretends it worked.
+
+### From the terminal
+
+```bash
+cd /path/to/DeskcommCRM
+bash hostgator-setup-kit/update.sh
+```
+
+In order, the command: (1) checks whether there really is a new version — if not, it exits
+immediately; (2) **backs up the database before touching anything**; (3) pulls the new code;
+(4) updates the database by re-applying `baseline.sql`, which is idempotent and **self-healing**
+(it repairs data left inconsistent by older versions); (5) pulls the new app image; (6) checks
+health at the end.
+
+**The target is the latest published release** (`v1.2.3`), not the tip of `main` — updating
+always lands on a tagged version described in [`CHANGELOG.md`](CHANGELOG.md), never on an
+untested commit. It **refuses** to go back to a version older than the installed one (that would
+turn off things you already have); `--force` exists for that, deliberately.
+
+**Normal things you will see:** a pile of `already exists` / `multiple primary keys` during the
+database step — **expected and harmless**, those are things that already existed. The script
+filters that noise and prints `✓ banco atualizado`. If you see `⚠ avisos que não são os
+esperados`, that one is worth keeping.
+
+**Something went wrong?** `bash hostgator-setup-kit/restore.sh` returns to the backup.
+**Just want a diagnosis?** `bash hostgator-setup-kit/healthcheck.sh`.
+
+> ⚠️ **On an older install that doesn't have the screen agent yet**, run `update.sh` **twice**:
+> the first run is still the old script (which downloads the new one); the second installs the
+> agent and turns the button on.
+
+### Other kit commands
+
+| Script | What it does |
+|---|---|
+| `install.sh` | Installs everything (idempotent — safe to re-run) |
+| `update.sh` | Updates to a new version, with automatic backup |
+| `backup.sh` | Backs up the database + WhatsApp sessions |
+| `restore.sh` | Restores a backup |
+| `reset-password.sh` | Resets a user's password |
+| `reset-mfa.sh` | Removes MFA for someone who lost their phone |
+| `healthcheck.sh` | Diagnoses every service at once |
+
+> **Backups matter:** Supabase's free plan **does not back up on its own**. Schedule `backup.sh`
+> daily via cron. `update.sh` already takes one before every update.
+
+---
 
 ## ✨ What is it
 
@@ -53,14 +206,15 @@ The project was born as an e-commerce CRM — and the open-source community took
 
 ### Why it's different
 
-- 🤖 **AI agents that operate the CRM** — per-tenant RAG, sentiment analysis, audited AI→human handoff, AI as a first-class assignee and per-org budget control. Not a decorative chatbot: the agent answers, qualifies and moves the funnel.
-- 🔁 **Self-improving agents** — resolved conversations become new RAG knowledge; handoffs mark where the agent falls short; metrics close the loop. Every month of operation makes the agent better, with a human gate where it matters.
+- 🤖 **AI agents that operate the CRM** — per-tenant RAG, skills the agent executes on its own mid-conversation, operational memory, sentiment analysis, audited AI→human handoff, AI as a first-class assignee and per-org spending caps. Not a decorative chatbot: the agent answers, qualifies and moves the funnel.
+- 🔁 **Nothing dies in silence** — follow-up that revives a cold conversation (with adaptive timing and per-stage triggers), a radar of what's at risk of dying unanswered, and a notice center for what needs a human decision.
+- 🧠 **Self-improving agents** — resolved conversations become new knowledge; the **AI Evolution** screen shows whether the agent is improving, where it fails and what's left to teach; **Proposals** are improvements the AI suggests for itself, applicable as a new version — always human-gated.
 - 🧩 **Multi-niche by design** — configurable vocabulary per pipeline: a lead becomes a *Customer*, *Patient* or *Buyer*; "won" becomes *Paid*, *Booked* or *Closed*. The same core serves e-commerce (our birthplace, with native Nuvemshop integration), clinics, real estate or info-products.
-- 🔌 **MCP-ready** — internal MCP server for the built-in agents; a public contract for external agents is in the works. The CRM as infrastructure for any AI agent.
-- 💬 **WhatsApp-native via WAHA** — multi-number, anti-ban (throttle + jitter + time windows), media via Storage, STOP detection.
-- 👥 **Support governance** — real server-side RBAC, audited assignment/transfer, queue with position, automatic routing and per-role visibility scopes.
+- 💬 **WhatsApp two ways** — via **QR code** (WAHA, multi-number, with anti-ban: throttle + jitter + time windows) or through **Meta's official channel** (Cloud API, with approved templates kept in sync). Media via Storage, STOP detection.
+- 🔀 **Choose your AI** — OpenRouter, Anthropic or OpenAI, decided at install time and switchable later from the screen, **per part of the system** (whatever talks doesn't have to be whatever indexes).
+- 👥 **Support governance** — real server-side RBAC, audited assignment/transfer, round-robin queue, automatic intent routing and per-role visibility scopes.
 - 🏢 **Multi-tenant + privacy by design (LGPD)** — RLS on every tenant-aware table with an isolation test as a CI gate; anonymization preferred over deletion; append-only audit log with 5-year retention.
-- 🖥️ **Truly self-hosted** — your data on your VPS; one-command install; no paid tier, no gated features.
+- 🖥️ **Truly self-hosted** — your data on your VPS; install and update with one command (or one click); no paid tier, no gated features.
 
 ### 🔌 Webhooks & Automations
 
@@ -68,40 +222,22 @@ Every tenant can create **capture sources**: a public endpoint (`/api/v1/webhook
 
 In the UI everything lives under **Webhooks** in the sidebar (visible only to `manager`/`admin` roles). Three tabs: **Receive data** (create a source, copy the ready-made endpoint/form, fire a test lead, see recent deliveries), **Automations** (build rules, which are always born paused until reviewed and enabled) and **Activity** (a timeline of each run, with per-action results and manual retry when an external webhook call fails).
 
-Under the hood, every event becomes a row in `event_log` — no database trigger ever makes an HTTP call. The `/api/v1/cron/event-log-drain` route drains the queue every minute. On Vercel that's a managed Cron Job; **on the HostGator self-host kit** (`hostgator-setup-kit/`), `install.sh`/`update.sh` automatically configures a `crontab` line that hits the route every minute with the `INTERNAL_SECRET` from `.env`.
+Under the hood, every event becomes a row in `event_log` — no database trigger ever makes an HTTP call. The `/api/v1/cron/event-log-drain` route drains the queue every minute. **`install.sh`/`update.sh` configure that cron automatically** — without it, automations get created normally but never run.
 
 ---
 
-## 🚀 Quickstart (see it running in 5 minutes)
+## 🖥️ What you operate (the screens)
 
-```bash
-# 1. Clone
-git clone https://github.com/melgarafael/DeskcommCRM.git
-cd DeskcommCRM
+| Group | Screens |
+|---|---|
+| **Support** | **Inbox** (WhatsApp conversations, you and the AI side by side) · **Radar** (who went cold and is still open) · **Quick replies** |
+| **CRM** | **Kanban** (where each deal sits in the funnel) · **Contacts** · **Pipelines** (stages, business vocabulary and loss reasons) |
+| **AI Agent** | **Agents** · **Follow-ups** · **Routers** · **Providers** and **Credentials** · **Knowledge** (RAG) · **Memory** · **Skills** · **Cases** · **Alerts** · **Proposals** · **Runs** · **Usage & budget** |
+| **Channels** | **Connections** (QR or Meta's official channel, with health, reconnect and templates) · **Nuvemshop** · **Webhooks** |
+| **Analytics** | **Performance** (funnel and per-agent metrics) · **AI Evolution** · **Audit Log** |
+| **Organization** | **Team** · **Support distribution** · **Organization** · **LGPD** · **API Tokens** · **Security** (MFA, recovery codes, sessions) · Profile, Notifications, Billing |
 
-# 2. Node 22 + pnpm
-nvm use                    # or install Node 22+
-npm install -g pnpm
-pnpm install
-
-# 3. Env vars
-cp .env.example .env.local
-# Edit .env.local — full guide in docs/SETUP.md
-
-# 4. Local WAHA (optional in dev without WhatsApp)
-docker compose up -d
-
-# 5. Supabase migrations
-supabase link --project-ref <your-ref>
-supabase db push
-
-# 6. Run the app
-pnpm dev
-```
-
-App: <http://localhost:3000> · Health check: <http://localhost:3000/api/v1/health>
-
-> 🆕 **First time? Don't skip steps.** [`docs/SETUP.md`](docs/SETUP.md) is the complete step-by-step tutorial for **every integration** (Supabase, WAHA, Anthropic, Upstash, Sentry, Resend, Nuvemshop) — written for people who have never configured any of this. ~60–90 min from zero to a running app. *(Docs are in Brazilian Portuguese; translations welcome!)*
+Every screen has a door in the navigation — CI fails a screen that exists but can only be reached by typing its URL.
 
 ---
 
@@ -115,15 +251,47 @@ App: <http://localhost:3000> · Health check: <http://localhost:3000/api/v1/heal
 | **Auth** | Supabase Auth via `@supabase/ssr` | SameSite=Strict, HttpOnly cookies |
 | **Realtime** | Supabase Realtime | postgres_changes + broadcast |
 | **Storage** | Supabase Storage (signed URLs) | Private `whatsapp-media` bucket |
-| **WhatsApp** | WAHA Plus (NOWEB engine) | Multi-tenant, retry, S3 |
-| **Queues** | `event_log` table + workers (cron) | No Inngest/Trigger in the MVP |
+| **WhatsApp** | WAHA Plus (NOWEB engine) + Meta Cloud API | QR to start fast; official channel to scale |
+| **Queues** | `event_log` table + workers (cron) | A database trigger never makes HTTP calls |
 | **Rate limit** | Upstash Redis (sliding window) | Serverless, free tier is enough |
-| **AI** | Vercel AI SDK v7 (Anthropic/Google/OpenAI providers v4) via AI Gateway | Automatic fallback, ZDR |
+| **AI** | Vercel AI SDK v7 — OpenRouter, Anthropic, OpenAI and Google | The installer asks which; switch later from the screen |
 | **Validation** | Zod | External input, env, payloads |
-| **Observability** | Sentry (sanitized `beforeSend`) | No PII in breadcrumbs |
-| **Hosting** | Vercel (app) + HostGator VPS Turing/SP (WAHA) | Edge + dedicated box for WhatsApp; Brazil datacenter |
+| **Observability** | Sentry (scrubbed in errors, transactions, spans and breadcrumbs) | Opt-in telemetry at install time |
+| **Hosting** | Any VPS with Docker (HostGator/SP in the partnership) | App + WhatsApp + workers on your own box |
 
 Details: [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+---
+
+## 🧑‍💻 Development (only to contribute to the code)
+
+> ⚠️ **If you want to USE the CRM, this is not it** — use the [VPS installer](#-install-on-your-vps-the-main-path).
+> This section is for people who will change the code.
+
+```bash
+git clone https://github.com/melgarafael/DeskcommCRM.git
+cd DeskcommCRM
+
+nvm use                     # Node 22
+npm install -g pnpm && pnpm install
+
+cp .env.example .env.local  # full guide in docs/SETUP.md
+
+docker compose up -d        # local WAHA (optional in dev without WhatsApp)
+
+# Schema: apply the baseline, NOT the migrations.
+# Migrations 0001-0009 and 0013 are `SELECT 1;` stubs — the chain does not build from zero.
+# The real schema lives in baseline.sql, the same one install.sh applies on the VPS.
+# `supabase db push` "succeeds" and leaves you with an empty database.
+supabase link --project-ref <your-ref>
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/baseline.sql
+
+pnpm dev
+```
+
+App: <http://localhost:3000> · Health check: <http://localhost:3000/api/v1/health>
+
+[`docs/SETUP.md`](docs/SETUP.md) is the complete tutorial for **every integration** (Supabase, WAHA, AI providers, Upstash, Sentry, Resend, Nuvemshop) — ~60–90 min from zero to a running app. *(Docs are in Brazilian Portuguese; translations welcome!)*
 
 ---
 
@@ -137,9 +305,18 @@ pnpm test:db       # ephemeral Postgres + baseline install/update + invariants
 pnpm test:e2e      # Playwright (requires dev server)
 ```
 
-CI runs `typecheck`, `lint` and `test:unit` on every PR. A second job — **`invariants`** — boots a clean Postgres, applies `supabase/baseline.sql` in install mode (`ON_ERROR_STOP=1`) and then in update mode (proving idempotency), and runs **364 invariant tests** across 56 files covering RBAC, assignment, visibility scoping, routing, follow-up, webhooks and automations.
+**Four checks are required** to merge into `main` — all verified in branch protection, not just on paper:
 
-Among them is the **RLS isolation test**: it creates 2 organizations, simulates JWT claims through the same `auth.uid()` / `fn_user_org_ids()` path production policies use, and proves a user of org A sees **zero rows** of org B in `conversations`, `messages`, `contacts` and `crm_leads`. A control case first proves org B's rows actually exist in the database — without it, the test would pass against an empty table.
+| Check | What it does |
+|---|---|
+| `verify` | typecheck + lint + `lint:channels` + `test:unit` + `test:shell` |
+| `invariants` | boots a clean Postgres, applies `baseline.sql` in **install** mode (`ON_ERROR_STOP=1`) and then in **update** mode (proving idempotency), and runs **618 invariants across 98 files** — RBAC, assignment, scoping, routing, follow-up, webhooks and automations |
+| `build-and-size` | `pnpm build` on Node 22 |
+| `e2e` | boots a local Supabase, applies `baseline.sql` and runs **44 of the 45** Playwright specs through the frontend |
+
+The only spec outside `e2e` is `vps-fresh-onboarding` — it needs a real WAHA + Redis + Resend + Nuvemshop. It is the **P0** of our visual-QA doctrine, so a green `e2e` does **not** prove the fresh-install journey; that one is proven on a VPS.
+
+Among the invariants is the **RLS isolation test**: it creates 2 organizations, simulates JWT claims through the same `auth.uid()` / `fn_user_org_ids()` path production policies use, and proves a user of org A sees **zero rows** of org B in `conversations`, `messages`, `contacts` and `crm_leads`. A control case first proves org B's rows actually exist — without it, the test would pass against an empty table.
 
 ---
 
@@ -147,15 +324,17 @@ Among them is the **RLS isolation test**: it creates 2 organizations, simulates 
 
 | Doc | What's in it |
 |---|---|
+| [`hostgator-setup-kit/README.md`](hostgator-setup-kit/README.md) | **Self-host installation** — the kit, the scripts, hosts with their own proxy |
+| [`docs/ATUALIZANDO.md`](docs/ATUALIZANDO.md) | **How to update** your installation, in plain language |
 | [`VISION.md`](VISION.md) | **Vision & positioning** — what the project is, what it believes, where it's going |
-| [`docs/SETUP.md`](docs/SETUP.md) | **Complete step-by-step setup** for every integration |
+| [`CHANGELOG.md`](CHANGELOG.md) | What changed in each version — **read your target version's section before updating** |
+| [`docs/SETUP.md`](docs/SETUP.md) | Development setup, step by step, for every integration |
 | [`docs/white-label.md`](docs/white-label.md) | **Installing for clients** — rebranding, one-install-per-client vs shared, reseller operations |
+| [`docs/runbooks/waha-hostgator.md`](docs/runbooks/waha-hostgator.md) | Production runbook for WAHA (sizing, recovery) |
 | [`CLAUDE.md`](CLAUDE.md) | Non-negotiable conventions (required reading to contribute) |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | One-page architecture overview |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | PR flow |
-| [`docs/prd/`](docs/prd/) | PRDs (master, platform, customer 360, WhatsApp, pipeline, AI-RAG, Nuvemshop) |
-| [`docs/specs/`](docs/specs/) | Technical specs 01–13 (SQL schema, payloads, MCP, governance) |
-| [`docs/runbooks/waha-hostgator.md`](docs/runbooks/waha-hostgator.md) | Full production runbook for WAHA (HostGator VPS) |
+| [`docs/index.md`](docs/index.md) | Index of all 157 documents, with a precedence rule |
+| [`docs/prd/`](docs/prd/) · [`docs/specs/`](docs/specs/) | PRDs and technical specs (SQL schema, payloads, MCP, governance) |
 
 > Most docs are written in Brazilian Portuguese — our primary community. Translation contributions are very welcome.
 
@@ -169,13 +348,25 @@ This project is open source for the community. Every contribution is welcome —
 2. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) — branch flow, commits.
 3. Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-**Definition of Done:** zero typecheck errors, zero lint errors, relevant tests green, RLS tested if a tenant-aware table is touched, audit log emitted on mutations, versioned migration if the schema changes.
+**Short flow:**
+
+```bash
+git checkout -b feat/short-slug
+# implement + tests
+pnpm typecheck && pnpm lint && pnpm lint:channels && pnpm test:unit && pnpm test:shell && pnpm build
+pnpm test:db   # needs Docker — this is the `invariants` job, required to merge
+git commit -m "feat(scope): description"
+```
+
+That line is the **complete** list of required gates on purpose: running half of them and discovering the rest as a red surprise after hours of waiting is the worst first experience this repository knows how to deliver.
+
+**Definition of Done:** zero typecheck errors, zero lint errors, relevant tests green, RLS tested if a tenant-aware table is touched, audit log emitted on mutations, versioned migration **+ an idempotent appendix in `baseline.sql`** if the schema changes (otherwise the change never reaches self-hosters).
 
 ---
 
 ## 🐛 Reporting bugs
 
-Open an [issue](https://github.com/melgarafael/DeskcommCRM/issues/new/choose) — the template asks for what we need (environment, `/api/v1/health`, steps).
+Open an [issue](https://github.com/melgarafael/DeskcommCRM/issues/new/choose) — the template asks for what we need (environment, `/api/v1/health`, steps). Running `bash hostgator-setup-kit/healthcheck.sh` and pasting the output helps a lot.
 
 For **security vulnerabilities**, **do NOT open a public issue** — use [private vulnerability reporting](https://github.com/melgarafael/DeskcommCRM/security/advisories/new). Details in [`SECURITY.md`](SECURITY.md).
 
@@ -186,19 +377,20 @@ For **security vulnerabilities**, **do NOT open a public issue** — use [privat
 ### ✅ Shipped
 
 - **Foundation & platform** — auth (MFA for admins), multi-tenancy with RLS + isolation test, 4-role RBAC, append-only audit log, tenant onboarding.
-- **WhatsApp support** — real-time 3-pane inbox, multi-number WAHA connections, media via Storage, anti-ban (throttle + jitter + time windows), STOP detection.
-- **CRM & orders** — kanban with per-niche configurable vocabulary (fractional indexing), customer 360, contacts, tags, Nuvemshop integration for e-commerce.
-- **Native AI** — agents with per-tenant RAG (pgvector), sentiment analysis, AI→human handoff, per-org budget control, internal MCP server.
+- **WhatsApp support** — real-time 3-pane inbox, multi-number connections via **QR (WAHA)** or **Meta's official channel** (approved templates kept in sync), media via Storage, anti-ban (throttle + jitter + time windows), STOP detection.
+- **CRM & orders** — kanban with per-niche configurable vocabulary (fractional indexing), pipeline management from the screen, customer 360, contacts, tags, Nuvemshop integration.
+- **Native AI** — agents with per-tenant RAG (pgvector), **skills** the agent runs by itself, **organization memory**, per-number intent router, sentiment analysis, AI→human handoff, per-org spending caps, internal MCP server.
+- **AI provider choice** — OpenRouter, Anthropic or OpenAI, decided at install time and switchable per part of the system from the screen.
+- **Living follow-up** — reviving cold conversations with adaptive timing, per-stage and per-case triggers, round-robin queue, and the Radar of what risks dying unanswered.
 - **Privacy (LGPD)** — export and redact via workers, cascading anonymization, audited consent.
-- **Self-host** — `hostgator-setup-kit` (app + WAHA + database with one command), self-healing `baseline.sql`, production runbook.
+- **Self-host** — `hostgator-setup-kit` (app + WhatsApp + database with one command), self-healing `baseline.sql`, **updating from the screen** with automatic backup, production runbook.
 - **Webhooks & automation** — capture sources + WHEN/IF/THEN rules + triggers for external systems.
-- **Support governance** — server-side RBAC across the API, audited assignment/transfer (AI as a first-class assignee), per-role visibility (RLS) + per-agent metrics, automatic routing with queue and management panel, and a governance contract for external AI agents ([`docs/specs/14`](docs/specs/14-contrato-governanca-agentes-externos.md)). Epic driven by 100+ invariants (G1–G6).
-- **Visible operation** — screens that let operators understand the agent: anti-ban hold reasons translated in the conversation, a notice center with severities, send-protection controls (window/pace/cap) and flywheel proposals applicable as a new version (human-gated).
+- **Support governance** — server-side RBAC across the API, audited assignment/transfer (AI as a first-class assignee), per-role visibility (RLS) + per-agent metrics, automatic routing with queue and management panel, and a governance contract for external AI agents ([`docs/specs/14`](docs/specs/14-contrato-governanca-agentes-externos.md)).
+- **Visible operation** — anti-ban hold reasons translated in the conversation, a notice center with severities, stuck-message alerts, send-protection controls (window/pace/cap), declared agent capabilities and flywheel proposals applicable as a new version (human-gated).
 
 ### 🔮 Next
 
 - **Public MCP** — CRM capabilities exposed to the agent ecosystem: plug in any agent and it operates Deskcomm.
-- **Self-improvement flywheel** — the resolved-conversation → knowledge → better-agent loop, measured and human-gated.
 - **Niche templates** — ready-made pipelines and vocabularies for clinics, real estate, info-products and services (e-commerce already shipped).
 - **Integrations** — VTEX and Shopify via the adapter pattern (Nuvemshop already shipped).
 - **Probabilistic identity** — contact unification across channels.
@@ -225,16 +417,19 @@ Distributed under the **MIT** license — see [`LICENSE`](LICENSE). You may use,
 This is a **self-hosted** project: each person runs the CRM on their **own infrastructure** (own VPS, Supabase database and AI key). That means:
 
 - **Support is community-based and "as-is".** No SLA — it's open source maintained by goodwill.
-- **You are responsible for your installation**, including updates (`bash hostgator-setup-kit/update.sh`) and backups.
-- **Data protection:** whoever **hosts** the instance is the **controller** of the personal data processed there. The project maintainers **have no access** to your data.
-- **Telemetry (Sentry):** by default, **anonymized** errors (no PII) are sent to the community Sentry. Set `SENTRY_DSN=off` to disable, or `SENTRY_DSN=<your-dsn>` to use your own.
+- **You are responsible for your installation.** Updates are not automatic (you click, or run `update.sh`, when you want), and keeping/backing up your server is on you.
+- **Data protection:** whoever **hosts** the instance is the **controller** of the personal data processed there (customers, conversations, orders), with the legal obligations that follow. The project maintainers are **neither** controllers nor processors of your instance, and have no access to your database, your WhatsApp or your storage.
+- **Telemetry (Sentry):** `install.sh` **asks** during installation and respects your answer; in non-interactive mode, with no `SENTRY_DSN` set, telemetry is **off**. If you accept the community Sentry, what gets sent are **error reports** (stack traces) with national IDs, phone numbers and emails replaced, sensitive headers stripped, and webhook/invite tokens redacted from URLs — **no** performance tracing and **no** session replay, both pinned to 0 on that path. To turn it off at any time: `SENTRY_DSN=off` in `.env`. To send to **your** Sentry (there, with performance and replay): `SENTRY_DSN=<your-dsn>`. What is redacted, and why, lives in [`lib/sentry/scrub.ts`](lib/sentry/scrub.ts); DSN resolution in [`lib/sentry/dsn.ts`](lib/sentry/dsn.ts).
 
 ---
 
 ## 🙏 Acknowledgements
 
 - **WAHA** ([devlikeapro](https://waha.devlikeapro.com/)) — WhatsApp engine.
-- **Supabase**, **Vercel**, **Anthropic** (Claude), **shadcn/ui**.
+- **Supabase** — Postgres + Auth + Storage + Realtime in one stack.
+- **HostGator** — the infrastructure partnership that made one-command self-hosting possible.
+- **Anthropic**, **OpenAI** and **OpenRouter** — the AI providers the CRM knows how to use.
+- **shadcn/ui** — component base.
 - The community that took Deskcomm from e-commerce to clinics, real estate, info-products and beyond — you defined what this project is.
 
 ---

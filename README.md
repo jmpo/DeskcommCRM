@@ -44,7 +44,27 @@
 
 ## ⚡ Instalar na sua VPS (o caminho principal)
 
-Entre na sua VPS por SSH e rode:
+### 1. Entre na sua VPS
+
+Abra o **Terminal** no seu computador (no Windows, o **PowerShell**; no Mac ou Linux, o
+**Terminal**) e conecte com o IP e a porta que a hospedagem te mandou por e-mail:
+
+```bash
+ssh -p PORTA root@SEU_IP
+```
+
+Troque `PORTA` e `SEU_IP` pelos seus. Se a hospedagem não mencionou porta nenhuma, é a padrão
+(22) e você pode omitir: `ssh root@SEU_IP`.
+
+Ele pede a senha. **Ao digitar, não aparece nada na tela — nem asteriscos.** Isso não é
+travamento: é o terminal escondendo a senha. Digite (ou cole) e dê Enter.
+
+> Na primeira conexão ele pergunta `Are you sure you want to continue connecting?` — responda
+> `yes`. É o servidor se apresentando pela primeira vez.
+
+### 2. Rode o instalador
+
+Já dentro da VPS:
 
 ```bash
 git clone https://github.com/melgarafael/DeskcommCRM.git

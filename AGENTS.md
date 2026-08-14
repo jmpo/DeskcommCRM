@@ -19,7 +19,7 @@ quebra no clone fresco é um bug de produto, não um detalhe de ambiente.
 
 ## Stack (CONFIRMADO em `package.json`)
 
-Next.js 16.2 (App Router) · React 19.2 · TypeScript 6.0 estrito · Tailwind 3.4 ·
+Next.js 16.3 (App Router) · React 19.2 · TypeScript 6.0 estrito · Tailwind 3.4 ·
 shadcn/ui · Supabase (Postgres + Auth + Realtime + Storage) · Upstash Redis ·
 Vercel AI Gateway (`@ai-sdk/anthropic|openai|google`) · WAHA Plus (engine NOWEB) ·
 Zod 4 · Vitest 4 · Playwright 1.62 · Sentry 10.
@@ -164,11 +164,28 @@ o summary do job. Se você mexeu em UI fora desse subconjunto, a prova é sua.
   higieniza — não confie nele como única camada.
 - Não commite screenshot/dump com dado real de cliente.
 
+## Packaging — se você tocou `Dockerfile*`, `docker-compose*.yml` ou `hostgator-setup-kit/`
+
+Lei completa em [`docs/doctrine/packaging.md`](docs/doctrine/packaging.md). O não-negociável:
+
+- **Nenhum serviço de `docker-compose.prod.yml` constrói na máquina do cliente.** Todo serviço
+  declara `image:` de uma imagem publicada; `build:` só existe **ao lado**, como escape.
+  Serviço `build:`-only é pulado por `docker compose pull` e imune a `up -d` sem `--build` —
+  ele não é só caro de instalar, ele **nunca é atualizado**.
+- **Publicação é ato do CI**, nunca da sua máquina: build ARM local não roda na VPS amd64.
+- **Instalação de cliente aponta para número de versão**, nunca para tag móvel. Aqui `latest`
+  significa **topo da `main`**, não última release — quem quer a última release usa `stable`.
+- **Dependência upstream é referenciada com tag fixa, nunca republicada** (WAHA é licenciado).
+- **Bump de versão não pode exigir que o operador da VPS edite arquivo à mão.**
+
+`pnpm test:shell` é o único gate que exercita o kit. Rode-o.
+
 ## Critério de conclusão
 
-Vale a **Definition of Done de 13 itens em [`CLAUDE.md`](CLAUDE.md)**. Não declare pronto
+Vale a **Definition of Done de 15 itens em [`CLAUDE.md`](CLAUDE.md)**. Não declare pronto
 sem: typecheck/lint zerados, testes relevantes verdes, RLS testada se tocou tabela
-tenant-aware, migration + baseline + MANIFEST se mudou schema, e prova visual se mudou UI.
+tenant-aware, migration + baseline + MANIFEST se mudou schema, prova visual se mudou UI, e a
+regra de packaging acima se mudou o artefato que o self-hoster instala.
 
 ## Regra final — não invente
 

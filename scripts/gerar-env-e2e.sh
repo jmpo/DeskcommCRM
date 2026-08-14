@@ -76,6 +76,19 @@ case "$API_URL" in
     ;;
 esac
 
+# Mesmo default do `playwright.config.ts` (PORT = process.env.E2E_PORT ??
+# "3001"). NEXT_PUBLIC_APP_URL é uma NEXT_PUBLIC_* — o Next a embute no bundle
+# (server E client) em BUILD time, não runtime; por isso ela precisa entrar
+# aqui, no arquivo que `e2e-build.sh` exporta antes do `next build`, e não
+# bastaria setá-la só no `next start`. Sem isto, app/auth/confirm/route.ts
+# monta o redirect contra o default do schema (http://localhost:3000) — porta
+# onde não há NADA escutando durante o teste — e o browser, que SEMPRE segue
+# 3xx (diferente de `curl` sem `-L`), estoura ERR_CONNECTION_REFUSED em vez de
+# chegar em /login/reset ou /onboarding/welcome. Medido: as 3 specs do fluxo de
+# auth por e-mail (password-recovery, reset-password-mfa, signup-journey)
+# reprovam assim mesmo com token_hash válido — o defeito independe de PKCE.
+E2E_PORT="${E2E_PORT:-3001}"
+
 cat > .env.e2e <<EOF
 # ── Ambiente do E2E — LOCAL, nunca a nuvem ──────────────────────────────────
 # GERADO por 'pnpm e2e:env'. Não versionado (.gitignore cobre '.env*').
@@ -84,6 +97,9 @@ NEXT_PUBLIC_SUPABASE_URL=$API_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON
 SUPABASE_SERVICE_ROLE_KEY=$SERVICE
 SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+# Precisa bater com o baseURL real do Playwright (ver comentário acima).
+NEXT_PUBLIC_APP_URL=http://localhost:$E2E_PORT
 
 # Placeholders: 'next start' roda em NODE_ENV=production, e lib/env.ts exige
 # estas vars em produção. As specs não exercitam os serviços por trás delas.

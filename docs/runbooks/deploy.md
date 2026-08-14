@@ -67,10 +67,17 @@ commit → push → PR → merge na main → CI publica imagem → VPS puxa
    VPS não existe: o CI não o vê, some se a VPS for reconstruída, e é invisível
    pra qualquer outra pessoa.
 2. **PR e merge na `main`.** `publish-image.yml` dispara em push na `main` (ou
-   tag `v*`) e publica `ghcr.io/<repo>:latest`. O build pesado (~6min) roda nos
+   tag `v*`) e publica **três** imagens — `deskcommcrm`, `deskcomm-worker` e
+   `deskcomm-scheduler` — sempre na mesma versão. O build pesado roda nos
    runners do GitHub, nunca na VPS do usuário.
-3. **Deploy na VPS** com o comando da seção 1. Como o `.env` tem
-   `APP_PULL_POLICY='always'`, o `up -d` já puxa a imagem nova sozinho.
+3. **Deploy na VPS.** Numa instalação real isto é `bash hostgator-setup-kit/update.sh`,
+   não um `up -d` na mão: ele puxa a tag publicada, re-aplica o `baseline.sql`,
+   faz backup antes e grava as três imagens no `.env`.
+
+> **`latest` não é a última release.** Ele é publicado a partir da branch default, então
+> segue o **topo da `main`** — código ainda não lançado. Quem quer a última release usa
+> `stable`; quem opera um cliente usa o número da versão. Ver
+> [`../doctrine/packaging.md`](../doctrine/packaging.md).
 
 ---
 
@@ -87,11 +94,20 @@ APP_IMAGE=deskcomm-app:local APP_PULL_POLICY=never docker compose \
   -f docker-compose.prod.yml -f docker-compose.traefik.yml --env-file .env up -d app
 ```
 
+O `docker-compose.build.yml` também cobre `worker` e `scheduler` — troque
+`app` pelo serviço que você precisa construir. Eles têm `build:` no próprio
+compose de produção (é o escape que faz a instalação sobreviver a um registry
+fora do ar), mas é o override que traz o `pull_policy: never`; sem ele o
+`up -d` volta a buscar a imagem publicada.
+
 **Isto é dívida, não um caminho paralelo.** A imagem existe só no disco daquela
 VPS: não está no registry, não está no git, e qualquer `docker compose up -d`
 sem `APP_PULL_POLICY=never` a substitui pela do GHCR — silenciosamente, sem erro
 nenhum, revertendo o que você acabou de subir.
 
 Requisitos: >= 4 GB de RAM **ou** swap (medido: ~4min num VPS de 3.8 GB com 4 GB
-de swap). Ao terminar, feche o ciclo — merge na `main` e volte a VPS pra imagem
-oficial.
+de swap) — e isto é o requisito **deste caminho de exceção**, não da operação
+normal. A régua de operação (7 contêineres, ~150 MB por número de WhatsApp,
+`mem_limit` somando 2560m entre app+worker+waha) é outra, e não mudou.
+
+Ao terminar, feche o ciclo — merge na `main` e volte a VPS pra imagem oficial.

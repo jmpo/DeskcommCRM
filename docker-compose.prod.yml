@@ -28,7 +28,11 @@ services:
     # Os NEXT_PUBLIC_* reais vêm em RUNTIME (env_file abaixo) — o browser lê via
     # <PublicEnvScript/> e o servidor via lib/env.ts. Não precisa buildar no VPS.
     # Build local (avançado): docker compose -f docker-compose.prod.yml -f docker-compose.build.yml build
-    image: ${APP_IMAGE:-ghcr.io/melgarafael/deskcommcrm:latest}
+    # `:stable` (última release), não `:latest` (topo da `main`). Quem cai neste
+    # default é quem NÃO tem APP_IMAGE no .env — avaliação, ou um .env que
+    # perdeu a chave. Nenhum desses casos quer código não lançado; quem quiser o
+    # topo da main pede `APP_IMAGE=…:latest` explicitamente.
+    image: ${APP_IMAGE:-ghcr.io/melgarafael/deskcommcrm:stable}
     pull_policy: ${APP_PULL_POLICY:-always}
     restart: unless-stopped
     env_file: .env
@@ -64,6 +68,29 @@ services:
     # inteira. Estourá-lo mata só quem estourou, e o `restart: unless-stopped`
     # o traz de volta — falha isolada em vez de queda geral.
     mem_limit: 512m
+    # Imagem publicada — e não mais `build:` sozinho. O motivo é o modo de falha
+    # que isso escondia: serviço build-only é PULADO por `docker compose pull`
+    # ("Skipped - No image to be pulled") e imune a `up -d` sem `--build`. Ele era
+    # construído na VPS de todo cliente, no install, e NENHUM update.sh jamais o
+    # reconstruía — o runtime do agente de IA congelava no código do dia da
+    # instalação e atravessava todas as atualizações seguintes.
+    #
+    # O `build:` continua abaixo de propósito: com os dois presentes, o Compose
+    # usa a imagem quando ela existe e CONSTRÓI quando não existe (medido). É o
+    # que mantém a mudança aditiva — registry fora do ar, ou versão anterior à
+    # primeira publicação, caem no comportamento antigo em vez de quebrar.
+    #
+    # O default é `:stable` (a última RELEASE), não `:latest`, e a diferença é
+    # concreta para o parque instalado. Numa VPS que atualiza pela primeira vez
+    # depois desta mudança, quem executa é o `update.sh` VELHO — o que está no
+    # disco —, e ele só sabe gravar APP_IMAGE. O `git checkout` da tag já trocou
+    # ESTE arquivo, então worker e scheduler caem no default daqui. Com
+    # `:latest`, esse default seria o TOPO DA MAIN (o canal segue a branch
+    # default): o app pinado numa release e o runtime do agente de
+    # IA rodando código não lançado, sobre o banco da release. `:stable` é a
+    # última release publicada — pareia com o app em vez de correr na frente.
+    image: ${WORKER_IMAGE:-ghcr.io/melgarafael/deskcomm-worker:stable}
+    pull_policy: ${WORKER_PULL_POLICY:-always}
     build:
       context: .
       dockerfile: Dockerfile.worker
@@ -95,7 +122,14 @@ services:
     mem_limit: 1280m
     # Core grátis por padrão; troque para devlikeapro/waha-plus via WAHA_IMAGE se
     # precisar de multi-número/retry/S3 (licença paga).
-    image: ${WAHA_IMAGE:-devlikeapro/waha}
+    #
+    # Tag PINADA: `devlikeapro/waha` sem tag é `:latest`, e o `dc pull` do
+    # update.sh entregava ao cliente qualquer versão que o upstream tivesse
+    # publicado — inclusive uma nunca testada por nós, no meio de uma
+    # atualização. `latest-2026.7.2` é o mesmo digest de `latest` hoje
+    # (65e593e30bb7…), então o pin não muda um bit; muda quem escolhe quando
+    # o WhatsApp do cliente troca de motor. Bumpar faz parte do release.
+    image: ${WAHA_IMAGE:-devlikeapro/waha:latest-2026.7.2}
     restart: unless-stopped
     environment:
       # Prefixo sha512: faz o WAHA HASHEAR o X-Api-Key recebido e comparar com este
@@ -129,8 +163,16 @@ services:
 
   srh:
     # serverless-redis-http: fala o REST do Upstash sobre o redis normal, mantendo
-    # o SDK @upstash/redis sem tocar código. Pinar tag (validar encoding base64 — T6).
-    image: hiett/serverless-redis-http:latest
+    # o SDK @upstash/redis sem tocar código.
+    #
+    # Pinado por DIGEST, não por tag, e o motivo é específico: `latest` e `0.0.10`
+    # NÃO são a mesma imagem (5b0bb923… vs 65128347…), então trocar `:latest` por
+    # `:0.0.10` mudaria o binário que roda no parque — que é exatamente o risco
+    # que a pendência T6 mandava validar antes (encoding base64 do rate limit).
+    # O digest congela o que já está em produção HOJE: zero mudança de conteúdo,
+    # e o `:latest` deixa de poder mudar sozinho debaixo de todo mundo.
+    # Quando a T6 for validada, isto vira `:0.0.10` e o comentário sai.
+    image: hiett/serverless-redis-http@sha256:5b0bb9239fce53abf87b2018a7a0deb9ec7bd900c5360738fe5fbeeb426f9150
     restart: unless-stopped
     environment:
       SRH_MODE: env
@@ -143,9 +185,19 @@ services:
     networks: [internal]
 
   scheduler:
-    # Cron sem docker.sock: alpine + crond interno batendo curl na rede interna.
+    # Cron sem docker.sock: crond interno batendo curl na rede interna.
     # Resolução de 1 min (= paridade com os crons da Vercel).
-    image: alpine:3.20
+    #
+    # A lista de crons mora em docker/scheduler/entrypoint.sh, não mais aqui. O
+    # `command:` inline instalava curl e tzdata (`apk add`) a CADA start — num
+    # serviço `restart: unless-stopped`, isso significa que o cron do cliente só
+    # voltava se a VPS tivesse internet e o mirror do Alpine estivesse de pé,
+    # justamente no momento em que a máquina está se recuperando de algo.
+    image: ${SCHEDULER_IMAGE:-ghcr.io/melgarafael/deskcomm-scheduler:stable}
+    pull_policy: ${SCHEDULER_PULL_POLICY:-always}
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
     restart: unless-stopped
     depends_on:
       app:
@@ -153,30 +205,6 @@ services:
     environment:
       TZ: UTC
       INTERNAL_SECRET: ${INTERNAL_SECRET}
-    command:
-      - /bin/sh
-      - -c
-      - |
-        apk add --no-cache curl tzdata >/dev/null 2>&1
-        cat > /etc/crontabs/root <<EOF
-        * * * * * curl -fsS -m25 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/agent-dispatcher >/dev/null 2>&1
-        * * * * * curl -fsS -m25 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/followup-flow-worker >/dev/null 2>&1
-        * * * * * curl -fsS -m45 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/event-log-drain >/dev/null 2>&1
-        * * * * * curl -fsS -m25 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/routing-worker >/dev/null 2>&1
-        * * * * * curl -fsS -m25 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/recover-stuck-messages >/dev/null 2>&1
-        */5 * * * * curl -fsS -m25 -H "Authorization: Bearer $$INTERNAL_SECRET" "http://app:3000/api/v1/cron/storage-redaction?limit=50" >/dev/null 2>&1
-        */5 * * * * curl -fsS -m25 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/snooze-watcher >/dev/null 2>&1
-        */5 * * * * curl -fsS -m25 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/attendant-heartbeat >/dev/null 2>&1
-        */5 * * * * curl -fsS -m45 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/channel-health >/dev/null 2>&1
-        */15 * * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/risk-watcher >/dev/null 2>&1
-        0 12 * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/lgpd-sla-watcher >/dev/null 2>&1
-        30 3 * * * curl -fsS -m120 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/kb-conversations-batch >/dev/null 2>&1
-        */10 * * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/contact-avatars >/dev/null 2>&1
-        */30 * * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/contact-phones >/dev/null 2>&1
-        15 4 * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/sync-model-catalog >/dev/null 2>&1
-        17 * * * * curl -fsS -m60 -H "Authorization: Bearer $$INTERNAL_SECRET" http://app:3000/api/v1/cron/contact-proposals-watcher >/dev/null 2>&1
-        EOF
-        exec crond -f -l 2
     logging: *default-logging
     networks: [internal]
 

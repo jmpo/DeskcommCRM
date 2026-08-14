@@ -7,6 +7,7 @@
 import { createHmac } from "node:crypto";
 import { registerAction } from "@/lib/automation/actions";
 import type { ActionCtx, ActionResultDetail } from "@/lib/automation/types";
+import { assertDestinoResolvidoSeguro } from "@/lib/automation/outbound-ip";
 import { assertSafeOutboundUrl } from "@/lib/automation/outbound-url";
 import { decryptWebhookSecret } from "@/lib/webhooks/secrets";
 
@@ -67,6 +68,10 @@ export async function executeCallWebhook(
   if (!opts.skipUrlCheck) {
     try {
       assertSafeOutboundUrl(url);
+      // Guard textual não resolve nome: um hostname público apontando para
+      // 169.254.169.254 (metadata da nuvem) ou para os serviços internos da rede do
+      // compose passava por ele. Este segundo resolve e julga o IP.
+      await assertDestinoResolvidoSeguro(new URL(url).hostname);
     } catch (err) {
       return { type: "call_webhook", status: "failed", error: (err as Error).message };
     }

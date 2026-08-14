@@ -40,7 +40,22 @@ O SHA curto da `main` entra em **toda** afirmação daí em diante. Número sem 
 
 Nesta ordem:
 
-1. Liberar o CI do fork (`gh pr checks`, e a aprovação de workflow se o PR for de primeira viagem).
+1. Liberar o CI do fork. **`gh pr checks` NÃO mostra workflow parado esperando aprovação** — ele
+   lista só o que já começou, então um PR travado aparece como se não tivesse check nenhum, e a
+   acolhida promete "acabei de liberar" sem ter liberado. A sonda que enxerga é o campo
+   `conclusion`, e o comando é este, sempre, antes de qualquer outra coisa:
+
+   ```bash
+   BR=$(gh pr view <n> --json headRefName --jq .headRefName)
+   for id in $(gh api repos/{owner}/{repo}/actions/runs \
+                 --jq "[.workflow_runs[] | select(.head_branch==\"$BR\" and .conclusion==\"action_required\")] | .[].id"); do
+     gh api -X POST "repos/{owner}/{repo}/actions/runs/$id/approve"
+   done
+   ```
+
+   Medido: o PR #176 ficou **6 dias** aberto e, quando a triagem chegou, os 4 workflows estavam em
+   `action_required` desde o primeiro push. A latência de 5h08min que este arquivo cita não é
+   lentidão de runner — é PR esperando um humano clicar.
 2. Aplicar `triagem:recebido` + as labels `area/*` derivadas do diff.
 3. Postar a acolhida — molde em `references/resposta-ao-contribuidor.md`, seção *Acolhida*.
 

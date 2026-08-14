@@ -230,6 +230,28 @@ function previewFrom(input: {
   return "";
 }
 
+/**
+ * Atendente respondeu manualmente → IA fica quieta nesta conversa por uma janela curta,
+ * renovada a cada mensagem humana (sliding window). Sem isto, a IA só "parecia" quieta
+ * por coincidência de timing (nenhum turno novo disparado) e voltava a responder junto
+ * com o humano assim que o cliente mandava a próxima mensagem — `isLeadInHandoff`
+ * (lib/agent-engine/agent/human-handoff.ts) só olhava `force_human`/`bot_silenced_until`,
+ * e nenhum envio manual tocava nenhum dos dois.
+ */
+const HUMAN_REPLY_SILENCE_MS = 5 * 60 * 1000;
+
+/**
+ * Postgres 'infinity' (handoff permanente — regex/tool/orquestrador) chega do PostgREST
+ * como o literal texto "infinity", que `new Date(...)` não parseia. Nunca encurtar isso
+ * para uma janela de 5min: se já está travado pra sempre, este helper não mexe.
+ */
+function extendBotSilence(current: string | null, now: string): string | undefined {
+  if (current === "infinity") return undefined;
+  const candidate = new Date(new Date(now).getTime() + HUMAN_REPLY_SILENCE_MS);
+  if (current && new Date(current) >= candidate) return undefined;
+  return candidate.toISOString();
+}
+
 export async function sendMessageHandler(
   supabase: SB,
   ctx: HandlerCtx,
@@ -241,7 +263,7 @@ export async function sendMessageHandler(
   // envio com 42703. Sem a coluna, nada está arquivado — e a consulta sem ela é a
   // consulta certa (ver lib/channels/archived).
   const convSelect = (comArchived: boolean) =>
-    `id, organization_id, contact_id, channel_session_id, is_group, group_chat_id, provider_conversation_id, contacts:contact_id(phone_number, wa_identity, wa_lid, is_blocked), channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS}, status${comArchived ? `, ${ARCHIVED_AT}` : ""})`;
+    `id, organization_id, contact_id, channel_session_id, is_group, group_chat_id, bot_silenced_until, provider_conversation_id, contacts:contact_id(phone_number, wa_identity, wa_lid, is_blocked), channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS}, status${comArchived ? `, ${ARCHIVED_AT}` : ""})`;
   const { data: conv, error: convErr } = await queryTolerantToMissingArchived(
     () => supabase.from("conversations").select(convSelect(true)).eq("id", input.conversation_id).maybeSingle(),
     () => supabase.from("conversations").select(convSelect(false)).eq("id", input.conversation_id).maybeSingle(),
@@ -261,6 +283,7 @@ export async function sendMessageHandler(
     channel_session_id: string;
     is_group: boolean;
     group_chat_id: string | null;
+    bot_silenced_until: string | null;
     /** Thread do provider, quando ele endereça por thread própria (migration 0132). */
     provider_conversation_id: string | null;
     contacts: {
@@ -558,19 +581,27 @@ export async function sendMessageHandler(
     }
   }
 
-  await supabase
-    .from("conversations")
-    .update({
-      last_outbound_at: now,
-      last_message_at: now,
-      last_message_preview: previewFrom({
-        body: input.body,
-        media_url: input.media_url,
-        media_storage_path: input.media_storage_path,
-        type: input.type,
-      }),
-    })
-    .eq("id", c.id);
+  const conversationUpdate: {
+    last_outbound_at: string;
+    last_message_at: string;
+    last_message_preview: string;
+    bot_silenced_until?: string;
+  } = {
+    last_outbound_at: now,
+    last_message_at: now,
+    last_message_preview: previewFrom({
+      body: input.body,
+      media_url: input.media_url,
+      media_storage_path: input.media_storage_path,
+      type: input.type,
+    }),
+  };
+  if (ctx.actor.type === "user") {
+    const silenceUntil = extendBotSilence(c.bot_silenced_until, now);
+    if (silenceUntil) conversationUpdate.bot_silenced_until = silenceUntil;
+  }
+
+  await supabase.from("conversations").update(conversationUpdate).eq("id", c.id);
 
   const a = actorAuditPayload(ctx.actor);
   await audit({

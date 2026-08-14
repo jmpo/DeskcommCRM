@@ -39,7 +39,7 @@ import {
   type ChannelProvider,
   type ChannelSessionRef,
 } from "@/lib/channels";
-import { sincronizarSaudeDaConexao } from "@/lib/channels/health";
+import { julgarQueda, sincronizarSaudeDaConexao } from "@/lib/channels/health";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -56,6 +56,8 @@ type LinhaDeSessao = ChannelSessionRef & {
   display_name: string | null;
   phone_number: string | null;
   archived_at: string | null;
+  /** Observações ruins SEGUIDAS — é onde o anti-pisco guarda a contagem. */
+  consecutive_health_fails: number | null;
 };
 
 async function handle(req: NextRequest): Promise<Response> {
@@ -76,7 +78,7 @@ async function handle(req: NextRequest): Promise<Response> {
   const { data, error } = await admin
     .from("channel_sessions")
     .select(
-      `id, organization_id, status, display_name, phone_number, archived_at, ${CHANNEL_SESSION_REF_COLUMNS}`,
+      `id, organization_id, status, display_name, phone_number, archived_at, consecutive_health_fails, ${CHANNEL_SESSION_REF_COLUMNS}`,
     )
     .is("archived_at", null)
     .limit(LIMITE);
@@ -101,6 +103,29 @@ async function handle(req: NextRequest): Promise<Response> {
     try {
       const saude = await adapter.checkHealth({ sessionRef });
       verificadas++;
+
+      // ─── UMA pergunta que falha não é uma conexão caída ──────────────────
+      //
+      // Medido: a conexão oficial piscou por 5 minutos e as duas mensagens
+      // mandadas nesse intervalo ficaram em `queued` para sempre. Não houve
+      // queda — a lista de contas do provedor oscilou uma vez.
+      //
+      // Queda só vale depois de CONFIRMACOES_PARA_QUEDA observações seguidas.
+      // Recuperação, não: uma observação boa zera na hora, porque demorar a
+      // acreditar na volta segue barrando envio de um canal que já voltou.
+      const julgamento = julgarQueda(saude, s.consecutive_health_fails ?? 0);
+      await admin
+        .from("channel_sessions")
+        .update({ consecutive_health_fails: julgamento.contador })
+        .eq("id", s.id)
+        .eq("organization_id", s.organization_id);
+
+      // Enquanto não confirma, o mundo segue como estava: nem status novo no
+      // banco, nem aviso. É o pisco sendo absorvido.
+      if (julgamento.contador > 0 && !julgamento.confirmada) {
+        desfechos.aguardando_confirmacao = (desfechos.aguardando_confirmacao ?? 0) + 1;
+        continue;
+      }
 
       // O status novo vale para o banco, mas SÓ quando deu para perguntar:
       // gravar por cima com um erro de rede transitório trocaria informação boa

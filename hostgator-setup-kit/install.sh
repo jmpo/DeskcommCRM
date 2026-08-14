@@ -981,10 +981,57 @@ else
   CAMPO_OPENAI_EXTRA="OPENAI_API_KEY|Chave da OpenAI — só para ouvir áudios e usar a base de conhecimento (Enter pula)||v_openai|secret|opcional"
 fi
 
+# ── A versão que esta instalação vai rodar ───────────────────────────────────
+# Uma instalação nova nascia em `:latest`, e aqui `latest` NÃO quer dizer "a
+# última release": ele segue a branch default, então ela
+# segue o topo da `main` — código ainda não lançado. Quem instalava no dia 6
+# e quem instalava no dia 20 rodavam software diferente, ambos dizendo "estou
+# no latest", e o suporte não tinha como saber o quê. A issue #184 chegou
+# descrevendo o ambiente como "latest do dia 06/08/2026", que é a admissão de
+# que a versão não era nomeável.
+#
+# Resolvido no REMOTO porque o clone é `--depth 1` e não traz tag nenhuma.
+VERSAO_ALVO="$(ultima_versao_publicada "$REPO_URL")"
+
+# A tag do git é condição NECESSÁRIA, não suficiente: ela nasce minutos antes
+# das imagens, e `deskcomm-worker`/`deskcomm-scheduler` só passaram a existir
+# depois das releases que já estão publicadas — `deskcomm-worker:1.2.1` nunca
+# vai existir, porque a v1.2.1 é passado. Sem esta conferência, o .env do
+# cliente receberia duas referências impossíveis e o kit as construiria aqui em
+# silêncio, do topo da main: app de uma release + worker de outro código.
+#
+# Cascata, do mais específico ao mais disponível. Cada nível pergunta pelas TRÊS
+# imagens juntas, porque instalar com elas desalinhadas é o defeito, não a
+# solução.
+if [ -n "$VERSAO_ALVO" ] && trio_publicado "$VERSAO_ALVO"; then
+  : # o caminho normal: as três publicadas na última versão
+elif trio_publicado "stable"; then
+  c_ylw "⚠ A versão ${VERSAO_ALVO:-mais recente} ainda não tem as três imagens publicadas."
+  c_ylw "  Instalando pelo canal 'stable' (a última versão completa)."
+  VERSAO_ALVO="stable"
+elif [ -n "$VERSAO_ALVO" ]; then
+  # Nem a versão nem o `stable` têm o trio. Segue assim mesmo — o compose tem
+  # `build:` ao lado do `image:` do worker e do scheduler, então eles são
+  # construídos aqui. É lento, mas instala. O que NÃO pode é isso acontecer
+  # calado: o dono precisa saber que duas peças dele saíram do fonte local.
+  c_ylw "⚠ As imagens do worker e do agendador ainda não estão publicadas."
+  c_ylw "  Elas serão construídas neste servidor — leva alguns minutos a mais."
+  c_ylw "  Rode 'bash hostgator-setup-kit/update.sh' quando a próxima versão sair."
+else
+  # Falha ABERTA: sem rede ou sem tag no remoto, segue como antes. Travar a
+  # instalação por não resolver um número seria trocar previsibilidade por
+  # disponibilidade — mas o aviso sai, porque o dono precisa saber que ficou
+  # num canal móvel em vez de numa versão.
+  VERSAO_ALVO="latest"
+  c_ylw "⚠ Não consegui descobrir a última versão publicada (rede?)."
+  c_ylw "  Instalando pelo canal 'latest'. Depois rode: bash hostgator-setup-kit/update.sh"
+fi
+IMAGEM_APP_DEFAULT="${IMG_APP}:${VERSAO_ALVO}"
+
 FIELDS=(
   "DOMAIN|Domínio do CRM (ex: crm.suaempresa.com.br)||v_domain||"
   "ACME_EMAIL|Seu e-mail (avisos de SSL)||v_email||"
-  "APP_IMAGE|Imagem Docker do app|ghcr.io/melgarafael/deskcommcrm:latest|||"
+  "APP_IMAGE|Imagem Docker do app|${IMAGEM_APP_DEFAULT}|||"
   "NEXT_PUBLIC_SUPABASE_URL|Supabase Project URL (Settings > API)||v_supabase_url||"
   "NEXT_PUBLIC_SUPABASE_ANON_KEY|Supabase anon key (Settings > API)||v_anon||"
   "SUPABASE_SERVICE_ROLE_KEY|Supabase service_role key (Settings > API)||v_service|secret|"
@@ -1211,10 +1258,49 @@ if [ -f .env ]; then
   fi
 fi
 
+# A tag que o dono escolheu (o campo APP_IMAGE é editável na entrevista) decide
+# o pull_policy das três imagens. A regra é medida, não estética: com `always` e
+# o registry sem responder para aquela referência, o `up -d` FALHA e o contêiner
+# não sobe, mesmo com a imagem já no disco. Numa tag imutável isso não protege
+# de nada — só amarra a subida do CRM à disponibilidade do GHCR. Numa tag móvel
+# é o contrário: sem `always`, a versão nova nunca chega.
+# Olha só o último segmento do caminho: `registry.local:5000/x/y` tem ':' e NÃO
+# tem tag, e um `${APP_IMAGE##*:}` ingênuo devolveria "5000/x/y" como se fosse
+# uma. Um `@sha256:...` cai aqui como tag imutável, que é o correto.
+_ref_final="${APP_IMAGE##*/}"
+case "$_ref_final" in
+  *@sha256:*)
+    # O operador pinou o app por DIGEST. Derivar a tag daí produziria
+    # `deskcomm-worker:<hash-do-app>` — uma referência que não existe em lugar
+    # nenhum, e o `pull` falharia com "manifest unknown" sem ninguém entender
+    # por quê. Worker e scheduler vão para o canal estável, e o aviso sai porque
+    # quem pinou por digest tinha um motivo e precisa saber que ele não se
+    # propagou às outras duas.
+    TAG_ALVO="stable"
+    c_ylw "⚠ APP_IMAGE está pinado por digest."
+    c_ylw "  O worker e o scheduler ficam em 'stable' — ajuste WORKER_IMAGE/SCHEDULER_IMAGE"
+    c_ylw "  no .env se você precisa deles num digest específico também."
+    ;;
+  *:*) TAG_ALVO="${_ref_final##*:}" ;;
+  *)   TAG_ALVO="latest" ;;   # imagem sem ':' é :latest por definição do Docker
+esac
+case "$TAG_ALVO" in
+  latest|main|stable) PULL_POLICY_ALVO="always" ;;
+  *)                  PULL_POLICY_ALVO="missing" ;;
+esac
+
 {
   printf '# Gerado por install.sh — NÃO comitar. Contém segredos.\n'
   envq APP_IMAGE "$APP_IMAGE"
-  envq APP_PULL_POLICY "always"
+  envq APP_PULL_POLICY "$PULL_POLICY_ALVO"
+  # Worker e scheduler acompanham a MESMA versão do app: um em 1.2.1 e outro em
+  # `latest` é uma matriz de compatibilidade que ninguém testou. Estas duas
+  # imagens existem desde que o worker deixou de ser `build:`-only — antes disso
+  # ele era compilado aqui na VPS e nenhum update jamais o alcançava.
+  envq WORKER_IMAGE "${IMG_WORKER}:${TAG_ALVO}"
+  envq WORKER_PULL_POLICY "$PULL_POLICY_ALVO"
+  envq SCHEDULER_IMAGE "${IMG_SCHEDULER}:${TAG_ALVO}"
+  envq SCHEDULER_PULL_POLICY "$PULL_POLICY_ALVO"
   envq DOMAIN "$DOMAIN"
   envq ACME_EMAIL "$ACME_EMAIL"
   printf '# Proxy reverso: "caddy" (o kit sobe o dele nas portas 80/443) ou "traefik"\n'
@@ -1284,7 +1370,12 @@ fi
   printf '# então ligar isto sem um WAHA Plus (ou proxy que assine) para a ingestão\n'
   printf '# de mensagens. A rota global já não é publicada na internet (ver Caddyfile).\n'
   envq WAHA_WEBHOOK_REQUIRE_SIGNATURE "${WAHA_WEBHOOK_REQUIRE_SIGNATURE:-false}"
-  envq WAHA_IMAGE "${WAHA_IMAGE:-devlikeapro/waha}"
+  # PINADA. Sem a tag, `devlikeapro/waha` é `:latest`, e esta linha gravava isso
+  # no .env de todo cliente — por cima do default pinado do compose, que então
+  # nunca chegava a ninguém. O `dc pull` de cada update entregava qualquer versão
+  # que o upstream tivesse publicado, sem ninguém ter testado.
+  # `latest-2026.7.2` é o mesmo digest de `latest` hoje (65e593e30bb7…).
+  envq WAHA_IMAGE "${WAHA_IMAGE:-devlikeapro/waha:latest-2026.7.2}"
   envq WAHA_DEFAULT_ENGINE "${WAHA_DEFAULT_ENGINE:-NOWEB}"
   envq UPSTASH_REDIS_REST_URL "http://srh:80"
   envq UPSTASH_REDIS_REST_TOKEN "$UPSTASH_REDIS_REST_TOKEN"
@@ -1470,7 +1561,21 @@ SQL
 # ── 9. Sobe a stack ─────────────────────────────────────────────────────────
 fase 4 "Colocando o CRM no ar"
 step "Puxando a imagem e subindo os serviços"
-dc pull
+# A guarda existe porque dar `image:` a um serviço que era build-only mudou o
+# comportamento do `pull`: antes ele PULAVA o worker ("Skipped - No image to be
+# pulled"), agora FALHA a operação inteira se a referência não resolver. E há
+# três motivos reais para não resolver logo depois de um release: pacote novo no
+# GHCR nasce PRIVADO até alguém trocar a visibilidade na mão; a tag git existe
+# minutos antes das imagens; e o GHCR pode estar fora do ar.
+#
+# Sem esta guarda, uma instalação NOVA morria no passo 9 — com o banco já
+# provisionado e o .env já escrito. O `up -d` seguinte não precisa do pull: o
+# worker e o scheduler têm `build:` ao lado do `image:`, e o Compose os constrói
+# quando a imagem não existe (medido).
+if ! dc pull; then
+  c_ylw "⚠ Não consegui puxar todas as imagens do registro."
+  c_ylw "  Sigo assim mesmo: o que faltar é construído aqui (mais lento, mesmo resultado)."
+fi
 dc up -d
 c_grn "✓ containers no ar"
 

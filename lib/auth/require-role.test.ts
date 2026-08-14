@@ -15,6 +15,9 @@ import { createClient } from "@/lib/supabase/server";
 import type { AuthUser, Role } from "@/lib/auth/types";
 
 vi.mock("@/lib/auth/server", () => ({
+  // Sessão sem dívida de MFA: esta suíte mede rank de papel; o gate de segundo
+  // fator tem suíte própria em tests/unit/require-role-mfa.test.ts.
+  mfaEmDivida: vi.fn(async () => false),
   loadAuthUser: vi.fn(),
   resolveActiveOrg: vi.fn(),
 }));

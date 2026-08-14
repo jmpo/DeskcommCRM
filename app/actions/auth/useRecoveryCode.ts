@@ -2,6 +2,8 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+
+import { safeNext } from "@/lib/auth/safe-next";
 import { z } from "zod";
 
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -124,7 +126,11 @@ export async function useRecoveryCode(
 
   // 6) Redirect to /login fresh — user logs in normally and re-enrolls MFA.
   const params = new URLSearchParams({ recovery_used: "1" });
-  if (next) params.set("next", next);
+  // Sanitiza aqui também: este `next` volta para /login e de lá alimenta o
+  // redirect de signInWithPassword — carregar destino externo por este caminho
+  // daria na mesma coisa, só com um salto a mais.
+  const destino = safeNext(next, "");
+  if (destino) params.set("next", destino);
   redirect(`/login?${params.toString()}`);
 }
 

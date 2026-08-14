@@ -23,7 +23,7 @@
 ## 1. Clonar e configurar
 
 ```bash
-git clone https://github.com/deskcommcrm/deskcommcrm.git && cd deskcommcrm
+git clone https://github.com/melgarafael/DeskcommCRM.git && cd DeskcommCRM
 cp .env.hostgator.example .env   # o template de produção (o .env.example é o de dev)
 ```
 
@@ -161,8 +161,13 @@ de `supabase/templates/` (mesmo link `token_hash` acima).
   (`FLYWHEEL_INTERVAL_MS`) e grava PROPOSTAS de melhoria de prompt em
   `flywheel_distiller_proposals`. Nada é aplicado sozinho: revise e cole o
   bullet no prompt do agente na tela, publicando uma versão nova.
-- **Atualizar**: `git pull && docker compose -f docker-compose.prod.yml up -d --build`
-  + re-rodar o `baseline.sql` (idempotente).
+- **Atualizar**: `bash hostgator-setup-kit/update.sh` — ele puxa a tag publicada,
+  re-aplica o `baseline.sql` (idempotente), sobe e faz backup antes. Não use
+  `up -d --build`: isso reconstrói na sua máquina em vez de puxar a imagem
+  testada, e **numa VPS com proxy reverso próprio o `up -d` precisa dos dois
+  arquivos de compose** — omitir `-f docker-compose.traefik.yml` recria o
+  contêiner sem as labels de roteamento e o domínio inteiro passa a responder
+  404, com o contêiner `healthy`.
 
 ## Solução de problemas
 

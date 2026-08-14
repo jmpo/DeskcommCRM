@@ -3,6 +3,8 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { safeNext } from "@/lib/auth/safe-next";
+
 import { createClient } from "@/lib/supabase/server";
 import { loginSchema, type LoginInput } from "@/lib/auth/schemas";
 import { audit, hashEmail } from "@/lib/audit";
@@ -105,5 +107,5 @@ export async function signInWithPassword(
   });
 
   // Server-side redirect ensures fresh session cookie is sent to browser.
-  redirect(next || "/app/inbox");
+  redirect(safeNext(next, "/app/inbox"));
 }

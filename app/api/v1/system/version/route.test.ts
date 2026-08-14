@@ -5,7 +5,10 @@ import { loadAuthUser } from "@/lib/auth/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit } from "@/lib/audit";
 
-vi.mock("@/lib/auth/server", () => ({ loadAuthUser: vi.fn() }));
+vi.mock("@/lib/auth/server", () => ({
+  loadAuthUser: vi.fn(),
+  mfaEmDivida: vi.fn(async () => false),
+}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
 

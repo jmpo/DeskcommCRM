@@ -67,12 +67,28 @@ Ao finalizar um epic:
    - Mudança de schema saiu como **tripla**: arquivo em `supabase/migrations/`, apêndice idempotente
      no `supabase/baseline.sql` e linha no `MANIFEST.md`. O kit self-host aplica **só o baseline** —
      migration que não chega lá não chega em quem instalou numa VPS. Nenhum job de CI confere isso
+   - **Se você tocou `Dockerfile*`, `docker-compose*.yml` ou `hostgator-setup-kit/`:** a mudança
+     alcança quem **já** instalou. Lei em [`docs/doctrine/packaging.md`](docs/doctrine/packaging.md).
+     O CI reprova serviço `build:`-only e instalação em tag móvel (imagem quebrada ainda não bloqueia merge);
+     o que fica com você é o resto: variável nova com default que não quebre `.env` antigo, e a
+     atualização não pedindo edição manual de arquivo. **Nenhum bump pode exigir que o operador
+     da VPS edite alguma coisa na mão** — se exigir, abra issue com plano de migração em vez de PR
    - Docs atualizadas se mudou contrato (PRD/spec)
    - `pnpm test:e2e` (subset relevante) — **opcional se você contribui de fora**, ver abaixo
 4. Abrir PR contra `main`. Description deve referenciar o epic e listar evidências (logs/screenshots dos testes).
-5. CI deve passar antes de merge. Obrigatórios: `verify`, `invariants` (isolamento RLS) e `build-and-size`.
-   O job `e2e` roda e é **não-bloqueante de propósito** — ele mesmo imprime, no resumo, quais specs
-   não cobriu. Verde nele não é "jornada provada".
+5. CI deve passar antes de merge. Obrigatórios: `verify`, `invariants` (isolamento RLS),
+   `build-and-size` e `e2e`.
+
+   O job `imagens-ok` (constrói as três imagens que o self-hoster instala) roda em PR e
+   **ainda não bloqueia** — a ativação depende de um passo de administração do repositório.
+
+   Verde no `e2e` **não** é "jornada provada": ele mesmo imprime, no resumo, quais specs não
+   cobriu — e a que fica de fora é justamente `vps-fresh-onboarding`, a instalação do zero.
+
+   > Esta lista dizia "três obrigatórios" e chamava o `e2e` de não-bloqueante. Estava
+   > desatualizada nos dois pontos, e quem a usasse como régua mediria contra a régua errada.
+   > Confira na fonte antes de confiar em qualquer lista escrita:
+   > `gh api repos/melgarafael/DeskcommCRM/branches/main/protection --jq '.required_status_checks.contexts'`
 
 ### Pegando uma issue — o protocolo
 

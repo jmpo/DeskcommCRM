@@ -137,10 +137,30 @@ create table if not exists auth.users (
 
 -- Stub de auth.uid() lendo o claim `sub` de request.jwt.claims (mesmo contrato
 -- do Supabase; os testes simulam o JWT via set_config).
+--
+-- O CORPO ABAIXO É CÓPIA FIEL do `auth.uid()` do Supabase — conferido em
+-- 2026-08-11 com `pg_get_functiondef` no `supabase_db_deskcomm-crm` (imagem
+-- supabase/postgres:17.6.1.106). A cópia importa por causa de UM detalhe que a
+-- versão anterior deste stub errava:
+--
+--     antes:  nullif(current_setting('request.jwt.claims', true)::jsonb ->> 'sub', '')
+--     real:   nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'
+--
+-- O `nullif` do original protege o CAST; o do stub protegia o resultado. Um GUC
+-- customizado que já foi tocado numa transação anterior passa a existir com
+-- string VAZIA em vez de NULL — e aí o stub estourava
+-- `invalid input syntax for type json` onde o Supabase devolve NULL sossegado.
+-- Consequência: qualquer função que chame `auth.uid()` incondicionalmente (o
+-- guard `if auth.uid() is not null and not fn_role_at_least(...)`, que é o
+-- padrão deste schema) quebrava no gate e passava em produção. Instrumento que
+-- diverge do produto não mede o produto.
 create or replace function auth.uid() returns uuid
   language sql stable
   as $fn$
-    select nullif(current_setting('request.jwt.claims', true)::jsonb ->> 'sub', '')::uuid
+    select coalesce(
+      nullif(current_setting('request.jwt.claim.sub', true), ''),
+      (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')
+    )::uuid
   $fn$;
 
 grant usage on schema auth, extensions, storage to anon, authenticated, service_role;

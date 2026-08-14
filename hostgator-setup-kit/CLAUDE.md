@@ -132,7 +132,9 @@ Se mesmo assim aparecerem, aqui está o diagnóstico pronto:
    `install.sh` é idempotente: ignora o 422 e encontra o usuário pelo e-mail. Não trava.
 7. **`/api/v1/health` diz "unhealthy" mas o site funciona** — versões antigas checavam
    rotas erradas (`/ping`, `/api/health`). A imagem atual já checa as rotas certas; se ver
-   isso, garanta que a imagem do app está na tag `latest` mais nova (`bash update.sh`).
+   isso, garanta que o servidor está na versão mais nova (`bash update.sh`). Não troque
+   `APP_IMAGE` para `latest` na mão: aqui `latest` é o topo do desenvolvimento, não a
+   última versão lançada, e o `update.sh` já instala a versão certa.
 8. **Criar agente de IA: seletor de modelo vazio em todo provedor** — `baseline.sql` é um
    dump `--schema-only`, não traz o seed de 8 modelos (`ai_models`, migration 0023). O
    `baseline.sql` atual já inclui esse insert (apêndice idempotente no fim do arquivo);
@@ -143,8 +145,8 @@ Se mesmo assim aparecerem, aqui está o diagnóstico pronto:
    cria a identidade canônica (`contacts.wa_identity`), deduplica contatos/conversas
    existentes e trava a re-duplicação. É **auto-curativo** — quem já tinha o CRM bagunçado
    só precisa rodar `bash update.sh` (re-aplica o baseline, que deduplica e conserta) e
-   reiniciar o app. Se persistir após o update, confirme que o app está na imagem `latest`
-   nova (o código dos webhooks em `lib/waha/ingest.ts` precisa acompanhar o schema).
+   reiniciar o app. Se persistir após o update, confirme pelo `/api/v1/health` que a versão
+   subiu (o código dos webhooks em `lib/waha/ingest.ts` precisa acompanhar o schema).
 
 ## Depois de instalado
 

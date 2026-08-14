@@ -60,6 +60,7 @@ function chain(): Record<string, unknown> {
 }
 
 vi.mock("@/lib/auth/server", () => ({
+  mfaEmDivida: vi.fn(async () => false),
   loadAuthUser: async () => ({ id: "user-1" }),
   resolveActiveOrg: async () => orgAtiva,
 }));

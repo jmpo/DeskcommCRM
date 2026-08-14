@@ -118,6 +118,29 @@ funil** (só de etapas). O primeiro é bug de primeira impressão em mobile.
 
 Estes são achados de código/config verificados nesta auditoria, não relatos.
 
+### 4.0 O agente de IA nunca recebia atualização 🔴 — RESOLVIDO em 2026-08-13
+
+Fica no topo por gravidade e porque é o tipo de defeito que este documento existe para
+tornar visível: durou dois meses, atingia **toda** instalação, e nada na tela, no log ou no
+CI dizia isso.
+
+O serviço `worker` do `docker-compose.prod.yml` — o runtime do agente de IA, e o único
+consumidor de `ai_agent.dispatch_requested` — não tinha `image:`, só `build:`. Serviço
+`build:`-only é pulado por `docker compose pull` ("Skipped — No image to be pulled") e imune
+a `up -d` sem `--build`. Consequência: ele era compilado na VPS do cliente no dia da
+instalação e **nenhum `update.sh` jamais o reconstruiu**. Correções do agente não chegavam a
+lugar nenhum. Enquanto isso, `CLAUDE.md` afirmava que "o caminho normal não constrói nada na
+VPS" — verdade para o app, falso para o produto.
+
+Resolvido publicando `deskcomm-worker` e `deskcomm-scheduler` como imagens, com gate em
+`tests/unit/packaging-artefato-do-cliente.test.ts`. Lei em
+[`doctrine/packaging.md`](doctrine/packaging.md); decisões em
+[`adr/0001-packaging-e-distribuicao.md`](adr/0001-packaging-e-distribuicao.md).
+
+**O que continua aberto:** o gate `imagens-ok` ainda não está na branch protection (não pode
+entrar antes do merge, senão trava os PRs abertos), e não existe ensaio automatizado de
+atualização numa VPS real — o caso U6 de [`testing/user-journey-map.md`](testing/user-journey-map.md).
+
 ### 4.1 Os E2E quase não rodam no CI 🟠 — parcialmente resolvido em 2026-07-30
 
 > **Atualização (2026-08-05, issue #63):** `e2e.yml` roda **28 das 32 specs** contra Supabase

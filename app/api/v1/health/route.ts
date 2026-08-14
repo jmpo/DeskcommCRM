@@ -224,7 +224,16 @@ export async function GET(req: NextRequest) {
     {
       data: {
         status,
-        version: process.env.npm_package_version ?? "0.1.0",
+        // APP_VERSION é injetada no build da imagem (ARG no Dockerfile) e vale
+        // "1.2.3" numa release, ou o SHA curto fora de tag.
+        //
+        // Antes isto era `process.env.npm_package_version ?? "0.1.0"`, e a
+        // variável só existe quando o processo nasce de um `npm`/`pnpm run`. O
+        // CMD da imagem é `node server.js`: TODA instalação do mundo reportava
+        // "0.1.0". Um campo que responde o valor errado com confiança é pior que
+        // um campo ausente — ele desliga a pergunta em vez de deixá-la aberta.
+        // Por isso o fallback agora é "desconhecido", e não um número plausível.
+        version: process.env.APP_VERSION || "desconhecido",
         timestamp: new Date().toISOString(),
         checks,
       },

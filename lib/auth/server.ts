@@ -160,3 +160,38 @@ export async function isMfaEnrolled(): Promise<boolean> {
 export function requiresMfa(role: Role | undefined, isPlatformAdmin: boolean): boolean {
   return isPlatformAdmin || role === "admin";
 }
+
+/**
+ * Nível de garantia da SESSÃO atual: `aal2` = o segundo fator foi provado nesta
+ * sessão; `aal1` = só a senha.
+ *
+ * Isto responde uma pergunta diferente de `isMfaEnrolled()`, e a diferença é o
+ * achado que motivou este helper: "tem fator cadastrado" é política de
+ * CADASTRO; "provou o fator agora" é política de SESSÃO. O produto só tinha a
+ * primeira, então uma sessão `aal1` de um admin com TOTP cadastrado era
+ * plenamente funcional — o cenário exato que a MFA existe para conter (senha
+ * vazada/phishing).
+ */
+export async function sessionAal(): Promise<"aal1" | "aal2" | null> {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  // O tipo do SDK é `"aal1" | "aal2" | (string & {})` — aberto de propósito, para
+  // aceitar níveis futuros. Estreitar aqui mantém a decisão em quem chama.
+  const nivel: string | null | undefined = data?.currentLevel;
+  return nivel === "aal1" || nivel === "aal2" ? nivel : null;
+}
+
+/**
+ * A sessão está em dívida com a MFA? Verdadeiro só quando as TRÊS valem:
+ * o papel exige MFA, o usuário JÁ cadastrou um fator, e a sessão é `aal1`.
+ *
+ * A condição do meio não é detalhe: sem ela, o admin que ainda não cadastrou
+ * ficaria trancado do lado de fora — inclusive das rotas necessárias para
+ * cadastrar. Quem ainda não tem fator continua sendo tratado pelo gate de
+ * cadastro do `app/app/layout.tsx`.
+ */
+export async function mfaEmDivida(role: Role | undefined, isPlatformAdmin: boolean): Promise<boolean> {
+  if (!requiresMfa(role, isPlatformAdmin)) return false;
+  if (!(await isMfaEnrolled())) return false;
+  return (await sessionAal()) !== "aal2";
+}
