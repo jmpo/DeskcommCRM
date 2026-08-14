@@ -38,6 +38,7 @@ export {
   ArrowsClockwise,
   Dot,
   // actions
+  ArrowBendUpLeft,
   Bell,
   PaperPlaneTilt,
   Smiley,

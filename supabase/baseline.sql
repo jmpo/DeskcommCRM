@@ -11647,4 +11647,25 @@ alter table public.webhook_events_log
     'waha', 'nuvemshop', 'generic', 'meta_cloud', 'zernio'
   ));
 
+-- ---- a mensagem que responde outra (migration 0155) ----
+-- O canal intermediado aceita citação (`replyTo` no envio, com o `wamid` da
+-- citada) e o WhatsApp mostra a resposta pendurada na original. Sem guardar
+-- QUEM foi citado, o CRM manda a citação para o cliente e não a mostra de volta
+-- na própria tela: o atendente vê frases soltas onde o cliente vê um fio.
+--
+-- FK e não o wamid solto: a pergunta da tela é "qual mensagem NOSSA foi
+-- citada?", e a resposta é uma linha desta tabela — inclusive quando ela ainda
+-- não tem `external_id` (a nossa, enquanto está `queued`). O id que o provider
+-- recebe sai da linha apontada, no envio.
+--
+-- `set null` no delete: apagar a citada não pode levar junto a resposta, que é
+-- conteúdo próprio. Perder o fio é aceitável; perder a resposta é apagar
+-- histórico por causa de um ponteiro.
+alter table public.messages
+  add column if not exists reply_to_message_id uuid
+    references public.messages(id) on delete set null;
+create index if not exists messages_reply_to_idx
+  on public.messages (reply_to_message_id)
+  where reply_to_message_id is not null;
+
 notify pgrst, 'reload schema';

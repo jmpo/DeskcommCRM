@@ -111,6 +111,7 @@ jobs:
         risk-radar.spec.ts invite-lifecycle.spec.ts system-update.spec.ts
         agente-papeis-operador.spec.ts prova-painel-provedores.spec.ts
         followup-linguagem.spec.ts followup-ramos.spec.ts
+        inbox-responder-citando.spec.ts
       SPECS_PARTE_2: >-
         agente-novo-e-uso.spec.ts agente-organiza-operacao.spec.ts
         central-de-avisos-capacidades.spec.ts escalacao-ciclo.spec.ts

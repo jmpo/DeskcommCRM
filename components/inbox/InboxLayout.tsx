@@ -19,6 +19,7 @@ import { Composer, type ComposerHandle } from "./Composer";
 import { ConversationHeader } from "./ConversationHeader";
 import { RetentionNotice } from "./RetentionNotice";
 import { CRMSidePanel } from "./CRMSidePanel";
+import type { Message as ConversationMensagem } from "@/lib/types/messaging";
 import { InboxKeyboardShortcuts } from "./InboxKeyboardShortcuts";
 import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
 import { ChevronLeft, PanelRight } from "lucide-react";
@@ -97,6 +98,13 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
   const [helpOpen, setHelpOpen] = useState(false);
   /** A ficha do contato como painel deslizante — só existe abaixo do `xl`. */
   const [fichaAberta, setFichaAberta] = useState(false);
+  /**
+   * A mensagem escolhida para responder "em cima".
+   *
+   * Mora aqui, e não no composer, porque quem ESCOLHE é a lista de mensagens e
+   * quem MOSTRA é o composer — são irmãos, e o estado comum é do pai.
+   */
+  const [respondendo, setRespondendo] = useState<ConversationMensagem | null>(null);
   const composerRef = useRef<ComposerHandle | null>(null);
 
   const filters: ConversationsFilters = useMemo(
@@ -143,7 +151,12 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
   // estado local, e o botão de voltar do navegador não desfaz a seleção. É a
   // limitação conhecida deste caminho; trocar por URL mudaria o deep-link de
   // conversa, que hoje entra por `initialSelectedId` vindo da rota.
-  const handleSelect = useCallback((id: string | null) => setSelectedId(id), []);
+  const handleSelect = useCallback((id: string | null) => {
+    setSelectedId(id);
+    // Sem isto, escolher "responder" numa conversa e trocar para outra levaria
+    // a citação junto — e a resposta sairia citando mensagem de outro cliente.
+    setRespondendo(null);
+  }, []);
   const handleVisibleChange = useCallback((ids: string[]) => setVisibleIds(ids), []);
   const handleFocusReply = useCallback(() => composerRef.current?.focus(), []);
   const handleClaim = useCallback(() => {
@@ -310,7 +323,7 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
             </div>
             <ConversationHeader conversation={selectedConversation} />
             <div className="min-h-0 flex-1 overflow-hidden">
-              <ChatThread conversationId={selectedConversation.id} />
+              <ChatThread conversationId={selectedConversation.id} onResponder={setRespondendo} />
             </div>
             <RetentionNotice conversationId={selectedConversation.id} />
             {motivoDaJanela && (
@@ -327,6 +340,8 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
               janelaFechada={motivoDaJanela}
               disabled={selectedConversation.status === "closed"}
               contactName={selectedConversation.contacts?.name ?? null}
+              respondendo={respondendo}
+              onCancelarResposta={() => setRespondendo(null)}
             />
           </>
         ) : selectionNotFound ? (
