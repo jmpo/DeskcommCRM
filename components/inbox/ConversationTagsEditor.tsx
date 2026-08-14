@@ -79,13 +79,13 @@ export function ConversationTagsEditor({ conversationId, orgId, tags }: Props) {
           placeholder="Nova tag…"
           maxLength={40}
           disabled={mutation.isPending || tags.length >= 20}
-          className="h-7 text-xs"
+          className="h-7 [@media(hover:none)]:h-9 text-xs"
           aria-label="Adicionar tag à conversa"
         />
         <Button
           size="sm"
           variant="outline"
-          className="h-7 px-2"
+          className="h-7 [@media(hover:none)]:h-9 px-2"
           onClick={() => add(draft)}
           disabled={mutation.isPending || !draft.trim() || tags.length >= 20}
           aria-label="Adicionar tag"
