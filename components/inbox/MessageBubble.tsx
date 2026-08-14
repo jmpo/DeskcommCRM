@@ -79,7 +79,22 @@ export function MessageBubble({ message, debugCitations, onResponder, citada }: 
           type="button"
           onClick={() => onResponder(message)}
           aria-label="Responder a esta mensagem"
-          className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-hover:opacity-100"
+          className={cn(
+            "rounded p-1 text-muted-foreground transition-opacity hover:bg-muted",
+            // VISÍVEL POR PADRÃO, e escondido só onde EXISTE hover.
+            //
+            // A primeira versão era `opacity-0` + `group-hover`, copiando o
+            // WhatsApp Web. No celular isso deixa o botão invisível para
+            // sempre: não há como passar o mouse, e `focus-visible` só chega
+            // por teclado. Ou seja, a função sumia exatamente onde o dono
+            // deste CRM mais atende.
+            //
+            // `@media (hover: hover)` pergunta pelo DISPOSITIVO, não pela
+            // largura: um tablet largo com toque continua mostrando, e um
+            // desktop estreito continua escondendo. Largura não é a pergunta.
+            "opacity-100 [@media(hover:hover)]:opacity-0",
+            "[@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100",
+          )}
         >
           <ArrowBendUpLeft size={14} />
         </button>
@@ -191,7 +206,22 @@ export function MessageBubble({ message, debugCitations, onResponder, citada }: 
           type="button"
           onClick={() => onResponder(message)}
           aria-label="Responder a esta mensagem"
-          className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-hover:opacity-100"
+          className={cn(
+            "rounded p-1 text-muted-foreground transition-opacity hover:bg-muted",
+            // VISÍVEL POR PADRÃO, e escondido só onde EXISTE hover.
+            //
+            // A primeira versão era `opacity-0` + `group-hover`, copiando o
+            // WhatsApp Web. No celular isso deixa o botão invisível para
+            // sempre: não há como passar o mouse, e `focus-visible` só chega
+            // por teclado. Ou seja, a função sumia exatamente onde o dono
+            // deste CRM mais atende.
+            //
+            // `@media (hover: hover)` pergunta pelo DISPOSITIVO, não pela
+            // largura: um tablet largo com toque continua mostrando, e um
+            // desktop estreito continua escondendo. Largura não é a pergunta.
+            "opacity-100 [@media(hover:hover)]:opacity-0",
+            "[@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100",
+          )}
         >
           <ArrowBendUpLeft size={14} />
         </button>

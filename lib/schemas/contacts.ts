@@ -60,6 +60,15 @@ export const contactListQuerySchema = z.object({
   search: z.string().optional(),
   tag: z.string().optional(),
   source: z.string().optional(),
+  /**
+   * A LISTA DE QUEM PEDIU PARA NÃO SER INCOMODADO.
+   *
+   * Sem isto o bloqueio existia só como etiqueta na linha: para saber quem
+   * pediu era preciso percorrer a lista inteira a olho. Quem precisa dessa
+   * resposta é justamente quem vai montar uma campanha — e errar ali é
+   * escrever para quem disse que não queria.
+   */
+  blocked: z.enum(["yes", "no"]).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
