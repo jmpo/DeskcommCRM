@@ -34,6 +34,15 @@ const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
 const creds = JSON.parse(fs.readFileSync(CREDS_PATH, "utf8")) as E2ECreds;
 const EVIDENCE = path.join(process.cwd(), ".superpowers/evidence");
 
+/**
+ * Login simples — e por isso o usuário é o `agent`, nunca o `admin`.
+ *
+ * `admin` tem MFA obrigatório (doutrina de Auth), então o login dele para em
+ * `/login/mfa` e este `waitForURL` nunca resolve. O repo tem um helper próprio
+ * para esse caso (`helpers/login-admin.ts`), e ele existe justamente porque a
+ * armadilha já pegou gente antes. As demais specs de inbox usam `agent`, que
+ * tem o acesso que estes casos precisam.
+ */
 async function login(page: Page, email: string): Promise<void> {
   await page.goto("/login");
   await page.locator("#email").fill(email);
@@ -42,25 +51,28 @@ async function login(page: Page, email: string): Promise<void> {
   await page.waitForURL(/\/app\//);
 }
 
-/** Abre o inbox e entra na primeira conversa que a lista mostrar. */
-async function abrirPrimeiraConversa(page: Page): Promise<boolean> {
+/**
+ * Abre o inbox e entra numa conversa que TENHA mensagens.
+ *
+ * Devolve `false` quando o ambiente não tem nenhuma — e o caso é pulado em vez
+ * de falhar. Um teste que exige dado semeado por outra spec quebra por ordem de
+ * execução, não por defeito, e ensina a ignorar o vermelho.
+ */
+async function abrirConversaComMensagens(page: Page): Promise<boolean> {
   await page.goto("/app/inbox?filter=all");
-  const itens = page.getByRole("button", { name: /./ });
-  await page.waitForTimeout(1500); // a lista chega por realtime
   const bolhas = page.locator("[class*='rounded-2xl']");
-  if ((await bolhas.count()) === 0) {
-    const primeira = page.locator("li, [role='listitem']").first();
-    if ((await primeira.count()) > 0) await primeira.click();
-    await page.waitForTimeout(1000);
-  }
-  void itens;
-  return (await page.locator("[class*='rounded-2xl']").count()) > 0;
+  const primeira = page.locator("li, [role='listitem']").first();
+  if (await primeira.count()) await primeira.click();
+  await expect(bolhas.first())
+    .toBeVisible({ timeout: 8000 })
+    .catch(() => undefined);
+  return (await bolhas.count()) > 0;
 }
 
 test.describe("responder citando", () => {
   test("o botão de responder revela a faixa, e o × a desfaz", async ({ page }) => {
-    await login(page, creds.users.admin!.email);
-    const temMensagens = await abrirPrimeiraConversa(page);
+    await login(page, creds.users.agent!.email);
+    const temMensagens = await abrirConversaComMensagens(page);
     test.skip(!temMensagens, "ambiente sem conversa com mensagens — nada a citar");
 
     const responder = page.getByRole("button", { name: /Responder a esta mensagem/i }).first();
@@ -87,8 +99,8 @@ test.describe("responder citando", () => {
   test("trocar de conversa LIMPA a citação", async ({ page }) => {
     // Sem isto a resposta sairia citando a mensagem de outro cliente — o pior
     // desfecho possível desta feature, e invisível até acontecer com alguém.
-    await login(page, creds.users.admin!.email);
-    const temMensagens = await abrirPrimeiraConversa(page);
+    await login(page, creds.users.agent!.email);
+    const temMensagens = await abrirConversaComMensagens(page);
     test.skip(!temMensagens, "ambiente sem conversa com mensagens");
 
     await page.locator("[class*='rounded-2xl']").first().hover();
