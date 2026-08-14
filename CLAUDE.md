@@ -86,7 +86,7 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
 - Auth: env do WAHA recebe **hash SHA512 hex** da api key; cliente envia plaintext em `X-Api-Key`
 - Webhooks: HMAC SHA512 com `crypto.timingSafeEqual`
 - Anti-banimento: throttle 1 msg/1.2s + jitter ≤800ms. Campanha 1 msg/5s. Warm-up 7-14d. Spinning de copy. Janela 7h-22h, evitar domingo
-- STOP detection: regex `/STOP|PARAR|SAIR|UNSUBSCRIBE/i` no inbound → `is_blocked=true` automaticamente
+- **Opt-out**: `lerPedidoDeSaida` (`lib/channels/pos-entrada.ts`), chamado pelos DOIS ingests. Três respostas, não duas: `pediu` bloqueia, `talvez` abre aviso na Central e **não** bloqueia, `nao` segue. O vocabulário inclui espanhol (`BAJA`, `CANCELAR`) — medido: a plantilla do dono dizia "Respondé BAJA" e três clientes pediram sem serem atendidos, porque a lista só tinha português e inglês. A fronteira é **Unicode**, nunca `\b` (que é ASCII e fazia "sairá" e "pararão" bloquearem em silêncio). O falso positivo é o erro caro: quem pede e não é atendido reclama de novo; quem é bloqueado sem pedir some.
 - Mídia: subir pro Supabase Storage primeiro, passar URL ao WAHA (não inline base64)
 - Multi-device: assinar `message.any` (não só `message`); tratar `fromMe=true` sem duplicar
 - Grupos: SKIP CRM binding se `chatId.endsWith('@g.us')`. Sender é `p.author`, não `p.from`

@@ -125,6 +125,9 @@ export async function listContactsHandler(
   }
   if (q.tag) query = query.contains("tags", [q.tag]);
   if (q.source) query = query.eq("source", q.source);
+  // `yes` responde "quem pediu para não ser incomodado"; `no` é a lista de quem
+  // ainda dá para contactar — que é a pergunta de quem vai montar campanha.
+  if (q.blocked) query = query.eq("is_blocked", q.blocked === "yes");
 
   if (q.cursor) {
     const c = decodeCursor(q.cursor);
