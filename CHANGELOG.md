@@ -8,6 +8,37 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
 ## [Não lançado]
 
+## [1.4.0] — 2026-08-14
+
+Primeira versão publicada a partir do fork **jmpo**, com o canal oficial (parceiro) em
+produção real. Quem atende pelo número oficial ganha as três coisas que faltavam, e o
+atendimento pelo celular deixa de ser desconfortável.
+
+### O que muda no dia a dia
+
+- **Responder "em cima" de uma mensagem**, como no WhatsApp. Passe o mouse sobre qualquer
+  mensagem (no celular o botão fica sempre visível) e a resposta sai citando a original.
+- **O celular mostra uma coisa por vez.** Antes a lista e a conversa vinham empilhadas e era
+  preciso rolar tudo para chegar ao campo de escrever. Agora a conversa ocupa a tela, com um
+  botão de voltar, e a ficha do contato abre num painel deslizante.
+- **"BAJA" passa a ser reconhecido como pedido de saída.** Se o seu modelo diz "Respondé BAJA
+  para no recibir más", agora o sistema cumpre a promessa — e quem pede sai da lista. Menção
+  ambígua (uma pergunta que só menciona a palavra) NÃO bloqueia: abre aviso para um humano
+  decidir.
+- **A lista de quem pediu para não ser incomodado** ficou consultável, em vez de ser só uma
+  etiqueta perdida no meio dos contatos.
+- **O número oficial agora cria lead, respeita o opt-out e acorda o agente.** Antes a mensagem
+  entrava e parava ali, sem erro e sem aviso.
+- **Os canais oficiais enxergam a própria queda**, e o aviso se fecha sozinho quando voltam.
+- **Um piscar do provedor não conta mais como queda.** Antes uma única leitura ruim derrubava a
+  conexão por cinco minutos e as mensagens escritas nesse intervalo ficavam paradas para
+  sempre. Agora exige confirmação, e a mensagem que ficou esperando vira aviso.
+
+### ⚠️ Requer atenção
+
+Nada. A atualização é automática: respaldo, esquema e reinício acontecem sozinhos, e o
+sistema volta à versão anterior se algo não subir.
+
 ## [1.3.0] — 2026-08-13
 
 Esta versão mexe em como o sistema **chega e se atualiza** no seu servidor. Em uso, três
