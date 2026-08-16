@@ -123,7 +123,7 @@ function MarcarProximoPasso({ demandaId, onPronto }: { demandaId: string; onPron
       <Button
         size="sm"
         variant="outline"
-        className="mt-1.5 h-7 text-xs"
+        className="mt-1.5 h-7 [@media(hover:none)]:h-9 text-xs"
         data-testid="marcar-proximo-passo"
         onClick={() => setAberto(true)}
       >
@@ -151,7 +151,7 @@ function MarcarProximoPasso({ demandaId, onPronto }: { demandaId: string; onPron
       <div className="flex gap-1.5">
         <Button
           size="sm"
-          className="h-7 text-xs"
+          className="h-7 [@media(hover:none)]:h-9 text-xs"
           disabled={salvando || texto.trim().length < 3}
           data-testid="salvar-proximo-passo"
           onClick={() => void salvar()}
@@ -161,7 +161,7 @@ function MarcarProximoPasso({ demandaId, onPronto }: { demandaId: string; onPron
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 text-xs"
+          className="h-7 [@media(hover:none)]:h-9 text-xs"
           onClick={() => setAberto(false)}
         >
           Cancelar
@@ -356,7 +356,7 @@ export function CRMSidePanel({ conversation }: Props) {
             <Button
               size="sm"
               variant="outline"
-              className="h-7 px-2 text-xs"
+              className="h-7 [@media(hover:none)]:h-9 px-2 text-xs"
               disabled={!contactId}
               aria-pressed={tagEditorOpen}
               onClick={() => setTagEditorOpen((v) => !v)}
@@ -366,7 +366,7 @@ export function CRMSidePanel({ conversation }: Props) {
             <Button
               size="sm"
               variant="outline"
-              className="h-7 px-2 text-xs"
+              className="h-7 [@media(hover:none)]:h-9 px-2 text-xs"
               disabled={!contactId || (leadDialogOpen && defaultPipeline.isLoading)}
               onClick={() => setLeadDialogOpen(true)}
             >
@@ -374,7 +374,7 @@ export function CRMSidePanel({ conversation }: Props) {
               {leadDialogOpen && defaultPipeline.isLoading ? "Carregando…" : "Lead"}
             </Button>
             {contactId && (
-              <Button asChild size="sm" variant="ghost" className="h-7 px-2 text-xs">
+              <Button asChild size="sm" variant="ghost" className="h-7 [@media(hover:none)]:h-9 px-2 text-xs">
                 <Link href={`/app/contacts/${contactId}`}>
                   Ver contato
                   <ArrowRight size={12} className="ml-1" weight="regular" aria-hidden />
