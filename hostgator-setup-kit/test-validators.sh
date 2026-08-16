@@ -1042,7 +1042,7 @@ STUB
   tag_app="${img_app##*:}"
   for par in "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
     chave="${par%%:*}"; repo="${par##*:}"
-    if ! grep -qE "^${chave}='?ghcr\.io/melgarafael/${repo}:${tag_app}'?$" "$VPS_PROJ/.env"; then
+    if ! grep -qE "^${chave}='?ghcr\.io/jmpo/${repo}:${tag_app}'?$" "$VPS_PROJ/.env"; then
       printf '  ✗ %s não acompanha a versão do app (%s): %s\n' "$chave" "$tag_app" \
         "$(grep -E "^${chave}=" "$VPS_PROJ/.env" || echo '(ausente)')"
       printf '     app numa versão e worker em outra é a matriz que ninguém testou.\n'; exit 1
@@ -1158,7 +1158,7 @@ STUB
 
   for par in "APP_IMAGE:deskcommcrm" "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
     chave="${par%%:*}"; repo="${par##*:}"
-    if ! grep -qE "^${chave}='?ghcr\.io/melgarafael/${repo}:1\.10\.0'?$" "$VPS_PROJ/.env"; then
+    if ! grep -qE "^${chave}='?ghcr\.io/jmpo/${repo}:1\.10\.0'?$" "$VPS_PROJ/.env"; then
       printf '  ✗ %s não foi pinado na versão resolvida (1.10.0): %s\n' "$chave" \
         "$(grep -E "^${chave}=" "$VPS_PROJ/.env" || echo '(ausente)')"
       printf '     instalação de cliente NUNCA nasce em tag móvel — docs/doctrine/packaging.md, invariante 3.\n'
