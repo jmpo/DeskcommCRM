@@ -156,16 +156,59 @@ export class WahaClient {
   /**
    * Põe a config de uma sessão que já existe no estado que queremos.
    *
+   * ─── LÊ ANTES DE ESCREVER, e isto não é preciosismo ────────────────────────
+   *
+   * A doc do WAHA é literal: o PUT "updates a session with a FULL new
+   * configuration". Mandar `{config: {ignore}}` sozinho não acrescenta o filtro
+   * — SUBSTITUI a config inteira, e leva junto o bloco `webhooks`. O resultado
+   * seria uma sessão de pé, conectada, sem entregar mensagem nenhuma ao CRM:
+   * a pior forma de falhar, porque nada fica vermelho.
+   *
+   * Por isso o GET vem primeiro e o `ignore` é ENXERTADO no que já existe. Se o
+   * GET não responder, não há PUT: sem saber o que há lá, escrever é apostar o
+   * canal inteiro numa economia de bytes.
+   *
+   * ─── E ele REINICIA a sessão ───────────────────────────────────────────────
+   *
+   * "If the session is not in a STOPPED status, it will be stopped and started
+   * with the new configuration." Sem QR novo — as credenciais moram em disco —
+   * mas é uma janela de segundos sem canal. Aceitável aqui porque este caminho
+   * só roda dentro de `startSession`, que já é o momento em que a sessão está
+   * sendo (re)iniciada de propósito.
+   *
    * NÃO lança: é melhoria de custo, não condição de envio. Uma versão do WAHA
-   * que não conheça `PUT /api/sessions/{name}` faria toda reconexão falhar por
-   * causa de uma economia — trocar mensagem por byte é o negócio errado.
+   * que não conheça a rota faria toda reconexão falhar por causa de uma
+   * economia — trocar mensagem por byte é o negócio errado.
    */
   async convergirConfigDaSessao(name: string): Promise<void> {
+    const url = `${this.baseUrl}/api/sessions/${encodeURIComponent(name)}`;
     try {
-      const res = await fetch(`${this.baseUrl}/api/sessions/${encodeURIComponent(name)}`, {
+      const atual = await fetch(url, { headers: { "X-Api-Key": this.apiKey } });
+      if (!atual.ok) {
+        logger.warn("[waha] não li a config da sessão; não vou reescrevê-la", {
+          status: atual.status,
+        });
+        return;
+      }
+      const sessao = (await atual.json().catch(() => null)) as {
+        config?: Record<string, unknown>;
+      } | null;
+      // Sem corpo reconhecível, o mesmo raciocínio: não escrever é o seguro.
+      if (!sessao || typeof sessao.config !== "object" || sessao.config === null) {
+        logger.warn("[waha] a sessão respondeu sem config; não vou reescrevê-la", {});
+        return;
+      }
+
+      const config = { ...sessao.config, ignore: CONVERSAS_IGNORADAS };
+      // Já está como queremos: não reiniciar a sessão à toa. Este caminho roda
+      // em TODA reconexão, e um restart desnecessário por rodada seria pior que
+      // o gasto que ele evita.
+      if (JSON.stringify(sessao.config.ignore) === JSON.stringify(CONVERSAS_IGNORADAS)) return;
+
+      const res = await fetch(url, {
         method: "PUT",
         headers: { "X-Api-Key": this.apiKey, "Content-Type": "application/json" },
-        body: JSON.stringify({ config: { ignore: CONVERSAS_IGNORADAS } }),
+        body: JSON.stringify({ name, config }),
       });
       if (!res.ok) {
         logger.warn("[waha] não consegui convergir a config da sessão", { status: res.status });

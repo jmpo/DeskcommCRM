@@ -65,32 +65,76 @@ describe("a sessão nasce ignorando o que o CRM não atende", () => {
   });
 });
 
-describe("sessão que JÁ existe também é corrigida", () => {
-  it("422 na criação dispara o PUT da config", async () => {
-    // Este é o caso da instalação real: a sessão nasceu antes da mudança. Sem
-    // isto, a economia só valeria para quem instalar do zero.
-    espionar({ "/api/sessions": 422 });
-    await new WahaClient("http://w", "k").startSession("s1").catch(() => undefined);
-    const put = chamadas.find((c) => c.metodo === "PUT");
-    expect(put, "a sessão existente ficou sem o filtro").toBeTruthy();
-    expect((put?.corpo as { config?: { ignore?: unknown } })?.config?.ignore).toEqual(
-      CONVERSAS_IGNORADAS,
-    );
-  });
-
-  it("falha do PUT não impede a sessão de iniciar", async () => {
-    // É economia, não condição de envio. Uma versão do WAHA que não conheça o
-    // PUT faria toda reconexão falhar por causa de um byte poupado.
-    espionar({ "/api/sessions": 422 });
-    const cliente = new WahaClient("http://w", "k");
+describe("sessão que JÁ existe é corrigida — sem levar a config junto", () => {
+  /** Duble que responde ao GET da sessão e registra o que o PUT mandou. */
+  function comSessao(configAtual: unknown) {
+    const vistos: { metodo: string; corpo: unknown }[] = [];
     globalThis.fetch = vi.fn(async (url: unknown, init?: unknown) => {
       const u = String(url);
-      const m = ((init ?? {}) as { method?: string }).method ?? "GET";
-      if (m === "PUT") throw new Error("ECONNRESET");
-      chamadas.push({ url: u, metodo: m, corpo: null });
-      return { ok: m !== "POST", status: m === "POST" ? 422 : 200,
-               json: async () => ({ status: "WORKING" }), text: async () => "" };
+      const i2 = (init ?? {}) as { method?: string; body?: string };
+      const m = i2.method ?? "GET";
+      vistos.push({ metodo: m, corpo: i2.body ? JSON.parse(i2.body) : null });
+      if (m === "POST" && u.endsWith("/api/sessions")) {
+        return { ok: false, status: 422, json: async () => ({}), text: async () => "" };
+      }
+      if (m === "GET") {
+        return { ok: true, status: 200, json: async () => ({ config: configAtual }), text: async () => "" };
+      }
+      return { ok: true, status: 200, json: async () => ({ status: "WORKING" }), text: async () => "" };
     }) as unknown as typeof fetch;
-    await expect(cliente.startSession("s1")).resolves.toBeTruthy();
+    return vistos;
+  }
+
+  const WEBHOOKS = [{ url: "https://crm/webhook", events: ["message.any"] }];
+
+  it("o PUT PRESERVA os webhooks — sem isso o canal fica mudo", async () => {
+    // A doc do WAHA: o PUT "updates a session with a FULL new configuration".
+    // Mandar só `ignore` SUBSTITUI a config e leva o bloco `webhooks` junto —
+    // sessão conectada, de pé, sem entregar uma mensagem. A pior forma de
+    // falhar, porque nada fica vermelho.
+    const vistos = comSessao({ webhooks: WEBHOOKS });
+    await new WahaClient("http://w", "k").startSession("s1");
+    const put = vistos.find((v) => v.metodo === "PUT");
+    const cfg = (put?.corpo as { config?: Record<string, unknown> })?.config;
+    expect(cfg?.webhooks, "o PUT apagou os webhooks da sessão").toEqual(WEBHOOKS);
+    expect(cfg?.ignore).toEqual(CONVERSAS_IGNORADAS);
+  });
+
+  it("não reescreve quando já está como queremos", async () => {
+    // Este caminho roda em TODA reconexão, e o PUT REINICIA a sessão. Um
+    // restart por rodada seria pior que o gasto que ele evita.
+    const vistos = comSessao({ webhooks: WEBHOOKS, ignore: { ...CONVERSAS_IGNORADAS } });
+    await new WahaClient("http://w", "k").startSession("s1");
+    expect(vistos.some((v) => v.metodo === "PUT"), "reiniciou a sessão à toa").toBe(false);
+  });
+
+  it("se não conseguir LER a config, não escreve nada", async () => {
+    // Sem saber o que há lá, escrever é apostar o canal inteiro numa economia
+    // de bytes.
+    const vistos: { metodo: string }[] = [];
+    globalThis.fetch = vi.fn(async (url: unknown, init?: unknown) => {
+      const m = ((init ?? {}) as { method?: string }).method ?? "GET";
+      vistos.push({ metodo: m });
+      if (m === "POST" && String(url).endsWith("/api/sessions")) {
+        return { ok: false, status: 422, json: async () => ({}), text: async () => "" };
+      }
+      if (m === "GET") return { ok: false, status: 500, json: async () => ({}), text: async () => "" };
+      return { ok: true, status: 200, json: async () => ({ status: "WORKING" }), text: async () => "" };
+    }) as unknown as typeof fetch;
+    await new WahaClient("http://w", "k").startSession("s1");
+    expect(vistos.some((v) => v.metodo === "PUT"), "escreveu às cegas").toBe(false);
+  });
+
+  it("falha da convergência não impede a sessão de iniciar", async () => {
+    // É economia, não condição de envio.
+    globalThis.fetch = vi.fn(async (url: unknown, init?: unknown) => {
+      const m = ((init ?? {}) as { method?: string }).method ?? "GET";
+      if (m === "GET") throw new Error("ECONNRESET");
+      if (m === "POST" && String(url).endsWith("/api/sessions")) {
+        return { ok: false, status: 422, json: async () => ({}), text: async () => "" };
+      }
+      return { ok: true, status: 200, json: async () => ({ status: "WORKING" }), text: async () => "" };
+    }) as unknown as typeof fetch;
+    await expect(new WahaClient("http://w", "k").startSession("s1")).resolves.toBeTruthy();
   });
 });
