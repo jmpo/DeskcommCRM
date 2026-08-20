@@ -5173,7 +5173,11 @@ begin
     last_message_at = p_at, last_message_preview = p_preview,
     last_inbound_at  = case when p_direction = 'inbound'  then p_at else last_inbound_at  end,
     last_outbound_at = case when p_direction = 'outbound' then p_at else last_outbound_at end,
-    unread_count_for_assignee = unread_count_for_assignee + case when p_direction = 'inbound' then 1 else 0 end,
+    unread_count_for_assignee = case
+      when p_direction = 'inbound'  then unread_count_for_assignee + 1
+      when p_direction = 'outbound' then 0
+      else unread_count_for_assignee
+    end,
     updated_at = now()
   where id = p_conv;
 end; $$;
@@ -13013,6 +13017,78 @@ grant  execute on function public.fn_gasto_de_ia_do_mes(uuid)
 notify pgrst, 'reload schema';
 
 
+-- ---- outbound zera unread na fila (migration 0161) ----
+create or replace function public.fn_mark_conversation_message(
+  p_conv uuid, p_direction text, p_preview text, p_at timestamptz
+) returns void language plpgsql security definer set search_path = public as $$
+begin
+  update public.conversations set
+    last_message_at = p_at, last_message_preview = p_preview,
+    last_inbound_at  = case when p_direction = 'inbound'  then p_at else last_inbound_at  end,
+    last_outbound_at = case when p_direction = 'outbound' then p_at else last_outbound_at end,
+    unread_count_for_assignee = case
+      when p_direction = 'inbound'  then unread_count_for_assignee + 1
+      when p_direction = 'outbound' then 0
+      else unread_count_for_assignee
+    end,
+    updated_at = now()
+  where id = p_conv;
+end; $$;
+
+comment on function public.fn_mark_conversation_message is
+  'Atualiza agregados da conversa: inbound incrementa unread; outbound zera (respondido).';
+
+-- Corrige contadores stale: inbound desde a última resposta do atendente/IA.
+update public.conversations c
+set unread_count_for_assignee = coalesce((
+  select count(*)::integer
+  from public.messages m
+  where m.conversation_id = c.id
+    and m.direction = 'inbound'
+    and m.sent_at > coalesce(c.last_outbound_at, '-infinity'::timestamptz)
+), 0)
+where unread_count_for_assignee <> coalesce((
+  select count(*)::integer
+  from public.messages m
+  where m.conversation_id = c.id
+    and m.direction = 'inbound'
+    and m.sent_at > coalesce(c.last_outbound_at, '-infinity'::timestamptz)
+), 0);
+
+notify pgrst, 'reload schema';
+
+-- ---- atribuição de anúncio: de qual campanha um contato do WhatsApp veio (migration 0164) ----
+--
+-- ⚠️ ENTRA ANTES DO BLOCO DA VARREDURA anon, pelo mesmo motivo das funções
+-- acima: `tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts` proíbe `create
+-- function` depois dele.
+create or replace function public.fn_estampar_atribuicao_de_anuncio(
+  p_contact uuid,
+  p_platform text,
+  p_metadata jsonb
+) returns void
+  language plpgsql
+  security definer
+  set search_path to 'public'
+as $$
+begin
+  update public.contacts
+  set
+    source = p_platform,
+    source_metadata = source_metadata || p_metadata,
+    updated_at = now()
+  where id = p_contact
+    and source_metadata->>'ad_platform' is null;
+end;
+$$;
+
+comment on function public.fn_estampar_atribuicao_de_anuncio(uuid, text, jsonb) is
+  'Grava de qual anúncio (Meta Ads / Google Ads) um contato veio — só na primeira vez. `source_metadata = source_metadata || p_metadata` faz merge, nunca sobrescreve o que fn_upsert_wa_contact já gravou (waha_lid, waha_chat_id, notify_name). A guarda `source_metadata->>''ad_platform'' is null` é o primeiro-toque: clicar em outro anúncio meses depois, numa conversa já aberta, não reescreve de onde a pessoa veio originalmente — o UPDATE casa zero linhas, silenciosamente. security definer + revoke de anon/authenticated: só o backend (admin client no ingest de canal) chama isto.';
+
+revoke execute on function public.fn_estampar_atribuicao_de_anuncio(uuid, text, jsonb) from public, anon, authenticated;
+grant  execute on function public.fn_estampar_atribuicao_de_anuncio(uuid, text, jsonb) to service_role;
+
+notify pgrst, 'reload schema';
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
 -- ⚠️ ESTE BLOCO É, DE PROPÓSITO, O ÚLTIMO DO ARQUIVO. Apêndice novo entra ANTES
@@ -13134,7 +13210,7 @@ alter table public.webhook_events_log
     'waha', 'nuvemshop', 'generic', 'meta_cloud', 'zernio'
   ));
 
--- ---- a mensagem que responde outra (migration 0161) ----
+-- ---- a mensagem que responde outra (migration 0165) ----
 -- O canal intermediado aceita citação (`replyTo` no envio, com o `wamid` da
 -- citada) e o WhatsApp mostra a resposta pendurada na original. Sem guardar
 -- QUEM foi citado, o CRM manda a citação para o cliente e não a mostra de volta
@@ -13510,7 +13586,7 @@ notify pgrst, 'reload schema';
 -- pode ser re-aplicado à vontade pelo `update.sh`.
 revoke insert, update, delete on table public.ai_budgets from authenticated, anon;
 
--- ---- o arquivo do webhook pode perder o corpo (migration 0162) ----
+-- ---- o arquivo do webhook pode perder o corpo (migration 0163) ----
 --
 -- `webhook_events_log` guarda o payload cru de todo webhook e NUNCA era podado.
 -- Medido numa instalação real em 20/08/2026: o banco inteiro em 545 MB, dos
@@ -13548,3 +13624,4 @@ create index if not exists webhook_events_log_a_esvaziar_idx
   where archived_at is null;
 
 notify pgrst, 'reload schema';
+

@@ -157,7 +157,58 @@ export async function listContactsHandler(
         })
       : null;
 
-  return { contacts: page, cursor: nextCursor, has_more: hasMore };
+  const { contacts, error: convErr } = await withConversas(supabase, ctx.organization_id, page);
+  if (convErr) {
+    throw new ApiError(500, "internal_error", undefined, ctx.requestId, convErr);
+  }
+
+  return { contacts, cursor: nextCursor, has_more: hasMore };
+}
+
+/**
+ * Anexa a conversa mais recente de cada contato — o atalho da lista para o inbox.
+ * Mesma regra do quadro Kanban (`pipelines/[id]/board/route.ts:withConversas`).
+ */
+async function withConversas(
+  supabase: SB,
+  organizationId: string,
+  contacts: Contact[],
+): Promise<{ contacts: Contact[]; error: string | null }> {
+  const contactIds = contacts.map((c) => c.id);
+  if (contactIds.length === 0) return { contacts, error: null };
+
+  const { data, error } = await supabase
+    .from("conversations")
+    .select("id, contact_id, last_message_preview, last_message_at, unread_count_for_assignee")
+    .eq("organization_id", organizationId)
+    .in("contact_id", contactIds)
+    .order("last_message_at", { ascending: false, nullsFirst: false });
+  if (error) return { contacts, error: error.message };
+
+  const porContato = new Map<string, NonNullable<Contact["conversa"]>>();
+  for (const row of (data ?? []) as Array<{
+    id: string;
+    contact_id: string;
+    last_message_preview: string | null;
+    last_message_at: string | null;
+    unread_count_for_assignee: number | null;
+  }>) {
+    if (porContato.has(row.contact_id)) continue;
+    porContato.set(row.contact_id, {
+      id: row.id,
+      preview: row.last_message_preview,
+      last_message_at: row.last_message_at,
+      unread: row.unread_count_for_assignee ?? 0,
+    });
+  }
+
+  return {
+    contacts: contacts.map((contact) => {
+      const conversa = porContato.get(contact.id);
+      return conversa ? { ...contact, conversa } : contact;
+    }),
+    error: null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -237,8 +288,16 @@ export async function getContactHandler(
     }
   }
 
+  const { contacts: enriched, error: convErr } = await withConversas(supabase, ctx.organization_id, [
+    contact,
+  ]);
+  if (convErr) {
+    throw new ApiError(500, "internal_error", undefined, ctx.requestId, convErr);
+  }
+  const contactWithConversa = enriched[0] ?? contact;
+
   return {
-    ...contact,
+    ...contactWithConversa,
     cpf_available: !!contact.cpf_hash,
     cpf_decrypted: cpfDecrypted,
     cpf_decrypt_denied: cpfDecryptDenied || undefined,

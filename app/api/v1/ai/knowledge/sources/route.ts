@@ -38,6 +38,27 @@ const sourceTypeEnum = z.enum([
   "nuvemshop_catalog",
 ]);
 
+type SourceType = z.infer<typeof sourceTypeEnum>;
+
+/**
+ * Tipos cujo conteúdo colado (`items` / `markdown_blob`) esta rota realmente
+ * ingere. Os outros valores existem no CHECK do banco, mas são preenchidos por
+ * pipeline: `conversations` nasce da ingestão anonimizada
+ * (`lib/ai/rag/ingest/conversations.ts`, via cron `kb-conversations-batch`) e
+ * `catalog` vem da sincronização do e-commerce.
+ */
+const TIPOS_QUE_INGEREM_TEXTO: ReadonlySet<SourceType> = new Set<SourceType>(["faq", "policy"]);
+
+/** Nome do tipo em português, para mensagem de erro que alguém lê na tela. */
+const ROTULO_DO_TIPO: Record<SourceType, string> = {
+  faq: "FAQ",
+  policy: "política",
+  conversation: "conversas",
+  conversations: "conversas",
+  catalog: "catálogo",
+  nuvemshop_catalog: "catálogo",
+};
+
 const createSourceSchema = z.object({
   agent_id: z.string().uuid(),
   source_type: sourceTypeEnum,
@@ -112,6 +133,21 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const input = parsed.data;
 
+  // Conteúdo mandado para um tipo que esta rota não ingere era ACEITO e
+  // descartado em silêncio: a fonte nascia vazia, com 201, e ninguém entendia
+  // por que o agente não sabia nada dali. Recusar alto é a única resposta
+  // honesta — o mesmo defeito que o bloco de `policy` abaixo já pagou uma vez.
+  const temConteudo =
+    (input.items?.length ?? 0) > 0 || (input.markdown_blob?.trim().length ?? 0) > 0;
+  if (temConteudo && !TIPOS_QUE_INGEREM_TEXTO.has(input.source_type)) {
+    return fail(
+      "unprocessable_entity",
+      `Fonte de ${ROTULO_DO_TIPO[input.source_type]} não recebe conteúdo colado — ela é preenchida automaticamente.`,
+      422,
+      { requestId },
+    );
+  }
+
   // Validate agent_id belongs to org (using user-scoped client — RLS enforces tenant).
   const supabase = await createClient();
   const { data: agent, error: agentErr } = await supabase
@@ -176,6 +212,19 @@ export async function POST(req: NextRequest): Promise<Response> {
     .single();
 
   if (ksErr || !ks) {
+    // `ai_knowledge_sources_unique_per_agent` (agent_id, source_type) WHERE
+    // is_active: UMA fonte ativa de cada tipo por agente. Sem esta tradução o
+    // 23505 saía como 500 "Erro ao criar fonte de conhecimento." — quem tentou
+    // cadastrar a segunda não tinha como descobrir que o motivo era a primeira.
+    if (ksErr?.code === "23505") {
+      return fail(
+        "knowledge_source_type_in_use",
+        `Já existe uma fonte de ${ROTULO_DO_TIPO[input.source_type]} ativa para este agente. ` +
+          `Edite ou arquive a existente em vez de criar outra.`,
+        409,
+        { requestId },
+      );
+    }
     console.error("[ai-knowledge-sources] insert knowledge source failed:", ksErr?.message);
     return fail("internal_error", "Erro ao criar fonte de conhecimento.", 500, { requestId });
   }

@@ -48,6 +48,19 @@ import { ehIdentificadorTecnico, rotuloDoContato, SEM_NOME } from "@/lib/contact
 import { emitLeadActivity } from "./activity-emitter";
 
 /**
+ * O rótulo que aparece no card do funil quando o lead nasceu de um clique em
+ * anúncio — pedido explícito do produto: "Meta_ads"/"Google_ads" visível,
+ * não escondido atrás de hover. `crm_leads.tags` já é o mecanismo que o
+ * Kanban usa para isso (`canonicalTag` em `lib/kanban/card-state.ts`, ponto
+ * ao lado do título quando a tag está em `crm_pipelines.settings.canonical_tags`) —
+ * reaproveitado aqui, não reinventado.
+ */
+const ROTULO_DE_ANUNCIO: Record<string, string> = {
+  meta_ads: "Meta_ads",
+  google_ads: "Google_ads",
+};
+
+/**
  * Por que um lead NÃO nasceu. Cada motivo é registrado — silêncio não distingue
  * "não devia nascer" de "falhou ao nascer", e a segunda é a que custa caro.
  */
@@ -132,7 +145,7 @@ export async function garantirLeadDaConversa(
   // lugar onde ninguém olharia.
   const { data: contato } = await db
     .from("contacts")
-    .select("is_blocked,display_name,name,phone_number")
+    .select("is_blocked,display_name,name,phone_number,source,source_metadata")
     .eq("organization_id", organizationId)
     .eq("id", contactId)
     .maybeSingle();
@@ -182,6 +195,15 @@ export async function garantirLeadDaConversa(
         : // "Sem nome" serve para uma linha de lista; um card de kanban precisa
           // dizer de onde veio, senão o quadro vira uma coluna de anônimos iguais.
           "Novo contato pelo WhatsApp";
+
+  // De onde veio: o contato já carrega a atribuição de anúncio (gravada no
+  // primeiro toque, por `fn_estampar_atribuicao_de_anuncio` — ver
+  // `lib/leads/atribuicao-de-anuncio.ts`). O lead COPIA em vez de referenciar
+  // (DIRC-D): a origem que importa é a de QUANDO O NEGÓCIO NASCEU, e o
+  // contato pode ganhar conversas/leads futuros por outros canais sem que
+  // isso reescreva a origem deste.
+  const rotuloDeAnuncio = contato?.source ? ROTULO_DE_ANUNCIO[contato.source] : undefined;
+
   const { data: lead, error } = await db
     .from("crm_leads")
     .insert({
@@ -190,7 +212,12 @@ export async function garantirLeadDaConversa(
       stage_id: destino.stageId,
       contact_id: contactId,
       title: titulo,
-      source: "whatsapp",
+      source: rotuloDeAnuncio ? contato!.source : "whatsapp",
+      source_metadata: rotuloDeAnuncio ? (contato!.source_metadata ?? {}) : {},
+      // O ponto ao lado do título só acende se a organização cadastrar este
+      // rótulo em `crm_pipelines.settings.canonical_tags` (Configurações do
+      // funil) — a tag sempre entra; o destaque visual é opt-in do operador.
+      tags: rotuloDeAnuncio ? [rotuloDeAnuncio] : [],
     })
     .select("id")
     .single();

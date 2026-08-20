@@ -55,16 +55,17 @@ export interface UseRealtimeChannelOpts {
  * erro?" — é **o resultado memoizado é o resultado DESEJADO?**. Sucesso parcial
  * memoizado é pior que erro memoizado, porque erro alguém repete.
  */
-const AUTH_TIMEOUT_MS = 1_500;
+const AUTH_TIMEOUT_MS = 4_000;
 
-let realtimeAuth: Promise<void> | null = null;
+let realtimeAuth: Promise<boolean> | null = null;
 
 /** Só para teste: zera a memo entre casos (ela é módulo-global de propósito). */
 export function __resetRealtimeAuth(): void {
   realtimeAuth = null;
 }
 
-export function authenticateRealtime(supabase: ReturnType<typeof createClient>): Promise<void> {
+/** `true` = `setAuth` foi aplicado ao socket. `false` = degradou pra anônimo. */
+export function authenticateRealtime(supabase: ReturnType<typeof createClient>): Promise<boolean> {
   realtimeAuth ??= (async () => {
     // `autenticou` é o ÚNICO critério de guardar a memo. Não "não deu exceção",
     // não "a resposta chegou": chamou `setAuth` ou não chamou.
@@ -101,20 +102,26 @@ export function authenticateRealtime(supabase: ReturnType<typeof createClient>):
       // pelo resto do carregamento.
       realtimeAuth = null;
     }
+    return autenticou;
   })();
   return realtimeAuth;
 }
 
 /**
- * Espera o token, mas com teto: assinar 1,5s depois é aceitável; NÃO assinar
+ * Espera o token, mas com teto (`AUTH_TIMEOUT_MS`): assinar depois dele é
+ * aceitável; NÃO assinar
  * porque a rota está lenta (ou não existe, como no jsdom dos testes) deixaria a
  * tela sem realtime para sempre. Prazo estourado = canal anônimo, que é o
  * comportamento de antes desta correção, não uma regressão nova.
+ *
+ * Devolve se a autenticação real venceu a corrida (`noPrazo`) — é o que
+ * `montar()` usa pra saber se precisa agendar a retomada de `getUser()`
+ * atrasado (ver comentário lá).
  */
-function esperarAuth(supabase: ReturnType<typeof createClient>): Promise<void> {
+function esperarAuth(supabase: ReturnType<typeof createClient>): Promise<boolean> {
   return Promise.race([
-    authenticateRealtime(supabase),
-    new Promise<void>((resolve) => setTimeout(resolve, AUTH_TIMEOUT_MS)),
+    authenticateRealtime(supabase).then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), AUTH_TIMEOUT_MS)),
   ]);
 }
 
@@ -225,7 +232,7 @@ export function useRealtimeChannel(opts: UseRealtimeChannelOpts): {
       // O token tem de chegar ANTES do subscribe: assinar primeiro e autenticar
       // depois deixa o canal anônimo para sempre — ele responde "Subscribed to
       // PostgreSQL" e nunca entrega evento, porque a RLS filtra do outro lado.
-      void esperarAuth(supabase).then(() => {
+      void esperarAuth(supabase).then((noPrazo) => {
         if (cancelado || active !== novo) return;
         novo.subscribe((s) => {
           if (cancelado || active !== novo) return;
@@ -269,6 +276,40 @@ export function useRealtimeChannel(opts: UseRealtimeChannelOpts): {
             }, espera);
           }
         });
+
+        if (!noPrazo) {
+          // O teto (`AUTH_TIMEOUT_MS`) venceu a corrida: este canal acabou de assinar com
+          // o que o socket tinha até agora — pode ter sido anônimo. Se o token
+          // REALMENTE chegar depois (a mesma promessa memoizada que perdeu a
+          // corrida, resolvendo mais tarde), este canal já subiu com a
+          // topologia errada, e SUBSCRIBED não é erro — nada da recuperação
+          // acima o reconstruiria sozinho. Ficaria anônimo pelo resto da vida
+          // do efeito: o mesmo sintoma do cabeçalho deste arquivo, por uma
+          // porta diferente (atraso, não falha).
+          //
+          // Só reconstrói em SUCESSO (`autenticou`) — falha genuína não deve
+          // virar loop de reconexão; o canal fica anônimo, degradação já
+          // aceita, e a próxima TENTATIVA (outro efeito, outra montagem) é
+          // quem tem a próxima chance.
+          void authenticateRealtime(supabase).then((autenticou) => {
+            if (!autenticou || cancelado || active !== novo) return;
+            // Mesmo sinal que a recuperação de erro usa pra saber que voltou
+            // de uma lacuna: incrementa ANTES de montar de novo, pra que o
+            // SUBSCRIBED do canal novo dispare a entrega sintética acima e
+            // feche o buraco do que chegou enquanto este estava anônimo.
+            // A retomada do recuo exponencial pode estar armada (o canal pode
+            // ter errado antes de o token chegar). Sem cancelar, ela dispara
+            // depois desta remontagem e monta um segundo canal por cima —
+            // exatamente o que o caminho de erro acima já evita.
+            if (retomada) {
+              clearTimeout(retomada);
+              retomada = null;
+            }
+            tentativas++;
+            if (active) supabase.removeChannel(active);
+            montar();
+          });
+        }
       });
     };
 

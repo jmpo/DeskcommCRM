@@ -10,7 +10,14 @@ import { cn } from "@/lib/utils";
  * é dono do servidor E tem versão nova — quem não pode atualizar não é
  * alertado sobre algo que não pode resolver.
  */
-export function VersionFooter({ collapsed }: { collapsed: boolean }) {
+export function VersionFooter({
+  collapsed,
+  onNavigate,
+}: {
+  collapsed: boolean;
+  /** Fecha a gaveta do mobile — é o único Link do drawer que não a recebia. */
+  onNavigate?: () => void;
+}) {
   const { data } = useSystemVersion();
   if (!data?.current_version) return null;
 
@@ -36,6 +43,7 @@ export function VersionFooter({ collapsed }: { collapsed: boolean }) {
   return (
     <Link
       href="/app/settings/atualizacao"
+      onClick={onNavigate}
       title={`Nova versão ${novo} disponível`}
       className={cn(
         "flex items-center gap-2 rounded-md px-3 py-2 text-xs text-foreground hover:bg-accent/50",

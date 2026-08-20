@@ -34,6 +34,33 @@ const required = (name: string) =>
 
 const requiredAlways = (name: string) => z.string().min(1, `${name} é obrigatória`);
 
+/**
+ * Knob de retenção em dias: NUNCA derruba o app.
+ *
+ * `z.coerce.number().int().positive()` lança para `=0`, que é justamente o que
+ * o operador da VPS escreve quando quer desligar a poda — e `lib/env.ts` roda
+ * no import do Next, então o throw vira 500 em TODAS as telas, com o contêiner
+ * `healthy` e nada dizendo o porquê. Falha fechada na AÇÃO (o valor inválido
+ * não vale) e aberta na INFORMAÇÃO (o app sobe e diz alto o que ignorou).
+ *
+ * Desligar a poda não é isto: se tiver de existir, é decisão de produto e vem
+ * com nome próprio, não com um zero que o schema recusa.
+ */
+const diasDeRetencao = (nome: string, padrao: number) =>
+  z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(padrao)
+    .catch(({ error }) => {
+      console.warn(
+        `[env] ${nome} inválida (${JSON.stringify(process.env[nome])}) — usando o padrão ${padrao} dias. ` +
+          `Só número inteiro maior que zero vale aqui; "0" não desliga a poda. ` +
+          `(${error.issues[0]?.message ?? "valor recusado"})`,
+      );
+      return padrao;
+    });
+
 const schema = z.object({
   // Node
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -57,14 +84,14 @@ const schema = z.object({
    * estável fica em ~160 MB de corpo mais ~11 MB de índice forense; com 14 já
    * não cabe. Quem tem plano pago sobe o número e fica com mais corpo à mão.
    */
-  WEBHOOK_LOG_BODY_RETENTION_DAYS: z.coerce.number().int().positive().default(7),
+  WEBHOOK_LOG_BODY_RETENTION_DAYS: diasDeRetencao("WEBHOOK_LOG_BODY_RETENTION_DAYS", 7),
   /**
    * Quando a LINHA some, e não só o corpo. Horizonte longo de propósito: até
    * aqui a linha custa ~200 B e ainda responde "quantos eventos de que tipo
    * chegaram, quando, e a assinatura conferia?", que é a pergunta de depois do
    * incidente.
    */
-  WEBHOOK_LOG_ROW_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
+  WEBHOOK_LOG_ROW_RETENTION_DAYS: diasDeRetencao("WEBHOOK_LOG_ROW_RETENTION_DAYS", 90),
 
   // Encryption keys (pgcrypto)
   CPF_ENCRYPTION_KEY: required("CPF_ENCRYPTION_KEY"),
@@ -81,6 +108,17 @@ const schema = z.object({
   // Postgres direto do Supabase (Settings → Database) — só as rotas de skills
   // instaláveis (import/install) usam `pg` cru (mesmo pool do agent-engine).
   SUPABASE_DB_URL: required("SUPABASE_DB_URL"),
+  /**
+   * A conexão de DDL do KIT (install.sh/update.sh/backup.sh), não do app —
+   * declarada aqui só porque o `docker-compose.prod.yml` entrega o `.env`
+   * inteiro ao app e ao worker (`env_file`), e uma chave que chega ao processo
+   * merece estar no contrato em vez de ser um desconhecido tolerado.
+   *
+   * NENHUM código de app pode lê-la: ela é o DONO do banco quando a instalação
+   * é num Supabase próprio, e `SUPABASE_DB_URL` é a role menor de propósito
+   * (issue #192). Vigiado por `tests/unit/env-ddl-fora-do-app.test.ts`.
+   */
+  SUPABASE_DB_ADMIN_URL: z.string().optional().default(""),
 
   // WAHA
   WAHA_API_BASE_URL: required("WAHA_API_BASE_URL"),
@@ -110,6 +148,13 @@ const schema = z.object({
   // por lá. Ver resolveLanguageModel() em lib/ai/gateway.ts.
   OPENROUTER_API_KEY: z.string().optional().default(""),
   OPENROUTER_BASE_URL: z.string().optional().default(""),
+  // Atribuição OPCIONAL da OpenRouter (`HTTP-Referer` / `X-Title`): identifica a
+  // instalação no painel e no ranking público DELES. A doc da OpenRouter chama
+  // os dois de opcionais e a chamada funciona sem — por isso default vazio e
+  // nenhum header enviado quando não preenchidos. Quem lê é
+  // `cabecalhosDeAtribuicaoOpenRouter()`, em edge/llm/providers.ts.
+  OPENROUTER_APP_URL: z.string().optional().default(""),
+  OPENROUTER_APP_TITLE: z.string().optional().default(""),
   VERCEL_AI_GATEWAY_URL: z.string().optional().default(""),
   ANTHROPIC_API_KEY: z.string().optional().default(""),
   OPENAI_API_KEY: z.string().optional().default(""),

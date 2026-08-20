@@ -44,6 +44,32 @@ const GOOGLE_ENDPOINT = 'https://generativelanguage.googleapis.com';
 export const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1';
 
 /**
+ * Cabeçalhos OPCIONAIS de atribuição da OpenRouter.
+ *
+ * A doc deles chama `HTTP-Referer` e `X-Title` de "optional headers to identify
+ * your app and make it discoverable to users on our site" — servem para
+ * atribuição e para o ranking público do site deles, NÃO para a chamada
+ * funcionar. Chamada sem eles é atendida normalmente.
+ *
+ * Por isso eles saem da INSTALAÇÃO e nunca do código: uma URL literal aqui
+ * viajaria dentro da imagem que todo self-hoster roda, creditando o consumo de
+ * OpenRouter de cada cliente a um site que não é dele. E um título literal com
+ * o nome do produto é a marca vazando por fora do resolvedor — a catraca de
+ * `tests/unit/branding.test.ts` reprova, e está certa.
+ *
+ * Sem valor, nenhum header vai: falha aberta na informação, porque a ausência
+ * de atribuição não quebra ninguém.
+ */
+export function cabecalhosDeAtribuicaoOpenRouter(): Record<string, string> | undefined {
+  const url = process.env.OPENROUTER_APP_URL?.trim();
+  const titulo = process.env.OPENROUTER_APP_TITLE?.trim();
+  const headers: Record<string, string> = {};
+  if (url) headers['HTTP-Referer'] = url;
+  if (titulo) headers['X-Title'] = titulo;
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+/**
  * Providers reais do lançamento. Sonnet (Anthropic) é o default RECOMENDADO —
  * recomendação vive em .env.example/docs; o id do modelo é sempre config da org.
  *
@@ -79,7 +105,12 @@ export function createDefaultRegistry(opts?: { allowedHosts?: string[] }): Provi
      */
     openrouter: (apiKey, modelId, baseUrl) => {
       const endpoint = baseUrl ?? OPENROUTER_ENDPOINT;
-      return createOpenAI({ apiKey, baseURL: endpoint, fetch: contain(endpoint) })(modelId);
+      return createOpenAI({
+        apiKey,
+        baseURL: endpoint,
+        headers: cabecalhosDeAtribuicaoOpenRouter(),
+        fetch: contain(endpoint),
+      })(modelId);
     },
   };
 }

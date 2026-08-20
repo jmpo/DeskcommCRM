@@ -76,6 +76,13 @@ export interface ZernioInboundMessage {
   attachments: { type: string; url: string }[];
   sentAt: string | null;
   identity: ZernioIdentity;
+  /**
+   * O objeto `referral` do evento, cru — presente quando a conversa começou
+   * por um clique em anúncio "Clique para o WhatsApp" da Meta. Repassado sem
+   * interpretar (mesma regra deste módulo: PURO, decide só *o que o payload
+   * diz*) — quem interpreta é `lib/leads/atribuicao-de-anuncio.ts`.
+   */
+  referral: unknown;
 }
 
 export interface ZernioIdentity {
@@ -230,6 +237,10 @@ export function parseZernioInbound(payload: unknown): ZernioInboundMessage | nul
     identity: saida
       ? resolveZernioIdentity(participanteDaConversa(obj(p.conversation)))
       : resolveZernioIdentity(obj(m.sender)),
+    // Posição exata NÃO VERIFICADA contra o provider real (nunca chegou um
+    // clique de anúncio nesta instalação) — tenta na mensagem primeiro (forma
+    // documentada da Cloud API), cai para o nível do evento como fallback.
+    referral: m.referral ?? p.referral ?? null,
   };
 }
 

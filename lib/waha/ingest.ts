@@ -14,6 +14,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { audit } from "@/lib/audit";
 import { sincronizarSaudeDaConexao } from "@/lib/channels/health";
 import { aplicarEfeitosPosEntrada } from "@/lib/channels/pos-entrada";
+import { estamparAtribuicaoDoContato } from "@/lib/leads/atribuicao-de-anuncio";
+import { extrairAtribuicaoWaha } from "@/lib/waha/atribuicao-de-anuncio";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { ackToStatus } from "@/lib/types/messaging";
 import { bareWaMessageId, chatIdFromWaMessageId } from "@/lib/waha/message-id";
@@ -500,6 +502,17 @@ async function handleInbound(
     telefoneAlternativoDe(p),
   );
   if (!contactId) return;
+
+  // Best-effort: o dado do anúncio (se houver) vai embutido na PRÓPRIA
+  // mensagem que o app do cliente manda ao clicar num anúncio "Clique para o
+  // WhatsApp" — não é exclusivo da API oficial. NUNCA verificado contra um
+  // clique real nesta instalação (ver cabeçalho de `atribuicao-de-anuncio.ts`);
+  // por isso é silencioso quando não reconhece a forma, nunca derruba o
+  // inbound. `estamparAtribuicaoDoContato` só grava na primeira vez — se o
+  // contato já tem atribuição, o UPDATE casa zero linhas.
+  const atribuicao = extrairAtribuicaoWaha(p._data?.message);
+  if (atribuicao) await estamparAtribuicaoDoContato(admin, contactId, atribuicao);
+
   const conversationId = await upsertConversation(admin, session.organization_id, contactId, session.id);
   if (!conversationId) return;
 

@@ -50,6 +50,18 @@ describe("Composer + modo nota interna", () => {
     expect(createNoteMock).not.toHaveBeenCalled();
   });
 
+  it("limpa o input na hora do envio, sem esperar onSuccess da API", () => {
+    sendMock.mockImplementation(() => {
+      /* simula request lento — onSuccess não é chamado */
+    });
+    renderComposer();
+    const input = screen.getByLabelText(/mensagem/i);
+    fireEvent.change(input, { target: { value: "oi cliente" } });
+    fireEvent.click(screen.getByRole("button", { name: /^enviar$/i }));
+
+    expect(input).toHaveValue("");
+  });
+
   it("alterna pra modo nota interna: some anexo/rascunho/áudio, muda placeholder", () => {
     renderComposer();
     expect(screen.getByRole("button", { name: /anexar/i })).toBeInTheDocument();

@@ -24,6 +24,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { logger } from "@/lib/logger";
 
+import { extrairAtribuicaoMeta } from "@/lib/channels/atribuicao-de-anuncio-oficial";
+import { estamparAtribuicaoDoContato } from "@/lib/leads/atribuicao-de-anuncio";
+
 import { aplicarEfeitosPosEntrada } from "../pos-entrada";
 
 import { parseZernioInbound, type ZernioIdentity, type ZernioInboundMessage } from "./webhook";
@@ -196,6 +199,13 @@ async function efeitosDaEntrada(
   messageId: string,
 ): Promise<void> {
   if (msg.direction !== "inbound") return;
+
+  // O `referral` do webhook oficial é o caminho CONFIÁVEL de atribuição —
+  // documentado pela plataforma, ao contrário do best-effort do WAHA. Mesma
+  // regra de primeiro-toque: `estamparAtribuicaoDoContato` só grava se o
+  // contato ainda não tem `ad_platform`.
+  const atribuicao = extrairAtribuicaoMeta(msg.referral);
+  if (atribuicao) await estamparAtribuicaoDoContato(admin, contactId, atribuicao);
 
   await aplicarEfeitosPosEntrada(admin, {
     organizationId: input.organizationId,

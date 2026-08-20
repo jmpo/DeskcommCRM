@@ -591,24 +591,24 @@ exposes:
 
 #### Contexto
 
-Admin upload PDF/MD via UI (multipart), arquivo vai pra Storage `ai-policy/{org}/{uuid}.pdf` (privado). `pdf-parse` extrai texto, fallback `pdfjs-dist` se layout complexo. Chunker 400 tokens overlap 50, semantic-aware por heading markdown (`#`, `##`). Emite `knowledge_source.updated`. Versão registrada em `source_metadata.version` + `uploaded_by`.
+Admin upload PDF/MD via UI (multipart), arquivo vai pra Storage `ai-policy/{org}/{uuid}.pdf` (privado). `pdfjs-dist` extrai texto — engine única desde a issue #238, sem fallback: se ela falhar, a extração falha. Chunker 400 tokens overlap 50, semantic-aware por heading markdown (`#`, `##`). Emite `knowledge_source.updated`. Versão registrada em `source_metadata.version` + `uploaded_by`.
 
 #### Files to create
 
 - `app/api/v1/ai/knowledge/sources/upload/route.ts` — multipart handler
 - `lib/ai/rag/ingest/policy.ts` — extract + chunk
-- `lib/ai/rag/extractors/pdf.ts` — `pdf-parse` + fallback `pdfjs-dist`
+- `lib/ai/rag/extractors/pdf.ts` — `pdfjs-dist` (engine única desde a issue #238)
 - `lib/ai/rag/extractors/markdown.ts` — leitura raw
 
 #### Files to modify
 
-- `package.json` — `pdf-parse`, `pdfjs-dist`, `unified`, `remark-parse`
+- `package.json` — `pdfjs-dist` (o `pdf-parse` foi REMOVIDO na issue #238; o `unified`/`remark-parse` desta lista nunca chegou a ser instalado — o extractor de markdown lê raw). Para saber o que está instalado hoje: `grep pdf package.json`
 
 #### Implementation steps (sequential)
 
 1. Endpoint multipart valida `Content-Type` (pdf/md), max 20MB
 2. Upload pra `ai-policy/{org_id}/{uuid}.{ext}` privado
-3. Extract: `pdf-parse(buffer)` → fallback `pdfjs-dist` se erro
+3. Extract: `extractPdfText(buffer)` — uma tentativa, pdfjs-dist; se falhar, lança `PdfExtractError` (→ 422). Não há segunda engine (issue #238)
 4. Chunker 400/50 com `splitOnHeadings=true`
 5. Insere `ai_knowledge_sources` com `source_metadata={filename, version, uploaded_by, blob_path}`
 6. Emite `knowledge_source.updated`
@@ -625,9 +625,10 @@ And rag-indexer cria N chunks 400-token com overlap 50
 
 ```gherkin
 Given PDF com layout corrompido
-When pdf-parse falha
-Then fallback pdfjs-dist é tentado
-And se ambos falham, retorna 422 + mensagem clara
+When a extração pelo pdfjs-dist falha
+Then retorna 422 + mensagem clara
+# Havia aqui um "fallback pdf-parse é tentado". Removido na issue #238: o
+# pdf-parse@1 embute o próprio pdf.js de 2018 — era a mesma engine duas vezes.
 ```
 
 #### QA test cases

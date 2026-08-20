@@ -1916,6 +1916,199 @@ STUB
 ) || fail=1
 rm -rf "$TMP5"
 
+echo "DDL: a conexão do schema é separada da que vai para os contêineres (issue #192)"
+# `SUPABASE_DB_URL` acumulava dois papéis numa string só: ela vai para o `.env`
+# — e o compose entrega o `.env` inteiro ao `app` e ao `worker` (`env_file`) —
+# E era a mesma que rodava `create extension`, o `baseline.sql` e a promoção do
+# dono. Na nuvem passa despercebido: a string do pooler já vem privilegiada. Num
+# Supabase PRÓPRIO trava a primeira instalação, e a única saída era editar o
+# `.env` na mão entre uma etapa e outra (issue #192, achada instalando de verdade).
+#
+# Os dois cenários abaixo são um par, e um sozinho não prova nada: SEM a variável
+# nova nada pode mudar (o parque já instalado), e COM ela o DDL tem de ir por uma
+# string enquanto o `.env` recebe a outra. Só a diferença entre os dois mostra
+# que a resolução existe — um cenário sozinho fica verde com a variável ignorada.
+#
+# A fixture precisa do `supabase/baseline.sql`: sem esse arquivo o install.sh
+# pula a etapa 7 inteira e o log não teria psql nenhum para medir. É por isso que
+# nenhum cenário anterior desta suíte tocava neste caminho.
+
+# As connection strings que chegaram ao psql/pg_dump no cenário, sem repetir.
+strings_de_banco() { grep -oE '(psql|pg_dump) [^ ]+' "$VPS_LOG" | awk '{print $2}' | sort -u; }
+# Idem, tirando a sonda do validador (`psql <url> -tAc select 1`): ela existe
+# justamente para testar a conexão DO APP, então usar a string do app ali é o
+# comportamento certo — é o que a pessoa acabou de responder. Sem esta distinção
+# o caso mediria "trocaram tudo", que é outra coisa (e um defeito).
+strings_de_schema() {
+  grep -E '(psql|pg_dump) ' "$VPS_LOG" | grep -v -- '-tAc select 1$' \
+    | grep -oE '(psql|pg_dump) [^ ]+' | awk '{print $2}' | sort -u
+}
+# Derivada do BASE_ENV, não copiada: duas cópias do mesmo literal desincronizam
+# no dia em que o cenário-base trocar de string, e aí o teste reprova por engano.
+URL_DO_APP="$(printf '%s\n' "$BASE_ENV" | sed -n "s/^SUPABASE_DB_URL='\(.*\)'$/\1/p")"
+URL_DO_DONO='postgresql://supabase_admin:senhadodono@db-proprio.exemplo.com.br:5432/postgres'
+
+TMP_DDL_A="$(mktemp -d)"
+(
+  montar_vps "$TMP_DDL_A" "crmddla" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+case "$1" in
+  compose) case "$*" in *" exec "*) printf 'healthy\n{"data":{"status":"healthy"}}\n' ;; esac; exit 0 ;;
+esac
+exit 0
+STUB
+  mkdir -p "$VPS_PROJ/supabase"; : > "$VPS_PROJ/supabase/baseline.sql"
+  rodar install.sh --yes >/dev/null
+
+  # Vacuidade: sem chamada ao Postgres não há o que medir, e a lista vazia de
+  # "strings erradas" seria lida como aprovação.
+  n="$(grep -cE '(psql|pg_dump) ' "$VPS_LOG")"
+  if [ "${n:-0}" -lt 5 ]; then
+    printf '  ✗ o install.sh falou %s vez(es) com o Postgres — teste inconclusivo, não verde\n' "${n:-0}"
+    printf '     (esperadas: extensões, sonda de schema, baseline, contagem de tabelas, promoção do dono)\n'; exit 1
+  fi
+  vistas="$(strings_de_banco)"
+  if [ "$vistas" != "$URL_DO_APP" ]; then
+    printf '  ✗ sem SUPABASE_DB_ADMIN_URL o kit deixou de usar a string de sempre — quem já instalou quebra:\n'
+    printf '%s\n' "$vistas" | sed 's/^/       /'; exit 1
+  fi
+  printf '  ✓ sem a variável nova: as %s conversas com o Postgres usam a string de sempre\n' "$n"
+) || fail=1
+rm -rf "$TMP_DDL_A"
+
+TMP_DDL_B="$(mktemp -d)"
+(
+  montar_vps "$TMP_DDL_B" "crmddlb" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+case "$1" in
+  compose) case "$*" in *" exec "*) printf 'healthy\n{"data":{"status":"healthy"}}\n' ;; esac; exit 0 ;;
+esac
+exit 0
+STUB
+  mkdir -p "$VPS_PROJ/supabase"; : > "$VPS_PROJ/supabase/baseline.sql"
+  # Pelo AMBIENTE, e não por uma linha no `.env`: é o caminho que NÃO deixa a
+  # credencial do dono no arquivo que o compose entrega aos contêineres. Se o
+  # cenário a declarasse no `.env`, o laço de preservação do install.sh a
+  # copiaria de volta e a asserção de baixo mediria o teste, não o kit.
+  export SUPABASE_DB_ADMIN_URL="$URL_DO_DONO"
+  rodar install.sh --yes >/dev/null
+  unset SUPABASE_DB_ADMIN_URL
+
+  n="$(grep -cE '(psql|pg_dump) ' "$VPS_LOG")"
+  if [ "${n:-0}" -lt 5 ]; then
+    printf '  ✗ o install.sh falou %s vez(es) com o Postgres — teste inconclusivo, não verde\n' "${n:-0}"; exit 1
+  fi
+  vistas="$(strings_de_schema)"
+  if [ "$vistas" != "$URL_DO_DONO" ]; then
+    printf '  ✗ com SUPABASE_DB_ADMIN_URL declarada, o schema NÃO foi por ela:\n'
+    printf '%s\n' "$vistas" | sed 's/^/       /'
+    printf '     esperava só: %s\n' "$URL_DO_DONO"
+    grep -nE '(psql|pg_dump) ' "$VPS_LOG" | sed 's/^/       /'; exit 1
+  fi
+  printf '  ✓ com a variável nova: todo trabalho de schema vai pela conexão do dono\n'
+
+  # O outro lado, e é ele que distingue a correção de um "trocaram tudo": na
+  # MESMA execução, a sonda que confere a connection string do app tem de
+  # continuar usando a do app. Um patch que substituísse a variável em bloco
+  # deixaria a asserção de cima verde e esta vermelha.
+  if ! grep -qF -- "psql $URL_DO_APP -tAc select 1" "$VPS_LOG"; then
+    printf '  ✗ a sonda que valida a conexão do APP deixou de usar a string do app\n'
+    printf '     — ela passaria a aprovar uma credencial que o app nunca vai usar.\n'
+    grep -nE 'psql .* -tAc select 1$' "$VPS_LOG" | sed 's/^/       /'; exit 1
+  fi
+  printf '  ✓ e a conferência da conexão do app continua sendo feita com a do app\n'
+
+  gravada="$(valor_no_env "$VPS_PROJ/.env" SUPABASE_DB_URL)"
+  if [ "$gravada" != "$URL_DO_APP" ]; then
+    printf '  ✗ o .env não recebeu a string do APP: [%s]\n' "$gravada"; exit 1
+  fi
+  printf '  ✓ e o .env continua recebendo a string do app\n'
+
+  # A metade que dá sentido à separação: se a credencial do dono for parar no
+  # `.env`, o compose a entrega ao app e ao worker por `env_file` — e o app volta
+  # a ter na mão o poder que esta issue tirou dele.
+  if grep -q 'SUPABASE_DB_ADMIN_URL' "$VPS_PROJ/.env"; then
+    printf '  ✗ a credencial do DONO foi gravada no .env — o compose a entrega aos contêineres:\n'
+    printf '       %s\n' "$(grep -m1 'SUPABASE_DB_ADMIN_URL' "$VPS_PROJ/.env")"; exit 1
+  fi
+  printf '  ✓ e NÃO grava a do dono no .env (que o compose entregaria aos contêineres)\n'
+) || fail=1
+rm -rf "$TMP_DDL_B"
+
+echo "DDL: o update.sh reaplica o baseline pela conexão do dono"
+# O update.sh é a metade que mais dói e a que ninguém vê: ele roda sozinho pelo
+# cron do agent.sh, e é ele que entrega migration nova ao clone. Com a role menor
+# no `.env` — que é o que `docs/deploy-selfhost/README.md` §2 recomenda — o
+# `baseline.sql` passava a falhar a cada atualização, sem ninguém lendo a tela.
+#
+# Aqui a variável vem do `.env` de propósito: é o único jeito de o cron ter a
+# credencial, e é o que a documentação manda para quem quer atualização sozinha.
+# O backup entra junto (sem `--skip-backup`) porque o `pg_dump` tem o mesmo
+# problema com cara pior: com role menor ele despeja só o que ela enxerga e sai
+# VERDE — backup parcial que só aparece na hora de restaurar.
+TMP_DDL_C="$(mktemp -d)"
+(
+  montar_vps "$TMP_DDL_C" "crmddlc" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+case "$1" in
+  compose) case "$*" in *" exec "*) printf 'healthy\n{"data":{"status":"healthy"}}\n' ;; esac; exit 0 ;;
+esac
+exit 0
+STUB
+  mkdir -p "$VPS_PROJ/supabase"; : > "$VPS_PROJ/supabase/baseline.sql"
+  # O update.sh decide o que instalar por TAG: sem versão publicada ele para
+  # antes do banco, e o teste passaria vazio.
+  (cd "$VPS_PROJ" && git init -q -b main . \
+    && git -c user.email=t@exemplo -c user.name=teste add -A \
+    && git -c user.email=t@exemplo -c user.name=teste commit -qm base \
+    && git tag v9.9.9) >/dev/null 2>&1
+
+  saida="$(rodar update.sh "" "SUPABASE_DB_ADMIN_URL='$URL_DO_DONO'
+INTERNAL_SECRET='segredo-de-teste'
+NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'")"
+
+  n_dump="$(grep -cE 'pg_dump ' "$VPS_LOG")"
+  n_psql="$(grep -cE 'psql ' "$VPS_LOG")"
+  if [ "${n_dump:-0}" -lt 1 ] || [ "${n_psql:-0}" -lt 2 ]; then
+    printf '  ✗ o update.sh não chegou ao banco (pg_dump=%s psql=%s) — inconclusivo, não verde\n' \
+      "${n_dump:-0}" "${n_psql:-0}"
+    printf '     última linha da saída: %s\n' "$(printf '%s' "$saida" | tail -1)"; exit 1
+  fi
+  vistas="$(strings_de_banco)"
+  if [ "$vistas" != "$URL_DO_DONO" ]; then
+    printf '  ✗ a atualização não usou a conexão do dono:\n'
+    printf '%s\n' "$vistas" | sed 's/^/       /'; exit 1
+  fi
+  printf '  ✓ baseline (%s psql) e backup (%s pg_dump) pela conexão do dono\n' "$n_psql" "$n_dump"
+) || fail=1
+rm -rf "$TMP_DDL_C"
+
+echo "DDL: nenhum script do kit manda a string do APP para o Postgres"
+# A guarda de CLASSE. Os três cenários acima provam o install.sh e o update.sh
+# pelo comportamento; esta linha alcança os irmãos que nenhuma fixture roda
+# (backup.sh, restore.sh, reset-mfa.sh via psql_run) — onde o mesmo defeito
+# reapareceria sem ninguém ver. Um sítio que volte a `psql "$SUPABASE_DB_URL"`
+# reprova aqui.
+# `--exclude` para não casar as próprias frases deste arquivo — que fala do
+# defeito para explicá-lo, e ficaria eternamente vermelho por citar o que vigia.
+sobrando="$(grep -nE --exclude='test-validators.sh' '(psql|pg_dump) "\$SUPABASE_DB_URL"' ./*.sh 2>/dev/null || true)"
+convertidos="$(grep -hoE --exclude='test-validators.sh' '(psql|pg_dump) "\$\(url_do_schema\)"' ./*.sh 2>/dev/null | grep -c . || true)"
+if [ -n "$sobrando" ]; then
+  printf '  ✗ script do kit ainda manda a string do app para o Postgres:\n'
+  printf '%s\n' "$sobrando" | sed 's/^/       /'
+  fail=1
+elif [ "${convertidos:-0}" -lt 10 ]; then
+  # Vacuidade: uma varredura que não achasse NADA devolveria a mesma lista vazia
+  # de infratores. O número é piso, não igualdade — sítio novo não deve reprovar.
+  printf '  ✗ a varredura só achou %s sítio(s) convertido(s) — ela está cega, não limpa\n' "${convertidos:-0}"
+  fail=1
+else
+  printf '  ✓ %s sítio(s) pela conexão do schema, nenhum pela do app\n' "$convertidos"
+fi
+
 echo "integração: update.sh quando a rede do proxy sumiu"
 # O guard da rede nasceu só no install.sh, e o `dc up -d` do update.sh corre o
 # mesmo risco: a bridge é um artefato como outro qualquer e some num

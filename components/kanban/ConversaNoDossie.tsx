@@ -2,7 +2,7 @@
 import Link from "next/link";
 
 import { ArrowRight, ChatCircle } from "@/lib/ui/icons";
-import type { Lead } from "@/lib/types/leads";
+import type { Contact } from "@/lib/types/contacts";
 
 /**
  * A porta para a conversa, dentro do dossiê.
@@ -29,7 +29,11 @@ import type { Lead } from "@/lib/types/leads";
  * contato pode não ter conversa. Nesses casos o bloco não aparece, em vez de um
  * "sem conversa" cinza que ocuparia o mesmo espaço para não dizer nada.
  */
-export function ConversaNoDossie({ conversa }: { conversa: Lead["conversa"] }) {
+export function ConversaNoDossie({
+  conversa,
+}: {
+  conversa: Contact["conversa"] | null | undefined;
+}) {
   if (!conversa) return null;
 
   const preview = conversa.preview?.trim();

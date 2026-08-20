@@ -307,8 +307,42 @@ enter_project() {
   PROJECT_DIR="$(pwd)"
 }
 
-# psql efêmero via container (não exige psql no host).
-psql_run() { docker run --rm -i postgres:17-alpine psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 "$@"; }
+# ── As DUAS conexões: a do app e a do schema ─────────────────────────────────
+# `SUPABASE_DB_URL` tinha dois papéis numa string só: ela vai para o `.env` dos
+# contêineres (o app fala com o banco por ela) E era a mesma que rodava
+# `create extension`, o `baseline.sql` e a promoção do dono.
+#
+# Na nuvem isso não dói — a string do pooler já vem privilegiada. Num Supabase
+# PRÓPRIO dói na primeira instalação: o baseline exige o dono do banco, o app
+# quer a role menor (é o que `docs/deploy-selfhost/README.md` §2 recomenda), e a
+# única saída era editar o `.env` na mão entre uma etapa e outra (issue #192).
+#
+# Daqui em diante: quem mexe no schema (e quem faz backup/restore, que precisam
+# ler tudo) passa por esta função; o `.env` continua recebendo só a do app.
+# `SUPABASE_DB_ADMIN_URL` ausente OU vazia cai na de sempre — quem já instalou
+# não muda de comportamento.
+#
+# É FUNÇÃO, e não uma atribuição no topo deste arquivo, porque o `_common.sh` é
+# *sourced* ANTES do `load_env` nos dois scripts (install.sh e update.sh), e ele
+# abre com `set -euo pipefail`: uma linha `X="${SUPABASE_DB_ADMIN_URL:-$SUPABASE_DB_URL}"`
+# aqui morre em "variável não associada" e leva o kit inteiro junto (medido: a
+# suíte de shell inteira foi a EXIT=1 com 0 casos executados). E com guarda
+# (`${SUPABASE_DB_URL:-}`) seria pior: o valor CONGELA vazio e todo sítio de DDL
+# passa a rodar `psql ""`. A resolução tem de acontecer na hora do uso.
+#
+# `:?` e não `:-`: sem NENHUMA das duas, o certo é parar com uma frase que diz o
+# que fazer, não seguir para um `psql ""` que erra longe da causa. O limite é
+# honesto — isto roda em substituição de comando, e um subshell não derruba o
+# pai; o que a mensagem garante é que a causa apareça na tela antes do erro de
+# conexão que os chamadores já tratam.
+url_do_schema() {
+  printf '%s' "${SUPABASE_DB_ADMIN_URL:-${SUPABASE_DB_URL:?sem connection string de banco no .env — rode o install.sh}}"
+}
+
+# psql efêmero via container (não exige psql no host). Usa a conexão de schema:
+# os chamadores mexem em `auth.mfa_factors` e `private.app_secrets`, fora do
+# alcance de uma role de app com grants só em `public`.
+psql_run() { docker run --rm -i postgres:17-alpine psql "$(url_do_schema)" -v ON_ERROR_STOP=1 "$@"; }
 
 # ── As três imagens que NÓS publicamos ───────────────────────────────────────
 # O namespace é constante e literal de propósito: ele está gravado no .env de
