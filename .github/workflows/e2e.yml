@@ -447,6 +447,19 @@ jobs:
       # fazem o segundo ser recusado como replay. Foi o que derrubava a
       # `reset-password-mfa` (issue #80): ela passa sozinha e falha em paralelo.
       - name: E2E — parte 1 de 2
+        # Teto POR PASSO, e não só o do job.
+        #
+        # O job já tinha `timeout-minutes: 30`, mas ele é para os dois passos
+        # somados: uma parte pendurada come o orçamento da outra e o desfecho
+        # sai como "the job running on runner has exceeded the maximum execution
+        # time" — sem dizer ONDE pendurou. Aconteceu: uma execução ficou presa
+        # nesta parte 1, que normalmente leva 8m22, e só se soube disso abrindo
+        # o job e olhando qual passo estava `in_progress`.
+        #
+        # 14 minutos é ~1,7× o medido (8m22 em 2026-08-20). Folga para runner
+        # carregado, apertado o bastante para que pendurar seja rápido de
+        # descobrir — e a falha passa a NOMEAR o passo.
+        timeout-minutes: 14
         run: pnpm exec playwright test --workers=1 $SPECS_PARTE_1
         env:
           # Só o que NÃO vem do `.env.e2e`: isto é ajuste de CI, não config do
@@ -458,6 +471,10 @@ jobs:
           SENTRY_DSN: "off"
 
       - name: E2E — parte 2 de 2 (processo novo, contador de login zerado)
+        # Mesmo raciocínio do passo anterior: ~1,5× o medido (10m28), e o total
+        # dos dois tetos (30) casa com o do job, então quem estoura primeiro é
+        # sempre o PASSO — que é o que diz onde foi.
+        timeout-minutes: 16
         run: pnpm exec playwright test --workers=1 $SPECS_PARTE_2
         env:
           # Só o que NÃO vem do `.env.e2e`: isto é ajuste de CI, não config do
