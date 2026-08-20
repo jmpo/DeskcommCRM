@@ -136,7 +136,27 @@ export function baseDoStorage(): string {
   if (typeof window !== "undefined") {
     return (window.__PUBLIC_ENV__?.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
   }
-  return (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+  // ⚠️ O `process.env` INTEIRO, e NUNCA `process.env.NEXT_PUBLIC_SUPABASE_URL`.
+  //
+  // O Next substitui todo acesso ESTÁTICO a `process.env.NEXT_PUBLIC_*` pelo
+  // valor do BUILD — inclusive no bundle do servidor. E o Dockerfile builda com
+  // `ARG NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co`, porque a
+  // imagem é genérica. Resultado, medido no contêiner de produção:
+  //
+  //   function n(){return"https://placeholder.supabase.co".trim()}
+  //
+  // A função inteira virou constante. Toda instalação que subisse um logo
+  // recebia `https://placeholder.supabase.co/storage/...` no `<img>` — imagem
+  // quebrada, com o arquivo intacto no Storage e o caminho certo no banco. O
+  // comentário do Dockerfile ("no servidor via lib/env.ts, que parseia
+  // process.env em runtime") descrevia o que DEVIA acontecer; este arquivo não
+  // passava por lá.
+  //
+  // Ler pela variável derrota a substituição: o Next só reescreve o acesso
+  // estático, e é exatamente por isso que `lib/env.ts` — que faz
+  // `schema.safeParse(process.env)` — sempre teve o valor certo em runtime.
+  const ambiente = process.env as Record<string, string | undefined>;
+  return (ambiente.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
 }
 
 /**
