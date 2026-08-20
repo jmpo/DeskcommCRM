@@ -74,11 +74,31 @@ describe("o canal por QR manda a citação", () => {
 });
 
 describe("o adapter repassa o que o envelope traz", () => {
+  /**
+   * ⚠️ O CLIENTE É DUBLADO, e não montado a partir de env.
+   *
+   * A primeira versão usava `vi.stubEnv` para dar `WAHA_BASE_URL` e
+   * `WAHA_API_KEY` ao `getWahaClient()`. Passava na minha máquina e FALHOU no
+   * CI — porque `lib/env.ts` parseia `process.env` uma vez, no carregamento do
+   * módulo, e o stub chega depois. Sem env, `getWahaClient()` devolve `null`, o
+   * adapter sai por cima e nenhum corpo é capturado.
+   *
+   * Ou seja: o teste dizia "a citação chega" porque a MINHA máquina tinha as
+   * credenciais. Teste que depende do ambiente de quem roda não prova nada — e
+   * este mentia para o lado pior, o verde.
+   */
   it("`replyToExternalId` chega ao corpo do envio", async () => {
-    // O elo que faltava: o campo existia no envelope e o adapter não o lia.
-    vi.stubEnv("WAHA_BASE_URL", "http://waha");
-    vi.stubEnv("WAHA_API_KEY", "chave");
-    const corpos = espiao();
+    const chamadas: unknown[][] = [];
+    vi.doMock("@/lib/waha/client", async (orig) => ({
+      ...(await orig<Record<string, unknown>>()),
+      getWahaClient: () => ({
+        sendMessage: (...a: unknown[]) => {
+          chamadas.push(a);
+          return Promise.resolve({ id: "3EB0ABC" });
+        },
+      }),
+    }));
+    vi.resetModules();
     const { wahaAdapter } = await import("@/lib/channels/adapters/waha");
     await wahaAdapter.send({
       sessionRef: "s1",
@@ -87,6 +107,9 @@ describe("o adapter repassa o que o envelope traz", () => {
       body: "hijale no recuerdo bro",
       replyToExternalId: CITADA,
     });
-    expect(corpos[0]?.reply_to, "o adapter voltou a ignorar a citação").toBe(CITADA);
+    // O 4º argumento de `sendMessage` é a citação — o elo que faltava.
+    expect(chamadas[0]?.[3], "o adapter voltou a ignorar a citação").toBe(CITADA);
+    vi.doUnmock("@/lib/waha/client");
+    vi.resetModules();
   });
 });
