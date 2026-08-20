@@ -18,7 +18,12 @@
 import { describe, expect, it } from "vitest";
 
 import { createDefaultRegistry } from "@/lib/agent-engine/edge/llm/providers";
-import { ehProvedorSuportado, PROVEDORES, PROVEDOR_POR_ID } from "@/lib/ai/pontos/provedores";
+import {
+  ehProvedorSuportado,
+  IDS_DE_PROVEDOR,
+  PROVEDORES,
+  PROVEDOR_POR_ID,
+} from "@/lib/ai/pontos/provedores";
 
 const registry = createDefaultRegistry();
 
@@ -210,5 +215,70 @@ describe("PUT /api/v1/ai/providers — auditoria", () => {
     const { readFileSync } = await import("node:fs");
     const fonte = readFileSync("app/api/v1/ai/providers/route.ts", "utf8");
     expect(fonte).toMatch(/\.select\("id, purpose, provider, model_id/);
+  });
+});
+
+/**
+ * OS DOIS PONTOS CEGOS DO INVARIANTE ACIMA.
+ *
+ * "Todo provedor oferecido na tela é executável" mede `PROVEDORES` contra
+ * `createDefaultRegistry` — a lista canônica contra o registry de PRODUÇÃO.
+ * Nenhum dos dois lados é o que o usuário encontra:
+ *
+ *  1. Quem executa o botão **Teste** do agente não é o registry de produção, e
+ *     sim `buildModel()` em `lib/ai/runtime/agent.ts` — um segundo switch, que
+ *     ficou com três casos. Com o agente em OpenRouter, a mensagem real é
+ *     respondida (worker) e o ensaio na tela morre em `unsupported_provider`:
+ *     o dono testa antes de confiar, vê erro, e conclui que o produto não
+ *     funciona no exato momento em que ele funciona.
+ *  2. Quem oferece o provedor na tela do agente não é `PROVEDORES`, e sim três
+ *     `<SelectItem>` literais em `AgentForm.tsx`. O invariante passa medindo a
+ *     constante enquanto o JSX oferece outra coisa — e um agente publicado em
+ *     OpenRouter abre com o campo em branco, porque nenhum item casa com o
+ *     valor.
+ *
+ * Os dois testes abaixo fecham a corrente: lista → registry de produção →
+ * runtime de ensaio → o que a tela realmente renderiza.
+ */
+describe("a corrente inteira: lista × execução × tela", () => {
+  it("o runtime de ENSAIO executa todo provedor da lista", async () => {
+    const { buildModel } = await import("@/lib/ai/runtime/agent");
+    const recusados: string[] = [];
+    for (const id of IDS_DE_PROVEDOR) {
+      try {
+        buildModel(id, "chave-de-teste", "modelo/qualquer");
+      } catch {
+        recusados.push(id);
+      }
+    }
+    expect(
+      recusados,
+      "a aba Teste do agente recusaria um provedor que a tela oferece e o worker executa",
+    ).toEqual([]);
+  });
+
+  it("e continua recusando provedor que ninguém declarou (a catraca não virou peneira)", async () => {
+    // Sem isto, trocar o switch por um `createOpenAI` universal faria o teste
+    // acima passar e aceitaria qualquer string como provedor.
+    const { buildModel } = await import("@/lib/ai/runtime/agent");
+    expect(() => buildModel("provedor-que-nao-existe", "k", "m")).toThrow(/unsupported_provider/);
+  });
+
+  it("a tela do agente DERIVA a lista, em vez de repetir os provedores à mão", async () => {
+    // Guarda de construção: enquanto o seletor for montado a partir de
+    // PROVEDORES, "a tela oferece todos" é verdade por construção e o
+    // invariante do topo deste arquivo passa a valer para o que se vê.
+    const { readFileSync } = await import("node:fs");
+    const fonte = readFileSync("app/app/ai/agents/[id]/_components/AgentForm.tsx", "utf8");
+
+    const literais = [...fonte.matchAll(/<SelectItem\s+value="([^"]+)"/g)]
+      .map((m) => m[1])
+      .filter((v): v is string => typeof v === "string" && ehProvedorSuportado(v));
+
+    expect(
+      literais,
+      "o seletor voltou a listar provedores à mão — o próximo provedor da lista nasce invisível na tela",
+    ).toEqual([]);
+    expect(fonte).toMatch(/from "@\/lib\/ai\/pontos\/provedores"/);
   });
 });

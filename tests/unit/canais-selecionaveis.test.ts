@@ -123,6 +123,44 @@ describe("listSelectableChannels", () => {
 
     expect(canais[0]?.display_name).toBe("5511999999999");
   });
+
+  it("canal sem apelido NÃO é batizado com o identificador do transporte", async () => {
+    // ⚠️ O caso acima zerava `waha_session_name` junto, então nunca exercitou o
+    // degrau que tinha o defeito. Medido percorrendo o produto: o seletor
+    // "Número conectado" do editor de agente oferecia a opção `org_2dd5e6ea`
+    // — o identificador que NÓS geramos para o transporte, exposto como se
+    // fosse o nome do número da pessoa.
+    const { db } = fakeDb([
+      {
+        data: [
+          {
+            ...LINHA,
+            display_name: null,
+            phone_number: null,
+            waha_session_name: "org_2dd5e6ea_aaa",
+          },
+        ],
+        error: null,
+      },
+      { data: [], error: null },
+    ]);
+
+    const canais = await listSelectableChannels(db, "org-1");
+
+    expect(canais[0]?.display_name).not.toContain("org_");
+    expect(canais[0]?.display_name).toBe("Número sem nome");
+  });
+
+  it("o apelido continua vencendo tudo", async () => {
+    const { db } = fakeDb([
+      {
+        data: [{ ...LINHA, display_name: "Vendas", waha_session_name: "org_x" }],
+        error: null,
+      },
+      { data: [], error: null },
+    ]);
+    expect((await listSelectableChannels(db, "org-1"))[0]?.display_name).toBe("Vendas");
+  });
 });
 
 /** Telas: onde um seletor de canal pode nascer. A API tem regras próprias. */

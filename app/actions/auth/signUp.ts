@@ -3,7 +3,13 @@
 import { headers } from "next/headers";
 
 import { createClient } from "@/lib/supabase/server";
-import { signupSchema, type SignupInput } from "@/lib/auth/schemas";
+import {
+  signupSchema,
+  signupComConviteSchema,
+  type SignupInput,
+  type SignupComConviteInput,
+} from "@/lib/auth/schemas";
+import { verifyInviteToken } from "@/lib/auth/invite-token";
 import { audit, hashEmail } from "@/lib/audit";
 import { authRateLimited, AUTH_LIMITS } from "@/lib/auth/rate-limit";
 import { env } from "@/lib/env";
@@ -25,8 +31,21 @@ export type SignUpResult =
  * o GoTrue devolve um usuário ofuscado (identities vazio) sem erro, e nós não
  * diferenciamos. Rate limit de envio de e-mail é do próprio GoTrue.
  */
-export async function signUp(input: SignupInput): Promise<SignUpResult> {
-  const parsed = signupSchema.safeParse(input);
+export async function signUp(
+  input: SignupInput | SignupComConviteInput,
+  /**
+   * Token de convite, quando a conta está sendo criada para ACEITAR um convite.
+   * Viaja até `/auth/confirm` pelo `user_metadata` — o mesmo canal que
+   * `org_name` já usa e que o e2e do signup exercita. Ele não dá acesso a nada
+   * sozinho: quem decide é `decidirConviteDoSignup`, comparando a assinatura do
+   * token com o e-mail que o provedor de auth confirmou.
+   */
+  inviteToken?: string,
+): Promise<SignUpResult> {
+  const temConvite = typeof inviteToken === "string" && inviteToken.trim() !== "";
+  const parsed = temConvite
+    ? signupComConviteSchema.safeParse(input)
+    : signupSchema.safeParse(input);
   if (!parsed.success) {
     return {
       ok: false,
@@ -47,6 +66,21 @@ export async function signUp(input: SignupInput): Promise<SignUpResult> {
     return { ok: false, error: "rate_limited" };
   }
 
+  // Só vira convite se o token verificar E for para este e-mail. Divergência
+  // aqui não é erro do usuário — é tentativa de entrar em organização alheia
+  // colando um token que chegou para outra pessoa.
+  let convite: string | null = null;
+  if (temConvite && inviteToken) {
+    const payload = verifyInviteToken(inviteToken);
+    if (!payload) {
+      return { ok: false, error: "validation_error", details: { invite: ["convite_invalido"] } };
+    }
+    if (payload.email.trim().toLowerCase() !== parsed.data.email.trim().toLowerCase()) {
+      return { ok: false, error: "validation_error", details: { invite: ["email_divergente"] } };
+    }
+    convite = inviteToken;
+  }
+
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
     email: parsed.data.email,
@@ -56,7 +90,12 @@ export async function signUp(input: SignupInput): Promise<SignUpResult> {
       // sobrevive ao redirect do GoTrue e é o que distingue este fluxo do de
       // recovery quando a verificação chega via `code` (PKCE), não `token_hash`.
       emailRedirectTo: `${origin}/auth/confirm?type=signup`,
-      data: { org_name: parsed.data.org_name },
+      // O convite é revalidado no servidor mesmo tendo sido validado ao montar
+      // a tela: o campo de e-mail do formulário é adulterável no cliente, e a
+      // decisão que importa acontece com o e-mail JÁ confirmado pelo provedor.
+      data: convite
+        ? { invite_token: convite }
+        : { org_name: (parsed.data as SignupInput).org_name },
     },
   });
 

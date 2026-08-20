@@ -234,7 +234,15 @@ async function main(): Promise<void> {
         versao_id: versao[0]!.id,
         tools: TOOLS.length,
         telefone: TELEFONE,
-        webhook_token: (sessaoFinal as { webhook_path_token: string }).webhook_path_token,
+        // PREFIXO, não o token. `webhook_path_token` é credencial viva: é o que
+        // autentica o webhook do WAHA e resolve o tenant (o CLAUDE.md o lista
+        // como fonte confiável de `organization_id`), então imprimi-lo em claro
+        // põe uma chave de tenant no stdout de um script que se roda à mão e
+        // cuja saída se cola em canal de conversa. O prefixo responde à única
+        // pergunta que o log precisava responder — "a sessão nasceu com token?"
+        // —, e quem consome não precisa do valor: `provoke-agent-turn.ts:120-123`
+        // busca o token sozinho pelo nome da sessão.
+        webhook_token_prefixo: `${(sessaoFinal as { webhook_path_token: string }).webhook_path_token.slice(0, 8)}…`,
       },
       null,
       2,

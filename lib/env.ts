@@ -103,6 +103,27 @@ const schema = z.object({
   // duplicado ou perdido (bug real da fusão).
   AGENT_DISPATCH_CONSUMER: z.enum(["engine", "native"]).optional().default("engine"),
 
+  /**
+   * Kill switch do teto de gasto de IA — a alavanca que o operador da VPS puxa
+   * às 2h da manhã quando a IA parou e ele não sabe SQL.
+   *
+   * `on` (default) NÃO LIGA NADA: significa "respeite o que cada organização
+   * escolheu na tela". A chave só sabe AFROUXAR — `avisar` rebaixa qualquer
+   * bloqueio a aviso, e `off|false|0|no|nao|não|disabled` cala a proteção
+   * inteira. É essa monotonicidade que a torna um kill switch de verdade.
+   *
+   * ⚠️ `z.string()` E JAMAIS `z.enum`, e o motivo é o modo de falha deste
+   * arquivo: `safeParse` abaixo LANÇA quando o schema recusa, e no Next isso
+   * acontece na primeira requisição — com healthcheck TCP puro, o contêiner
+   * fica `healthy` com 100% das requisições em 500. Um `z.enum` transformaria a
+   * alavanca de EMERGÊNCIA no derrubador do app inteiro no dia em que o
+   * operador escrevesse `false`. A normalização (que aceita as grafias falsas
+   * comuns como desligado, e resolve lixo para o lado seguro) mora em
+   * `normalizarChaveDeOrcamento`, em lib/agent-engine/edge/llm/orcamento.ts.
+   * Mesmo raciocínio de APP_ACCENT_HEX, algumas linhas abaixo.
+   */
+  AI_BUDGET_ENFORCEMENT: z.string().optional().default("on"),
+
   // Workers — opt-in via env so dev doesn't run loops. Production cron sets it.
   EVENT_LOG_WORKER_ENABLED: z
     .enum(["true", "false"])
@@ -122,6 +143,32 @@ const schema = z.object({
 
   // Sentry
   SENTRY_DSN: z.string().optional().default(""),
+
+  /**
+   * Resend — o transporte de TODO e-mail transacional (convite, LGPD, alarme).
+   *
+   * Estavam lidas de `process.env` CRU dentro de `lib/email/resend.ts`, fora do
+   * Zod e fora do `.env.example` (medido: `grep -n RESEND lib/env.ts` → nada;
+   * `grep -c -i resend .env.example` → 0). Duas consequências que só apareciam
+   * na VPS: o `env-example-sync` nunca cobrou a documentação da chave, e o
+   * `install.sh` não a gravava — como o `.env` é escrito com truncamento
+   * (`} > .env`), a chave posta à mão era DESCARTADA na instalação seguinte,
+   * num script que o README vende como idempotente.
+   *
+   * `RESEND_FROM_EMAIL` vazio NÃO cai num domínio nosso: ver `fromAddress()`.
+   */
+  RESEND_API_KEY: z.string().optional().default(""),
+  RESEND_FROM_EMAIL: z.string().optional().default(""),
+
+  /**
+   * E-mail de suporte que a instalação mostra ao CLIENTE FINAL (tela de conta
+   * suspensa, tela de cobrança).
+   *
+   * Vazio = a tela não mostra endereço nenhum. É deliberado: cair no nosso
+   * endereço numa tela de suspensão manda o cliente do revendedor escrever
+   * para quem não suspendeu a conta dele e não tem como resolvê-la.
+   */
+  SUPPORT_EMAIL: z.string().optional().default(""),
 
   // EPIC-11 Impersonate cookie HMAC secret. Optional at boot (route returns
   // 503 at runtime if missing/short); required in prod for the feature to
@@ -160,6 +207,19 @@ const schema = z.object({
   // O <PublicEnvScript/> injeta os valores em runtime.
   APP_NAME: z.string().optional().default(""),
   APP_LOGO_URL: z.string().optional().default(""),
+  /**
+   * Cor da marca — um hex (`#506d48`), do qual `lib/branding/` deriva a rampa
+   * inteira. Vazio = o produto se pinta com a cor dele.
+   *
+   * `optional().default("")` e NUNCA `required()`, e o motivo é o modo de falha,
+   * não a preguiça: `lib/env.ts` lança no import do módulo, que no Next
+   * acontece na PRIMEIRA REQUISIÇÃO, não no boot. E o healthcheck do contêiner é
+   * um probe TCP puro (`docker-compose.prod.yml:44`, deliberadamente — /health
+   * derrubaria o app quando o WAHA cai). Somando os dois: o Docker mostraria
+   * `healthy` com 100% das requisições em 500. Uma var de COR não pode ter esse
+   * poder; a validação do valor é do resolvedor, que degrada e diz o motivo.
+   */
+  APP_ACCENT_HEX: z.string().optional().default(""),
 });
 
 let parsed = schema.safeParse(process.env);

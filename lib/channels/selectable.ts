@@ -19,6 +19,8 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { nomeDoCanal } from "@/lib/channels/estado";
+
 import { ARCHIVED_AT, queryTolerantToMissingArchived } from "./archived";
 
 /** Um canal oferecível como destino, já com o rótulo resolvido para a tela. */
@@ -61,10 +63,13 @@ export async function listSelectableChannels(
 
   return ((data ?? []) as LinhaCanal[]).map((c) => ({
     id: c.id,
-    // O nome da sessão no transporte só existe no ramo pareado por QR (é o que
-    // `channel_sessions_provider_ref_check` exige lá); o canal oficial nasce sem
-    // ele. Sem o último degrau, um oficial sem apelido viraria opção em branco.
-    display_name: c.display_name ?? c.waha_session_name ?? c.phone_number ?? "Número sem nome",
+    // ⚠️ `waha_session_name` SAIU DESTA CADEIA. Ele era o segundo degrau, e o
+    // resultado aparecia na tela: um canal sem apelido virava a opção
+    // `org_2dd5e6ea` no seletor "Número conectado" do editor de agente — o
+    // identificador que NÓS geramos para o transporte, exposto como se fosse o
+    // nome do número da pessoa. Um canal sem apelido e sem telefone é um canal
+    // sem nome, e dizer isso é melhor do que inventar um.
+    display_name: nomeDoCanal(c),
     status: c.status,
     phone_number: c.phone_number ?? null,
   }));

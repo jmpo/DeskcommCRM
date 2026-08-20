@@ -18,6 +18,7 @@
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { afirmarAdminDeTenantPuro } from "./utils/precondicao";
 import { generateTotp, msUntilNextTotpWindow } from "./utils/totp";
 
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
@@ -42,10 +43,20 @@ const TELAS = [
 
 let creds: Creds;
 
-test.beforeAll(() => {
+test.beforeAll(async () => {
   expect(fs.existsSync(CREDS_PATH), "rode scripts/seed-e2e-credentials.ts").toBe(true);
   creds = JSON.parse(fs.readFileSync(CREDS_PATH, "utf8")) as Creds;
   fs.mkdirSync(EVIDENCIA, { recursive: true });
+  // ── Precondição de identidade ──────────────────────────────────────────────
+  // Este arquivo afirma ALCANCE: que estas telas abrem para uma pessoa. Alcance
+  // medido com um usuário promovido a dono do servidor seria alcance emprestado.
+  //
+  // ⚠️ Medido: as 7 rotas de `TELAS` são todas `/app/ai/*`, gateadas em
+  // `ROLE_RANK < manager` — um admin de tenant já passa por rank, e a promoção
+  // não muda o desfecho hoje. Ela mudaria no instante em que a lista ganhasse
+  // uma tela exclusiva do dono (`/app/settings/atualizacao` faz `notFound()` sem
+  // a flag), e é esse acréscimo silencioso que a precondição barra.
+  await afirmarAdminDeTenantPuro(creds.users.admin!.email);
 });
 
 test.describe("as telas do épico abrem para uma pessoa", () => {

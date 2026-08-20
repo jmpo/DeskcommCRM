@@ -22,6 +22,13 @@ interface Consulta {
   op: "select" | "insert" | "update";
   payload: Record<string, unknown> | null;
   filtros: Record<string, unknown>;
+  /**
+   * As colunas pedidas no `select`. Existe porque duas leituras diferentes
+   * batem em `organizations` no mesmo fluxo — o estado do onboarding e o
+   * provedor de IA da instalação — e um dublê que responde igual às duas não
+   * consegue exercitar a falha de UMA delas.
+   */
+  colunas: string;
 }
 type ErroDb = { code?: string; message: string } | null;
 interface Resposta {
@@ -64,10 +71,13 @@ import { createDefaultAgent, type CreateAgentResult } from "@/app/actions/onboar
  */
 function clienteFalso() {
   const abrir = (table: string) => {
-    const c: Consulta = { table, op: "select", payload: null, filtros: {} };
+    const c: Consulta = { table, op: "select", payload: null, filtros: {}, colunas: "" };
     const resolver = () => Promise.resolve(responder(c));
     const b = {
-      select: () => b,
+      select: (colunas?: string) => {
+        if (typeof colunas === "string") c.colunas = colunas;
+        return b;
+      },
       insert: (payload: Record<string, unknown>) => {
         c.op = "insert";
         c.payload = payload;
@@ -78,12 +88,25 @@ function clienteFalso() {
         c.payload = payload;
         return b;
       },
+      // O ponteiro da memória da organização é gravado por upsert (uma linha
+      // por org). Sem este método o dublê fingia que a tabela não existia.
+      upsert: (payload: Record<string, unknown>) => {
+        c.op = "insert";
+        c.payload = payload;
+        return b;
+      },
       eq: (coluna: string, valor: unknown) => {
         c.filtros[coluna] = valor;
         return b;
       },
       is: (coluna: string, valor: unknown) => {
         c.filtros[coluna] = valor;
+        return b;
+      },
+      // A busca da credencial da organização usa `.not("validated_at","is",null)`:
+      // credencial que o provedor ainda não confirmou não é utilizável pelo turno.
+      not: (coluna: string, _op: string, valor: unknown) => {
+        c.filtros[`not:${coluna}`] = valor;
         return b;
       },
       order: () => b,
@@ -98,6 +121,10 @@ function clienteFalso() {
 }
 
 interface Estado {
+  /** Versões da memória da organização — as "regras da casa". */
+  memoria: Record<string, unknown>[];
+  /** Para onde o ponteiro da memória aponta (vazio = nenhuma publicada). */
+  ponteiroDaMemoria: string;
   agentes: Record<string, unknown>[];
   versoes: Record<string, unknown>[];
   eventos: Record<string, unknown>[];
@@ -105,12 +132,48 @@ interface Estado {
 }
 
 interface Mundo {
+  /**
+   * A credencial VALIDADA da organização para o provedor escolhido. `null` =
+   * não tem nenhuma, e aí a versão nasce com `credential_id: null`, que
+   * significa "usa a chave da instalação".
+   */
+  credencial?: { id: string } | null;
+  /**
+   * A instalação tem chave deste provedor no ambiente? É o caso mais comum do
+   * kit — a pessoa cola a chave no `.env` e nunca abre a tela de Credenciais.
+   */
+  chaveDaInstalacao?: boolean;
   /** O que a consulta de canais responde — é aqui que mora o defeito. */
   canais?: Resposta;
   /** Erro na gravação da versão (o `return` mudo de antes). */
   erroVersao?: ErroDb;
   agentes?: Record<string, unknown>[];
   versoes?: Record<string, unknown>[];
+  /**
+   * O que o instalador gravou em `organizations.settings`. Numa VPS que
+   * escolheu OpenRouter no menu, é `{llm:{provider:"openrouter", ...}}`.
+   * Ausente = organização que nunca passou pelo instalador.
+   */
+  settings?: Record<string, unknown>;
+  /** Erro ao LER o settings da org (só essa leitura, não o estado do wizard). */
+  erroSettings?: ErroDb;
+  /**
+   * O modelo curado (`is_default_for_provider`) de cada provedor. O default
+   * cobre só a Anthropic de propósito: é o retrato do catálogo que o
+   * `baseline.sql` semeia, onde a OpenRouter tem ZERO linhas até o cron diário
+   * rodar. Um dublê que respondesse modelo para qualquer provedor esconderia
+   * exatamente o estado de uma instalação nova.
+   */
+  modelosPorProvedor?: Record<string, string>;
+  /**
+   * O funil de entrada da organização. Toda org nasce com um (criado por
+   * gatilho no INSERT de `organizations`); `null` cobre a instalação em que a
+   * consulta não acha nada, e o agente tem de nascer com escopo VAZIO em vez de
+   * chutar um funil.
+   */
+  funilPadrao?: { id: string } | null;
+  /** Erro ao gravar as regras da casa. */
+  erroMemoria?: ErroDb;
 }
 
 const CANAL = {
@@ -123,6 +186,8 @@ const CANAL = {
 
 function montarBanco(mundo: Mundo = {}): Estado {
   const estado: Estado = {
+    memoria: [],
+    ponteiroDaMemoria: "",
     agentes: mundo.agentes ?? [],
     versoes: mundo.versoes ?? [],
     eventos: [],
@@ -130,9 +195,45 @@ function montarBanco(mundo: Mundo = {}): Estado {
   };
   const canais = mundo.canais ?? { data: [CANAL], error: null };
 
+  const modelos = mundo.modelosPorProvedor ?? { anthropic: "claude-sonnet-9" };
+
+  // A chave da instalação é lida do `process.env` por `chaveDePlataforma`. O
+  // default é TER a chave, que é o retrato de quem instalou pelo kit — e é a
+  // precondição dos casos que exercitam OUTRA coisa. Um teste que rodasse sem
+  // ela mediria "publicação sem chave" achando que mede o canal.
+  const temChave = mundo.chaveDaInstalacao !== false;
+  for (const v of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"]) {
+    if (temChave) process.env[v] = "sk-de-teste";
+    else delete process.env[v];
+  }
+
   responder = (c) => {
     if (c.table === "channel_sessions") return canais;
-    if (c.table === "ai_models") return { data: { model_id: "claude-sonnet-9" }, error: null };
+    if (c.table === "ai_models") {
+      // Consciente do filtro: antes respondia o MESMO modelo para qualquer
+      // provedor, e por isso um agente publicado em OpenRouter com um id da
+      // Anthropic passava verde aqui.
+      //
+      // Devolve LISTA porque a escolha do modelo deixou de ser "pegue o
+      // marcado como padrão" — a OpenRouter chega com centenas de modelos e
+      // NENHUM marcado, e a regra agora olha ferramentas e preço.
+      const provider = String(c.filtros.provider ?? "");
+      const modelId = modelos[provider];
+      return {
+        data: modelId
+          ? [
+              {
+                model_id: modelId,
+                is_default_for_provider: true,
+                supports_tools: true,
+                input_price_per_million_cents: 100,
+                output_price_per_million_cents: 200,
+              },
+            ]
+          : [],
+        error: null,
+      };
+    }
 
     if (c.table === "ai_agents") {
       if (c.op === "insert") {
@@ -181,7 +282,46 @@ function montarBanco(mundo: Mundo = {}): Estado {
         estado.onboardingState = (c.payload?.onboarding_state as Record<string, unknown>) ?? {};
         return { data: null, error: null };
       }
+      // A leitura do provedor da instalação é OUTRA consulta, com outras
+      // colunas, e pode falhar sozinha — é o caso em que não se sabe qual
+      // provedor usar, e publicar com um chute seria o defeito original de
+      // roupa nova.
+      if (c.colunas.includes("settings")) {
+        if (mundo.erroSettings) return { data: null, error: mundo.erroSettings };
+        return { data: { settings: mundo.settings ?? null }, error: null };
+      }
       return { data: { onboarding_state: estado.onboardingState, onboarded_at: null }, error: null };
+    }
+
+    if (c.table === "org_memory_versions") {
+      if (c.op === "insert") {
+        if (mundo.erroMemoria) return { data: null, error: mundo.erroMemoria };
+        const linha: Record<string, unknown> = {
+          id: `mem-${estado.memoria.length + 1}`,
+          ...c.payload,
+        };
+        estado.memoria.push(linha);
+        return { data: { id: linha.id, version_number: linha.version_number }, error: null };
+      }
+      // select-max da versão anterior
+      const ultima = estado.memoria[estado.memoria.length - 1];
+      return { data: ultima ? { version_number: ultima.version_number } : null, error: null };
+    }
+
+    if (c.table === "org_memory_pointers") {
+      estado.ponteiroDaMemoria = String((c.payload as { version_id?: unknown })?.version_id ?? "");
+      return { data: null, error: null };
+    }
+
+
+
+    if (c.table === "ai_provider_credentials") {
+      return { data: mundo.credencial ?? null, error: null };
+    }
+
+    if (c.table === "crm_pipelines") {
+      const funil = mundo.funilPadrao === undefined ? { id: "funil-1" } : mundo.funilPadrao;
+      return { data: funil, error: null };
     }
 
     if (c.table === "event_log") {
@@ -195,17 +335,18 @@ function montarBanco(mundo: Mundo = {}): Estado {
   return estado;
 }
 
-function formulario(nome = "Atendente IA"): FormData {
+function formulario(nome = "Atendente IA", regras?: string): FormData {
   const fd = new FormData();
   fd.set("name", nome);
   fd.set("prompt_template", "ecommerce_friendly");
+  if (regras !== undefined) fd.set("regras_da_casa", regras);
   return fd;
 }
 
 /** A action redireciona LANÇANDO; quem chama precisa distinguir isso de defeito. */
-async function clicar(nome?: string): Promise<CreateAgentResult | "redirecionou"> {
+async function clicar(nome?: string, regras?: string): Promise<CreateAgentResult | "redirecionou"> {
   try {
-    return await createDefaultAgent(formulario(nome));
+    return await createDefaultAgent(formulario(nome, regras));
   } catch (err) {
     if (err instanceof Error && err.message.startsWith("NEXT_REDIRECT")) return "redirecionou";
     throw err;
@@ -277,7 +418,10 @@ describe("onboarding: publicação impossível não pode terminar em silêncio",
     const res = await clicar();
 
     expect(res).toBe("redirecionou");
-    expect(redirects).toEqual(["/onboarding/invite-team"]);
+    // O destino é o ROTEADOR, não um passo. Fixar o passo aqui foi o que
+    // deixou o wizard pular "Ver ele atender" quando ele nasceu: o teste
+    // continuava verde porque media a intenção antiga.
+    expect(redirects).toEqual(["/onboarding"]);
     expect(estado.versoes).toHaveLength(1);
     expect(estado.versoes[0]).toMatchObject({ channel_session_id: "canal-1", status: "published" });
     expect(estado.agentes[0]?.published_version_id).toBe("versao-1");
@@ -315,5 +459,266 @@ describe("onboarding: publicação impossível não pode terminar em silêncio",
 
     expect(res.ok && res.publish_error).toMatch(/permission denied for table ai_agent_versions/);
     expect(redirects).toEqual([]);
+  });
+});
+
+/**
+ * O PROVEDOR DA INSTALAÇÃO — o passo publicava sempre "anthropic".
+ *
+ * O instalador pergunta qual IA vai atender e grava a escolha em
+ * `organizations.settings.llm.provider`. O onboarding ignorava: buscava o
+ * modelo com `.eq("provider","anthropic")` e gravava `provider:"anthropic"`
+ * literal na versão publicada. Como o provider da VERSÃO vence o da
+ * organização em `resolveOrgLlmConfig`, quem escolheu OpenRouter — a opção [1]
+ * do menu — terminava o wizard com um agente "Publicado" que morria em TODA
+ * mensagem, pedindo uma chave da Anthropic que ele nunca teve.
+ *
+ * O par provider+model vem sempre da MESMA origem. Emprestar só o id do modelo
+ * de outro provedor é o defeito que `lib/ai/pontos/resolver.ts` documenta.
+ */
+describe("onboarding: o agente nasce no provedor que a instalação escolheu", () => {
+  it("instalação em OpenRouter publica em OpenRouter — com o modelo DELE", async () => {
+    const estado = montarBanco({
+      settings: { llm: { provider: "openrouter", default_model: "claude-sonnet-5" } },
+      modelosPorProvedor: { anthropic: "claude-sonnet-9", openrouter: "z-ai/glm-4.7" },
+    });
+
+    const res = await clicar();
+
+    expect(res).toBe("redirecionou");
+    expect(estado.versoes).toHaveLength(1);
+    expect(estado.versoes[0]).toMatchObject({
+      provider: "openrouter",
+      model: "z-ai/glm-4.7",
+      status: "published",
+    });
+  });
+
+  it("o `default_model` do settings NÃO é a fonte do modelo", async () => {
+    // Numa instalação OpenRouter ele vale um id da ANTHROPIC: o gatilho do
+    // banco semeia o default da Anthropic e o instalador só sobrescreve
+    // `{llm,provider}`. Usá-lo mandaria "claude-sonnet-5" ao endpoint da
+    // OpenRouter — texto plausível, nenhum lead criado.
+    // O `default_model` aqui é um id PLAUSÍVEL para a OpenRouter — e não o
+    // curado. Fosse "claude-sonnet-5", este caso passaria por vacuidade: o
+    // código de hoje já grava outro valor, e a implementação errada
+    // ("lê o modelo do settings") não seria reprovada por ele.
+    const estado = montarBanco({
+      settings: { llm: { provider: "openrouter", default_model: "algum/modelo-do-settings" } },
+      modelosPorProvedor: { anthropic: "claude-sonnet-9", openrouter: "z-ai/glm-4.7" },
+    });
+
+    await clicar();
+
+    expect(estado.versoes[0]?.model).toBe("z-ai/glm-4.7");
+    expect(estado.versoes[0]?.model).not.toBe("algum/modelo-do-settings");
+  });
+
+  it("VPS fresca em OpenRouter: sem modelo no catálogo, fica rascunho e DIZ por quê", async () => {
+    // O estado real de uma instalação nova: o baseline semeia zero linhas de
+    // OpenRouter e o catálogo só chega no cron diário. Publicar aqui exigiria
+    // inventar um id de modelo — e um id inventado é o mesmo agente mudo com
+    // outro carimbo.
+    const estado = montarBanco({
+      settings: { llm: { provider: "openrouter" } },
+      modelosPorProvedor: { anthropic: "claude-sonnet-9" },
+    });
+
+    const res = await clicar();
+
+    expect(res).not.toBe("redirecionou");
+    const r = res as CreateAgentResult;
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.publish_blocked_by).toBe("modelo");
+    expect(estado.versoes).toHaveLength(0);
+    expect(estado.agentes[0]?.published_version_id ?? null).toBeNull();
+    // O wizard não avança calado: a tela é a única pista que a pessoa tem.
+    expect(redirects).toEqual([]);
+  });
+
+  it("controle: instalação sem escolha registrada segue na Anthropic, e publica", async () => {
+    // Sem este caso, um conserto que simplesmente parasse de publicar sempre
+    // passaria nos três acima.
+    const estado = montarBanco();
+
+    const res = await clicar();
+
+    expect(res).toBe("redirecionou");
+    expect(estado.versoes[0]).toMatchObject({ provider: "anthropic", model: "claude-sonnet-9" });
+  });
+
+  it("nasce podendo mexer no CRM: capacidades ligadas e funil no escopo", async () => {
+    // O defeito: `tool_ids='{}'` faz o turno não montar ferramenta nenhuma, e
+    // `pipeline_ids='{}'` recusa toda escrita de lead (vazio = NENHUM, falha
+    // fechada). Juntos, entregam um funcionário que conversa e não toca no
+    // produto — sem nada na tela dizendo isso.
+    const estado = montarBanco();
+
+    await clicar();
+
+    const versao = estado.versoes[0] as { tool_ids?: string[]; pipeline_ids?: string[] };
+    expect(versao.tool_ids?.length ?? 0).toBeGreaterThan(0);
+    expect(versao.pipeline_ids).toEqual(["funil-1"]);
+  });
+
+  it("as capacidades gravadas são as do padrão — não uma lista paralela", async () => {
+    const { capacidadesPadraoDoOnboarding } = await import("@/lib/ai/agents/capacidades-padrao");
+    const estado = montarBanco();
+
+    await clicar();
+
+    expect((estado.versoes[0] as { tool_ids?: string[] }).tool_ids).toEqual(
+      capacidadesPadraoDoOnboarding(),
+    );
+  });
+
+  it("sem funil de entrada, o escopo nasce VAZIO — nunca um funil chutado", async () => {
+    // Escopo errado é pior que escopo nenhum: o agente mexeria no funil de
+    // outra operação achando que é o dele.
+    const estado = montarBanco({ funilPadrao: null });
+
+    await clicar();
+
+    expect((estado.versoes[0] as { pipeline_ids?: string[] }).pipeline_ids).toEqual([]);
+  });
+
+  it("não dá para LER o provedor: não publica — publicar com chute é o defeito de origem", async () => {
+    const estado = montarBanco({
+      erroSettings: { code: "42501", message: "permission denied for table organizations" },
+    });
+
+    const res = await clicar();
+
+    expect(res).not.toBe("redirecionou");
+    const r = res as CreateAgentResult;
+    expect(r.ok && r.publish_error).toMatch(/permission denied for table organizations/);
+    expect(estado.versoes).toHaveLength(0);
+  });
+});
+
+/**
+ * AS REGRAS DA CASA.
+ *
+ * O passo perguntava só nome e jeito de falar. O que a pessoa sabe sobre o
+ * próprio negócio — horário, o que nunca prometer, como chamar o cliente — não
+ * tinha onde entrar, e o funcionário nascia sem saber uma linha sobre onde
+ * trabalha.
+ *
+ * Elas vão para a MEMÓRIA DA ORGANIZAÇÃO, não para o prompt deste agente: valem
+ * para qualquer agente que a empresa venha a ter, e é o mesmo lugar que a tela
+ * de Memória edita depois. Enfiá-las no prompt faria a segunda contratação
+ * nascer sem elas.
+ */
+describe("onboarding: o que o funcionário sabe sobre o negócio", () => {
+  it("as regras escritas no passo viram memória da organização, publicada", async () => {
+    const estado = montarBanco();
+
+    await clicar("Atendente IA", "Horário: 9h às 18h. Nunca prometa desconto.");
+
+    expect(estado.memoria).toHaveLength(1);
+    expect(estado.memoria[0]).toMatchObject({
+      organization_id: ORG,
+      version_number: 1,
+      content: "Horário: 9h às 18h. Nunca prometa desconto.",
+    });
+    // Gravar a versão sem mover o ponteiro deixaria o agente lendo a anterior.
+    expect(estado.ponteiroDaMemoria).toBe("mem-1");
+  });
+
+  it("NÃO vão para o prompt do agente — senão o segundo agente nasce sem elas", async () => {
+    const estado = montarBanco();
+
+    await clicar("Atendente IA", "Nunca prometa desconto.");
+
+    const prompt = String((estado.versoes[0] as { system_prompt?: string }).system_prompt ?? "");
+    expect(prompt).not.toContain("Nunca prometa desconto");
+  });
+
+  it("campo em branco não publica memória vazia", async () => {
+    // O campo é opcional de propósito: quem não sabe o que escrever no primeiro
+    // dia não pode ficar preso no passo. Publicar vazio criaria uma versão que
+    // apaga o que existia.
+    const estado = montarBanco();
+
+    await clicar("Atendente IA", "   ");
+
+    expect(estado.memoria).toHaveLength(0);
+  });
+
+  it("falha ao gravar as regras NÃO derruba o passo — mas aparece na tela", async () => {
+    // O agente já existe e o treinamento principal aconteceu. Redirecionar
+    // calado apagaria da tela o único lugar onde aquele texto existia.
+    const estado = montarBanco({
+      erroMemoria: { code: "42501", message: "permission denied for table org_memory_versions" },
+    });
+
+    const res = await clicar("Atendente IA", "Horário: 9h às 18h.");
+
+    expect(res).not.toBe("redirecionou");
+    const r = res as CreateAgentResult;
+    expect(r.ok && r.regras_nao_salvas).toMatch(/permission denied for table org_memory_versions/);
+    // O agente foi publicado assim mesmo: o que falhou foi só a memória.
+    expect(estado.versoes).toHaveLength(1);
+    expect(redirects).toEqual([]);
+  });
+
+  it("o prompt sabe o nome do negócio (e não fala de loja online)", async () => {
+    // Dois dos três jeitos de falar diziam "loja online"/"e-commerce" — numa
+    // clínica, o atendente se apresentava como sendo de outro negócio.
+    const estado = montarBanco();
+
+    await clicar();
+
+    const prompt = String((estado.versoes[0] as { system_prompt?: string }).system_prompt ?? "");
+    expect(prompt).toContain("QA"); // o nome da organização do teste
+    expect(prompt).not.toMatch(/loja online|e-commerce/i);
+  });
+});
+
+describe("onboarding: qual chave o funcionário usa", () => {
+  it("sem credencial cadastrada, a versão usa a chave da INSTALAÇÃO", () => {
+    // `credential_id: null` é o contrato de "usa a do `.env`" — o caso mais
+    // comum do kit, e o que fazia o editor novo recusar o formulário antes.
+    const estado = montarBanco({ credencial: null, chaveDaInstalacao: true });
+    return clicar().then(() => {
+      expect(estado.versoes).toHaveLength(1);
+      expect(estado.versoes[0]!.credential_id).toBeNull();
+    });
+  });
+
+  it("com credencial validada da organização, é ELA que a versão aponta", async () => {
+    // Quem colou a chave no wizard tem credencial e pode NÃO ter chave no
+    // ambiente: apontar para a instalação publicaria um agente que morre em
+    // toda mensagem.
+    const estado = montarBanco({ credencial: { id: "cred-9" }, chaveDaInstalacao: false });
+    await clicar();
+    expect(estado.versoes).toHaveLength(1);
+    expect(estado.versoes[0]!.credential_id).toBe("cred-9");
+  });
+
+  it("sem NENHUMA das duas, não publica — e a tela recebe a causa certa", async () => {
+    // Falha fechada na ação, aberta na informação. Publicar aqui entregaria um
+    // funcionário "no ar" que erra em toda mensagem, e o dono só descobriria com
+    // o primeiro cliente de verdade.
+    const estado = montarBanco({ credencial: null, chaveDaInstalacao: false });
+    const r = await clicar();
+    expect(r).not.toBe("redirecionou");
+    const res = r as Exclude<CreateAgentResult, { ok: false }>;
+    expect(res.publish_blocked_by).toBe("chave");
+    expect(res.provider).toBe("anthropic");
+    // O agente EXISTE (o passo aconteceu); o que não existe é a versão.
+    expect(estado.agentes).toHaveLength(1);
+    expect(estado.versoes).toHaveLength(0);
+  });
+
+  it("o funcionário nasce no formato ATUAL do produto, não no legado", async () => {
+    // `ai_agents.kind` tem default 'rag_bot' no banco — de quando o produto só
+    // tinha o formato antigo. Nascendo assim, o agente abria no editor legado
+    // (Temperature, Top K, Similarity threshold) e as capacidades que ele
+    // recebeu ligadas ficavam INVISÍVEIS para o dono.
+    const estado = montarBanco({ credencial: null, chaveDaInstalacao: true });
+    await clicar();
+    expect(estado.agentes).toHaveLength(1);
+    expect(estado.agentes[0]!.kind).toBe("mcp_agent");
   });
 });

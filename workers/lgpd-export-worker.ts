@@ -38,6 +38,7 @@ import {
   sendExportEmail,
 } from "@/lib/lgpd/email-delivery";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { marcaDaSaida } from "@/lib/branding/saida";
 
 const MAX_ATTEMPTS = 3;
 const BUCKET = "lgpd-exports";
@@ -243,11 +244,15 @@ export async function processLgpdExport(event: EventRow): Promise<HandlerResult>
     // 9. Send email (Resend). Failure here is retriable.
     let messageId: string | null = null;
     try {
+      // Classe A: há organização, então o e-mail diz quem PROCESSOU — a marca
+      // resolvida da org, e não a nossa. O PDF em anexo continua nomeando o
+      // controlador legal, de propósito (ver `lib/lgpd/pdf-renderer.tsx`).
       const sent = await sendExportEmail({
         to: deliveryEmail,
         requestId,
         signedUrl: signed.signedUrl,
         expiresAt,
+        marca: await marcaDaSaida(orgId),
       });
       messageId = sent.messageId;
     } catch (err) {

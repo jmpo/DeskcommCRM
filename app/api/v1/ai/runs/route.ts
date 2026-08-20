@@ -39,6 +39,12 @@ const O_QUE_FAZER: Record<string, string> = {
     "O provedor está fora do ar ou demorou demais. Costuma se resolver sozinho; se persistir, troque de provedor nesse ponto.",
   modelo_sem_ferramentas:
     "O modelo escolhido não sabe usar as ferramentas do CRM. Troque por um que saiba, no painel de Provedores.",
+  // A única linha desta tabela em que o produto parou de propósito. Ela existe
+  // porque o `throw` do gate de orçamento caía FORA do `try` que grava a falha:
+  // a tela que nasceu para explicar o silêncio da IA nunca mostrava o único
+  // caso em que o silêncio é intencional.
+  orcamento_esgotado:
+    "A IA parou porque o gasto do mês atingiu o limite que você definiu. Ajuste o limite (ou desligue a parada) em Uso de IA › Orçamento.",
   erro_desconhecido:
     "Não conseguimos classificar esta falha. A mensagem original do provedor está abaixo.",
 };

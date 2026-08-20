@@ -50,6 +50,11 @@ export type InboxKind =
   | 'midia_nao_lida'
   | 'promise_unfulfilled'
   | 'contact_proposal_expired'
+  // (migration 0159) O degrau de AVISO do teto de gasto de IA — o que a
+  // organização vê antes de qualquer parada. Existe separado de
+  // `budget_exceeded` porque diz coisa diferente: um relata que algo
+  // ACONTECEU e a IA segue; o outro, que ela parou. Severity 'warn'.
+  | 'budget_warning'
   | 'other';
 
 export interface InboxItemRow {

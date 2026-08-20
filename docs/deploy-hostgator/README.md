@@ -174,9 +174,17 @@ banco, cria o seu usuário admin, sobe o CRM e confere se ficou no ar.
    (SSL) leva cerca de 1 minuto pra aparecer no primeiro acesso — se der erro de
    segurança, espere um pouco e recarregue.
 2. Entre com o **e-mail e senha** que você definiu na instalação.
-3. **Segurança em 2 etapas (MFA):** no primeiro login o CRM pede pra configurar um
-   código de 6 dígitos. Tenha o app **Google Authenticator** ou **Authy** no celular,
-   escaneie o QR e digite o código. (Isso protege a conta de admin.)
+3. **Pronto — você já está dentro.** Não há mais nenhum passo obrigatório antes de usar
+   o sistema.
+
+> **Segurança em 2 etapas (opcional, e recomendada).** O CRM **não** pede isso no primeiro
+> login — você liga quando quiser, em **Configurações › Segurança**. Vai precisar de um app
+> como **Google Authenticator** ou **Authy** no celular: escaneia o QR e digita o código de
+> 6 dígitos. Depois de ligado, o código passa a ser pedido em todo login.
+>
+> Este guia já disse que o CRM pedia isso logo no primeiro acesso. Não pede — e quem
+> esperasse a tela aparecer concluiria que a instalação deu errado. **O QR que você vai
+> ver a seguir é outro:** é o do WhatsApp, no Passo 7.
 
 ---
 

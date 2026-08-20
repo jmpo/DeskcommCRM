@@ -258,15 +258,37 @@ load_env() {
     key="${line%%=*}"; val="${line#*=}"
     case "$key" in ''|*[!A-Za-z0-9_]*) continue;; esac
     case "$val" in
-      \"*\") val="${val:1:${#val}-2}";;
-      \'*\')
+      \"*\")
         val="${val:1:${#val}-2}"
-        # envq escreve a aspa simples do CONTEÚDO como '\'' (fecha o literal,
-        # escapa a aspa, reabre) — é o que faz a linha ser shell válido. Só que
-        # tirar as aspas de fora não desfaz isso: sem esta troca, uma senha com
-        # aspa volta da releitura com quatro caracteres a mais, e o erro só
-        # aparece longe daqui (o psql recusa a conexão, o login não bate) sem
-        # nada apontando para o .env. Achado pelo teste de round-trip.
+        # Tirar as aspas não desfaz o escape que o envq pôs lá dentro. Sem estas
+        # quatro trocas, `Loja P$ss` volta da releitura como `Loja P\$ss` — o
+        # valor chega adulterado e o erro só aparece longe daqui (medido).
+        #
+        # O sentinela \001 existe pela ORDEM: um `\\` desfeito para `\` de cara
+        # seria reprocessado pelas trocas seguintes, e `\\$` (barra literal
+        # seguida de cifrão) viraria `$`. Guardando o par escapado num byte que
+        # não ocorre em .env, as trocas de `\"`, `\$` e crase não o enxergam, e
+        # ele só volta a ser barra no fim.
+        val="${val//\\\\/$'\001'}"
+        val="${val//\\\"/\"}"
+        val="${val//\\\$/\$}"
+        val="${val//\\\`/\`}"
+        val="${val//$'\001'/\\}"
+        ;;
+      \'*\')
+        # RETROCOMPATIBILIDADE — não remova. Até 2026-08 o envq gravava com
+        # aspas simples, e atualizar NÃO reescreve o .env: o update.sh só troca
+        # APP_IMAGE e APP_PULL_POLICY (:159 e :165, via set_env_var) e deixa as
+        # outras chaves exatamente como o install antigo as escreveu. Quem
+        # apagar este ramo devolve senha e connection string de toda instalação
+        # velha com quatro caracteres a mais, já na primeira atualização.
+        val="${val:1:${#val}-2}"
+        # O envq daquela época escrevia a aspa simples do CONTEÚDO como '\''
+        # (fecha o literal, escapa a aspa, reabre). Tirar as aspas de fora não
+        # desfaz isso: sem esta troca, uma senha com aspa volta da releitura com
+        # quatro caracteres a mais, e o erro só aparece longe daqui (o psql
+        # recusa a conexão, o login não bate) sem nada apontando para o .env.
+        # Achado pelo teste de round-trip.
         val="${val//"'\\''"/"'"}"
         ;;
     esac
@@ -355,6 +377,101 @@ trio_publicado() {
     [ "$(ghcr_status "$i" "$tag")" = "200" ] || return 1
   done
   return 0
+}
+
+# O .env está com pin PELA METADE? (app fixado numa versão, worker/scheduler não)
+#
+# Este é o estado que a transição produz e que nada denuncia. Medido em ensaio e
+# depois na produção: quem executa a primeira atualização é o `update.sh` que já
+# estava no disco — o antigo —, e ele só sabe gravar `APP_IMAGE`. O worker cai no
+# default do compose (`:stable`, um canal MÓVEL) e o script termina dizendo
+# "Atualização concluída — app no ar e saudável", sem uma palavra sobre isso.
+#
+# Por que importa: na release seguinte o `stable` se move, e um `up -d` qualquer
+# — com `pull_policy: always`, que é o default de tag móvel — levaria o worker
+# sozinho para a versão nova enquanto o app permanece na antiga. Mistura de
+# versões que acontece sem ninguém pedir, e é o que o invariante 3 proíbe.
+#
+# Ecoa os serviços sem pin, separados por espaço. Vazio = está tudo certo.
+valor_do_env() {  # valor_do_env <arquivo> <chave>   (sem aspas ao redor)
+  # O `|| true` não é decorativo: o `_common.sh` roda sob `set -euo pipefail`, e
+  # um `grep` que não casa sai 1 — o que, sem isto, mataria a função inteira
+  # justamente no caso que interessa (a chave AUSENTE). Custou dois casos verdes
+  # de mentira num teste antes de aparecer.
+  { grep -E "^$2=" "$1" 2>/dev/null || true; } | head -1 | cut -d= -f2- | sed "s/^['\"]//; s/['\"]\$//"
+}
+
+tag_da_imagem() {  # tag_da_imagem <referência>  → a tag, ou vazio se não houver
+  local ref="${1##*/}"
+  case "$ref" in *:*) printf '%s' "${ref##*:}" ;; *) printf '' ;; esac
+}
+
+pin_incompleto() {  # pin_incompleto [caminho do .env]
+  local envfile="${1:-.env}" app_ref app_tag faltando="" par chave svc img tag
+  [ -f "$envfile" ] || return 0
+
+  # Sem APP_IMAGE pinado não há "metade" nenhuma — é outra situação (instalação
+  # que nunca rodou update, ou que escolheu um canal de propósito).
+  app_ref="$(valor_do_env "$envfile" APP_IMAGE)"
+  [ -n "$app_ref" ] || return 0
+  app_tag="$(tag_da_imagem "$app_ref")"
+  case "$app_tag" in latest|main|stable|"") return 0 ;; esac
+
+  for par in "WORKER_IMAGE:worker" "SCHEDULER_IMAGE:scheduler"; do
+    chave="${par%%:*}"; svc="${par##*:}"
+    img="$(valor_do_env "$envfile" "$chave")"
+    if [ -z "$img" ]; then
+      faltando="$faltando $svc"                    # ausente: segue o default do compose
+    else
+      tag="$(tag_da_imagem "$img")"
+      case "$tag" in latest|main|stable|"") faltando="$faltando $svc" ;; esac
+    fi
+  done
+  printf '%s' "${faltando# }"
+}
+
+# Completa o pin AUSENTE no .env, com a versão que a imagem EM EXECUÇÃO declara.
+#
+# A regra que torna isto seguro: **só preenche lacuna, nunca sobrescreve valor
+# explícito.** Chave ausente é omissão do `update.sh` antigo; chave presente é
+# decisão de quem opera — inclusive a decisão de seguir um canal móvel de
+# propósito. Um cron que corrigisse escolha alheia seria pior que o defeito.
+#
+# E a versão gravada é a que o contêiner JÁ está rodando (label
+# `org.opencontainers.image.version` da imagem em uso), não a do app. A diferença
+# importa: se o worker estiver numa versão diferente do app, gravar a do app
+# MUDARIA o que roda no próximo `up -d` — possivelmente um downgrade. Gravando o
+# que já está lá, a operação é congelamento puro: nada muda de comportamento
+# agora, e o próximo `update.sh` alinha as três.
+#
+# Ecoa os serviços corrigidos, separados por espaço. Vazio = nada a fazer.
+completar_pin_ausente() {  # completar_pin_ausente [envfile]
+  local envfile="${1:-.env}" par chave svc repo img ver corrigidos=""
+  [ -f "$envfile" ] || return 0
+  # Esta guarda vale para execução não-root e não custa nada. NÃO é ela que
+  # protege o caso real: o cron roda como root, e root ignora `chmod`. Quem
+  # protege é a atomicidade do `set_env_var` (escreve num `.tmp` e faz `mv`) —
+  # medido com `chattr +i`, que barra até root: a escrita falha, a função sai 0
+  # e o `.env` original chega intacto do outro lado, com as customizações.
+  [ -w "$envfile" ] || return 0
+
+  for par in "WORKER_IMAGE:worker:deskcomm-worker" "SCHEDULER_IMAGE:scheduler:deskcomm-scheduler"; do
+    chave="${par%%:*}"; svc="$(printf '%s' "$par" | cut -d: -f2)"; repo="${par##*:}"
+
+    # LACUNA apenas. Valor explícito (mesmo em canal móvel) é intocável.
+    if { grep -qE "^${chave}=" "$envfile" 2>/dev/null; }; then continue; fi
+
+    img="$(docker inspect "$(nome_do_projeto_atual)-${svc}-1" --format '{{.Config.Image}}' 2>/dev/null)" || img=""
+    [ -n "$img" ] || continue
+    ver="$(docker image inspect "$img" --format '{{index .Config.Labels "org.opencontainers.image.version"}}' 2>/dev/null)" || ver=""
+    # `<no value>` = imagem sem o label (build local). Canal não é versão.
+    case "$ver" in ""|"<no value>"|latest|main|stable) continue ;; esac
+
+    set_env_var "$envfile" "$chave" "${IMG_NS}/${repo}:${ver}"
+    set_env_var "$envfile" "${chave%_IMAGE}_PULL_POLICY" missing
+    corrigidos="$corrigidos $svc"
+  done
+  printf '%s' "${corrigidos# }"
 }
 
 # Escreve no .env as três imagens da MESMA versão + o pull_policy que combina

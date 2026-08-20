@@ -120,7 +120,7 @@ Hostinger does — it **asks instead of guessing**, because publishing behind th
 ### First access
 
 Open `https://<your-domain>` (the padlock takes ~1 min to appear), sign in as the admin, and
-have **Google Authenticator** or **Authy** at hand — the first admin login requires MFA. During
+have **Google Authenticator** or **Authy** at hand *if* you want to turn on two-step verification — it is **optional** and lives in Settings › Security; the first login does **not** require it. During
 onboarding, scan the QR code with your WhatsApp number.
 
 ### 🤖 Rather have an AI install it for you?
@@ -305,7 +305,14 @@ pnpm test:db       # ephemeral Postgres + baseline install/update + invariants
 pnpm test:e2e      # Playwright (requires dev server)
 ```
 
-**Four checks are required** to merge into `main` — all verified in branch protection, not just on paper:
+**These checks are required** to merge into `main`. This list has already said "four" and then "five" — **measure, don't trust it**:
+
+```bash
+gh api repos/melgarafael/DeskcommCRM/branches/main/protection \
+  --jq '.required_status_checks.contexts|join(", ")'
+# on 2026-08-14: verify, build-and-size, invariants, e2e, imagens-ok
+```
+
 
 | Check | What it does |
 |---|---|
@@ -329,7 +336,7 @@ Among the invariants is the **RLS isolation test**: it creates 2 organizations, 
 | [`VISION.md`](VISION.md) | **Vision & positioning** — what the project is, what it believes, where it's going |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each version — **read your target version's section before updating** |
 | [`docs/SETUP.md`](docs/SETUP.md) | Development setup, step by step, for every integration |
-| [`docs/white-label.md`](docs/white-label.md) | **Installing for clients** — rebranding, one-install-per-client vs shared, reseller operations |
+| [`docs/white-label.en.md`](docs/white-label.en.md) | **Installing for clients** — rebranding, one-install-per-client vs shared, reseller operations |
 | [`docs/runbooks/waha-hostgator.md`](docs/runbooks/waha-hostgator.md) | Production runbook for WAHA (sizing, recovery) |
 | [`CLAUDE.md`](CLAUDE.md) | Non-negotiable conventions (required reading to contribute) |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | One-page architecture overview |
@@ -358,7 +365,9 @@ pnpm test:db   # needs Docker — this is the `invariants` job, required to merg
 git commit -m "feat(scope): description"
 ```
 
-That line is the **complete** list of required gates on purpose: running half of them and discovering the rest as a red surprise after hours of waiting is the worst first experience this repository knows how to deliver.
+Those two lines are **everything you can run on your machine**, on purpose: running half of them and discovering the rest as a red surprise after hours of waiting is the worst first experience this repository knows how to deliver.
+
+Two required gates do **not** fit there and only run in CI: `e2e` (needs a local Supabase) and `imagens-ok` (builds the three Docker images). Green on your machine is not green at merge time.
 
 **Definition of Done:** zero typecheck errors, zero lint errors, relevant tests green, RLS tested if a tenant-aware table is touched, audit log emitted on mutations, versioned migration **+ an idempotent appendix in `baseline.sql`** if the schema changes (otherwise the change never reaches self-hosters).
 

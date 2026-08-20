@@ -1,5 +1,19 @@
 # Runbook — ativar a doutrina de packaging (uma vez só)
 
+> **CONCLUÍDO em 2026-08-14. Este runbook é histórico** — guardado porque descreve o
+> procedimento e as armadilhas de cada passo, não porque haja algo a fazer.
+>
+> | Passo | Estado | Prova |
+> |---|---|---|
+> | 1–2. Pacotes públicos | feito | `docker pull` anônimo resolve as três |
+> | 3. `imagens-ok` obrigatório | feito | `protection` → `verify, build-and-size, invariants, e2e, imagens-ok` |
+> | 4. Primeira release completa | feito | v1.3.0; `1.3.0` e `stable` nos três pacotes |
+> | 5. Tag de ensaio apagada | feito | `docs-doutrina-packaging` → 404 nos três |
+>
+> Reconfira na fonte antes de confiar nesta tabela — foi por confiar numa nota de estado
+> que a doutrina passou um dia inteiro afirmando que o `imagens-ok` não bloqueava, depois
+> de ele já bloquear.
+
 Este documento existe porque a entrega da [doutrina de packaging](../doctrine/packaging.md)
 tem três passos que **não podem estar dentro do PR**: dois dependem de administração do
 repositório e um depende de as imagens existirem. Enquanto eles não forem dados, parte da

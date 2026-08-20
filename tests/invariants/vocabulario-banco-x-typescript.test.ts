@@ -187,6 +187,26 @@ const PARES: Array<{
     arquivo: "hooks/followup/useFollowupQueue.ts",
     simbolo: "FollowupEnrollmentStatus",
   },
+  {
+    tabela: "ai_budgets",
+    coluna: "enforcement_mode",
+    // lib/agent-engine/edge/llm/orcamento.ts → ModoDeOrcamento.
+    //
+    // Nasce com um erro de classificação já cometido: a 0159 e o MANIFEST
+    // declararam `ai_budgets_enforcement_mode_check` como "cross-coluna / de
+    // domínio, não de vocabulário", e por isso a coluna ficou de fora daqui. É
+    // falso — `check (enforcement_mode in ('off','avisar','bloquear'))` é
+    // vocabulário puro de conjunto, e o par em TypeScript não só existe como
+    // roda no caminho quente (é ele que decide se a IA responde).
+    //
+    // A OUTRA constraint da mesma coluna, `ai_budgets_bloquear_precisa_de_teto`
+    // (`enforcement_mode <> 'bloquear' or monthly_limit_cents >= 100`), essa sim
+    // é cross-coluna: `literaisSeDefine` a recusa por não casar
+    // `col = ANY (ARRAY[...])`, então continua havendo UMA definidora só e o
+    // extrator não precisa escolher.
+    arquivo: "lib/agent-engine/edge/llm/orcamento.ts",
+    simbolo: "ModoDeOrcamento",
+  },
 ];
 
 /** Tira um nível de parênteses externos, se ele envolver a expressão inteira. */
@@ -310,7 +330,28 @@ function literaisDoUnionType(arquivo: string, simbolo: string): string[] {
     );
   }
 
-  const decl = new RegExp(`type\\s+${simbolo}\\s*=([^;]*);`, "s").exec(fonte);
+  // ⚠️ COMENTÁRIOS SAEM ANTES DE PROCURAR A DECLARAÇÃO, e a ordem é o conserto.
+  //
+  // A versão anterior recortava `type X =([^;]*);` do fonte CRU e só então
+  // limpava comentários. Como `[^;]*` para no primeiro ponto e vírgula, um `;`
+  // escrito dentro de um comentário NO MEIO do union truncava a lista — e os
+  // membros abaixo dele sumiam sem que nada estourasse.
+  //
+  // Não é hipotético: aconteceu com `InboxKind`, num comentário que explicava a
+  // diferença entre dois kinds — "um relata que algo ACONTECEU e a IA segue; o
+  // outro, que ela parou". A extração parou em `segue`, devolveu 19 dos 21
+  // membros, e o par reprovou dizendo que o TypeScript não declarava
+  // `budget_warning` nem `other`. Os dois estavam lá, seis linhas abaixo.
+  //
+  // O modo de falha é o pior possível para um gate: ele acusa o CÓDIGO por um
+  // defeito do INSTRUMENTO, com uma mensagem convincente, e manda o próximo
+  // consertar o que estava certo. A guarda de "zero literais" logo abaixo não
+  // pega este caso — a lista truncada não é vazia.
+  //
+  // Prosa em português tem ponto e vírgula. O extrator é que não podia depender
+  // de a prosa não ter.
+  const semComentarios = fonte.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  const decl = new RegExp(`type\\s+${simbolo}\\s*=([^;]*);`, "s").exec(semComentarios);
   if (!decl) {
     throw new Error(
       `extrator de vocabulário: não achei \`type ${simbolo} = ...;\` em ${arquivo}. ` +

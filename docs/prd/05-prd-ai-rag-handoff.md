@@ -153,9 +153,56 @@ Override que desliga bot total ou pontualmente. **Por tenant**: admin desliga bo
 
 ### 3.13 Orçamento de IA por tenant
 
-`ai_budget.monthly_limit_cents` + `ai_budget.action_at_100pct: 'throttle'|'disable'`. Alarme em 80% notifica admin (email + UI banner). Em 100%: modo `throttle` continua respondendo mas só com Haiku 4.5 (degrada qualidade pra controlar custo) OU rejeita inbounds excedentes (decisão deferida); modo `disable` desliga bot até virar mês ou admin aumentar limite. Cálculo rolling a cada `ai_invocation` insert; reset todo dia 1º. Super-admin pode setar `platform_max_per_tenant` pra evitar runaway (proteção operadora BPO).
+> **Reescrita em 2026-08-15 (migrations 0159/0160).** A versão anterior descrevia
+> `action_at_100pct: 'throttle'|'disable'`, alarme por e-mail e `platform_max_per_tenant`.
+> Nenhum dos três existia no produto: o dropdown gravava um campo que ninguém lia, o e-mail
+> não tinha chamador, e o teto que a tela editava (`ai_budgets.monthly_limit_cents`) NÃO era
+> o campo que o enforcement consultava (`organizations.settings.llm.monthly_budget_cents`) —
+> ou seja, quem preenchia a tela acreditava estar protegido e não estava.
 
-**ACs.** Tenant em ≥80% recebe alarme. Em 100% modo `disable` → bot desliga com activity `ai_budget_exhausted`. Reset mensal libera em D+1. Override manual reativa em <30s.
+**A escada de três estados, escolhida pelo `admin` em Uso de IA › Orçamento**
+(`ai_budgets.enforcement_mode`, default `off` — nenhuma instalação nasce armada):
+
+- `off` — **só acompanhar**. A IA nunca para por gasto. É o estado de 100% das organizações
+  no dia em que a migration é aplicada, e o único que a migration escreve.
+- `avisar` — abre um `agent_inbox_items` kind `budget_warning` na Central ao passar de
+  `alarm_threshold_pct` (50..99, default 80) do teto, e **segue respondendo**.
+- `bloquear` — recusa a chamada de LLM quando o gasto do mês atinge o teto.
+
+**Regras que protegem o degrau `bloquear`,** todas validadas no servidor
+(`PATCH /api/v1/ai/budget`) e não só na tela:
+
+1. **A escada não se pula.** `off → bloquear` é `422 invalid_state_transition`.
+2. **Carência de 72h.** Armar grava `enforcement_effective_at = now() + 72h`; até lá o modo
+   é `bloquear` e o efeito é o de `avisar`. `confirmar_imediato: true` renuncia a ela.
+3. **Piso de US$ 1,00** (`monthly_limit_cents >= 100`) para sair de `off`, resolvido sobre o
+   estado pós-escrita. Teto `0` significa **sem limite**, nunca "bloqueia tudo".
+4. **Ninguém é bloqueado sem ter sido avisado no mês corrente** — a primeira chamada que
+   cruza o teto avisa e segue; a segunda bloqueia.
+5. **Kill switch da instalação:** `AI_BUDGET_ENFORCEMENT` (`on` | `avisar` | `off`). Só sabe
+   AFROUXAR; `on` apenas respeita o que cada organização escolheu.
+
+**O gasto tem uma régua só:** `public.fn_gasto_de_ia_do_mes(uuid)`, que soma `llm_calls` do
+mês corrente. É a mesma função que o gate, o card do cliente e o painel de saúde por tenant
+consultam. **Valores em centavo de DÓLAR** — `pricing.ts` cota o provedor em USD.
+
+**Quando o teto para a IA, a conversa NÃO fica sem dono:** ela vai para a fila de atendimento
+humano (`performHumanHandoff` no engine, `triggerHandoff` no caminho pré-engine), com item na
+Central e razão `orcamento_de_ia`. Volta ao automático **uma a uma**, pelo botão "Devolver ao automático" no cabeçalho da conversa — subir o teto evita paradas NOVAS, não
+desfaz as que já aconteceram.
+
+**Não implementado, declarado:** `platform_max_per_tenant` (teto de plataforma para o
+super-admin) não existe. Alarme por e-mail não existe — `lib/email/templates/ai-budget-alarm.tsx`
+está sem chamador desde que o cron morto foi apagado (dívida D1 em `tests/unit/branding.test.ts`).
+O aviso hoje é a Central, não o e-mail.
+
+**ACs.** Organização recém-instalada tem `enforcement_mode='off'` e a IA nunca para por gasto.
+`off → bloquear` num único PATCH → 422. Armar sem `confirmar_imediato` → a parada não vale
+antes de 72h. Gasto cruza o limiar em `avisar` → 1 `budget_warning` aberto, sem duplicar, e a
+resposta SAI. Gasto atinge o teto em `bloquear`, com aviso já aberto no mês → chamada recusada
+antes de sair byte, `budget_exceeded` na Central, linha `orcamento_esgotado` em `llm_calls`, e
+a conversa em `status='pending'`. Gasto volta abaixo do limiar (virou o mês, ou o teto subiu) →
+os itens são retratados sozinhos.
 
 ### 3.14 Logging de prompts e responses
 

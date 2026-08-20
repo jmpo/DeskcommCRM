@@ -14,6 +14,19 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 # `veredito_rede_do_proxy` e `garantir_rede_do_proxy` — o install.sh e o update.sh
 # compartilham essas três, e a suíte exercita as três de um lugar só.
 . ./_common.sh
+
+# Lê UMA chave do .env pelo `load_env` do kit, e não por grep de formato.
+#
+# Os três laços de packaging abaixo casavam a LINHA (`^CHAVE='?valor'?$`), o que
+# amarrava a asserção ao encoding do `.env` — e quebrou quando o `envq` passou a
+# escrever aspas duplas para o Docker Compose aceitar apóstrofo (`Sant'Ana`).
+# Comparar VALOR em vez de TEXTO torna o teste imune ao encoding, que é
+# justamente o que ele nunca quis testar. `load_env` roda em subshell: não
+# vaza variável para o caso seguinte.
+valor_no_env() {
+  ( load_env "$1" >/dev/null 2>&1; eval "printf '%s' \"\${$2:-}\"" )
+}
+
 INSTALL_SH_LIB=1 . ./install.sh
 set +e   # os dois ligam `set -e`; aqui esperamos validadores falharem de propósito
 
@@ -240,6 +253,65 @@ ok "aceita OpenAI vazia (é opcional)"           pass   v_openai    ""
 ok "rejeita senha curta"                        reject v_password  "1234567"        "muito curta"
 ok "aceita senha de 8+"                         pass   v_password  "12345678"
 
+echo "rede fora do ar: o sentinela 000 (issue #190)"
+# O dublê de curl das outras seções é `printf 200` INCONDICIONAL, então o ramo
+# `000` de todos os seis validadores nunca era exercitado por nenhum caso — e foi
+# assim que ele passou 6 versões sendo código morto.
+#
+# O dublê aqui imita o curl DE VERDADE quando a rede falha: `-w '%{http_code}'`
+# faz ele IMPRIMIR `000` e sair com código de erro. Era essa dupla que quebrava o
+# `|| echo 000` de dentro da substituição de comando: o echo CONCATENAVA com o
+# que o curl já tinha impresso e a variável virava `000000`, que não casa com
+# nenhum ramo. Os dois desfechos eram errados, em direções opostas — e os dois
+# estão cobertos abaixo, porque consertar um e não medir o outro deixaria metade
+# do defeito viva.
+rede_morta() {  # rede_morta <descrição> <pass|reject> <validador> <valor> [trecho esperado]...
+  local desc="$1" expect="$2" fn="$3" val="$4" out rc want
+  shift 4
+  out="$(bash -c '
+      INSTALL_SH_LIB=1 . ./install.sh
+      NEXT_PUBLIC_SUPABASE_URL="https://abcdefghijklmnop.supabase.co"
+      set +e
+      # curl real com -w: imprime 000 E devolve exit != 0.
+      curl() { printf 000; return 6; }
+      "$1" "$2"' _ "$fn" "$val" 2>&1)"; rc=$?
+  if [ "$expect" = pass ] && [ $rc -ne 0 ]; then
+    printf '  ✗ %s  (esperava seguir, barrou: %s)\n' "$desc" "$(printf '%s' "$out" | head -1)"; fail=1; return
+  fi
+  if [ "$expect" = reject ] && [ $rc -eq 0 ]; then
+    printf '  ✗ %s  (esperava barrar, seguiu)\n' "$desc"; fail=1; return
+  fi
+  for want in "$@"; do
+    if ! printf '%s' "$out" | grep -qi -- "$want"; then
+      printf '  ✗ %s  (a mensagem não fala de: %s)\n     disse: %s\n' \
+        "$desc" "$want" "$(printf '%s' "$out" | head -1)"; fail=1; return
+    fi
+  done
+  printf '  ✓ %s\n' "$desc"
+}
+
+# LADO 1 — o relatado: a URL inalcançável era ACEITA. `v_supabase_url` é o único
+# dos seis que exige resposta online, e o `000` dele era inalcançável: medido em
+# f9abedd0, `rc=0` e saída vazia para um host que não resolve.
+rede_morta "URL de Supabase inalcançável é RECUSADA" reject v_supabase_url \
+  "https://abcdefghijklmnop.supabase.co" "não consegui alcançar"
+
+# LADO 2 — o oposto, e pior para quem instala: com a rede fora, a chave CERTA
+# caía no ramo `*)` e era RECUSADA com "Confira a chave e o projeto" — o erro
+# acusando quem configurou, num laço do qual não se sai digitando certo. O código
+# sempre quis avisar e seguir; era a variável `000000` que não deixava.
+rede_morta "chave service_role correta SEGUE com aviso" pass v_service \
+  "$(mkjwt service_role abcdefghijklmnop)" "não consegui checar" "sigo com ela"
+rede_morta "chave anon correta SEGUE com aviso"         pass v_anon \
+  "$(mkjwt anon abcdefghijklmnop)"         "sigo com ela"
+
+# Os três de IA já seguiam (o `*)` deles também é tolerante), mas a mensagem
+# mostrava `000000` ao usuário. Aqui se cobra o ramo certo, não só o desfecho:
+# sem checar o texto, um `*)` disfarçado de `000` passaria.
+rede_morta "chave Anthropic segue pelo ramo 000"  pass v_anthropic  "sk-ant-abc123" "não consegui checar"
+rede_morta "chave OpenRouter segue pelo ramo 000" pass v_openrouter "sk-or-abc123"  "não consegui checar"
+rede_morta "chave OpenAI segue pelo ramo 000"     pass v_openai     "sk-abc123"     "não consegui checar"
+
 echo "leitura do .env (load_env)"
 . ./_common.sh
 set +e
@@ -354,7 +426,7 @@ echo "sincronia: o install.sh grava as chaves que o .env.hostgator.example prome
 #
 # DÍVIDA: chaves que o install.sh hoje não grava. A lista só pode ENCOLHER; se
 # uma delas passar a ser gravada, o teste manda tirá-la daqui.
-DIVIDA="AGENT_DISPATCH_CONSUMER NUVEMSHOP_APP_ID NUVEMSHOP_CLIENT_ID NUVEMSHOP_CLIENT_SECRET RESEND_API_KEY RESEND_FROM_EMAIL"
+DIVIDA="AGENT_DISPATCH_CONSUMER NUVEMSHOP_APP_ID NUVEMSHOP_CLIENT_ID NUVEMSHOP_CLIENT_SECRET"
 EXEMPLO="${EXEMPLO_ENV:-../.env.hostgator.example}"
 if [ ! -f "$EXEMPLO" ]; then
   # Pular é aceitável (o kit também roda solto, fora do repo), mas em voz alta:
@@ -518,7 +590,187 @@ partial_ok "com # (não é comentário)"   'se#nha'
 partial_ok "com \$ (não expande)"       'se$nha$HOME'
 partial_ok "com aspa simples"           "se'nha"
 partial_ok "com aspas duplas"           'se"nha"'
+partial_ok "com barra invertida"        'C:\rota\nova'
+partial_ok "com crase"                  'se`nha`'
 partial_ok "connection string real"     'postgresql://postgres.abc:p%40ss@aws-1-sa-east-1.pooler.supabase.com:5432/postgres'
+
+echo "formato do .env: os TRÊS consumidores leem o que o envq escreve"
+# O .env não tem um leitor, tem três, e cada um traz um parser diferente:
+#
+#   1. `load_env` (_common.sh) — leitura manual, por onde passa todo script do kit
+#   2. `env_file: .env` do docker-compose.prod.yml (:34 e :71)
+#   3. `source .env && curl …` — a receita do README (:143)
+#
+# Até 2026-08 esta suíte só exercitava o (1), e com um fixture sem apóstrofo. O
+# (2) é o buraco por onde o defeito passou: com aspas simples, o envq gravava
+# `APP_NAME='Sant'\''Ana Odontologia'` — shell válido, e recusado INTEIRO pelo
+# parser de dotenv do Compose (medido no v2.38.2):
+#
+#   failed to read .env: line 1: unexpected character "\" in variable name
+#   "\''Ana Odontologia'"
+#
+# Não era um comando: `config`, `ps` e `pull` saíam todos rc=1. O comprador
+# terminava a instalação com Supabase provisionado, schema aplicado, admin
+# criado, e todo comando docker do kit morto — por causa do apóstrofo do nome da
+# clínica dele.
+#
+# Por isso a lista de valores é UMA só e os três blocos abaixo a percorrem
+# inteira: um encoding que agrada dois leitores e quebra o terceiro é
+# exatamente a forma que o defeito teve.
+ENV_CASOS=(
+  "apóstrofo — o caso que quebrava o Compose|Sant'Ana Odontologia"
+  'aspas duplas|Casa "Bela"'
+  'cifrão não expande|Loja P$ss'
+  'cerquilha não é comentário|Loja #1'
+  "combinado, como um nome real|D'Ávila & Cia #2 \$X"
+  'barra invertida|C:\rota\nova'
+  'senha com apóstrofo|se nh@ Sant'"'"'Ana 8'
+  # A crase é o caractere que separa "valor errado" de "comando executado": sem
+  # escape, o `source` do README roda o que estiver entre elas. RESIDUAL MEDIDO:
+  # o parser de dotenv do Compose desfaz `\"`, `\\` e `\$`, mas NÃO desfaz a
+  # crase escapada — o contêiner recebe `Loja \`date\` Ltda`. Escapá-la assim
+  # mesmo é a escolha registrada no comentário do envq (valor feio no contêiner
+  # < execução de comando). Os dois outros consumidores recebem o valor intacto,
+  # e é isso que os casos abaixo exigem deles.
+  'crase (sem escape o source EXECUTA)|Loja `date` Ltda'
+)
+
+# Escreve UM .env com o envq REAL do install.sh, na pasta pedida. Sai do
+# install.sh de verdade (não uma reimplementação): um envq copiado para cá
+# ficaria verde com o install.sh sabotado, que é o modo de falha registrado no
+# bloco `reexec_neg` no fim deste arquivo.
+env_fixture() {  # env_fixture <dir> <dir do kit> <valor>
+  rm -f "$1/.env"
+  ( cd "$1" && KIT="$2" VAL="$3" bash -c '
+      INSTALL_SH_LIB=1 . "$KIT/install.sh"
+      envq APP_NAME "$VAL" > .env
+    ' )
+  # A pasta do bloco do Compose é REUSADA entre os casos: sem esta conferência,
+  # uma geração que falhasse deixaria o .env do caso ANTERIOR no lugar e o caso
+  # seguinte passaria medindo o fixture do vizinho — verde por vacuidade.
+  [ -s "$1/.env" ]
+}
+
+le_ok() {  # le_ok <descrição> <valor>
+  local desc="$1" val="$2" dir out kit="$PWD"
+  dir="$(mktemp -d)"
+  if ! env_fixture "$dir" "$kit" "$val"; then
+    printf '  ✗ %s — o envq não gerou .env nenhum\n' "$desc"; fail=1; rm -rf "$dir"; return
+  fi
+  out="$(cd "$dir" && KIT="$kit" bash -c '
+      . "$KIT/_common.sh"
+      load_env .env
+      printf "%s" "$APP_NAME"
+    ')"
+  rm -rf "$dir"
+  if [ "$out" = "$val" ]; then printf '  ✓ %s\n' "$desc"
+  else printf '  ✗ %s\n     escreveu: [%s]\n     voltou:   [%s]\n' "$desc" "$val" "$out"; fail=1; fi
+}
+
+# Este é o consumidor que NÃO perdoa: `source` é o shell interpretando o
+# arquivo, então uma crase mal escapada não devolve valor errado — EXECUTA. É
+# por isso que o envq escapa a crase mesmo sabendo que o Compose não a desfaz.
+src_ok() {  # src_ok <descrição> <valor>
+  local desc="$1" val="$2" dir out kit="$PWD"
+  dir="$(mktemp -d)"
+  if ! env_fixture "$dir" "$kit" "$val"; then
+    printf '  ✗ %s — o envq não gerou .env nenhum\n' "$desc"; fail=1; rm -rf "$dir"; return
+  fi
+  # Processo separado: se o encoding regredir, quem executa o conteúdo do .env
+  # é este bash descartável, não a suíte.
+  out="$(cd "$dir" && bash -c 'set -a; . ./.env; set +a; printf "%s" "$APP_NAME"' 2>/dev/null)"
+  rm -rf "$dir"
+  if [ "$out" = "$val" ]; then printf '  ✓ %s\n' "$desc"
+  else printf '  ✗ %s\n     escreveu: [%s]\n     voltou:   [%s]\n' "$desc" "$val" "$out"; fail=1; fi
+}
+
+echo "  consumidor 1 — load_env (todo script do kit)"
+for _caso in "${ENV_CASOS[@]}"; do le_ok  "${_caso%%|*}" "${_caso#*|}"; done
+echo "  consumidor 3 — source (a receita do README)"
+for _caso in "${ENV_CASOS[@]}"; do src_ok "${_caso%%|*}" "${_caso#*|}"; done
+unset _caso
+
+echo "  consumidor 2 — docker compose (env_file: .env)"
+# `docker compose config` é 100% client-side: não fala com o daemon nem baixa
+# imagem (medido — com DOCKER_HOST apontando para um socket inexistente ele
+# ainda acusa o erro de parse do .env). Ou seja, cabe no que o cabeçalho deste
+# arquivo promete: sem rede.
+#
+# A asserção é "o Compose CONSEGUE LER o arquivo", e não a igualdade do valor,
+# por uma razão medida: a saída do `config` re-escapa `$` como `$$` (é o
+# encoding de interpolação do próprio compose), então comparar byte a byte
+# reprovaria um arquivo correto. E ler é o que o defeito impedia — rc=1 em
+# config, ps e pull.
+if ! docker compose version >/dev/null 2>&1; then
+  # Pulo em voz alta, nomeando o que ficou sem cobertura: pulo silencioso é
+  # indistinguível de teste que passou.
+  printf '  — pulado: sem `docker compose` nesta máquina\n'
+  printf '     NÃO foi medido: se o .env gerado pelo envq é legível pelo `env_file:` do compose\n'
+  printf '     (é o consumidor pelo qual o defeito do apóstrofo passou; os outros dois acima rodaram)\n'
+else
+  DC_DIR="$(mktemp -d)"
+  cat > "$DC_DIR/docker-compose.yml" <<'YML'
+services:
+  app:
+    image: alpine:3.20
+    env_file: .env
+YML
+  dc_ok() {  # dc_ok <descrição> <valor>
+    local desc="$1" val="$2" err rc kit="$PWD"
+    if ! env_fixture "$DC_DIR" "$kit" "$val"; then
+      printf '  ✗ %s — o envq não gerou .env nenhum\n' "$desc"; fail=1; return
+    fi
+    err="$(cd "$DC_DIR" && docker compose config -q 2>&1)"; rc=$?
+    if [ $rc -eq 0 ]; then printf '  ✓ %s\n' "$desc"
+    else printf '  ✗ %s — o Compose recusou o .env (rc=%s)\n     %s\n' "$desc" "$rc" "$(printf '%s' "$err" | head -1)"; fail=1; fi
+  }
+  for _caso in "${ENV_CASOS[@]}"; do dc_ok "${_caso%%|*}" "${_caso#*|}"; done
+  unset _caso
+
+  # CONTROLE POSITIVO. Sem ele os casos acima passariam por vacuidade: um
+  # `docker compose config` que ignorasse o env_file, ou um .env vazio, também
+  # sairiam rc=0. Aqui o formato ANTIGO é escrito à mão — é o que o kit gravava
+  # antes de 2026-08 — e TEM de ser recusado. Se um dia isto ficar verde, o
+  # Compose passou a aceitar `'\''` e a razão de existir do encoding novo mudou:
+  # releia o comentário do envq antes de mexer em qualquer coisa.
+  cat > "$DC_DIR/.env" <<'EOF'
+APP_NAME='Sant'\''Ana Odontologia'
+EOF
+  if (cd "$DC_DIR" && docker compose config -q >/dev/null 2>&1); then
+    printf '  ✗ controle positivo: o Compose ACEITOU o formato antigo de aspas simples\n'
+    printf '     os casos acima deixaram de distinguir o defeito da correção\n'; fail=1
+  else
+    printf '  ✓ controle positivo: o formato ANTIGO (aspas simples) é recusado pelo Compose\n'
+  fi
+  rm -rf "$DC_DIR"
+fi
+
+echo "retrocompatibilidade: o .env de uma instalação antiga continua legível"
+# Quem instalou antes de 2026-08 tem um .env em aspas simples com `'\''`, e ele
+# NÃO é reescrito ao atualizar: o update.sh só troca APP_IMAGE e APP_PULL_POLICY
+# (:159 e :165) e deixa as outras chaves como estavam. Se o ramo de
+# aspas simples do load_env sumir num "agora é tudo aspas duplas", o kit novo
+# passa a devolver senha e connection string com quatro caracteres a mais, e a
+# instalação antiga quebra na atualização, longe de qualquer pista.
+#
+# O fixture é escrito à mão, no formato ANTIGO, de propósito: gerá-lo com o
+# envq de hoje mediria o formato de hoje e não teria nada de retrocompatível.
+TMP_LEGADO="$(mktemp -d)"
+cat > "$TMP_LEGADO/.env" <<'EOF'
+APP_NAME='Sant'\''Ana Odontologia'
+SENHA_LEGADA='se'\''nha com espaço'
+DB_LEGADA='postgresql://postgres.abc:p%40ss@aws-1-sa-east-1.pooler.supabase.com:5432/postgres'
+CIFRAO_LEGADO='p$ass'
+EOF
+( . ./_common.sh
+  load_env "$TMP_LEGADO/.env"
+  eq() { if [ "$2" = "$3" ]; then printf '  ✓ %s\n' "$1"; else printf '  ✗ %s  esperava [%s] obteve [%s]\n' "$1" "$3" "$2"; exit 1; fi; }
+  eq "nome antigo com apóstrofo"   "$APP_NAME"      "Sant'Ana Odontologia"
+  eq "senha antiga com apóstrofo"  "$SENHA_LEGADA"  "se'nha com espaço"
+  eq "connection string antiga"    "$DB_LEGADA"     'postgresql://postgres.abc:p%40ss@aws-1-sa-east-1.pooler.supabase.com:5432/postgres'
+  eq "cifrão antigo não expande"   "$CIFRAO_LEGADO" 'p$ass'
+) || fail=1
+rm -rf "$TMP_LEGADO"
 
 echo "cron: instalar uma instância não pode silenciar a outra"
 # Fixture = o crontab REAL de uma VPS com produção rodando (o Bearer trocado por
@@ -610,6 +862,142 @@ case "$senha" in
   '')             printf '  ✗ senha vazia\n'; fail=1;;
   *)              printf '  ✓ só alfanuméricos (não parte a connection string)\n';;
 esac
+
+echo "e-mails de acesso: marca-emails.sh"
+# POR QUE ESTE BLOCO EXISTE: o e-mail de confirmação de conta é o PRIMEIRO
+# artefato que um cliente do revendedor recebe, e ele é montado por um processo
+# de TERCEIRO (o GoTrue). Nenhum teste do app o alcança — o único jeito de
+# vigiar isso é exercitar o script que empurra o texto.
+#
+# Os casos abaixo cobrem tudo o que dá para provar SEM rede: renderização,
+# escape, e as três saídas que não podem derrubar a instalação. O caminho com
+# rede (PATCH + releitura) foi medido à mão contra a Management API em
+# 2026-08-14 e está declarado no cabeçalho do script.
+ME_TMP="$(mktemp -d)"
+
+# (1) Sem token, sai 0 e ENSINA o passo manual. Este é o caso comum: quem cria
+#     o projeto no painel e cola as 4 credenciais nunca teve token nenhum.
+saida_me="$(SUPABASE_ACCESS_TOKEN= bash ./marca-emails.sh --env /dev/null 2>&1)"; rc_me=$?
+if [ $rc_me -ne 0 ]; then
+  printf '  ✗ sem token o script saiu %s — ele NÃO pode derrubar o install.sh\n' "$rc_me"; fail=1
+else
+  printf '  ✓ sem token: sai 0 (a instalação continua)\n'
+fi
+if printf '%s' "$saida_me" | grep -q 'SUPABASE_ACCESS_TOKEN'; then
+  printf '  ✓ sem token: diz qual é a chave que falta\n'
+else
+  printf '  ✗ sem token: a mensagem não nomeia SUPABASE_ACCESS_TOKEN\n'; fail=1
+fi
+# O passo manual tem de ensinar `&`. Foi um `?` nesta mesma receita (na doc de
+# deploy) que gravou o link quebrado no projeto de produção.
+if printf '%s' "$saida_me" | grep -q '{{ .RedirectTo }}&token_hash'; then
+  printf '  ✓ sem token: o passo manual ensina o separador & (nunca ?)\n'
+else
+  printf '  ✗ sem token: o passo manual não mostra o link com &\n'; fail=1
+fi
+
+# (2) Supabase PRÓPRIO (self-hosted) não tem Management API: com token e tudo,
+#     o certo é ensinar o caminho do GoTrue, não tentar um PATCH que não existe.
+saida_me="$(SUPABASE_ACCESS_TOKEN=sbp_de_teste NEXT_PUBLIC_SUPABASE_URL=https://supabase.meucliente.com.br \
+            bash ./marca-emails.sh --env /dev/null 2>&1)"; rc_me=$?
+if [ $rc_me -eq 0 ] && printf '%s' "$saida_me" | grep -q 'GOTRUE_MAILER_TEMPLATES'; then
+  printf '  ✓ Supabase próprio: sai 0 e manda para o caminho do GoTrue\n'
+else
+  printf '  ✗ Supabase próprio: rc=%s, mensagem sem GOTRUE_MAILER_TEMPLATES\n' "$rc_me"; fail=1
+fi
+
+# (3) VACUIDADE: os modelos no disco precisam TER o placeholder, senão o caso
+#     (4) compararia a ausência de marca com a ausência de marca e passaria.
+for modelo in ../supabase/templates/confirmation.html ../supabase/templates/recovery.html; do
+  if grep -q '__APP_NAME__' "$modelo"; then
+    printf '  ✓ %s tem __APP_NAME__ para substituir\n' "$(basename "$modelo")"
+  else
+    printf '  ✗ %s NÃO tem __APP_NAME__ — a substituição abaixo não prova nada\n' "$(basename "$modelo")"; fail=1
+  fi
+done
+
+# (4) Renderização com um nome HOSTIL. `&` no lado direito de um `sed` (ou de um
+#     `${x//p/r}` no bash 5.2) vale como "o trecho casado" — medido: `Loja
+#     <b>Top</b> & Cia` saía `Loja <lt;b>gt;Top…`. E `<b>` cru injetaria markup
+#     no corpo do e-mail de todo cliente do revendedor.
+SUPABASE_ACCESS_TOKEN= APP_NAME='Loja <b>Top</b> & Cia' APP_ACCENT_HEX='#f2c94c' \
+  bash ./marca-emails.sh --env /dev/null --render-em "$ME_TMP/render" >/dev/null 2>&1
+rend="$ME_TMP/render/confirmation.html"
+if [ ! -f "$rend" ]; then
+  printf '  ✗ --render-em não escreveu confirmation.html\n'; fail=1
+else
+  if grep -q '__APP_NAME__\|__ACCENT__\|__ACCENT_FG__' "$rend"; then
+    printf '  ✗ sobrou placeholder no HTML renderizado: %s\n' "$(grep -o '__[A-Z_]*__' "$rend" | sort -u | tr '\n' ' ')"; fail=1
+  else
+    printf '  ✓ nenhum placeholder sobrou no HTML renderizado\n'
+  fi
+  if grep -qF 'Loja &lt;b&gt;Top&lt;/b&gt; &amp; Cia' "$rend"; then
+    printf '  ✓ o nome da marca sai escapado (nada de markup injetado no e-mail)\n'
+  else
+    printf '  ✗ o nome da marca NÃO saiu escapado: %s\n' "$(grep -o 'Sua conta no [^.]*' "$rend" | head -1)"; fail=1
+  fi
+  # Amarelo é claro: texto branco em cima seria ilegível. É o caso exato que o
+  # `#ffffff` fixo produzia — e é a marca que um revendedor cola sem avisar.
+  if grep -q 'color: #171f15' "$rend"; then
+    printf '  ✓ accent claro (#f2c94c) escolhe texto ESCURO\n'
+  else
+    printf '  ✗ accent claro não escolheu texto escuro: %s\n' "$(grep -o 'background: #f2c94c[^"]*' "$rend" | head -1)"; fail=1
+  fi
+  # A nota de manutenção do topo do modelo fala de placeholder e de --render-em:
+  # é endereçada a quem edita o repositório, não ao cliente final.
+  if grep -q 'MODELO — os' "$rend"; then
+    printf '  ✗ a nota interna do modelo foi junto para dentro do e-mail\n'; fail=1
+  else
+    printf '  ✓ a nota interna do modelo fica fora do e-mail\n'
+  fi
+fi
+
+# (5) O par claro/escuro: accent escuro tem de escolher BRANCO. Sem este caso,
+#     um `frente_sobre` que devolvesse sempre "#171f15" passaria no caso (4).
+SUPABASE_ACCESS_TOKEN= APP_NAME='Marca Escura' APP_ACCENT_HEX='#0b3d2e' \
+  bash ./marca-emails.sh --env /dev/null --render-em "$ME_TMP/escuro" >/dev/null 2>&1
+if grep -q 'color: #ffffff' "$ME_TMP/escuro/confirmation.html" 2>/dev/null; then
+  printf '  ✓ accent escuro (#0b3d2e) escolhe texto BRANCO\n'
+else
+  printf '  ✗ accent escuro não escolheu texto branco\n'; fail=1
+fi
+
+# (6) Hex inválido no .env não pode virar CSS quebrado no e-mail: cai no accent
+#     do produto, que é o mesmo piso de lib/branding/saida.ts.
+SUPABASE_ACCESS_TOKEN= APP_NAME='Marca Torta' APP_ACCENT_HEX='verde-limão' \
+  bash ./marca-emails.sh --env /dev/null --render-em "$ME_TMP/torto" >/dev/null 2>&1
+if grep -q 'background: #506d48; background: #506d48' "$ME_TMP/torto/confirmation.html" 2>/dev/null; then
+  printf '  ✓ APP_ACCENT_HEX inválido cai no accent do produto\n'
+else
+  printf '  ✗ APP_ACCENT_HEX inválido virou CSS inválido: %s\n' \
+    "$(grep -o 'background: [^;]*;' "$ME_TMP/torto/confirmation.html" 2>/dev/null | head -2 | tr '\n' ' ')"; fail=1
+fi
+
+rm -rf "$ME_TMP"
+
+# (7) O VALIDADOR da cor, no install.sh — a outra ponta dos casos (4)-(6).
+#     `v_hex` é estreito de propósito: aceita SÓ `#` + 6 dígitos, que é a única
+#     forma que o `case` de `marca-emails.sh:125` reconhece. O `ehHexValido` do app
+#     (`lib/branding/rampa.ts:49`) aceita mais quatro (`#abc`, `abc`, `aabbcc`),
+#     e deixá-las passar aqui produziria o pior desfecho: a cor do revendedor na
+#     tela e o verde do produto no primeiro e-mail — split-brain que ninguém
+#     percebe, porque cada metade parece certa sozinha.
+ok "cor em hex de 6 dígitos"                pass   v_hex "#7a5cd6"
+ok "cor vazia (Enter) — o campo é opcional" pass   v_hex ""
+ok "nome de cor não é hex"                  reject v_hex "verde-limão" "6 dígitos"
+ok "hex de 3 dígitos: o e-mail não o lê"    reject v_hex "#7a5"        "6 dígitos"
+
+# (8) REGRESSÃO DO LAÇO. O caso de integração da VPS limpa já prova o
+#     comportamento (a cor respondida volta pelo `load_env`); este aqui existe
+#     para NOMEAR a linha que falta quando aquele reprova — "a cor não voltou"
+#     não diz a quem lê que o buraco é a lista de `envq`.
+if grep -qE '^[[:space:]]*envq APP_ACCENT_HEX' install.sh; then
+  printf '  ✓ o install.sh grava APP_ACCENT_HEX no .env\n'
+else
+  printf '  ✗ o install.sh NÃO grava APP_ACCENT_HEX: perguntar sem gravar faz a pessoa\n'
+  printf '     responder e perder a resposta na mesma execução (o bloco fecha com `} > .env`,\n'
+  printf '     que trunca a partir da lista de envq).\n'; fail=1
+fi
 
 echo "proxy reverso: quem está com as portas 80/443"
 # A versão anterior só sabia procurar Traefik. Qualquer outro proxy — inclusive o
@@ -946,6 +1334,10 @@ STUB
 # esconderia a trava que o dublê de crontab acima existe para não ter (era
 # `cat >/dev/null` incondicional, e num tty a suíte nunca terminava). Com
 # respostas, lê de um arquivo — é o único jeito de exercitar uma PERGUNTA.
+# `SUPABASE_ACCESS_TOKEN=` no `env`: o install.sh chama o marca-emails.sh, e um
+# token EXPORTADO no shell de quem roda a suíte entraria no cenário sem ninguém
+# pedir — o teste passaria a depender da máquina, e faria chamada de rede a
+# partir de um .env de mentira. O cenário declara o próprio ambiente.
 rodar() {
   local script="$1" flags="$2"
   printf '%s\n%s\n' "$BASE_ENV" "${3-}" > "$VPS_PROJ/.env"
@@ -953,9 +1345,11 @@ rodar() {
   if [ $# -ge 4 ]; then
     printf '%s' "$4" > "$VPS_RAIZ/respostas.txt"
     (cd "$VPS_PROJ" && env PATH="$VPS_RAIZ/bin:$PATH" DOCKER_LOG="$VPS_LOG" CRONTAB_SANDBOX="$CRONTAB_SANDBOX" \
+      SUPABASE_ACCESS_TOKEN= \
       bash "$VPS_RAIZ/$script" $flags <"$VPS_RAIZ/respostas.txt" 2>&1 || true) | sed -E 's/\x1b\[[0-9;]*m//g'
   else
     (cd "$VPS_PROJ" && env PATH="$VPS_RAIZ/bin:$PATH" DOCKER_LOG="$VPS_LOG" CRONTAB_SANDBOX="$CRONTAB_SANDBOX" \
+      SUPABASE_ACCESS_TOKEN= \
       bash "$VPS_RAIZ/$script" $flags 2>&1 || true) | sed -E 's/\x1b\[[0-9;]*m//g'
   fi
 }
@@ -969,9 +1363,10 @@ chegou_na_deteccao() {
   return 1
 }
 # As RESPOSTAS do modo interativo, na ordem em que o instalador pergunta: o
-# proxy (o que se testa aqui), depois os 3 campos que o BASE_ENV deixa vazios de
-# propósito (APP_IMAGE, OPENAI_API_KEY, APP_NAME — todos com Enter), a tela de
-# conferência, a telemetria e o aviso de DNS ('c' = seguir assim mesmo).
+# proxy (o que se testa aqui), depois os 7 campos que o BASE_ENV deixa vazios de
+# propósito (APP_IMAGE, OPENAI_API_KEY, APP_NAME, APP_ACCENT_HEX, SUPPORT_EMAIL,
+# RESEND_API_KEY, RESEND_FROM_EMAIL — todos com Enter), a tela de conferência,
+# a telemetria e o aviso de DNS ('c' = seguir assim mesmo).
 # As respostas que vêm DEPOIS da do proxy reverso, na ordem em que o install.sh
 # as consome. É uma fila posicional: pergunta nova no meio do script desloca
 # tudo daqui para baixo, e o sintoma NÃO aponta para cá — o cenário simplesmente
@@ -982,7 +1377,24 @@ chegou_na_deteccao() {
 # que roda depois da pergunta do proxy (:768) e antes da entrevista (:975).
 # Quem acrescentar pergunta interativa ao install.sh acrescenta a resposta aqui,
 # na mesma posição relativa.
-RESTO_DAS_PERGUNTAS=$'\n\n\n\n\n\nc\n'
+#
+# Contagem de Enters antes do 'c', medida com
+#   eval "$(grep -m1 '^RESTO_DAS_PERGUNTAS=' test-validators.sh)"
+#   printf '%s' "${RESTO_DAS_PERGUNTAS%%c*}" | grep -c ''
+# → era 9 antes de APP_ACCENT_HEX entrar em FIELDS, é 10 agora.
+RESTO_DAS_PERGUNTAS=$'\n\n\n\n\n\n\n\n\n\nc\n'
+
+# A posição da cor DENTRO da fila acima — 1 provedor + APP_IMAGE + OPENAI +
+# APP_NAME e ela é a 5ª. Fica numa variável porque a fila com a cor RESPONDIDA
+# (abaixo) é DERIVADA da de cima em vez de copiada: duas filas posicionais
+# mantidas à mão desincronizam no primeiro campo novo, e aí uma passa e a outra
+# reprova com um nome que não é o dela.
+POSICAO_DA_COR=5
+COR_DE_TESTE='#f2c94c'
+# fila_com <fila> <posição> <valor> → a mesma fila, com uma resposta no lugar de
+# um Enter. `awk` porque a substituição é por NÚMERO DE LINHA: um `sed s///`
+# casaria a primeira linha vazia, que é outra pergunta.
+fila_com() { printf '%s' "$1" | awk -v n="$2" -v v="$3" 'NR==n{print v; next} {print}'; }
 
 echo "integração: instalação NOVA numa VPS LIMPA (o caminho do Caddy)"
 # O caminho mais percorrido de todos — VPS crua, portas livres, o kit sobe o
@@ -1005,7 +1417,7 @@ exit 0
 STUB
   saida="$(rodar install.sh --yes)"
   chegou_na_deteccao || exit 1
-  if ! grep -qx "REVERSE_PROXY='caddy'" "$VPS_PROJ/.env"; then
+  if ! grep -qx 'REVERSE_PROXY="caddy"' "$VPS_PROJ/.env"; then
     printf '  ✗ a VPS limpa não escolheu o Caddy: %s\n' \
       "$(grep -E '^REVERSE_PROXY=' "$VPS_PROJ/.env" || echo '(ausente)')"; exit 1
   fi
@@ -1015,12 +1427,28 @@ STUB
   # não a mensagem de erro: `set -u` fala na língua do shell de quem roda
   # ("unbound variable" aqui, "variável sem associação" num shell em pt-BR), e
   # teste preso a texto de sistema passa em silêncio na máquina errada.
-  if ! grep -qE "^OWNER_PASSWORD='" "$VPS_PROJ/.env"; then
+  if ! grep -qE '^OWNER_PASSWORD="' "$VPS_PROJ/.env"; then
     printf '  ✗ o .env saiu pela metade (parou antes da última linha do bloco)\n'
     printf '     últimas chaves gravadas: %s\n' \
       "$(grep -oE '^[A-Z_]+=' "$VPS_PROJ/.env" | tail -3 | tr '\n' ' ')"; exit 1
   fi
   printf '  ✓ portas livres → Caddy, e o .env sai inteiro mesmo sem proxy externo\n'
+
+  # `--yes` não pergunta nada, e campo sem default e sem `opcional` morre em
+  # `die` — a linha acima já provaria isso pela metade (o .env sairia truncado).
+  # O que ESTA asserção acrescenta é a diferença entre AUSENTE e DECLARADA E
+  # VAZIA, que `valor_no_env` não enxerga: `lib/branding/resolve.ts:416` chama a
+  # chave vazia de "estado de fábrica do install.sh" e trata a camada como
+  # silenciosa sobre cor. Chave ausente é a mesma coisa para o resolvedor, mas
+  # não para quem abre o .env procurando onde trocar a cor.
+  if ! grep -qE '^APP_ACCENT_HEX=' "$VPS_PROJ/.env"; then
+    printf '  ✗ em --yes o APP_ACCENT_HEX nem apareceu no .env (esperado: declarado e vazio)\n'; exit 1
+  fi
+  if [ -n "$(valor_no_env "$VPS_PROJ/.env" APP_ACCENT_HEX)" ]; then
+    printf '  ✗ em --yes o APP_ACCENT_HEX veio com valor: [%s] — ninguém respondeu nada\n' \
+      "$(valor_no_env "$VPS_PROJ/.env" APP_ACCENT_HEX)"; exit 1
+  fi
+  printf '  ✓ em --yes a cor sai DECLARADA e vazia (o "estado de fábrica" do resolve.ts)\n'
 
   # ── A regra de ouro da doutrina de packaging, no ponto onde ela vale ───────
   # Uma instalação nova gravava `APP_IMAGE=…:latest`, e `latest` aqui significa
@@ -1038,11 +1466,11 @@ STUB
   # asserção não é "a tag é 1.2.3": é que as TRÊS imagens saem na MESMA
   # referência e com o pull_policy que combina com ela. É o invariante que
   # sobrevive aos dois caminhos, com rede e sem.
-  img_app="$(grep -oE "^APP_IMAGE='?[^']*" "$VPS_PROJ/.env" | sed "s/^APP_IMAGE='\?//")"
+  img_app="$(valor_no_env "$VPS_PROJ/.env" APP_IMAGE)"
   tag_app="${img_app##*:}"
   for par in "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
     chave="${par%%:*}"; repo="${par##*:}"
-    if ! grep -qE "^${chave}='?ghcr\.io/jmpo/${repo}:${tag_app}'?$" "$VPS_PROJ/.env"; then
+    if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "ghcr.io/jmpo/${repo}:${tag_app}" ]; then
       printf '  ✗ %s não acompanha a versão do app (%s): %s\n' "$chave" "$tag_app" \
         "$(grep -E "^${chave}=" "$VPS_PROJ/.env" || echo '(ausente)')"
       printf '     app numa versão e worker em outra é a matriz que ninguém testou.\n'; exit 1
@@ -1053,7 +1481,7 @@ STUB
     *)                  esperado="missing" ;;
   esac
   for chave in APP_PULL_POLICY WORKER_PULL_POLICY SCHEDULER_PULL_POLICY; do
-    if ! grep -qE "^${chave}='?${esperado}'?$" "$VPS_PROJ/.env"; then
+    if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "$esperado" ]; then
       printf '  ✗ %s devia ser %s para a tag %s: %s\n' "$chave" "$esperado" "$tag_app" \
         "$(grep -E "^${chave}=" "$VPS_PROJ/.env" || echo '(ausente)')"; exit 1
     fi
@@ -1077,6 +1505,49 @@ STUB
     printf '     versão que o upstream publicar — sem ninguém ter testado.\n'; exit 1
   fi
   printf '  ✓ o WAHA sai pinado no .env (%s), não em :latest\n' "$img_waha"
+
+  # ── A cor da marca sai da ENTREVISTA e chega ao .env ───────────────────────
+  # Este é o caso que prova o defeito que o épico da marca deixou aberto: o
+  # revendedor punha o nome dele e recebia o VERDE DO PRODUTO em todo e-mail de
+  # acesso, porque `install.sh` nunca perguntava nem gravava `APP_ACCENT_HEX`
+  # (medido em `c8fc877d`: `grep -c APP_ACCENT_HEX install.sh` → 0).
+  #
+  # Tem de ser INTERATIVO, e num `.env` que NÃO traz a chave. Duas armadilhas do
+  # próprio kit tornam qualquer atalho vacuoso:
+  #   1. `ask_one` devolve na primeira linha se a variável já tem valor, e o
+  #      `load_env .env` de `install.sh:757` roda ANTES da entrevista — semear o .env
+  #      faria o teste passar sem a pergunta nunca existir;
+  #   2. enquanto a chave esteve fora da lista de `envq`, ela também estava fora
+  #      de `CONHECIDAS`, então um valor posto à mão voltava pelo laço de
+  #      PRESERVAÇÃO — verde medindo a preservação, não a entrevista.
+  # Com a entrevista respondendo e o .env nascendo sem a chave, o único caminho
+  # que produz o valor de volta é `FIELDS` + `envq`, os dois.
+  saida="$(rodar install.sh "" "" "$(fila_com "$RESTO_DAS_PERGUNTAS" "$POSICAO_DA_COR" "$COR_DE_TESTE")")"
+  chegou_na_deteccao || exit 1
+  cor_gravada="$(valor_no_env "$VPS_PROJ/.env" APP_ACCENT_HEX)"
+  if [ "$cor_gravada" != "$COR_DE_TESTE" ]; then
+    printf '  ✗ a cor respondida na entrevista não chegou ao .env: [%s]\n' "$cor_gravada"
+    # As duas metades falham com a MESMA cara — medido sabotando cada uma: sem o
+    # `envq` a resposta é colhida e descartada; sem o campo em `FIELDS` a
+    # pergunta nem acontece e o `#f2c94c` cai no campo seguinte. Quem lê precisa
+    # das duas pontas, senão conserta a que já estava certa.
+    printf '     esperava [%s]. São dois pontos, e o sintoma é o mesmo nos dois:\n' "$COR_DE_TESTE"
+    printf '       (a) o campo APP_ACCENT_HEX em FIELDS — sem ele a pergunta não existe;\n'
+    printf '       (b) o `envq APP_ACCENT_HEX` no bloco que fecha com `} > .env` — ele TRUNCA\n'
+    printf '           a partir da lista de envq, então responder sem gravar perde a resposta.\n'
+    printf '     últimas chaves gravadas: %s\n' \
+      "$(grep -oE '^[A-Z_]+=' "$VPS_PROJ/.env" | tail -5 | tr '\n' ' ')"; exit 1
+  fi
+  # Vacuidade da fila: se a pergunta da cor tivesse saído de FIELDS, a resposta
+  # `#f2c94c` cairia no campo seguinte (SUPPORT_EMAIL, com v_email) e o
+  # instalador rejeitaria — a fila inteira desanda a partir dali. Sem esta
+  # asserção o caso acima ainda passaria pelo laço de preservação num .env que
+  # alguém venha a semear.
+  if [ "$(valor_no_env "$VPS_PROJ/.env" SUPPORT_EMAIL)" != "" ]; then
+    printf '  ✗ a fila de respostas desandou: SUPPORT_EMAIL ficou [%s], devia estar vazio\n' \
+      "$(valor_no_env "$VPS_PROJ/.env" SUPPORT_EMAIL)"; exit 1
+  fi
+  printf '  ✓ a cor respondida na entrevista (%s) chega ao .env, e a fila não desandou\n' "$COR_DE_TESTE"
 ) || fail=1
 rm -rf "$TMP3B"
 
@@ -1158,14 +1629,14 @@ STUB
 
   for par in "APP_IMAGE:deskcommcrm" "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
     chave="${par%%:*}"; repo="${par##*:}"
-    if ! grep -qE "^${chave}='?ghcr\.io/jmpo/${repo}:1\.10\.0'?$" "$VPS_PROJ/.env"; then
+    if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "ghcr.io/jmpo/${repo}:1.10.0" ]; then
       printf '  ✗ %s não foi pinado na versão resolvida (1.10.0): %s\n' "$chave" \
         "$(grep -E "^${chave}=" "$VPS_PROJ/.env" || echo '(ausente)')"
       printf '     instalação de cliente NUNCA nasce em tag móvel — docs/doctrine/packaging.md, invariante 3.\n'
       exit 1
     fi
   done
-  if grep -qE "^APP_PULL_POLICY='?always'?$" "$VPS_PROJ/.env"; then
+  if [ "$(valor_no_env "$VPS_PROJ/.env" APP_PULL_POLICY)" = "always" ]; then
     printf '  ✗ tag imutável com pull_policy=always: o CRM só sobe se o GHCR estiver de pé\n'; exit 1
   fi
   printf '  ✓ com v1.0.0/v1.9.0/v1.10.0 no remoto, o .env nasce pinado em 1.10.0 (as três imagens)\n'
@@ -1255,7 +1726,7 @@ STUB
       printf '%s\n' "$saida" | grep 'comando não encontrado\|command not found' | head -2 | sed 's/^/       /'
       exit 1
     fi
-    if ! grep -qE "^OWNER_PASSWORD='" "$raiz/crmia/.env"; then
+    if ! grep -qE '^OWNER_PASSWORD="' "$raiz/crmia/.env"; then
       printf '  ✗ %s — o .env saiu pela metade (parou antes da última linha do bloco)\n' "$desc"
       printf '     últimas chaves gravadas: %s\n' \
         "$(grep -oE '^[A-Z_]+=' "$raiz/crmia/.env" | tail -3 | tr '\n' ' ')"
@@ -1264,13 +1735,19 @@ STUB
     # A escolha precisa SOBREVIVER no .env, senão a 2ª execução re-adivinha —
     # e re-adivinhar é como uma instalação só-OpenRouter volta a ser tratada
     # como Anthropic.
-    if ! grep -qx "AI_PROVIDER='$esperado'" "$raiz/crmia/.env"; then
+    if ! grep -qx "AI_PROVIDER=\"$esperado\"" "$raiz/crmia/.env"; then
       printf '  ✗ %s — AI_PROVIDER não foi gravado como %s: %s\n' "$desc" "$esperado" \
         "$(grep -E '^AI_PROVIDER=' "$raiz/crmia/.env" || echo '(ausente)')"
       exit 1
     fi
     # E a chave que a pessoa tinha continua lá, com o valor dela.
-    if ! grep -qx "$var='$val'" "$raiz/crmia/.env"; then
+    #
+    # O fixture entra no formato ANTIGO (o `"'$val'"` acima, aspas simples) e sai
+    # daqui no formato NOVO: o valor atravessou o load_env de um kit atualizado
+    # lendo o .env de uma instalação velha, que é a rota de quem re-roda o
+    # install.sh depois de atualizar o kit. Por isso a asserção compara o VALOR,
+    # e o formato de entrada difere de propósito do de saída.
+    if ! grep -qx "$var=\"$val\"" "$raiz/crmia/.env"; then
       printf '  ✗ %s — %s não sobreviveu: %s\n' "$desc" "$var" \
         "$(grep -E "^$var=" "$raiz/crmia/.env" || echo '(ausente)')"
       exit 1
@@ -1359,7 +1836,7 @@ STUB
     printf '  ✗ a rede do projeto não foi criada — o "up -d" morreria em "declared as external"\n'
     printf '     chamadas de rede vistas: %s\n' "$(grep '^network' "$LOG" | tr '\n' ' ')"; exit 1
   fi
-  if ! grep -qx "TRAEFIK_NETWORK='crmhost_teste_proxy'" "$PROJ/.env"; then
+  if ! grep -qx 'TRAEFIK_NETWORK="crmhost_teste_proxy"' "$PROJ/.env"; then
     printf '  ✗ TRAEFIK_NETWORK errado no .env: %s\n' "$(grep -E '^TRAEFIK_NETWORK=' "$PROJ/.env" || echo '(ausente)')"
     exit 1
   fi
@@ -1387,7 +1864,7 @@ STUB
   if printf '%s' "$saida" | grep -q 'Não consegui descobrir a rede'; then
     printf '  ✗ com REVERSE_PROXY=traefik no .env o instalador morre sem achar a rede\n'; exit 1
   fi
-  if ! grep -qx "TRAEFIK_NETWORK='crmhost_teste_proxy'" "$PROJ/.env"; then
+  if ! grep -qx 'TRAEFIK_NETWORK="crmhost_teste_proxy"' "$PROJ/.env"; then
     printf '  ✗ REVERSE_PROXY=traefik à mão: TRAEFIK_NETWORK saiu %s\n' \
       "$(grep -E '^TRAEFIK_NETWORK=' "$PROJ/.env" || echo '(ausente)')"; exit 1
   fi
@@ -1428,7 +1905,7 @@ STUB
   if printf '%s' "$saida" | grep -q 'paro aqui em vez de chutar'; then
     printf '  ✗ recusou uma eleição que TEM prova (a coluna Ports diz quem publica)\n'; exit 1
   fi
-  if ! grep -qx "TRAEFIK_NETWORK='coolify'" "$VPS_PROJ/.env"; then
+  if ! grep -qx 'TRAEFIK_NETWORK="coolify"' "$VPS_PROJ/.env"; then
     printf '  ✗ TRAEFIK_NETWORK devia ser a rede do proxy: saiu %s\n' \
       "$(grep -E '^TRAEFIK_NETWORK=' "$VPS_PROJ/.env" || echo '(ausente)')"; exit 1
   fi

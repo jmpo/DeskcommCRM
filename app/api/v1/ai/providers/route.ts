@@ -108,7 +108,16 @@ export async function GET(): Promise<Response> {
       pontoId: ponto.id,
       binding: bindings.get(ponto.id) ?? null,
       agentePublicado,
-      modeloDeAmbiente: undefined, // o servidor web não enxerga o env do worker
+      // DÍVIDA, não impossibilidade. A justificativa aqui dizia "o servidor web
+      // não enxerga o env do worker", e isso é falso: `docker-compose.prod.yml`
+      // dá o MESMO `env_file: .env` ao serviço `app` e ao `worker`. O que de
+      // fato só existe do lado do worker são os knobs de NOME DE MODELO
+      // (STAGE_CLASSIFIER_MODEL e irmãos), declarados apenas no schema Zod de
+      // `lib/agent-engine/env.ts` — `process.env` os lê normalmente aqui, como
+      // `lib/instalacao/ambiente.ts` já faz para as chaves.
+      // Enquanto ficar `undefined`, a origem "veio da instalação" nunca aparece
+      // nesta tela, mesmo quando é ela que vale em runtime.
+      modeloDeAmbiente: undefined,
       padraoDaOrganizacao,
     });
     const chave = `${decisao.provider}|${decisao.modelId ?? ""}`;

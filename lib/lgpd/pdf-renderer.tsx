@@ -3,10 +3,38 @@
  *
  * Template para Art. 18, II — direito de acesso aos dados. Renderizado para
  * Buffer via @react-pdf/renderer e entregue ao titular via Resend.
+ *
+ * ── ESTE DOCUMENTO NÃO LEVA MARCA. É decisão, não esquecimento ──────────────
+ *
+ * O rodapé imprime o CONTROLADOR (`organizations.legal_name`) e o Encarregado
+ * resolvido. Não imprime a marca do revendedor, não imprime a nossa, não leva
+ * logo e não leva cor.
+ *
+ * O motivo: o relatório do Art. 18 II responde a um DIREITO LEGAL do titular.
+ * Nomear ali o revendedor — que é OPERADOR, não controlador — inverteria os
+ * papéis num documento jurídico. Trocar `DeskcommCRM` por `Vendas Turbo CRM`
+ * no rodapé não é "completar o white-label": é piorar o defeito, porque hoje o
+ * nome é obviamente o do software, e depois passaria a parecer a declaração de
+ * quem responde pelos dados.
+ *
+ * Consequência boa e deliberada: a armadilha do @react-pdf não nos alcança.
+ * `var(--x)` e `oklch()` renderizam PDF VÁLIDO e descartam a cor em silêncio
+ * (medido: 1514 bytes contra 1538 do hex), então qualquer prova do tipo "gerei
+ * o PDF e ele abriu" passaria com a marca perdida. Como o documento não recebe
+ * cor de marca nenhuma, o `styles` de módulo abaixo pode continuar de módulo:
+ * zero risco assumido. Não parametrize, não mova para dentro do componente.
+ *
+ * A tela que resolve o outro lado disto é `/app/settings/tenant` (campo "Razão
+ * social"): `legal_name` nasce IGUAL a `display_name` no bootstrap
+ * (`scripts/bootstrap-owner.ts`, os dois recebem `ORG_NAME`), então o caso ruim
+ * aqui não é o campo vazio — é o nome fantasia impresso como razão social. Uma
+ * guarda "se vazio, use X" nunca dispararia; o que resolve é preencher a tela.
  */
 
 import { Document, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import React from "react";
+
+import { env } from "@/lib/env";
 
 import type { ExportPayload } from "./export-collector";
 
@@ -82,6 +110,19 @@ function fmtMoney(cents: number | null | undefined, currency: string | null | un
   return `${currency ?? "BRL"} ${v.toFixed(2)}`;
 }
 
+/**
+ * A MESMA cadeia que `lib/lgpd/sla-alarm.ts:93` já usa
+ * (`organizationDpoEmail || env.LGPD_DPO_EMAIL`). Reusar a ordem, e não
+ * inventar outra, é o que impede o documento e o alarme de apontarem para
+ * encarregados diferentes na mesma organização.
+ *
+ * O texto anterior era `DPO: contato via canal oficial do controlador` — um
+ * não-resposta num campo cuja função é dizer a quem o titular reclama.
+ */
+function encarregado(data: ExportPayload): string {
+  return data.dpo_email || env.LGPD_DPO_EMAIL || "não informado pelo controlador";
+}
+
 export function LgpdExportPdf({ data, unsignedWarning }: Props): React.ReactElement {
   const shortId = data.request_id.slice(0, 8);
 
@@ -103,8 +144,16 @@ export function LgpdExportPdf({ data, unsignedWarning }: Props): React.ReactElem
             <Text style={styles.label}>ID:</Text>
             <Text style={styles.value}>{data.request_id}</Text>
           </View>
+          {/* A razão social vem primeiro e o uuid vira "ID interno": o campo
+              existe para o TITULAR saber de quem são os dados, e um uuid cru
+              não responde isso a ninguém. O id continua no documento porque é
+              o que o suporte pede quando alguém liga citando o relatório. */}
           <View style={styles.row}>
             <Text style={styles.label}>Organização:</Text>
+            <Text style={styles.value}>{data.organization_legal_name || "—"}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>ID interno:</Text>
             <Text style={styles.value}>{data.organization_id}</Text>
           </View>
           <View style={styles.row}>
@@ -272,10 +321,12 @@ export function LgpdExportPdf({ data, unsignedWarning }: Props): React.ReactElem
         ) : null}
 
         {/* Footer */}
+        {/* CONTROLADOR, nunca marca — ver o cabeçalho deste arquivo. */}
         <View style={styles.footer} fixed>
           <Text>
-            DeskcommCRM · Relatório LGPD Art. 18 II · DPO: contato via canal oficial
-            do controlador · Validade do link de download conforme email recebido
+            Controlador: {data.organization_legal_name || "—"} · Relatório LGPD Art. 18 II
+            (Lei nº 13.709/2018) · Encarregado (DPO): {encarregado(data)} · Validade do
+            link de download conforme e-mail recebido
           </Text>
         </View>
       </Page>

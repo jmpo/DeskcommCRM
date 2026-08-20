@@ -1914,746 +1914,1041 @@ CREATE TABLE IF NOT EXISTS "public"."webhook_events_log" (
 ALTER TABLE "public"."webhook_events_log" OWNER TO "postgres";
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_runs_pkey' AND conrelid = '"public"."ai_agent_runs"'::regclass)
+   AND to_regclass('"public"."ai_agent_runs_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_runs"
     ADD CONSTRAINT "ai_agent_runs_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_versions_pkey' AND conrelid = '"public"."ai_agent_versions"'::regclass)
+   AND to_regclass('"public"."ai_agent_versions_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_versions"
     ADD CONSTRAINT "ai_agent_versions_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_versions_unique_number' AND conrelid = '"public"."ai_agent_versions"'::regclass)
+   AND to_regclass('"public"."ai_agent_versions_unique_number"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_versions"
     ADD CONSTRAINT "ai_agent_versions_unique_number" UNIQUE ("agent_id", "version_number");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agents_name_unique' AND conrelid = '"public"."ai_agents"'::regclass)
+   AND to_regclass('"public"."ai_agents_name_unique"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agents"
     ADD CONSTRAINT "ai_agents_name_unique" UNIQUE ("organization_id", "name");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agents_pkey' AND conrelid = '"public"."ai_agents"'::regclass)
+   AND to_regclass('"public"."ai_agents_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agents"
     ADD CONSTRAINT "ai_agents_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_budgets_pkey' AND conrelid = '"public"."ai_budgets"'::regclass)
+   AND to_regclass('"public"."ai_budgets_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_budgets"
     ADD CONSTRAINT "ai_budgets_pkey" PRIMARY KEY ("organization_id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_chunks_pkey' AND conrelid = '"public"."ai_chunks"'::regclass)
+   AND to_regclass('"public"."ai_chunks_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_chunks"
     ADD CONSTRAINT "ai_chunks_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_chunks_position_unique' AND conrelid = '"public"."ai_chunks"'::regclass)
+   AND to_regclass('"public"."ai_chunks_position_unique"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_chunks"
     ADD CONSTRAINT "ai_chunks_position_unique" UNIQUE ("knowledge_source_id", "kb_version_id", "position");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_faq_items_pkey' AND conrelid = '"public"."ai_faq_items"'::regclass)
+   AND to_regclass('"public"."ai_faq_items_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_faq_items"
     ADD CONSTRAINT "ai_faq_items_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_invocations_pkey' AND conrelid = '"public"."ai_invocations"'::regclass)
+   AND to_regclass('"public"."ai_invocations_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_invocations"
     ADD CONSTRAINT "ai_invocations_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_kbv_version_unique' AND conrelid = '"public"."ai_knowledge_versions"'::regclass)
+   AND to_regclass('"public"."ai_kbv_version_unique"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_knowledge_versions"
     ADD CONSTRAINT "ai_kbv_version_unique" UNIQUE ("agent_id", "version_number");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_knowledge_sources_pkey' AND conrelid = '"public"."ai_knowledge_sources"'::regclass)
+   AND to_regclass('"public"."ai_knowledge_sources_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_knowledge_sources"
     ADD CONSTRAINT "ai_knowledge_sources_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_knowledge_versions_pkey' AND conrelid = '"public"."ai_knowledge_versions"'::regclass)
+   AND to_regclass('"public"."ai_knowledge_versions_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_knowledge_versions"
     ADD CONSTRAINT "ai_knowledge_versions_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_models_pkey' AND conrelid = '"public"."ai_models"'::regclass)
+   AND to_regclass('"public"."ai_models_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_models"
     ADD CONSTRAINT "ai_models_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_models_unique' AND conrelid = '"public"."ai_models"'::regclass)
+   AND to_regclass('"public"."ai_models_unique"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_models"
     ADD CONSTRAINT "ai_models_unique" UNIQUE ("provider", "model_id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_pricing_pkey' AND conrelid = '"public"."ai_pricing"'::regclass)
+   AND to_regclass('"public"."ai_pricing_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_pricing"
     ADD CONSTRAINT "ai_pricing_pkey" PRIMARY KEY ("model");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_provider_credentials_pkey' AND conrelid = '"public"."ai_provider_credentials"'::regclass)
+   AND to_regclass('"public"."ai_provider_credentials_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_provider_credentials"
     ADD CONSTRAINT "ai_provider_credentials_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_provider_credentials_unique' AND conrelid = '"public"."ai_provider_credentials"'::regclass)
+   AND to_regclass('"public"."ai_provider_credentials_unique"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_provider_credentials"
     ADD CONSTRAINT "ai_provider_credentials_unique" UNIQUE ("organization_id", "provider", "label");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'api_audit_log_pkey' AND conrelid = '"public"."api_audit_log"'::regclass)
+   AND to_regclass('"public"."api_audit_log_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."api_audit_log"
     ADD CONSTRAINT "api_audit_log_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'api_tokens_organization_id_prefix_key' AND conrelid = '"public"."api_tokens"'::regclass)
+   AND to_regclass('"public"."api_tokens_organization_id_prefix_key"') IS NULL THEN
 ALTER TABLE ONLY "public"."api_tokens"
     ADD CONSTRAINT "api_tokens_organization_id_prefix_key" UNIQUE ("organization_id", "prefix");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'api_tokens_pkey' AND conrelid = '"public"."api_tokens"'::regclass)
+   AND to_regclass('"public"."api_tokens_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."api_tokens"
     ADD CONSTRAINT "api_tokens_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'channel_session_warmup_pkey' AND conrelid = '"public"."channel_session_warmup"'::regclass)
+   AND to_regclass('"public"."channel_session_warmup_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."channel_session_warmup"
     ADD CONSTRAINT "channel_session_warmup_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'channel_sessions_phone_per_org_unique' AND conrelid = '"public"."channel_sessions"'::regclass)
+   AND to_regclass('"public"."channel_sessions_phone_per_org_unique"') IS NULL THEN
 ALTER TABLE ONLY "public"."channel_sessions"
     ADD CONSTRAINT "channel_sessions_phone_per_org_unique" UNIQUE ("organization_id", "phone_number") DEFERRABLE INITIALLY DEFERRED;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'channel_sessions_pkey' AND conrelid = '"public"."channel_sessions"'::regclass)
+   AND to_regclass('"public"."channel_sessions_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."channel_sessions"
     ADD CONSTRAINT "channel_sessions_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'channel_sessions_waha_session_name_unique' AND conrelid = '"public"."channel_sessions"'::regclass)
+   AND to_regclass('"public"."channel_sessions_waha_session_name_unique"') IS NULL THEN
 ALTER TABLE ONLY "public"."channel_sessions"
     ADD CONSTRAINT "channel_sessions_waha_session_name_unique" UNIQUE ("waha_session_name");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'channel_sessions_webhook_path_token_unique' AND conrelid = '"public"."channel_sessions"'::regclass)
+   AND to_regclass('"public"."channel_sessions_webhook_path_token_unique"') IS NULL THEN
 ALTER TABLE ONLY "public"."channel_sessions"
     ADD CONSTRAINT "channel_sessions_webhook_path_token_unique" UNIQUE ("webhook_path_token");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'contacts_pkey' AND conrelid = '"public"."contacts"'::regclass)
+   AND to_regclass('"public"."contacts_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."contacts"
     ADD CONSTRAINT "contacts_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'conversations_pkey' AND conrelid = '"public"."conversations"'::regclass)
+   AND to_regclass('"public"."conversations_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."conversations"
     ADD CONSTRAINT "conversations_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'conversations_unique_per_contact_session' AND conrelid = '"public"."conversations"'::regclass)
+   AND to_regclass('"public"."conversations_unique_per_contact_session"') IS NULL THEN
 ALTER TABLE ONLY "public"."conversations"
     ADD CONSTRAINT "conversations_unique_per_contact_session" UNIQUE ("organization_id", "contact_id", "channel_session_id", "group_chat_id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_lead_activities_pkey' AND conrelid = '"public"."crm_lead_activities"'::regclass)
+   AND to_regclass('"public"."crm_lead_activities_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_lead_activities"
     ADD CONSTRAINT "crm_lead_activities_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_lead_links_pkey' AND conrelid = '"public"."crm_lead_links"'::regclass)
+   AND to_regclass('"public"."crm_lead_links_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_lead_links"
     ADD CONSTRAINT "crm_lead_links_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_leads_pkey' AND conrelid = '"public"."crm_leads"'::regclass)
+   AND to_regclass('"public"."crm_leads_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_leads"
     ADD CONSTRAINT "crm_leads_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_pipelines_pkey' AND conrelid = '"public"."crm_pipelines"'::regclass)
+   AND to_regclass('"public"."crm_pipelines_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_pipelines"
     ADD CONSTRAINT "crm_pipelines_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_stages_pkey' AND conrelid = '"public"."crm_stages"'::regclass)
+   AND to_regclass('"public"."crm_stages_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_stages"
     ADD CONSTRAINT "crm_stages_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'event_log_pkey' AND conrelid = '"public"."event_log"'::regclass)
+   AND to_regclass('"public"."event_log_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."event_log"
     ADD CONSTRAINT "event_log_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'idempotency_keys_organization_id_key_endpoint_key' AND conrelid = '"public"."idempotency_keys"'::regclass)
+   AND to_regclass('"public"."idempotency_keys_organization_id_key_endpoint_key"') IS NULL THEN
 ALTER TABLE ONLY "public"."idempotency_keys"
     ADD CONSTRAINT "idempotency_keys_organization_id_key_endpoint_key" UNIQUE ("organization_id", "key", "endpoint");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'idempotency_keys_pkey' AND conrelid = '"public"."idempotency_keys"'::regclass)
+   AND to_regclass('"public"."idempotency_keys_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."idempotency_keys"
     ADD CONSTRAINT "idempotency_keys_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'incidents_pkey' AND conrelid = '"public"."incidents"'::regclass)
+   AND to_regclass('"public"."incidents_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."incidents"
     ADD CONSTRAINT "incidents_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'lgpd_requests_pkey' AND conrelid = '"public"."lgpd_requests"'::regclass)
+   AND to_regclass('"public"."lgpd_requests_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."lgpd_requests"
     ADD CONSTRAINT "lgpd_requests_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'merge_queue_pkey' AND conrelid = '"public"."merge_queue"'::regclass)
+   AND to_regclass('"public"."merge_queue_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."merge_queue"
     ADD CONSTRAINT "merge_queue_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'messages_org_external_id_unique' AND conrelid = '"public"."messages"'::regclass)
+   AND to_regclass('"public"."messages_org_external_id_unique"') IS NULL THEN
 ALTER TABLE ONLY "public"."messages"
     ADD CONSTRAINT "messages_org_external_id_unique" UNIQUE ("organization_id", "external_id") DEFERRABLE INITIALLY DEFERRED;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'messages_pkey' AND conrelid = '"public"."messages"'::regclass)
+   AND to_regclass('"public"."messages_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."messages"
     ADD CONSTRAINT "messages_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'nuvemshop_products_organization_id_external_id_key' AND conrelid = '"public"."nuvemshop_products"'::regclass)
+   AND to_regclass('"public"."nuvemshop_products_organization_id_external_id_key"') IS NULL THEN
 ALTER TABLE ONLY "public"."nuvemshop_products"
     ADD CONSTRAINT "nuvemshop_products_organization_id_external_id_key" UNIQUE ("organization_id", "external_id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'nuvemshop_products_pkey' AND conrelid = '"public"."nuvemshop_products"'::regclass)
+   AND to_regclass('"public"."nuvemshop_products_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."nuvemshop_products"
     ADD CONSTRAINT "nuvemshop_products_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'orders_organization_id_external_provider_external_id_key' AND conrelid = '"public"."orders"'::regclass)
+   AND to_regclass('"public"."orders_organization_id_external_provider_external_id_key"') IS NULL THEN
 ALTER TABLE ONLY "public"."orders"
     ADD CONSTRAINT "orders_organization_id_external_provider_external_id_key" UNIQUE ("organization_id", "external_provider", "external_id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'orders_pkey' AND conrelid = '"public"."orders"'::regclass)
+   AND to_regclass('"public"."orders_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."orders"
     ADD CONSTRAINT "orders_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'organizations_cnpj_key' AND conrelid = '"public"."organizations"'::regclass)
+   AND to_regclass('"public"."organizations_cnpj_key"') IS NULL THEN
 ALTER TABLE ONLY "public"."organizations"
     ADD CONSTRAINT "organizations_cnpj_key" UNIQUE ("cnpj");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'organizations_pkey' AND conrelid = '"public"."organizations"'::regclass)
+   AND to_regclass('"public"."organizations_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."organizations"
     ADD CONSTRAINT "organizations_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'organizations_slug_key' AND conrelid = '"public"."organizations"'::regclass)
+   AND to_regclass('"public"."organizations_slug_key"') IS NULL THEN
 ALTER TABLE ONLY "public"."organizations"
     ADD CONSTRAINT "organizations_slug_key" UNIQUE ("slug");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'platform_admins_pkey' AND conrelid = '"public"."platform_admins"'::regclass)
+   AND to_regclass('"public"."platform_admins_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."platform_admins"
     ADD CONSTRAINT "platform_admins_pkey" PRIMARY KEY ("user_id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'storage_redaction_queue_bucket_object_path_key' AND conrelid = '"public"."storage_redaction_queue"'::regclass)
+   AND to_regclass('"public"."storage_redaction_queue_bucket_object_path_key"') IS NULL THEN
 ALTER TABLE ONLY "public"."storage_redaction_queue"
     ADD CONSTRAINT "storage_redaction_queue_bucket_object_path_key" UNIQUE ("bucket", "object_path");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'storage_redaction_queue_pkey' AND conrelid = '"public"."storage_redaction_queue"'::regclass)
+   AND to_regclass('"public"."storage_redaction_queue_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."storage_redaction_queue"
     ADD CONSTRAINT "storage_redaction_queue_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'tenant_integrations_organization_id_provider_key' AND conrelid = '"public"."tenant_integrations"'::regclass)
+   AND to_regclass('"public"."tenant_integrations_organization_id_provider_key"') IS NULL THEN
 ALTER TABLE ONLY "public"."tenant_integrations"
     ADD CONSTRAINT "tenant_integrations_organization_id_provider_key" UNIQUE ("organization_id", "provider");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'tenant_integrations_pkey' AND conrelid = '"public"."tenant_integrations"'::regclass)
+   AND to_regclass('"public"."tenant_integrations_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."tenant_integrations"
     ADD CONSTRAINT "tenant_integrations_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'user_organizations_pkey' AND conrelid = '"public"."user_organizations"'::regclass)
+   AND to_regclass('"public"."user_organizations_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."user_organizations"
     ADD CONSTRAINT "user_organizations_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'user_organizations_user_id_organization_id_key' AND conrelid = '"public"."user_organizations"'::regclass)
+   AND to_regclass('"public"."user_organizations_user_id_organization_id_key"') IS NULL THEN
 ALTER TABLE ONLY "public"."user_organizations"
     ADD CONSTRAINT "user_organizations_user_id_organization_id_key" UNIQUE ("user_id", "organization_id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'user_recovery_codes_pkey' AND conrelid = '"public"."user_recovery_codes"'::regclass)
+   AND to_regclass('"public"."user_recovery_codes_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."user_recovery_codes"
     ADD CONSTRAINT "user_recovery_codes_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'warmup_session_day_unique' AND conrelid = '"public"."channel_session_warmup"'::regclass)
+   AND to_regclass('"public"."warmup_session_day_unique"') IS NULL THEN
 ALTER TABLE ONLY "public"."channel_session_warmup"
     ADD CONSTRAINT "warmup_session_day_unique" UNIQUE ("channel_session_id", "day");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'webhook_events_log_pkey' AND conrelid = '"public"."webhook_events_log"'::regclass)
+   AND to_regclass('"public"."webhook_events_log_pkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."webhook_events_log"
     ADD CONSTRAINT "webhook_events_log_pkey" PRIMARY KEY ("id");
+END IF; END $baseline_guard$;
 
 
 
-CREATE INDEX "ai_agent_runs_agent_idx" ON "public"."ai_agent_runs" USING "btree" ("agent_id", "started_at" DESC);
+CREATE INDEX IF NOT EXISTS "ai_agent_runs_agent_idx" ON "public"."ai_agent_runs" USING "btree" ("agent_id", "started_at" DESC);
 
 
 
-CREATE UNIQUE INDEX "ai_agent_runs_one_running_per_conv" ON "public"."ai_agent_runs" USING "btree" ("conversation_id") WHERE (("status" = 'running'::"text") AND ("is_dry_run" = false));
+CREATE UNIQUE INDEX IF NOT EXISTS "ai_agent_runs_one_running_per_conv" ON "public"."ai_agent_runs" USING "btree" ("conversation_id") WHERE (("status" = 'running'::"text") AND ("is_dry_run" = false));
 
 
 
-CREATE INDEX "ai_agent_runs_org_started_idx" ON "public"."ai_agent_runs" USING "btree" ("organization_id", "started_at" DESC);
+CREATE INDEX IF NOT EXISTS "ai_agent_runs_org_started_idx" ON "public"."ai_agent_runs" USING "btree" ("organization_id", "started_at" DESC);
 
 
 
-CREATE INDEX "ai_agent_runs_status_idx" ON "public"."ai_agent_runs" USING "btree" ("status", "started_at") WHERE ("status" = ANY (ARRAY['pending'::"text", 'running'::"text"]));
+CREATE INDEX IF NOT EXISTS "ai_agent_runs_status_idx" ON "public"."ai_agent_runs" USING "btree" ("status", "started_at") WHERE ("status" = ANY (ARRAY['pending'::"text", 'running'::"text"]));
 
 
 
-CREATE INDEX "ai_agent_versions_agent_idx" ON "public"."ai_agent_versions" USING "btree" ("agent_id", "version_number" DESC);
+CREATE INDEX IF NOT EXISTS "ai_agent_versions_agent_idx" ON "public"."ai_agent_versions" USING "btree" ("agent_id", "version_number" DESC);
 
 
 
-CREATE UNIQUE INDEX "ai_agents_one_default_per_org" ON "public"."ai_agents" USING "btree" ("organization_id") WHERE "is_default";
+CREATE UNIQUE INDEX IF NOT EXISTS "ai_agents_one_default_per_org" ON "public"."ai_agents" USING "btree" ("organization_id") WHERE "is_default";
 
 
 
-CREATE INDEX "ai_agents_org_active_idx" ON "public"."ai_agents" USING "btree" ("organization_id") WHERE "is_active";
+CREATE INDEX IF NOT EXISTS "ai_agents_org_active_idx" ON "public"."ai_agents" USING "btree" ("organization_id") WHERE "is_active";
 
 
 
-CREATE INDEX "ai_agents_published_idx" ON "public"."ai_agents" USING "btree" ("organization_id", "priority" DESC) WHERE (("published_version_id" IS NOT NULL) AND ("archived_at" IS NULL));
+CREATE INDEX IF NOT EXISTS "ai_agents_published_idx" ON "public"."ai_agents" USING "btree" ("organization_id", "priority" DESC) WHERE (("published_version_id" IS NOT NULL) AND ("archived_at" IS NULL));
 
 
 
-CREATE INDEX "ai_chunks_embedding_ivfflat_idx" ON "public"."ai_chunks" USING "ivfflat" ("embedding" "public"."vector_cosine_ops") WITH ("lists"='100');
+CREATE INDEX IF NOT EXISTS "ai_chunks_embedding_ivfflat_idx" ON "public"."ai_chunks" USING "ivfflat" ("embedding" "public"."vector_cosine_ops") WITH ("lists"='100');
 
 
 
-CREATE INDEX "ai_chunks_metadata_gin_idx" ON "public"."ai_chunks" USING "gin" ("metadata");
+CREATE INDEX IF NOT EXISTS "ai_chunks_metadata_gin_idx" ON "public"."ai_chunks" USING "gin" ("metadata");
 
 
 
-CREATE INDEX "ai_chunks_org_kbv_idx" ON "public"."ai_chunks" USING "btree" ("organization_id", "kb_version_id");
+CREATE INDEX IF NOT EXISTS "ai_chunks_org_kbv_idx" ON "public"."ai_chunks" USING "btree" ("organization_id", "kb_version_id");
 
 
 
-CREATE INDEX "ai_chunks_source_idx" ON "public"."ai_chunks" USING "btree" ("knowledge_source_id");
+CREATE INDEX IF NOT EXISTS "ai_chunks_source_idx" ON "public"."ai_chunks" USING "btree" ("knowledge_source_id");
 
 
 
-CREATE INDEX "ai_faq_items_org_idx" ON "public"."ai_faq_items" USING "btree" ("organization_id");
+CREATE INDEX IF NOT EXISTS "ai_faq_items_org_idx" ON "public"."ai_faq_items" USING "btree" ("organization_id");
 
 
 
-CREATE INDEX "ai_faq_items_source_idx" ON "public"."ai_faq_items" USING "btree" ("knowledge_source_id", "position");
+CREATE INDEX IF NOT EXISTS "ai_faq_items_source_idx" ON "public"."ai_faq_items" USING "btree" ("knowledge_source_id", "position");
 
 
 
-CREATE INDEX "ai_invocations_agent_kind_idx" ON "public"."ai_invocations" USING "btree" ("agent_id", "invocation_kind");
+CREATE INDEX IF NOT EXISTS "ai_invocations_agent_kind_idx" ON "public"."ai_invocations" USING "btree" ("agent_id", "invocation_kind");
 
 
 
-CREATE INDEX "ai_invocations_conversation_idx" ON "public"."ai_invocations" USING "btree" ("conversation_id") WHERE ("conversation_id" IS NOT NULL);
+CREATE INDEX IF NOT EXISTS "ai_invocations_conversation_idx" ON "public"."ai_invocations" USING "btree" ("conversation_id") WHERE ("conversation_id" IS NOT NULL);
 
 
 
-CREATE INDEX "ai_invocations_org_created_idx" ON "public"."ai_invocations" USING "btree" ("organization_id", "created_at" DESC);
+CREATE INDEX IF NOT EXISTS "ai_invocations_org_created_idx" ON "public"."ai_invocations" USING "btree" ("organization_id", "created_at" DESC);
 
 
 
-CREATE UNIQUE INDEX "ai_kbv_one_active_per_agent" ON "public"."ai_knowledge_versions" USING "btree" ("agent_id") WHERE "is_active";
+CREATE UNIQUE INDEX IF NOT EXISTS "ai_kbv_one_active_per_agent" ON "public"."ai_knowledge_versions" USING "btree" ("agent_id") WHERE "is_active";
 
 
 
-CREATE INDEX "ai_knowledge_sources_agent_idx" ON "public"."ai_knowledge_sources" USING "btree" ("agent_id", "is_active");
+CREATE INDEX IF NOT EXISTS "ai_knowledge_sources_agent_idx" ON "public"."ai_knowledge_sources" USING "btree" ("agent_id", "is_active");
 
 
 
-CREATE UNIQUE INDEX "ai_knowledge_sources_unique_per_agent" ON "public"."ai_knowledge_sources" USING "btree" ("agent_id", "source_type") WHERE "is_active";
+CREATE UNIQUE INDEX IF NOT EXISTS "ai_knowledge_sources_unique_per_agent" ON "public"."ai_knowledge_sources" USING "btree" ("agent_id", "source_type") WHERE "is_active";
 
 
 
-CREATE UNIQUE INDEX "ai_models_one_default_per_provider" ON "public"."ai_models" USING "btree" ("provider") WHERE "is_default_for_provider";
+CREATE UNIQUE INDEX IF NOT EXISTS "ai_models_one_default_per_provider" ON "public"."ai_models" USING "btree" ("provider") WHERE "is_default_for_provider";
 
 
 
-CREATE INDEX "ai_provider_credentials_org_provider_idx" ON "public"."ai_provider_credentials" USING "btree" ("organization_id", "provider") WHERE "is_active";
+CREATE INDEX IF NOT EXISTS "ai_provider_credentials_org_provider_idx" ON "public"."ai_provider_credentials" USING "btree" ("organization_id", "provider") WHERE "is_active";
 
 
 
-CREATE INDEX "conversations_bot_silenced_idx" ON "public"."conversations" USING "btree" ("bot_silenced_until") WHERE ("bot_silenced_until" IS NOT NULL);
+CREATE INDEX IF NOT EXISTS "conversations_bot_silenced_idx" ON "public"."conversations" USING "btree" ("bot_silenced_until") WHERE ("bot_silenced_until" IS NOT NULL);
 
 
 
-CREATE INDEX "conversations_usable_rag_idx" ON "public"."conversations" USING "btree" ("organization_id", "usable_for_rag", "usable_for_rag_marked_at") WHERE ("usable_for_rag" = true);
+CREATE INDEX IF NOT EXISTS "conversations_usable_rag_idx" ON "public"."conversations" USING "btree" ("organization_id", "usable_for_rag", "usable_for_rag_marked_at") WHERE ("usable_for_rag" = true);
 
 
 
-CREATE INDEX "event_log_consumed_by_gin" ON "public"."event_log" USING "gin" ("consumed_by");
+CREATE INDEX IF NOT EXISTS "event_log_consumed_by_gin" ON "public"."event_log" USING "gin" ("consumed_by");
 
 
 
-CREATE INDEX "event_log_dead_idx" ON "public"."event_log" USING "btree" ("organization_id", "created_at" DESC) WHERE ("status" = 'dead'::"text");
+CREATE INDEX IF NOT EXISTS "event_log_dead_idx" ON "public"."event_log" USING "btree" ("organization_id", "created_at" DESC) WHERE ("status" = 'dead'::"text");
 
 
 
-CREATE INDEX "event_log_entity_idx" ON "public"."event_log" USING "btree" ("entity_kind", "entity_id", "created_at" DESC);
+CREATE INDEX IF NOT EXISTS "event_log_entity_idx" ON "public"."event_log" USING "btree" ("entity_kind", "entity_id", "created_at" DESC);
 
 
 
-CREATE INDEX "event_log_org_type_idx" ON "public"."event_log" USING "btree" ("organization_id", "event_type", "created_at" DESC);
+CREATE INDEX IF NOT EXISTS "event_log_org_type_idx" ON "public"."event_log" USING "btree" ("organization_id", "event_type", "created_at" DESC);
 
 
 
-CREATE INDEX "event_log_pending_idx" ON "public"."event_log" USING "btree" ("organization_id", "created_at") WHERE ("status" = 'pending'::"text");
+CREATE INDEX IF NOT EXISTS "event_log_pending_idx" ON "public"."event_log" USING "btree" ("organization_id", "created_at") WHERE ("status" = 'pending'::"text");
 
 
 
-CREATE INDEX "idx_api_tokens_hash" ON "public"."api_tokens" USING "btree" ("token_hash") WHERE ("revoked_at" IS NULL);
+CREATE INDEX IF NOT EXISTS "idx_api_tokens_hash" ON "public"."api_tokens" USING "btree" ("token_hash") WHERE ("revoked_at" IS NULL);
 
 
 
-CREATE INDEX "idx_api_tokens_org" ON "public"."api_tokens" USING "btree" ("organization_id") WHERE ("revoked_at" IS NULL);
+CREATE INDEX IF NOT EXISTS "idx_api_tokens_org" ON "public"."api_tokens" USING "btree" ("organization_id") WHERE ("revoked_at" IS NULL);
 
 
 
-CREATE INDEX "idx_audit_action_time" ON "public"."api_audit_log" USING "btree" ("action", "created_at" DESC);
+CREATE INDEX IF NOT EXISTS "idx_audit_action_time" ON "public"."api_audit_log" USING "btree" ("action", "created_at" DESC);
 
 
 
-CREATE INDEX "idx_audit_actor_time" ON "public"."api_audit_log" USING "btree" ("actor_user_id", "created_at" DESC);
+CREATE INDEX IF NOT EXISTS "idx_audit_actor_time" ON "public"."api_audit_log" USING "btree" ("actor_user_id", "created_at" DESC);
 
 
 
-CREATE INDEX "idx_audit_org_time" ON "public"."api_audit_log" USING "btree" ("organization_id", "created_at" DESC);
+CREATE INDEX IF NOT EXISTS "idx_audit_org_time" ON "public"."api_audit_log" USING "btree" ("organization_id", "created_at" DESC);
 
 
 
-CREATE INDEX "idx_audit_request" ON "public"."api_audit_log" USING "btree" ("request_id");
+CREATE INDEX IF NOT EXISTS "idx_audit_request" ON "public"."api_audit_log" USING "btree" ("request_id");
 
 
 
-CREATE INDEX "idx_audit_resource" ON "public"."api_audit_log" USING "btree" ("resource_type", "resource_id");
+CREATE INDEX IF NOT EXISTS "idx_audit_resource" ON "public"."api_audit_log" USING "btree" ("resource_type", "resource_id");
 
 
 
-CREATE INDEX "idx_channel_sessions_health" ON "public"."channel_sessions" USING "btree" ("last_health_check_at") WHERE ("status" = 'WORKING'::"text");
+CREATE INDEX IF NOT EXISTS "idx_channel_sessions_health" ON "public"."channel_sessions" USING "btree" ("last_health_check_at") WHERE ("status" = 'WORKING'::"text");
 
 
 
-CREATE INDEX "idx_channel_sessions_org_status" ON "public"."channel_sessions" USING "btree" ("organization_id", "status");
+CREATE INDEX IF NOT EXISTS "idx_channel_sessions_org_status" ON "public"."channel_sessions" USING "btree" ("organization_id", "status");
 
 
 
-CREATE INDEX "idx_contacts_consent_gin" ON "public"."contacts" USING "gin" ("consent" "jsonb_path_ops");
+CREATE INDEX IF NOT EXISTS "idx_contacts_consent_gin" ON "public"."contacts" USING "gin" ("consent" "jsonb_path_ops");
 
 
 
-CREATE INDEX "idx_contacts_org_blocked" ON "public"."contacts" USING "btree" ("organization_id") WHERE ("is_blocked" = true);
+CREATE INDEX IF NOT EXISTS "idx_contacts_org_blocked" ON "public"."contacts" USING "btree" ("organization_id") WHERE ("is_blocked" = true);
 
 
 
-CREATE INDEX "idx_contacts_org_last_activity" ON "public"."contacts" USING "btree" ("organization_id", "last_activity_at" DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS "idx_contacts_org_last_activity" ON "public"."contacts" USING "btree" ("organization_id", "last_activity_at" DESC NULLS LAST);
 
 
 
-CREATE INDEX "idx_contacts_org_name_trgm" ON "public"."contacts" USING "gin" ("name" "public"."gin_trgm_ops");
+CREATE INDEX IF NOT EXISTS "idx_contacts_org_name_trgm" ON "public"."contacts" USING "gin" ("name" "public"."gin_trgm_ops");
 
 
 
-CREATE INDEX "idx_contacts_tags_gin" ON "public"."contacts" USING "gin" ("tags");
+CREATE INDEX IF NOT EXISTS "idx_contacts_tags_gin" ON "public"."contacts" USING "gin" ("tags");
 
 
 
-CREATE INDEX "idx_conversations_assigned" ON "public"."conversations" USING "btree" ("assigned_to_user_id", "status") WHERE ("assigned_to_user_id" IS NOT NULL);
+CREATE INDEX IF NOT EXISTS "idx_conversations_assigned" ON "public"."conversations" USING "btree" ("assigned_to_user_id", "status") WHERE ("assigned_to_user_id" IS NOT NULL);
 
 
 
-CREATE INDEX "idx_conversations_open_unassigned" ON "public"."conversations" USING "btree" ("organization_id", "last_inbound_at" DESC) WHERE (("status" = 'open'::"text") AND ("assigned_to_user_id" IS NULL));
+CREATE INDEX IF NOT EXISTS "idx_conversations_open_unassigned" ON "public"."conversations" USING "btree" ("organization_id", "last_inbound_at" DESC) WHERE (("status" = 'open'::"text") AND ("assigned_to_user_id" IS NULL));
 
 
 
-CREATE INDEX "idx_conversations_org_last_msg" ON "public"."conversations" USING "btree" ("organization_id", "last_message_at" DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS "idx_conversations_org_last_msg" ON "public"."conversations" USING "btree" ("organization_id", "last_message_at" DESC NULLS LAST);
 
 
 
-CREATE INDEX "idx_crm_lead_links_lead" ON "public"."crm_lead_links" USING "btree" ("lead_id");
+CREATE INDEX IF NOT EXISTS "idx_crm_lead_links_lead" ON "public"."crm_lead_links" USING "btree" ("lead_id");
 
 
 
-CREATE INDEX "idx_crm_lead_links_org_target" ON "public"."crm_lead_links" USING "btree" ("organization_id", "target_kind", "target_id");
+CREATE INDEX IF NOT EXISTS "idx_crm_lead_links_org_target" ON "public"."crm_lead_links" USING "btree" ("organization_id", "target_kind", "target_id");
 
 
 
-CREATE INDEX "idx_crm_leads_custom_fields_gin" ON "public"."crm_leads" USING "gin" ("custom_fields" "jsonb_path_ops");
+CREATE INDEX IF NOT EXISTS "idx_crm_leads_custom_fields_gin" ON "public"."crm_leads" USING "gin" ("custom_fields" "jsonb_path_ops");
 
 
 
-CREATE INDEX "idx_crm_leads_org_contact" ON "public"."crm_leads" USING "btree" ("organization_id", "contact_id");
+CREATE INDEX IF NOT EXISTS "idx_crm_leads_org_contact" ON "public"."crm_leads" USING "btree" ("organization_id", "contact_id");
 
 
 
-CREATE INDEX "idx_crm_leads_org_expected_close_overdue" ON "public"."crm_leads" USING "btree" ("organization_id", "expected_close_date") WHERE (("status" = 'open'::"text") AND ("expected_close_date" IS NOT NULL));
+CREATE INDEX IF NOT EXISTS "idx_crm_leads_org_expected_close_overdue" ON "public"."crm_leads" USING "btree" ("organization_id", "expected_close_date") WHERE (("status" = 'open'::"text") AND ("expected_close_date" IS NOT NULL));
 
 
 
-CREATE INDEX "idx_crm_leads_org_last_activity" ON "public"."crm_leads" USING "btree" ("organization_id", "last_activity_at" DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS "idx_crm_leads_org_last_activity" ON "public"."crm_leads" USING "btree" ("organization_id", "last_activity_at" DESC NULLS LAST);
 
 
 
-CREATE INDEX "idx_crm_leads_org_owner_status" ON "public"."crm_leads" USING "btree" ("organization_id", "owner_user_id", "status") WHERE ("status" = 'open'::"text");
+CREATE INDEX IF NOT EXISTS "idx_crm_leads_org_owner_status" ON "public"."crm_leads" USING "btree" ("organization_id", "owner_user_id", "status") WHERE ("status" = 'open'::"text");
 
 
 
-CREATE INDEX "idx_crm_leads_org_pipeline_status" ON "public"."crm_leads" USING "btree" ("organization_id", "pipeline_id", "status");
+CREATE INDEX IF NOT EXISTS "idx_crm_leads_org_pipeline_status" ON "public"."crm_leads" USING "btree" ("organization_id", "pipeline_id", "status");
 
 
 
-CREATE INDEX "idx_crm_leads_org_stage_position" ON "public"."crm_leads" USING "btree" ("organization_id", "stage_id", "position_in_stage");
+CREATE INDEX IF NOT EXISTS "idx_crm_leads_org_stage_position" ON "public"."crm_leads" USING "btree" ("organization_id", "stage_id", "position_in_stage");
 
 
 
-CREATE INDEX "idx_crm_leads_tags_gin" ON "public"."crm_leads" USING "gin" ("tags");
+CREATE INDEX IF NOT EXISTS "idx_crm_leads_tags_gin" ON "public"."crm_leads" USING "gin" ("tags");
 
 
 
-CREATE INDEX "idx_crm_pipelines_org_position" ON "public"."crm_pipelines" USING "btree" ("organization_id", "position") WHERE ("is_archived" = false);
+CREATE INDEX IF NOT EXISTS "idx_crm_pipelines_org_position" ON "public"."crm_pipelines" USING "btree" ("organization_id", "position") WHERE ("is_archived" = false);
 
 
 
-CREATE INDEX "idx_crm_stages_pipeline_position" ON "public"."crm_stages" USING "btree" ("pipeline_id", "position") WHERE ("is_archived" = false);
+CREATE INDEX IF NOT EXISTS "idx_crm_stages_pipeline_position" ON "public"."crm_stages" USING "btree" ("pipeline_id", "position") WHERE ("is_archived" = false);
 
 
 
-CREATE INDEX "idx_idem_expiry" ON "public"."idempotency_keys" USING "btree" ("expires_at");
+CREATE INDEX IF NOT EXISTS "idx_idem_expiry" ON "public"."idempotency_keys" USING "btree" ("expires_at");
 
 
 
-CREATE INDEX "idx_idem_lookup" ON "public"."idempotency_keys" USING "btree" ("organization_id", "key", "endpoint");
+CREATE INDEX IF NOT EXISTS "idx_idem_lookup" ON "public"."idempotency_keys" USING "btree" ("organization_id", "key", "endpoint");
 
 
 
-CREATE INDEX "idx_lead_activities_org_contact" ON "public"."crm_lead_activities" USING "btree" ("organization_id", "contact_id", "performed_at" DESC);
+CREATE INDEX IF NOT EXISTS "idx_lead_activities_org_contact" ON "public"."crm_lead_activities" USING "btree" ("organization_id", "contact_id", "performed_at" DESC);
 
 
 
-CREATE INDEX "idx_lead_activities_org_lead_perf" ON "public"."crm_lead_activities" USING "btree" ("organization_id", "lead_id", "performed_at" DESC);
+CREATE INDEX IF NOT EXISTS "idx_lead_activities_org_lead_perf" ON "public"."crm_lead_activities" USING "btree" ("organization_id", "lead_id", "performed_at" DESC);
 
 
 
-CREATE INDEX "idx_lead_activities_org_type_perf" ON "public"."crm_lead_activities" USING "btree" ("organization_id", "type", "performed_at" DESC);
+CREATE INDEX IF NOT EXISTS "idx_lead_activities_org_type_perf" ON "public"."crm_lead_activities" USING "btree" ("organization_id", "type", "performed_at" DESC);
 
 
 
-CREATE INDEX "idx_lead_activities_payload_gin" ON "public"."crm_lead_activities" USING "gin" ("payload" "jsonb_path_ops");
+CREATE INDEX IF NOT EXISTS "idx_lead_activities_payload_gin" ON "public"."crm_lead_activities" USING "gin" ("payload" "jsonb_path_ops");
 
 
 
-CREATE INDEX "idx_merge_queue_org_status" ON "public"."merge_queue" USING "btree" ("organization_id", "status", "created_at");
+CREATE INDEX IF NOT EXISTS "idx_merge_queue_org_status" ON "public"."merge_queue" USING "btree" ("organization_id", "status", "created_at");
 
 
 
-CREATE INDEX "idx_messages_conversation_sent" ON "public"."messages" USING "btree" ("conversation_id", "sent_at" DESC);
+CREATE INDEX IF NOT EXISTS "idx_messages_conversation_sent" ON "public"."messages" USING "btree" ("conversation_id", "sent_at" DESC);
 
 
 
-CREATE INDEX "idx_messages_external_lookup" ON "public"."messages" USING "btree" ("organization_id", "external_id") WHERE ("external_id" IS NOT NULL);
+CREATE INDEX IF NOT EXISTS "idx_messages_external_lookup" ON "public"."messages" USING "btree" ("organization_id", "external_id") WHERE ("external_id" IS NOT NULL);
 
 
 
-CREATE INDEX "idx_messages_org_status_created" ON "public"."messages" USING "btree" ("organization_id", "status", "created_at") WHERE ("status" = ANY (ARRAY['sending'::"text", 'failed'::"text"]));
+CREATE INDEX IF NOT EXISTS "idx_messages_org_status_created" ON "public"."messages" USING "btree" ("organization_id", "status", "created_at") WHERE ("status" = ANY (ARRAY['sending'::"text", 'failed'::"text"]));
 
 
 
-CREATE INDEX "idx_organizations_pending_onboarding" ON "public"."organizations" USING "btree" ("id") WHERE ("onboarded_at" IS NULL);
+CREATE INDEX IF NOT EXISTS "idx_organizations_pending_onboarding" ON "public"."organizations" USING "btree" ("id") WHERE ("onboarded_at" IS NULL);
 
 
 
-CREATE INDEX "idx_orgs_slug" ON "public"."organizations" USING "btree" ("slug");
+CREATE INDEX IF NOT EXISTS "idx_orgs_slug" ON "public"."organizations" USING "btree" ("slug");
 
 
 
-CREATE INDEX "idx_orgs_status" ON "public"."organizations" USING "btree" ("status") WHERE ("status" = 'active'::"text");
+CREATE INDEX IF NOT EXISTS "idx_orgs_status" ON "public"."organizations" USING "btree" ("status") WHERE ("status" = 'active'::"text");
 
 
 
-CREATE UNIQUE INDEX "idx_recovery_unique" ON "public"."user_recovery_codes" USING "btree" ("user_id", "code_hash");
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_recovery_unique" ON "public"."user_recovery_codes" USING "btree" ("user_id", "code_hash");
 
 
 
-CREATE INDEX "idx_recovery_user" ON "public"."user_recovery_codes" USING "btree" ("user_id") WHERE ("used_at" IS NULL);
+CREATE INDEX IF NOT EXISTS "idx_recovery_user" ON "public"."user_recovery_codes" USING "btree" ("user_id") WHERE ("used_at" IS NULL);
 
 
 
-CREATE INDEX "idx_user_orgs_org_role" ON "public"."user_organizations" USING "btree" ("organization_id", "role") WHERE ("revoked_at" IS NULL);
+CREATE INDEX IF NOT EXISTS "idx_user_orgs_org_role" ON "public"."user_organizations" USING "btree" ("organization_id", "role") WHERE ("revoked_at" IS NULL);
 
 
 
-CREATE INDEX "idx_user_orgs_user" ON "public"."user_organizations" USING "btree" ("user_id") WHERE ("revoked_at" IS NULL);
+CREATE INDEX IF NOT EXISTS "idx_user_orgs_user" ON "public"."user_organizations" USING "btree" ("user_id") WHERE ("revoked_at" IS NULL);
 
 
 
-CREATE INDEX "idx_warmup_org_day" ON "public"."channel_session_warmup" USING "btree" ("organization_id", "day" DESC);
+CREATE INDEX IF NOT EXISTS "idx_warmup_org_day" ON "public"."channel_session_warmup" USING "btree" ("organization_id", "day" DESC);
 
 
 
-CREATE INDEX "idx_webhook_events_external_id" ON "public"."webhook_events_log" USING "btree" ("organization_id", "provider", "external_id") WHERE ("external_id" IS NOT NULL);
+CREATE INDEX IF NOT EXISTS "idx_webhook_events_external_id" ON "public"."webhook_events_log" USING "btree" ("organization_id", "provider", "external_id") WHERE ("external_id" IS NOT NULL);
 
 
 
-CREATE INDEX "idx_webhook_events_org_received" ON "public"."webhook_events_log" USING "btree" ("organization_id", "received_at" DESC);
+CREATE INDEX IF NOT EXISTS "idx_webhook_events_org_received" ON "public"."webhook_events_log" USING "btree" ("organization_id", "received_at" DESC);
 
 
 
-CREATE INDEX "idx_webhook_events_status_received" ON "public"."webhook_events_log" USING "btree" ("status", "received_at") WHERE ("status" = ANY (ARRAY['received'::"text", 'error'::"text"]));
+CREATE INDEX IF NOT EXISTS "idx_webhook_events_status_received" ON "public"."webhook_events_log" USING "btree" ("status", "received_at") WHERE ("status" = ANY (ARRAY['received'::"text", 'error'::"text"]));
 
 
 
-CREATE INDEX "incidents_org_idx" ON "public"."incidents" USING "btree" ("organization_id", "created_at" DESC);
+CREATE INDEX IF NOT EXISTS "incidents_org_idx" ON "public"."incidents" USING "btree" ("organization_id", "created_at" DESC);
 
 
 
-CREATE INDEX "incidents_severity_idx" ON "public"."incidents" USING "btree" ("severity", "status");
+CREATE INDEX IF NOT EXISTS "incidents_severity_idx" ON "public"."incidents" USING "btree" ("severity", "status");
 
 
 
-CREATE INDEX "incidents_status_idx" ON "public"."incidents" USING "btree" ("status", "created_at" DESC) WHERE ("status" <> 'resolved'::"text");
+CREATE INDEX IF NOT EXISTS "incidents_status_idx" ON "public"."incidents" USING "btree" ("status", "created_at" DESC) WHERE ("status" <> 'resolved'::"text");
 
 
 
-CREATE INDEX "lgpd_requests_contact_idx" ON "public"."lgpd_requests" USING "btree" ("contact_id") WHERE ("contact_id" IS NOT NULL);
+CREATE INDEX IF NOT EXISTS "lgpd_requests_contact_idx" ON "public"."lgpd_requests" USING "btree" ("contact_id") WHERE ("contact_id" IS NOT NULL);
 
 
 
-CREATE INDEX "lgpd_requests_emergency_idx" ON "public"."lgpd_requests" USING "btree" ("organization_id", "emergency", "due_at") WHERE ("emergency" = true);
+CREATE INDEX IF NOT EXISTS "lgpd_requests_emergency_idx" ON "public"."lgpd_requests" USING "btree" ("organization_id", "emergency", "due_at") WHERE ("emergency" = true);
 
 
 
-CREATE INDEX "lgpd_requests_org_due_idx" ON "public"."lgpd_requests" USING "btree" ("organization_id", "due_at") WHERE ("status" = ANY (ARRAY['received'::"text", 'processing'::"text"]));
+CREATE INDEX IF NOT EXISTS "lgpd_requests_org_due_idx" ON "public"."lgpd_requests" USING "btree" ("organization_id", "due_at") WHERE ("status" = ANY (ARRAY['received'::"text", 'processing'::"text"]));
 
 
 
-CREATE INDEX "lgpd_requests_org_status_idx" ON "public"."lgpd_requests" USING "btree" ("organization_id", "status");
+CREATE INDEX IF NOT EXISTS "lgpd_requests_org_status_idx" ON "public"."lgpd_requests" USING "btree" ("organization_id", "status");
 
 
 
-CREATE INDEX "nuvemshop_products_org_idx" ON "public"."nuvemshop_products" USING "btree" ("organization_id");
+CREATE INDEX IF NOT EXISTS "nuvemshop_products_org_idx" ON "public"."nuvemshop_products" USING "btree" ("organization_id");
 
 
 
-CREATE INDEX "nuvemshop_products_rag_pending_idx" ON "public"."nuvemshop_products" USING "btree" ("organization_id") WHERE ("rag_indexed_at" IS NULL);
+CREATE INDEX IF NOT EXISTS "nuvemshop_products_rag_pending_idx" ON "public"."nuvemshop_products" USING "btree" ("organization_id") WHERE ("rag_indexed_at" IS NULL);
 
 
 
-CREATE INDEX "nuvemshop_products_title_trgm" ON "public"."nuvemshop_products" USING "gin" ("title" "public"."gin_trgm_ops");
+CREATE INDEX IF NOT EXISTS "nuvemshop_products_title_trgm" ON "public"."nuvemshop_products" USING "gin" ("title" "public"."gin_trgm_ops");
 
 
 
-CREATE INDEX "orders_contact_idx" ON "public"."orders" USING "btree" ("contact_id") WHERE ("contact_id" IS NOT NULL);
+CREATE INDEX IF NOT EXISTS "orders_contact_idx" ON "public"."orders" USING "btree" ("contact_id") WHERE ("contact_id" IS NOT NULL);
 
 
 
-CREATE INDEX "orders_customer_external_idx" ON "public"."orders" USING "btree" ("organization_id", "external_provider", "customer_external_id");
+CREATE INDEX IF NOT EXISTS "orders_customer_external_idx" ON "public"."orders" USING "btree" ("organization_id", "external_provider", "customer_external_id");
 
 
 
-CREATE INDEX "orders_org_ordered_idx" ON "public"."orders" USING "btree" ("organization_id", "ordered_at" DESC);
+CREATE INDEX IF NOT EXISTS "orders_org_ordered_idx" ON "public"."orders" USING "btree" ("organization_id", "ordered_at" DESC);
 
 
 
-CREATE INDEX "orders_payload_gin" ON "public"."orders" USING "gin" ("payload" "jsonb_path_ops");
+CREATE INDEX IF NOT EXISTS "orders_payload_gin" ON "public"."orders" USING "gin" ("payload" "jsonb_path_ops");
 
 
 
-CREATE INDEX "orders_status_idx" ON "public"."orders" USING "btree" ("organization_id", "status");
+CREATE INDEX IF NOT EXISTS "orders_status_idx" ON "public"."orders" USING "btree" ("organization_id", "status");
 
 
 
-CREATE INDEX "storage_redaction_queue_org_idx" ON "public"."storage_redaction_queue" USING "btree" ("organization_id");
+CREATE INDEX IF NOT EXISTS "storage_redaction_queue_org_idx" ON "public"."storage_redaction_queue" USING "btree" ("organization_id");
 
 
 
-CREATE INDEX "storage_redaction_queue_status_idx" ON "public"."storage_redaction_queue" USING "btree" ("status", "enqueued_at") WHERE ("status" = 'pending'::"text");
+CREATE INDEX IF NOT EXISTS "storage_redaction_queue_status_idx" ON "public"."storage_redaction_queue" USING "btree" ("status", "enqueued_at") WHERE ("status" = 'pending'::"text");
 
 
 
-CREATE INDEX "tenant_integrations_expires_idx" ON "public"."tenant_integrations" USING "btree" ("expires_at") WHERE ("expires_at" IS NOT NULL);
+CREATE INDEX IF NOT EXISTS "tenant_integrations_expires_idx" ON "public"."tenant_integrations" USING "btree" ("expires_at") WHERE ("expires_at" IS NOT NULL);
 
 
 
-CREATE INDEX "tenant_integrations_org_idx" ON "public"."tenant_integrations" USING "btree" ("organization_id");
+CREATE INDEX IF NOT EXISTS "tenant_integrations_org_idx" ON "public"."tenant_integrations" USING "btree" ("organization_id");
 
 
 
-CREATE UNIQUE INDEX "tenant_integrations_path_token_idx" ON "public"."tenant_integrations" USING "btree" ("webhook_path_token");
+CREATE UNIQUE INDEX IF NOT EXISTS "tenant_integrations_path_token_idx" ON "public"."tenant_integrations" USING "btree" ("webhook_path_token");
 
 
 
-CREATE INDEX "tenant_integrations_status_idx" ON "public"."tenant_integrations" USING "btree" ("status") WHERE ("status" = ANY (ARRAY['token_expired'::"text", 'error'::"text"]));
+CREATE INDEX IF NOT EXISTS "tenant_integrations_status_idx" ON "public"."tenant_integrations" USING "btree" ("status") WHERE ("status" = ANY (ARRAY['token_expired'::"text", 'error'::"text"]));
 
 
 
-CREATE UNIQUE INDEX "uniq_contacts_org_cpf" ON "public"."contacts" USING "btree" ("organization_id", "cpf_hash") WHERE (("cpf_hash" IS NOT NULL) AND ("is_merged_into" IS NULL));
+CREATE UNIQUE INDEX IF NOT EXISTS "uniq_contacts_org_cpf" ON "public"."contacts" USING "btree" ("organization_id", "cpf_hash") WHERE (("cpf_hash" IS NOT NULL) AND ("is_merged_into" IS NULL));
 
 
 
-CREATE UNIQUE INDEX "uniq_contacts_org_email" ON "public"."contacts" USING "btree" ("organization_id", "email_normalized") WHERE (("email_normalized" IS NOT NULL) AND ("is_merged_into" IS NULL));
+CREATE UNIQUE INDEX IF NOT EXISTS "uniq_contacts_org_email" ON "public"."contacts" USING "btree" ("organization_id", "email_normalized") WHERE (("email_normalized" IS NOT NULL) AND ("is_merged_into" IS NULL));
 
 
 
-CREATE UNIQUE INDEX "uniq_contacts_org_phone" ON "public"."contacts" USING "btree" ("organization_id", "phone_number") WHERE (("phone_number" IS NOT NULL) AND ("is_merged_into" IS NULL));
+CREATE UNIQUE INDEX IF NOT EXISTS "uniq_contacts_org_phone" ON "public"."contacts" USING "btree" ("organization_id", "phone_number") WHERE (("phone_number" IS NOT NULL) AND ("is_merged_into" IS NULL));
 
 
 
-CREATE UNIQUE INDEX "uniq_crm_lead_links_lead_target_link" ON "public"."crm_lead_links" USING "btree" ("lead_id", "target_kind", "target_id", "link_kind");
+CREATE UNIQUE INDEX IF NOT EXISTS "uniq_crm_lead_links_lead_target_link" ON "public"."crm_lead_links" USING "btree" ("lead_id", "target_kind", "target_id", "link_kind");
 
 
 
-CREATE UNIQUE INDEX "uniq_crm_leads_org_source_external" ON "public"."crm_leads" USING "btree" ("organization_id", "source", "external_id") WHERE ("external_id" IS NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS "uniq_crm_leads_org_source_external" ON "public"."crm_leads" USING "btree" ("organization_id", "source", "external_id") WHERE ("external_id" IS NOT NULL);
 
 
 
-CREATE UNIQUE INDEX "uniq_crm_pipelines_org_default" ON "public"."crm_pipelines" USING "btree" ("organization_id") WHERE ("is_default" = true);
+CREATE UNIQUE INDEX IF NOT EXISTS "uniq_crm_pipelines_org_default" ON "public"."crm_pipelines" USING "btree" ("organization_id") WHERE ("is_default" = true);
 
 
 
-CREATE UNIQUE INDEX "uniq_crm_pipelines_org_slug" ON "public"."crm_pipelines" USING "btree" ("organization_id", "slug");
+CREATE UNIQUE INDEX IF NOT EXISTS "uniq_crm_pipelines_org_slug" ON "public"."crm_pipelines" USING "btree" ("organization_id", "slug");
 
 
 
-CREATE UNIQUE INDEX "uniq_crm_stages_pipeline_lost" ON "public"."crm_stages" USING "btree" ("pipeline_id") WHERE (("is_lost" = true) AND ("is_archived" = false));
+CREATE UNIQUE INDEX IF NOT EXISTS "uniq_crm_stages_pipeline_lost" ON "public"."crm_stages" USING "btree" ("pipeline_id") WHERE (("is_lost" = true) AND ("is_archived" = false));
 
 
 
-CREATE UNIQUE INDEX "uniq_crm_stages_pipeline_slug" ON "public"."crm_stages" USING "btree" ("pipeline_id", "slug");
+CREATE UNIQUE INDEX IF NOT EXISTS "uniq_crm_stages_pipeline_slug" ON "public"."crm_stages" USING "btree" ("pipeline_id", "slug");
 
 
 
-CREATE UNIQUE INDEX "uniq_crm_stages_pipeline_won" ON "public"."crm_stages" USING "btree" ("pipeline_id") WHERE (("is_won" = true) AND ("is_archived" = false));
+CREATE UNIQUE INDEX IF NOT EXISTS "uniq_crm_stages_pipeline_won" ON "public"."crm_stages" USING "btree" ("pipeline_id") WHERE (("is_won" = true) AND ("is_archived" = false));
 
 
 
-CREATE INDEX "webhook_events_log_dlq_idx" ON "public"."webhook_events_log" USING "btree" ("organization_id", "provider") WHERE ("status" = 'dead'::"text");
+CREATE INDEX IF NOT EXISTS "webhook_events_log_dlq_idx" ON "public"."webhook_events_log" USING "btree" ("organization_id", "provider") WHERE ("status" = 'dead'::"text");
 
 
 
-CREATE INDEX "webhook_events_log_lgpd_idx" ON "public"."webhook_events_log" USING "btree" ("organization_id", "provider", "event_type", "received_at" DESC) WHERE ("event_type" = ANY (ARRAY['customer/redact'::"text", 'customer/data_request'::"text", 'store/redact'::"text"]));
+CREATE INDEX IF NOT EXISTS "webhook_events_log_lgpd_idx" ON "public"."webhook_events_log" USING "btree" ("organization_id", "provider", "event_type", "received_at" DESC) WHERE ("event_type" = ANY (ARRAY['customer/redact'::"text", 'customer/data_request'::"text", 'store/redact'::"text"]));
 
 
 
@@ -2789,458 +3084,913 @@ CREATE OR REPLACE TRIGGER "trg_validate_lost_reason_required" BEFORE INSERT OR U
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_runs_agent_id_fkey' AND conrelid = '"public"."ai_agent_runs"'::regclass)
+   AND to_regclass('"public"."ai_agent_runs_agent_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_runs"
     ADD CONSTRAINT "ai_agent_runs_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "public"."ai_agents"("id") ON DELETE RESTRICT;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_runs_agent_version_id_fkey' AND conrelid = '"public"."ai_agent_runs"'::regclass)
+   AND to_regclass('"public"."ai_agent_runs_agent_version_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_runs"
     ADD CONSTRAINT "ai_agent_runs_agent_version_id_fkey" FOREIGN KEY ("agent_version_id") REFERENCES "public"."ai_agent_versions"("id") ON DELETE RESTRICT;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_runs_channel_session_id_fkey' AND conrelid = '"public"."ai_agent_runs"'::regclass)
+   AND to_regclass('"public"."ai_agent_runs_channel_session_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_runs"
     ADD CONSTRAINT "ai_agent_runs_channel_session_id_fkey" FOREIGN KEY ("channel_session_id") REFERENCES "public"."channel_sessions"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_runs_contact_id_fkey' AND conrelid = '"public"."ai_agent_runs"'::regclass)
+   AND to_regclass('"public"."ai_agent_runs_contact_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_runs"
     ADD CONSTRAINT "ai_agent_runs_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_runs_conversation_id_fkey' AND conrelid = '"public"."ai_agent_runs"'::regclass)
+   AND to_regclass('"public"."ai_agent_runs_conversation_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_runs"
     ADD CONSTRAINT "ai_agent_runs_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_runs_inbound_message_id_fkey' AND conrelid = '"public"."ai_agent_runs"'::regclass)
+   AND to_regclass('"public"."ai_agent_runs_inbound_message_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_runs"
     ADD CONSTRAINT "ai_agent_runs_inbound_message_id_fkey" FOREIGN KEY ("inbound_message_id") REFERENCES "public"."messages"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_runs_organization_id_fkey' AND conrelid = '"public"."ai_agent_runs"'::regclass)
+   AND to_regclass('"public"."ai_agent_runs_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_runs"
     ADD CONSTRAINT "ai_agent_runs_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_runs_outbound_message_id_fkey' AND conrelid = '"public"."ai_agent_runs"'::regclass)
+   AND to_regclass('"public"."ai_agent_runs_outbound_message_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_runs"
     ADD CONSTRAINT "ai_agent_runs_outbound_message_id_fkey" FOREIGN KEY ("outbound_message_id") REFERENCES "public"."messages"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_versions_agent_id_fkey' AND conrelid = '"public"."ai_agent_versions"'::regclass)
+   AND to_regclass('"public"."ai_agent_versions_agent_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_versions"
     ADD CONSTRAINT "ai_agent_versions_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "public"."ai_agents"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_versions_channel_session_id_fkey' AND conrelid = '"public"."ai_agent_versions"'::regclass)
+   AND to_regclass('"public"."ai_agent_versions_channel_session_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_versions"
     ADD CONSTRAINT "ai_agent_versions_channel_session_id_fkey" FOREIGN KEY ("channel_session_id") REFERENCES "public"."channel_sessions"("id") ON DELETE RESTRICT;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_versions_created_by_fkey' AND conrelid = '"public"."ai_agent_versions"'::regclass)
+   AND to_regclass('"public"."ai_agent_versions_created_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_versions"
     ADD CONSTRAINT "ai_agent_versions_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "auth"."users"("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_versions_credential_id_fkey' AND conrelid = '"public"."ai_agent_versions"'::regclass)
+   AND to_regclass('"public"."ai_agent_versions_credential_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_versions"
     ADD CONSTRAINT "ai_agent_versions_credential_id_fkey" FOREIGN KEY ("credential_id") REFERENCES "public"."ai_provider_credentials"("id") ON DELETE RESTRICT;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agent_versions_organization_id_fkey' AND conrelid = '"public"."ai_agent_versions"'::regclass)
+   AND to_regclass('"public"."ai_agent_versions_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agent_versions"
     ADD CONSTRAINT "ai_agent_versions_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agents_created_by_fkey' AND conrelid = '"public"."ai_agents"'::regclass)
+   AND to_regclass('"public"."ai_agents_created_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agents"
     ADD CONSTRAINT "ai_agents_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "auth"."users"("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agents_organization_id_fkey' AND conrelid = '"public"."ai_agents"'::regclass)
+   AND to_regclass('"public"."ai_agents_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agents"
     ADD CONSTRAINT "ai_agents_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_agents_published_version_id_fkey' AND conrelid = '"public"."ai_agents"'::regclass)
+   AND to_regclass('"public"."ai_agents_published_version_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_agents"
     ADD CONSTRAINT "ai_agents_published_version_id_fkey" FOREIGN KEY ("published_version_id") REFERENCES "public"."ai_agent_versions"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_budgets_organization_id_fkey' AND conrelid = '"public"."ai_budgets"'::regclass)
+   AND to_regclass('"public"."ai_budgets_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_budgets"
     ADD CONSTRAINT "ai_budgets_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_chunks_knowledge_source_id_fkey' AND conrelid = '"public"."ai_chunks"'::regclass)
+   AND to_regclass('"public"."ai_chunks_knowledge_source_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_chunks"
     ADD CONSTRAINT "ai_chunks_knowledge_source_id_fkey" FOREIGN KEY ("knowledge_source_id") REFERENCES "public"."ai_knowledge_sources"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_chunks_organization_id_fkey' AND conrelid = '"public"."ai_chunks"'::regclass)
+   AND to_regclass('"public"."ai_chunks_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_chunks"
     ADD CONSTRAINT "ai_chunks_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_faq_items_knowledge_source_id_fkey' AND conrelid = '"public"."ai_faq_items"'::regclass)
+   AND to_regclass('"public"."ai_faq_items_knowledge_source_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_faq_items"
     ADD CONSTRAINT "ai_faq_items_knowledge_source_id_fkey" FOREIGN KEY ("knowledge_source_id") REFERENCES "public"."ai_knowledge_sources"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_faq_items_organization_id_fkey' AND conrelid = '"public"."ai_faq_items"'::regclass)
+   AND to_regclass('"public"."ai_faq_items_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_faq_items"
     ADD CONSTRAINT "ai_faq_items_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_invocations_agent_id_fkey' AND conrelid = '"public"."ai_invocations"'::regclass)
+   AND to_regclass('"public"."ai_invocations_agent_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_invocations"
     ADD CONSTRAINT "ai_invocations_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "public"."ai_agents"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_invocations_conversation_id_fkey' AND conrelid = '"public"."ai_invocations"'::regclass)
+   AND to_regclass('"public"."ai_invocations_conversation_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_invocations"
     ADD CONSTRAINT "ai_invocations_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_invocations_message_id_fkey' AND conrelid = '"public"."ai_invocations"'::regclass)
+   AND to_regclass('"public"."ai_invocations_message_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_invocations"
     ADD CONSTRAINT "ai_invocations_message_id_fkey" FOREIGN KEY ("message_id") REFERENCES "public"."messages"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_invocations_organization_id_fkey' AND conrelid = '"public"."ai_invocations"'::regclass)
+   AND to_regclass('"public"."ai_invocations_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_invocations"
     ADD CONSTRAINT "ai_invocations_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_knowledge_sources_agent_id_fkey' AND conrelid = '"public"."ai_knowledge_sources"'::regclass)
+   AND to_regclass('"public"."ai_knowledge_sources_agent_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_knowledge_sources"
     ADD CONSTRAINT "ai_knowledge_sources_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "public"."ai_agents"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_knowledge_sources_organization_id_fkey' AND conrelid = '"public"."ai_knowledge_sources"'::regclass)
+   AND to_regclass('"public"."ai_knowledge_sources_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_knowledge_sources"
     ADD CONSTRAINT "ai_knowledge_sources_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_knowledge_versions_activated_by_fkey' AND conrelid = '"public"."ai_knowledge_versions"'::regclass)
+   AND to_regclass('"public"."ai_knowledge_versions_activated_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_knowledge_versions"
     ADD CONSTRAINT "ai_knowledge_versions_activated_by_fkey" FOREIGN KEY ("activated_by") REFERENCES "auth"."users"("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_knowledge_versions_agent_id_fkey' AND conrelid = '"public"."ai_knowledge_versions"'::regclass)
+   AND to_regclass('"public"."ai_knowledge_versions_agent_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_knowledge_versions"
     ADD CONSTRAINT "ai_knowledge_versions_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "public"."ai_agents"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_knowledge_versions_organization_id_fkey' AND conrelid = '"public"."ai_knowledge_versions"'::regclass)
+   AND to_regclass('"public"."ai_knowledge_versions_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_knowledge_versions"
     ADD CONSTRAINT "ai_knowledge_versions_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_provider_credentials_created_by_fkey' AND conrelid = '"public"."ai_provider_credentials"'::regclass)
+   AND to_regclass('"public"."ai_provider_credentials_created_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_provider_credentials"
     ADD CONSTRAINT "ai_provider_credentials_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "auth"."users"("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'ai_provider_credentials_organization_id_fkey' AND conrelid = '"public"."ai_provider_credentials"'::regclass)
+   AND to_regclass('"public"."ai_provider_credentials_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."ai_provider_credentials"
     ADD CONSTRAINT "ai_provider_credentials_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'api_audit_log_actor_api_token_id_fkey' AND conrelid = '"public"."api_audit_log"'::regclass)
+   AND to_regclass('"public"."api_audit_log_actor_api_token_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."api_audit_log"
     ADD CONSTRAINT "api_audit_log_actor_api_token_id_fkey" FOREIGN KEY ("actor_api_token_id") REFERENCES "public"."api_tokens"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'api_audit_log_actor_user_id_fkey' AND conrelid = '"public"."api_audit_log"'::regclass)
+   AND to_regclass('"public"."api_audit_log_actor_user_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."api_audit_log"
     ADD CONSTRAINT "api_audit_log_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "auth"."users"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'api_audit_log_organization_id_fkey' AND conrelid = '"public"."api_audit_log"'::regclass)
+   AND to_regclass('"public"."api_audit_log_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."api_audit_log"
     ADD CONSTRAINT "api_audit_log_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'api_tokens_created_by_fkey' AND conrelid = '"public"."api_tokens"'::regclass)
+   AND to_regclass('"public"."api_tokens_created_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."api_tokens"
     ADD CONSTRAINT "api_tokens_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "auth"."users"("id") ON DELETE RESTRICT;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'api_tokens_organization_id_fkey' AND conrelid = '"public"."api_tokens"'::regclass)
+   AND to_regclass('"public"."api_tokens_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."api_tokens"
     ADD CONSTRAINT "api_tokens_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'api_tokens_revoked_by_fkey' AND conrelid = '"public"."api_tokens"'::regclass)
+   AND to_regclass('"public"."api_tokens_revoked_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."api_tokens"
     ADD CONSTRAINT "api_tokens_revoked_by_fkey" FOREIGN KEY ("revoked_by") REFERENCES "auth"."users"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'channel_session_warmup_channel_session_id_fkey' AND conrelid = '"public"."channel_session_warmup"'::regclass)
+   AND to_regclass('"public"."channel_session_warmup_channel_session_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."channel_session_warmup"
     ADD CONSTRAINT "channel_session_warmup_channel_session_id_fkey" FOREIGN KEY ("channel_session_id") REFERENCES "public"."channel_sessions"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'channel_session_warmup_organization_id_fkey' AND conrelid = '"public"."channel_session_warmup"'::regclass)
+   AND to_regclass('"public"."channel_session_warmup_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."channel_session_warmup"
     ADD CONSTRAINT "channel_session_warmup_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'channel_sessions_created_by_fkey' AND conrelid = '"public"."channel_sessions"'::regclass)
+   AND to_regclass('"public"."channel_sessions_created_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."channel_sessions"
     ADD CONSTRAINT "channel_sessions_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "auth"."users"("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'channel_sessions_organization_id_fkey' AND conrelid = '"public"."channel_sessions"'::regclass)
+   AND to_regclass('"public"."channel_sessions_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."channel_sessions"
     ADD CONSTRAINT "channel_sessions_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'contacts_is_merged_into_fkey' AND conrelid = '"public"."contacts"'::regclass)
+   AND to_regclass('"public"."contacts_is_merged_into_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."contacts"
     ADD CONSTRAINT "contacts_is_merged_into_fkey" FOREIGN KEY ("is_merged_into") REFERENCES "public"."contacts"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'contacts_organization_id_fkey' AND conrelid = '"public"."contacts"'::regclass)
+   AND to_regclass('"public"."contacts_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."contacts"
     ADD CONSTRAINT "contacts_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'conversations_assigned_to_user_id_fkey' AND conrelid = '"public"."conversations"'::regclass)
+   AND to_regclass('"public"."conversations_assigned_to_user_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."conversations"
     ADD CONSTRAINT "conversations_assigned_to_user_id_fkey" FOREIGN KEY ("assigned_to_user_id") REFERENCES "auth"."users"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'conversations_channel_session_id_fkey' AND conrelid = '"public"."conversations"'::regclass)
+   AND to_regclass('"public"."conversations_channel_session_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."conversations"
     ADD CONSTRAINT "conversations_channel_session_id_fkey" FOREIGN KEY ("channel_session_id") REFERENCES "public"."channel_sessions"("id") ON DELETE RESTRICT;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'conversations_contact_id_fkey' AND conrelid = '"public"."conversations"'::regclass)
+   AND to_regclass('"public"."conversations_contact_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."conversations"
     ADD CONSTRAINT "conversations_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE RESTRICT;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'conversations_organization_id_fkey' AND conrelid = '"public"."conversations"'::regclass)
+   AND to_regclass('"public"."conversations_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."conversations"
     ADD CONSTRAINT "conversations_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'conversations_usable_for_rag_marked_by_fkey' AND conrelid = '"public"."conversations"'::regclass)
+   AND to_regclass('"public"."conversations_usable_for_rag_marked_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."conversations"
     ADD CONSTRAINT "conversations_usable_for_rag_marked_by_fkey" FOREIGN KEY ("usable_for_rag_marked_by") REFERENCES "auth"."users"("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_lead_activities_contact_id_fkey' AND conrelid = '"public"."crm_lead_activities"'::regclass)
+   AND to_regclass('"public"."crm_lead_activities_contact_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_lead_activities"
     ADD CONSTRAINT "crm_lead_activities_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_lead_activities_lead_id_fkey' AND conrelid = '"public"."crm_lead_activities"'::regclass)
+   AND to_regclass('"public"."crm_lead_activities_lead_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_lead_activities"
     ADD CONSTRAINT "crm_lead_activities_lead_id_fkey" FOREIGN KEY ("lead_id") REFERENCES "public"."crm_leads"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_lead_activities_organization_id_fkey' AND conrelid = '"public"."crm_lead_activities"'::regclass)
+   AND to_regclass('"public"."crm_lead_activities_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_lead_activities"
     ADD CONSTRAINT "crm_lead_activities_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_lead_links_lead_id_fkey' AND conrelid = '"public"."crm_lead_links"'::regclass)
+   AND to_regclass('"public"."crm_lead_links_lead_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_lead_links"
     ADD CONSTRAINT "crm_lead_links_lead_id_fkey" FOREIGN KEY ("lead_id") REFERENCES "public"."crm_leads"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_lead_links_organization_id_fkey' AND conrelid = '"public"."crm_lead_links"'::regclass)
+   AND to_regclass('"public"."crm_lead_links_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_lead_links"
     ADD CONSTRAINT "crm_lead_links_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_leads_contact_id_fkey' AND conrelid = '"public"."crm_leads"'::regclass)
+   AND to_regclass('"public"."crm_leads_contact_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_leads"
     ADD CONSTRAINT "crm_leads_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_leads_organization_id_fkey' AND conrelid = '"public"."crm_leads"'::regclass)
+   AND to_regclass('"public"."crm_leads_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_leads"
     ADD CONSTRAINT "crm_leads_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_leads_pipeline_id_fkey' AND conrelid = '"public"."crm_leads"'::regclass)
+   AND to_regclass('"public"."crm_leads_pipeline_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_leads"
     ADD CONSTRAINT "crm_leads_pipeline_id_fkey" FOREIGN KEY ("pipeline_id") REFERENCES "public"."crm_pipelines"("id") ON DELETE RESTRICT;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_leads_stage_id_fkey' AND conrelid = '"public"."crm_leads"'::regclass)
+   AND to_regclass('"public"."crm_leads_stage_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_leads"
     ADD CONSTRAINT "crm_leads_stage_id_fkey" FOREIGN KEY ("stage_id") REFERENCES "public"."crm_stages"("id") ON DELETE RESTRICT;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_pipelines_organization_id_fkey' AND conrelid = '"public"."crm_pipelines"'::regclass)
+   AND to_regclass('"public"."crm_pipelines_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_pipelines"
     ADD CONSTRAINT "crm_pipelines_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_stages_organization_id_fkey' AND conrelid = '"public"."crm_stages"'::regclass)
+   AND to_regclass('"public"."crm_stages_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_stages"
     ADD CONSTRAINT "crm_stages_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'crm_stages_pipeline_id_fkey' AND conrelid = '"public"."crm_stages"'::regclass)
+   AND to_regclass('"public"."crm_stages_pipeline_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."crm_stages"
     ADD CONSTRAINT "crm_stages_pipeline_id_fkey" FOREIGN KEY ("pipeline_id") REFERENCES "public"."crm_pipelines"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'event_log_organization_id_fkey' AND conrelid = '"public"."event_log"'::regclass)
+   AND to_regclass('"public"."event_log_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."event_log"
     ADD CONSTRAINT "event_log_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'idempotency_keys_organization_id_fkey' AND conrelid = '"public"."idempotency_keys"'::regclass)
+   AND to_regclass('"public"."idempotency_keys_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."idempotency_keys"
     ADD CONSTRAINT "idempotency_keys_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'incidents_acknowledged_by_fkey' AND conrelid = '"public"."incidents"'::regclass)
+   AND to_regclass('"public"."incidents_acknowledged_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."incidents"
     ADD CONSTRAINT "incidents_acknowledged_by_fkey" FOREIGN KEY ("acknowledged_by") REFERENCES "auth"."users"("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'incidents_organization_id_fkey' AND conrelid = '"public"."incidents"'::regclass)
+   AND to_regclass('"public"."incidents_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."incidents"
     ADD CONSTRAINT "incidents_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'incidents_resolved_by_fkey' AND conrelid = '"public"."incidents"'::regclass)
+   AND to_regclass('"public"."incidents_resolved_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."incidents"
     ADD CONSTRAINT "incidents_resolved_by_fkey" FOREIGN KEY ("resolved_by") REFERENCES "auth"."users"("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'lgpd_requests_contact_id_fkey' AND conrelid = '"public"."lgpd_requests"'::regclass)
+   AND to_regclass('"public"."lgpd_requests_contact_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."lgpd_requests"
     ADD CONSTRAINT "lgpd_requests_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'lgpd_requests_organization_id_fkey' AND conrelid = '"public"."lgpd_requests"'::regclass)
+   AND to_regclass('"public"."lgpd_requests_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."lgpd_requests"
     ADD CONSTRAINT "lgpd_requests_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'merge_queue_organization_id_fkey' AND conrelid = '"public"."merge_queue"'::regclass)
+   AND to_regclass('"public"."merge_queue_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."merge_queue"
     ADD CONSTRAINT "merge_queue_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'messages_activity_id_fkey' AND conrelid = '"public"."messages"'::regclass)
+   AND to_regclass('"public"."messages_activity_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."messages"
     ADD CONSTRAINT "messages_activity_id_fkey" FOREIGN KEY ("activity_id") REFERENCES "public"."crm_lead_activities"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'messages_channel_session_id_fkey' AND conrelid = '"public"."messages"'::regclass)
+   AND to_regclass('"public"."messages_channel_session_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."messages"
     ADD CONSTRAINT "messages_channel_session_id_fkey" FOREIGN KEY ("channel_session_id") REFERENCES "public"."channel_sessions"("id") ON DELETE RESTRICT;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'messages_contact_id_fkey' AND conrelid = '"public"."messages"'::regclass)
+   AND to_regclass('"public"."messages_contact_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."messages"
     ADD CONSTRAINT "messages_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE RESTRICT;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'messages_conversation_id_fkey' AND conrelid = '"public"."messages"'::regclass)
+   AND to_regclass('"public"."messages_conversation_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."messages"
     ADD CONSTRAINT "messages_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'messages_organization_id_fkey' AND conrelid = '"public"."messages"'::regclass)
+   AND to_regclass('"public"."messages_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."messages"
     ADD CONSTRAINT "messages_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'messages_sent_by_user_id_fkey' AND conrelid = '"public"."messages"'::regclass)
+   AND to_regclass('"public"."messages_sent_by_user_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."messages"
     ADD CONSTRAINT "messages_sent_by_user_id_fkey" FOREIGN KEY ("sent_by_user_id") REFERENCES "auth"."users"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'nuvemshop_products_organization_id_fkey' AND conrelid = '"public"."nuvemshop_products"'::regclass)
+   AND to_regclass('"public"."nuvemshop_products_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."nuvemshop_products"
     ADD CONSTRAINT "nuvemshop_products_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'orders_contact_id_fkey' AND conrelid = '"public"."orders"'::regclass)
+   AND to_regclass('"public"."orders_contact_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."orders"
     ADD CONSTRAINT "orders_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'orders_organization_id_fkey' AND conrelid = '"public"."orders"'::regclass)
+   AND to_regclass('"public"."orders_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."orders"
     ADD CONSTRAINT "orders_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'organizations_created_by_fkey' AND conrelid = '"public"."organizations"'::regclass)
+   AND to_regclass('"public"."organizations_created_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."organizations"
     ADD CONSTRAINT "organizations_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "auth"."users"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'organizations_suspended_by_fkey' AND conrelid = '"public"."organizations"'::regclass)
+   AND to_regclass('"public"."organizations_suspended_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."organizations"
     ADD CONSTRAINT "organizations_suspended_by_fkey" FOREIGN KEY ("suspended_by") REFERENCES "auth"."users"("id");
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'platform_admins_granted_by_fkey' AND conrelid = '"public"."platform_admins"'::regclass)
+   AND to_regclass('"public"."platform_admins_granted_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."platform_admins"
     ADD CONSTRAINT "platform_admins_granted_by_fkey" FOREIGN KEY ("granted_by") REFERENCES "auth"."users"("id") ON DELETE RESTRICT;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'platform_admins_revoked_by_fkey' AND conrelid = '"public"."platform_admins"'::regclass)
+   AND to_regclass('"public"."platform_admins_revoked_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."platform_admins"
     ADD CONSTRAINT "platform_admins_revoked_by_fkey" FOREIGN KEY ("revoked_by") REFERENCES "auth"."users"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'platform_admins_user_id_fkey' AND conrelid = '"public"."platform_admins"'::regclass)
+   AND to_regclass('"public"."platform_admins_user_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."platform_admins"
     ADD CONSTRAINT "platform_admins_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'storage_redaction_queue_organization_id_fkey' AND conrelid = '"public"."storage_redaction_queue"'::regclass)
+   AND to_regclass('"public"."storage_redaction_queue_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."storage_redaction_queue"
     ADD CONSTRAINT "storage_redaction_queue_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'storage_redaction_queue_request_id_fkey' AND conrelid = '"public"."storage_redaction_queue"'::regclass)
+   AND to_regclass('"public"."storage_redaction_queue_request_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."storage_redaction_queue"
     ADD CONSTRAINT "storage_redaction_queue_request_id_fkey" FOREIGN KEY ("request_id") REFERENCES "public"."lgpd_requests"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'tenant_integrations_organization_id_fkey' AND conrelid = '"public"."tenant_integrations"'::regclass)
+   AND to_regclass('"public"."tenant_integrations_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."tenant_integrations"
     ADD CONSTRAINT "tenant_integrations_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'user_organizations_invited_by_fkey' AND conrelid = '"public"."user_organizations"'::regclass)
+   AND to_regclass('"public"."user_organizations_invited_by_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."user_organizations"
     ADD CONSTRAINT "user_organizations_invited_by_fkey" FOREIGN KEY ("invited_by") REFERENCES "auth"."users"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'user_organizations_organization_id_fkey' AND conrelid = '"public"."user_organizations"'::regclass)
+   AND to_regclass('"public"."user_organizations_organization_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."user_organizations"
     ADD CONSTRAINT "user_organizations_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'user_organizations_user_id_fkey' AND conrelid = '"public"."user_organizations"'::regclass)
+   AND to_regclass('"public"."user_organizations_user_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."user_organizations"
     ADD CONSTRAINT "user_organizations_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'user_recovery_codes_user_id_fkey' AND conrelid = '"public"."user_recovery_codes"'::regclass)
+   AND to_regclass('"public"."user_recovery_codes_user_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."user_recovery_codes"
     ADD CONSTRAINT "user_recovery_codes_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'webhook_events_log_channel_session_id_fkey' AND conrelid = '"public"."webhook_events_log"'::regclass)
+   AND to_regclass('"public"."webhook_events_log_channel_session_id_fkey"') IS NULL THEN
 ALTER TABLE ONLY "public"."webhook_events_log"
     ADD CONSTRAINT "webhook_events_log_channel_session_id_fkey" FOREIGN KEY ("channel_session_id") REFERENCES "public"."channel_sessions"("id") ON DELETE SET NULL;
+END IF; END $baseline_guard$;
 
 
 
@@ -3274,14 +4024,22 @@ ALTER TABLE "public"."ai_knowledge_versions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."ai_models" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'ai_models_read_all' AND polrelid = '"public"."ai_models"'::regclass) THEN
 CREATE POLICY "ai_models_read_all" ON "public"."ai_models" FOR SELECT USING (true);
+END IF; END $baseline_guard$;
 
 
 
 ALTER TABLE "public"."ai_pricing" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'ai_pricing_public_read' AND polrelid = '"public"."ai_pricing"'::regclass) THEN
 CREATE POLICY "ai_pricing_public_read" ON "public"."ai_pricing" FOR SELECT USING (true);
+END IF; END $baseline_guard$;
 
 
 
@@ -3294,15 +4052,27 @@ ALTER TABLE "public"."api_audit_log" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."api_tokens" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'api_tokens_admin_only' AND polrelid = '"public"."api_tokens"'::regclass) THEN
 CREATE POLICY "api_tokens_admin_only" ON "public"."api_tokens" USING (("public"."fn_role_at_least"("organization_id", 'admin'::"text") OR "public"."fn_is_platform_admin"())) WITH CHECK (("public"."fn_role_at_least"("organization_id", 'admin'::"text") OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'audit_log_insert_tenant_member' AND polrelid = '"public"."api_audit_log"'::regclass) THEN
 CREATE POLICY "audit_log_insert_tenant_member" ON "public"."api_audit_log" FOR INSERT TO "authenticated" WITH CHECK ((("organization_id" IS NULL) OR ("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'audit_log_select' AND polrelid = '"public"."api_audit_log"'::regclass) THEN
 CREATE POLICY "audit_log_select" ON "public"."api_audit_log" FOR SELECT USING (("public"."fn_is_platform_admin"() OR (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) AND "public"."fn_role_at_least"("organization_id", 'admin'::"text"))));
+END IF; END $baseline_guard$;
 
 
 
@@ -3312,7 +4082,11 @@ ALTER TABLE "public"."channel_session_warmup" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."channel_sessions" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'channel_sessions_tenant_isolation_all' AND polrelid = '"public"."channel_sessions"'::regclass) THEN
 CREATE POLICY "channel_sessions_tenant_isolation_all" ON "public"."channel_sessions" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
@@ -3322,7 +4096,11 @@ ALTER TABLE "public"."contacts" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."conversations" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'conversations_tenant_isolation_all' AND polrelid = '"public"."conversations"'::regclass) THEN
 CREATE POLICY "conversations_tenant_isolation_all" ON "public"."conversations" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
@@ -3344,14 +4122,22 @@ ALTER TABLE "public"."crm_stages" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."event_log" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'event_log_select' AND polrelid = '"public"."event_log"'::regclass) THEN
 CREATE POLICY "event_log_select" ON "public"."event_log" FOR SELECT USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
 ALTER TABLE "public"."idempotency_keys" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'idempotency_tenant' AND polrelid = '"public"."idempotency_keys"'::regclass) THEN
 CREATE POLICY "idempotency_tenant" ON "public"."idempotency_keys" USING (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids"))) WITH CHECK (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")));
+END IF; END $baseline_guard$;
 
 
 
@@ -3361,73 +4147,125 @@ ALTER TABLE "public"."incidents" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."lgpd_requests" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'lgpd_requests_admin_select' AND polrelid = '"public"."lgpd_requests"'::regclass) THEN
 CREATE POLICY "lgpd_requests_admin_select" ON "public"."lgpd_requests" FOR SELECT USING (("public"."fn_is_platform_admin"() OR (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) AND "public"."fn_role_at_least"("organization_id", 'admin'::"text"))));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'lgpd_requests_admin_write' AND polrelid = '"public"."lgpd_requests"'::regclass) THEN
 CREATE POLICY "lgpd_requests_admin_write" ON "public"."lgpd_requests" USING (("public"."fn_is_platform_admin"() OR (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) AND "public"."fn_role_at_least"("organization_id", 'admin'::"text")))) WITH CHECK (("public"."fn_is_platform_admin"() OR (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) AND "public"."fn_role_at_least"("organization_id", 'admin'::"text"))));
+END IF; END $baseline_guard$;
 
 
 
 ALTER TABLE "public"."merge_queue" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'merge_queue_manager_select' AND polrelid = '"public"."merge_queue"'::regclass) THEN
 CREATE POLICY "merge_queue_manager_select" ON "public"."merge_queue" FOR SELECT USING (("public"."fn_is_platform_admin"() OR (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) AND "public"."fn_role_at_least"("organization_id", 'manager'::"text"))));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'merge_queue_manager_write' AND polrelid = '"public"."merge_queue"'::regclass) THEN
 CREATE POLICY "merge_queue_manager_write" ON "public"."merge_queue" USING (("public"."fn_is_platform_admin"() OR (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) AND "public"."fn_role_at_least"("organization_id", 'manager'::"text")))) WITH CHECK (("public"."fn_is_platform_admin"() OR (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) AND "public"."fn_role_at_least"("organization_id", 'manager'::"text"))));
+END IF; END $baseline_guard$;
 
 
 
 ALTER TABLE "public"."messages" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'messages_tenant_isolation_all' AND polrelid = '"public"."messages"'::regclass) THEN
 CREATE POLICY "messages_tenant_isolation_all" ON "public"."messages" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
 ALTER TABLE "public"."nuvemshop_products" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'nuvemshop_products_tenant' AND polrelid = '"public"."nuvemshop_products"'::regclass) THEN
 CREATE POLICY "nuvemshop_products_tenant" ON "public"."nuvemshop_products" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
 ALTER TABLE "public"."orders" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'orders_tenant_select' AND polrelid = '"public"."orders"'::regclass) THEN
 CREATE POLICY "orders_tenant_select" ON "public"."orders" FOR SELECT USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'orders_tenant_write' AND polrelid = '"public"."orders"'::regclass) THEN
 CREATE POLICY "orders_tenant_write" ON "public"."orders" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
 ALTER TABLE "public"."organizations" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'orgs_select' AND polrelid = '"public"."organizations"'::regclass) THEN
 CREATE POLICY "orgs_select" ON "public"."organizations" FOR SELECT USING ((("id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'orgs_write_platform_admin' AND polrelid = '"public"."organizations"'::regclass) THEN
 CREATE POLICY "orgs_write_platform_admin" ON "public"."organizations" USING ("public"."fn_is_platform_admin"()) WITH CHECK ("public"."fn_is_platform_admin"());
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'platform_admin_only_incidents' AND polrelid = '"public"."incidents"'::regclass) THEN
 CREATE POLICY "platform_admin_only_incidents" ON "public"."incidents" USING ("public"."fn_is_platform_admin"()) WITH CHECK ("public"."fn_is_platform_admin"());
+END IF; END $baseline_guard$;
 
 
 
 ALTER TABLE "public"."platform_admins" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'platform_admins_self' AND polrelid = '"public"."platform_admins"'::regclass) THEN
 CREATE POLICY "platform_admins_self" ON "public"."platform_admins" FOR SELECT USING ("public"."fn_is_platform_admin"());
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'recovery_codes_self' AND polrelid = '"public"."user_recovery_codes"'::regclass) THEN
 CREATE POLICY "recovery_codes_self" ON "public"."user_recovery_codes" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+END IF; END $baseline_guard$;
 
 
 
@@ -3437,129 +4275,237 @@ ALTER TABLE "public"."storage_redaction_queue" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."tenant_integrations" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_integrations_admin_write' AND polrelid = '"public"."tenant_integrations"'::regclass) THEN
 CREATE POLICY "tenant_integrations_admin_write" ON "public"."tenant_integrations" USING (("public"."fn_is_platform_admin"() OR (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) AND "public"."fn_role_at_least"("organization_id", 'manager'::"text")))) WITH CHECK (("public"."fn_is_platform_admin"() OR (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) AND "public"."fn_role_at_least"("organization_id", 'manager'::"text"))));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_integrations_select' AND polrelid = '"public"."tenant_integrations"'::regclass) THEN
 CREATE POLICY "tenant_integrations_select" ON "public"."tenant_integrations" FOR SELECT USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_ai_agent_runs_all' AND polrelid = '"public"."ai_agent_runs"'::regclass) THEN
 CREATE POLICY "tenant_isolation_ai_agent_runs_all" ON "public"."ai_agent_runs" USING (("organization_id" IN ( SELECT "fn_user_org_ids"."fn_user_org_ids"
    FROM "public"."fn_user_org_ids"() "fn_user_org_ids"("fn_user_org_ids")))) WITH CHECK (("organization_id" IN ( SELECT "fn_user_org_ids"."fn_user_org_ids"
    FROM "public"."fn_user_org_ids"() "fn_user_org_ids"("fn_user_org_ids"))));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_ai_agent_versions_all' AND polrelid = '"public"."ai_agent_versions"'::regclass) THEN
 CREATE POLICY "tenant_isolation_ai_agent_versions_all" ON "public"."ai_agent_versions" USING (("organization_id" IN ( SELECT "fn_user_org_ids"."fn_user_org_ids"
    FROM "public"."fn_user_org_ids"() "fn_user_org_ids"("fn_user_org_ids")))) WITH CHECK (("organization_id" IN ( SELECT "fn_user_org_ids"."fn_user_org_ids"
    FROM "public"."fn_user_org_ids"() "fn_user_org_ids"("fn_user_org_ids"))));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_ai_agents_all' AND polrelid = '"public"."ai_agents"'::regclass) THEN
 CREATE POLICY "tenant_isolation_ai_agents_all" ON "public"."ai_agents" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_ai_budgets_all' AND polrelid = '"public"."ai_budgets"'::regclass) THEN
 CREATE POLICY "tenant_isolation_ai_budgets_all" ON "public"."ai_budgets" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_ai_chunks_all' AND polrelid = '"public"."ai_chunks"'::regclass) THEN
 CREATE POLICY "tenant_isolation_ai_chunks_all" ON "public"."ai_chunks" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_ai_faq_items_all' AND polrelid = '"public"."ai_faq_items"'::regclass) THEN
 CREATE POLICY "tenant_isolation_ai_faq_items_all" ON "public"."ai_faq_items" USING (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids"))) WITH CHECK (("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_ai_invocations_all' AND polrelid = '"public"."ai_invocations"'::regclass) THEN
 CREATE POLICY "tenant_isolation_ai_invocations_all" ON "public"."ai_invocations" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_ai_kbv_all' AND polrelid = '"public"."ai_knowledge_versions"'::regclass) THEN
 CREATE POLICY "tenant_isolation_ai_kbv_all" ON "public"."ai_knowledge_versions" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_ai_knowledge_sources_all' AND polrelid = '"public"."ai_knowledge_sources"'::regclass) THEN
 CREATE POLICY "tenant_isolation_ai_knowledge_sources_all" ON "public"."ai_knowledge_sources" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_ai_provider_credentials_modify' AND polrelid = '"public"."ai_provider_credentials"'::regclass) THEN
 CREATE POLICY "tenant_isolation_ai_provider_credentials_modify" ON "public"."ai_provider_credentials" USING (("organization_id" IN ( SELECT "fn_user_org_ids"."fn_user_org_ids"
    FROM "public"."fn_user_org_ids"() "fn_user_org_ids"("fn_user_org_ids")))) WITH CHECK (("organization_id" IN ( SELECT "fn_user_org_ids"."fn_user_org_ids"
    FROM "public"."fn_user_org_ids"() "fn_user_org_ids"("fn_user_org_ids"))));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_ai_provider_credentials_select' AND polrelid = '"public"."ai_provider_credentials"'::regclass) THEN
 CREATE POLICY "tenant_isolation_ai_provider_credentials_select" ON "public"."ai_provider_credentials" FOR SELECT USING (("organization_id" IN ( SELECT "fn_user_org_ids"."fn_user_org_ids"
    FROM "public"."fn_user_org_ids"() "fn_user_org_ids"("fn_user_org_ids"))));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_contacts_all' AND polrelid = '"public"."contacts"'::regclass) THEN
 CREATE POLICY "tenant_isolation_contacts_all" ON "public"."contacts" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_crm_lead_activities_insert' AND polrelid = '"public"."crm_lead_activities"'::regclass) THEN
 CREATE POLICY "tenant_isolation_crm_lead_activities_insert" ON "public"."crm_lead_activities" FOR INSERT WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_crm_lead_activities_select' AND polrelid = '"public"."crm_lead_activities"'::regclass) THEN
 CREATE POLICY "tenant_isolation_crm_lead_activities_select" ON "public"."crm_lead_activities" FOR SELECT USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_crm_lead_links_all' AND polrelid = '"public"."crm_lead_links"'::regclass) THEN
 CREATE POLICY "tenant_isolation_crm_lead_links_all" ON "public"."crm_lead_links" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_crm_leads_all' AND polrelid = '"public"."crm_leads"'::regclass) THEN
 CREATE POLICY "tenant_isolation_crm_leads_all" ON "public"."crm_leads" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_crm_pipelines_all' AND polrelid = '"public"."crm_pipelines"'::regclass) THEN
 CREATE POLICY "tenant_isolation_crm_pipelines_all" ON "public"."crm_pipelines" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_crm_stages_all' AND polrelid = '"public"."crm_stages"'::regclass) THEN
 CREATE POLICY "tenant_isolation_crm_stages_all" ON "public"."crm_stages" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'tenant_isolation_storage_redaction_queue_all' AND polrelid = '"public"."storage_redaction_queue"'::regclass) THEN
 CREATE POLICY "tenant_isolation_storage_redaction_queue_all" ON "public"."storage_redaction_queue" USING (("organization_id" IN ( SELECT "fn_user_org_ids"."fn_user_org_ids"
    FROM "public"."fn_user_org_ids"() "fn_user_org_ids"("fn_user_org_ids")))) WITH CHECK (("organization_id" IN ( SELECT "fn_user_org_ids"."fn_user_org_ids"
    FROM "public"."fn_user_org_ids"() "fn_user_org_ids"("fn_user_org_ids"))));
+END IF; END $baseline_guard$;
 
 
 
 ALTER TABLE "public"."user_organizations" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'user_orgs_delete' AND polrelid = '"public"."user_organizations"'::regclass) THEN
 CREATE POLICY "user_orgs_delete" ON "public"."user_organizations" FOR DELETE USING (("public"."fn_role_at_least"("organization_id", 'admin'::"text") OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'user_orgs_insert' AND polrelid = '"public"."user_organizations"'::regclass) THEN
 CREATE POLICY "user_orgs_insert" ON "public"."user_organizations" FOR INSERT WITH CHECK (("public"."fn_role_at_least"("organization_id", 'admin'::"text") OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'user_orgs_select' AND polrelid = '"public"."user_organizations"'::regclass) THEN
 CREATE POLICY "user_orgs_select" ON "public"."user_organizations" FOR SELECT USING ((("user_id" = "auth"."uid"()) OR "public"."fn_role_at_least"("organization_id", 'admin'::"text") OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'user_orgs_update' AND polrelid = '"public"."user_organizations"'::regclass) THEN
 CREATE POLICY "user_orgs_update" ON "public"."user_organizations" FOR UPDATE USING (("public"."fn_role_at_least"("organization_id", 'admin'::"text") OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
 ALTER TABLE "public"."user_recovery_codes" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'warmup_tenant_isolation_all' AND polrelid = '"public"."channel_session_warmup"'::regclass) THEN
 CREATE POLICY "warmup_tenant_isolation_all" ON "public"."channel_session_warmup" USING ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"())) WITH CHECK ((("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")) OR "public"."fn_is_platform_admin"()));
+END IF; END $baseline_guard$;
 
 
 
 ALTER TABLE "public"."webhook_events_log" ENABLE ROW LEVEL SECURITY;
 
 
+DO $baseline_guard$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_policy
+                WHERE polname = 'webhook_events_log_tenant_read' AND polrelid = '"public"."webhook_events_log"'::regclass) THEN
 CREATE POLICY "webhook_events_log_tenant_read" ON "public"."webhook_events_log" FOR SELECT USING (("public"."fn_is_platform_admin"() OR (("organization_id" IS NOT NULL) AND ("organization_id" IN ( SELECT "public"."fn_user_org_ids"() AS "fn_user_org_ids")))));
+END IF; END $baseline_guard$;
 
 
 
@@ -3998,6 +4944,7 @@ values (
 )
 on conflict (id) do nothing;
 
+drop policy if exists "tenant_read_ai_policy" on storage.objects;
 create policy "tenant_read_ai_policy" on storage.objects for select
   using (
     bucket_id = 'ai-policy'
@@ -4009,6 +4956,7 @@ create policy "tenant_read_ai_policy" on storage.objects for select
     )
   );
 
+drop policy if exists "tenant_write_ai_policy" on storage.objects;
 create policy "tenant_write_ai_policy" on storage.objects for insert
   with check (
     bucket_id = 'ai-policy'
@@ -4020,6 +4968,7 @@ create policy "tenant_write_ai_policy" on storage.objects for insert
     )
   );
 
+drop policy if exists "tenant_delete_ai_policy" on storage.objects;
 create policy "tenant_delete_ai_policy" on storage.objects for delete
   using (
     bucket_id = 'ai-policy'
@@ -4043,6 +4992,7 @@ values (
 )
 on conflict (id) do nothing;
 
+drop policy if exists "tenant_read_lgpd_exports" on storage.objects;
 create policy "tenant_read_lgpd_exports" on storage.objects for select
   using (
     bucket_id = 'lgpd-exports'
@@ -9147,6 +10097,20 @@ alter table public.agent_inbox_items
     -- ignorar os avisos que são falha de verdade. Entra NESTA lista pela mesma
     -- razão das de cima (bloco único por constraint, #159).
     'contact_proposal_expired',
+    -- (migration 0159) O gasto passou do aviso que a pessoa definiu e a IA
+    -- CONTINUA respondendo — `warn`, nunca `critical`, e um kind SEPARADO de
+    -- `budget_exceeded`: colapsar os dois faria o alerta de "parou" perder o
+    -- significado. É este kind que torna possível a condição do gate "ninguém é
+    -- bloqueado sem ter sido avisado no mês" — sem ele, o salto de 79% para 101%
+    -- entre duas chamadas calaria a IA sem nenhum sinal anterior.
+    --
+    -- Entra NESTA lista, e AQUI no fim, por duas razões distintas: bloco único
+    -- por constraint (#159), e porque `tests/unit/midia-nao-lida.test.ts` procura
+    -- `'midia_nao_lida'` nos primeiros 2000 caracteres a partir do `add
+    -- constraint` — um valor comentado inserido ACIMA dele empurra-o para fora da
+    -- janela e reprova um teste que não tem nada a ver com o kind novo (medido:
+    -- offset 1532 -> 2275). Kind novo entra no fim da lista.
+    'budget_warning',
     'other'
   ));
 
@@ -11526,6 +12490,529 @@ notify pgrst, 'reload schema';
 
 
 
+-- ---- o quadro de clientes montado no onboarding (migration 0156) ----
+-- O gatilho `trg_seed_default_pipeline_for_org` semeia um funil de e-commerce em
+-- TODA organização, e o passo do onboarding troca esse quadro por um do ramo do
+-- negócio. A troca é DELETE + INSERT das etapas, e o cliente JS não tem
+-- transação: pelo cliente, um DELETE que passa e um INSERT que falha deixariam o
+-- funil sem coluna nenhuma. Aqui os dois vivem na mesma transação da função.
+--
+-- As duas recusas, e a segunda é a silenciosa: `crm_leads_stage_id_fkey` é
+-- RESTRICT (o DELETE falharia), mas `webhook_sources.default_stage_id` é
+-- **CASCADE** — trocar as colunas apagaria a fonte de webhook inteira sem erro
+-- nenhum. Ver o cabeçalho da 0156 para a medição que motivou o passo.
+--
+-- ⚠️ ESTE BLOCO FICA ACIMA DA VARREDURA DE `anon`, e não é arbitrário: o
+-- `ALTER DEFAULT PRIVILEGES` do corpo do baseline faz toda função nova nascer
+-- com EXECUTE para `anon`, e quem cura isso é a varredura — que só alcança o
+-- que veio ANTES dela. É o que `tests/unit/varredura-anon-e-o-ultimo-bloco`
+-- cobra, e foi ele que pegou este apêndice no lugar errado.
+
+create or replace function public.fn_aplicar_quadro_do_onboarding(
+  p_organization_id uuid,
+  p_pipeline_id uuid,
+  p_nome text,
+  p_slug text,
+  p_etapas jsonb
+) returns jsonb
+  language plpgsql
+  security definer
+  set search_path to 'public', 'pg_temp'
+as $$
+declare
+  v_negocios bigint;
+  v_fontes bigint;
+  v_criadas bigint;
+begin
+  -- O funil é DESTA organização? A função roda como `postgres` e passa por cima
+  -- da RLS; o filtro de tenant é responsabilidade dela.
+  perform 1 from public.crm_pipelines
+   where id = p_pipeline_id and organization_id = p_organization_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'motivo', 'funil_nao_encontrado');
+  end if;
+
+  select count(*) into v_negocios
+    from public.crm_leads
+   where pipeline_id = p_pipeline_id
+     and organization_id = p_organization_id;
+
+  if v_negocios > 0 then
+    return jsonb_build_object('ok', false, 'motivo', 'funil_com_negocios', 'quantos', v_negocios);
+  end if;
+
+  -- ON DELETE CASCADE: sem esta recusa, trocar as colunas apaga a fonte inteira.
+  select count(*) into v_fontes
+    from public.webhook_sources w
+    join public.crm_stages s on s.id = w.default_stage_id
+   where s.pipeline_id = p_pipeline_id;
+
+  if v_fontes > 0 then
+    return jsonb_build_object('ok', false, 'motivo', 'etapa_em_uso_por_webhook', 'quantos', v_fontes);
+  end if;
+
+  delete from public.crm_stages
+   where pipeline_id = p_pipeline_id
+     and organization_id = p_organization_id;
+
+  insert into public.crm_stages
+    (organization_id, pipeline_id, name, slug, position, is_won, is_lost, agent_stage_hint)
+  select p_organization_id,
+         p_pipeline_id,
+         e->>'nome',
+         e->>'slug',
+         (e->>'position')::numeric,
+         coalesce((e->>'is_won')::boolean, false),
+         coalesce((e->>'is_lost')::boolean, false),
+         nullif(e->>'agent_stage_hint', '')
+    from jsonb_array_elements(p_etapas) as e;
+  get diagnostics v_criadas = row_count;
+
+  update public.crm_pipelines
+     set name = p_nome,
+         slug = p_slug,
+         updated_at = now()
+   where id = p_pipeline_id
+     and organization_id = p_organization_id;
+
+  return jsonb_build_object('ok', true, 'etapas', v_criadas);
+end$$;
+
+-- TRÊS origens de EXECUTE, e medi as três antes de escrever esta lista — com o
+-- revoke de `public, anon` apenas, `has_function_privilege` ainda respondia
+-- `authenticated, service_role`:
+--
+--   (A) o grant que o Postgres dá a PUBLIC ao criar qualquer função;
+--   (B) `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON FUNCTIONS TO anon` (baseline);
+--   (C) a irmã dela, `... TO authenticated` (baseline, linha seguinte).
+--
+-- Nenhum dos revokes remove os outros dois. E aqui (C) é a perigosa, não (B):
+-- esta função é SECURITY DEFINER, roda como `postgres` por cima da RLS e recebe
+-- `p_organization_id` como ARGUMENTO. Executável por `authenticated`, qualquer
+-- usuário logado de qualquer tenant poderia reescrever o funil de OUTRA
+-- organização passando o id dela — exatamente a classe de furo que a 0149
+-- fechou. O invariante `hardening-definer-varredura` reprova definer volátil
+-- alcançável por `authenticated` fora da allowlist, e esta não entra nela.
+revoke execute on function public.fn_aplicar_quadro_do_onboarding(uuid, uuid, text, text, jsonb)
+  from public, anon, authenticated;
+-- Só o service role: o único chamador é a Server Action do onboarding, que já
+-- resolveu a organização do cookie de sessão. Quem não precisa não recebe.
+grant execute on function public.fn_aplicar_quadro_do_onboarding(uuid, uuid, text, text, jsonb)
+  to service_role;
+
+-- ---- marca por organização (migration 0157) ----
+--
+-- A MARCA DO CLIENTE FINAL SE GRAVA EM UMA INSTRUÇÃO SÓ.
+--
+-- `organizations.settings` tem três donos com gates diferentes (updateTenant =
+-- admin, PATCH de atendimento = manager, régua de atrito = manager) e os três
+-- fazem read-modify-write do jsonb INTEIRO, em round-trips HTTP separados. A
+-- perda é medida, não deduzida: `visibility_mode` volta de 'own' para 'all' sem
+-- erro em lugar nenhum — e essa chave é lida DIRETO pela RLS, dentro de
+-- `fn_can_view_conversation`/`fn_can_view_lead`. Um write de COR reverteria, em
+-- silêncio, uma decisão de exposição de dado de cliente. Um quarto escritor com
+-- o mesmo padrão é inaceitável, então esta escrita passa por função.
+--
+-- Devolve `integer` (linhas afetadas) porque a única policy de escrita de
+-- `organizations` é `orgs_write_platform_admin`: pelo client de sessão o UPDATE
+-- de um admin de TENANT casa 0 linhas e o PostgREST responde 204 — a tela diz
+-- "salvo" e nada foi gravado (issue #144). O `row_count` é o que permite ao
+-- chamador distinguir os dois casos.
+--
+-- A autorização é REPETIDA aqui (o gate da Server Action usa o snapshot de
+-- membership de `loadAuthUser`, não o banco): é o que faz a regra valer para
+-- qualquer chamador futuro e o que impede escalação se o EXECUTE escapar um dia.
+--
+-- Idempotente e auto-curativo: `create or replace function`, revoke/grant
+-- declarativos, e nenhuma constraint nova sobre dado existente — não há o que
+-- deduplicar antes. Termina com `notify pgrst` próprio, como os blocos
+-- vizinhos — o PostgREST guarda o schema em cache e não veria a função nova.
+--
+-- ⚠️ E entra ANTES do bloco da VARREDURA anon, que é de propósito o último do
+-- arquivo: ela mede o privilégio EFETIVO de `authenticated`/`service_role` antes
+-- de revogar e o devolve depois, então os revokes acima só sobrevivem porque
+-- rodam ANTES dela. Colar no fim do arquivo — o movimento natural de quem
+-- adiciona migration — desarmaria a cura para tudo que viesse depois. Vigiado
+-- por `tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts`.
+create or replace function public.fn_definir_marca_da_organizacao(
+  p_org   uuid,
+  p_actor uuid,
+  p_marca jsonb
+) returns integer
+    language plpgsql
+    volatile
+    security definer
+    set search_path to 'public', 'pg_temp'
+as $$
+declare
+  v_linhas integer;
+  v_hex    text;
+  v_limpar boolean;
+begin
+  if p_org is null or p_actor is null then
+    raise exception 'marca_da_organizacao_argumento_nulo'
+      using errcode = '22023';
+  end if;
+
+  -- "Apague a marca" chega por DUAS formas — SQL NULL e o jsonb `'null'` — e as
+  -- duas significam a mesma coisa. NÃO MEDIDO qual delas o PostgREST produz para
+  -- `{"p_marca": null}`; tratar só uma deixaria a limpeza levantando 22023 num
+  -- dos dois transportes.
+  v_limpar := p_marca is null or jsonb_typeof(p_marca) = 'null';
+
+  if not v_limpar and jsonb_typeof(p_marca) <> 'object' then
+    raise exception 'marca_da_organizacao_forma_invalida: %', jsonb_typeof(p_marca)
+      using errcode = '22023';
+  end if;
+
+  -- MESMA regex do CHECK `platform_branding_accent_hex` — que é a forma que
+  -- `normalizarHex` emite. Aceitar `#FFF` criaria duas grafias da mesma cor e a
+  -- pergunta "mudou?" passaria a mentir. Dentro de jsonb não cabe CHECK de
+  -- coluna, então a regra é da função.
+  v_hex := nullif(p_marca ->> 'accent_hex', '');
+  if v_hex is not null and v_hex !~ '^#[0-9a-f]{6}$' then
+    raise exception 'marca_da_organizacao_accent_hex_invalido'
+      using errcode = '22023';
+  end if;
+
+  -- Papel insuficiente falha ALTO (42501) em vez de devolver 0: 0 já significa
+  -- "a organização não existe", e colapsar os dois deixaria o chamador sem saber
+  -- se o problema é papel ou id.
+  if not exists (
+       select 1 from public.user_organizations uo
+        where uo.user_id = p_actor
+          and uo.organization_id = p_org
+          and uo.role = 'admin'
+          and uo.revoked_at is null
+     )
+     and not exists (
+       select 1 from public.platform_admins pa
+        where pa.user_id = p_actor
+          and pa.revoked_at is null
+     )
+  then
+    raise exception 'marca_da_organizacao_sem_permissao'
+      using errcode = '42501';
+  end if;
+
+  update public.organizations o
+     set settings = case
+           when v_limpar
+             then coalesce(o.settings, '{}'::jsonb) - 'branding'
+           else jsonb_set(coalesce(o.settings, '{}'::jsonb), '{branding}', p_marca, true)
+         end
+   where o.id = p_org;
+
+  get diagnostics v_linhas = row_count;
+  return v_linhas;
+end;
+$$;
+
+comment on function public.fn_definir_marca_da_organizacao(uuid, uuid, jsonb) is
+  'Grava organizations.settings.branding com merge ATÔMICO (jsonb_set), sem tocar nas demais chaves do jsonb (llm, routing, visibility_mode, atrito, ai_dispatch_mode, canonical_conversation_tags, lost_reasons_extra, plan). Devolve linhas afetadas: 0 = a organização não existe. Papel insuficiente levanta 42501. Chamador: app/actions/settings/updateMarcaDaOrganizacao.ts.';
+
+-- OS DOIS REVOKES (CLAUDE.md, item 9) — origens DISTINTAS de EXECUTE, e tratar
+-- só uma deixa a função exposta com o gate verde:
+--   (A) `from public`  — o grant que o Postgres dá a PUBLIC ao criar qualquer
+--       função; `revoke ... from anon` não o remove.
+--   (B) `from anon`    — o grant DIRETO do `ALTER DEFAULT PRIVILEGES ... GRANT
+--       ALL ON FUNCTIONS TO anon` (linha ~3972 deste arquivo), que vale para
+--       toda função criada DEPOIS dele — isto é, para todo apêndice, que por
+--       construção nasce no fim. `revoke ... from public` não o remove.
+-- `from authenticated` pelo motivo de (B) e mais um: esta função é VOLÁTIL.
+-- Definer volátil alcançável por qualquer usuário logado é escrita cross-tenant.
+revoke execute on function public.fn_definir_marca_da_organizacao(uuid, uuid, jsonb)
+  from public, anon, authenticated;
+grant  execute on function public.fn_definir_marca_da_organizacao(uuid, uuid, jsonb)
+  to service_role;
+
+notify pgrst, 'reload schema';
+
+
+-- ---- logo da marca: as FUNÇÕES (migration 0158) ----
+--
+-- O LOGO SAI DA CAIXA DE TEXTO E VIRA ARQUIVO — a metade que cria função.
+--
+-- ⚠️ POR QUE A 0158 ENTRA NO APÊNDICE EM DOIS PEDAÇOS, E NÃO EM UM.
+--
+-- `tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts` proíbe `create function` e
+-- `grant ... to anon` DEPOIS do bloco da VARREDURA anon (logo abaixo). Mas
+-- `platform_branding` — a tabela que ganha a coluna `logo_path` — é criada no
+-- bloco da 0155, que vem DEPOIS da varredura, no fim do arquivo. Um bloco único
+-- quebraria uma das duas coisas: colado aqui, o `alter table
+-- public.platform_branding` rodaria sobre tabela inexistente e o `install.sh`
+-- (que usa `ON_ERROR_STOP=1`) abortaria a instalação inteira; colado no fim, as
+-- duas funções abaixo nasceriam com EXECUTE para `anon` em todo clone que
+-- ATUALIZA, que é o buraco que a varredura existe para fechar.
+--
+-- Então: FUNÇÕES aqui (antes da varredura), BUCKET e COLUNA no fim do arquivo
+-- (depois da 0155). Os dois blocos são idempotentes e independentes na ordem —
+-- nenhuma das funções abaixo lê `platform_branding`.
+--
+-- ─── Por que uma função PRÓPRIA para o logo ─────────────────────────────────
+--
+-- `fn_definir_marca_da_organizacao` (0157) faz `jsonb_set(settings, '{branding}',
+-- p_marca)` — substitui o objeto INTEIRO. Gravar o logo por ela faria "salvar o
+-- nome" apagar o logo, em silêncio, com a tela dizendo "salvo". Duas escritas
+-- independentes precisam de duas funções que façam merge cada uma no seu campo.
+--
+-- ─── E por que a 0157 é RECRIADA aqui (forward-fix) ─────────────────────────
+--
+-- Pelo mesmo motivo, de volta: ela precisa PRESERVAR `logo_path` ao substituir o
+-- objeto. Sem isso, a ordem natural de quem configura a marca ("sobe o logo,
+-- depois troca o nome") perde o logo.
+--
+-- Idempotente: `create or replace function`, revokes e grants declarativos.
+
+create or replace function public.fn_definir_logo_da_organizacao(
+  p_org   uuid,
+  p_actor uuid,
+  p_path  text
+) returns integer
+    language plpgsql
+    volatile
+    security definer
+    set search_path to 'public', 'pg_temp'
+as $$
+declare
+  v_linhas integer;
+  v_path   text;
+begin
+  if p_org is null or p_actor is null then
+    raise exception 'logo_da_organizacao_argumento_nulo'
+      using errcode = '22023';
+  end if;
+
+  v_path := nullif(btrim(coalesce(p_path, '')), '');
+
+  -- O PREFIXO ASSEVERADO DENTRO DO BANCO — o gate que sobrevive ao segundo
+  -- chamador. A rota monta o caminho a partir da organização resolvida do
+  -- cookie, mas "a rota monta certo" é promessa de UM chamador. Sem esta linha,
+  -- um caminho de outro escopo (o `platform/...` que qualquer pessoa lê no HTML
+  -- da tela de login) entraria como logo da organização — e o delete-on-replace
+  -- da rota, rodando como `service_role`, apagaria o logo da instalação inteira
+  -- na troca seguinte.
+  if v_path is not null
+     and v_path !~ ('^' || p_org::text || '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpg)$')
+  then
+    raise exception 'logo_da_organizacao_caminho_fora_do_escopo'
+      using errcode = '22023';
+  end if;
+
+  if not exists (
+       select 1 from public.user_organizations uo
+        where uo.user_id = p_actor
+          and uo.organization_id = p_org
+          and uo.role = 'admin'
+          and uo.revoked_at is null
+     )
+     and not exists (
+       select 1 from public.platform_admins pa
+        where pa.user_id = p_actor
+          and pa.revoked_at is null
+     )
+  then
+    raise exception 'logo_da_organizacao_sem_permissao'
+      using errcode = '42501';
+  end if;
+
+  -- Merge no CAMPO. `jsonb_set` direto em '{branding,logo_path}' NÃO serviria:
+  -- com `branding` ausente, `create_missing` só cria a ÚLTIMA chave e o caminho
+  -- intermediário faltando devolve o jsonb original intocado — silenciosamente.
+  update public.organizations o
+     set settings = case
+           when v_path is null
+             then jsonb_set(
+                    coalesce(o.settings, '{}'::jsonb), '{branding}',
+                    coalesce(o.settings -> 'branding', '{}'::jsonb) - 'logo_path', true)
+           else jsonb_set(
+                    coalesce(o.settings, '{}'::jsonb), '{branding}',
+                    coalesce(o.settings -> 'branding', '{}'::jsonb)
+                      || jsonb_build_object('logo_path', v_path), true)
+         end
+   where o.id = p_org;
+
+  get diagnostics v_linhas = row_count;
+  return v_linhas;
+end;
+$$;
+
+comment on function public.fn_definir_logo_da_organizacao(uuid, uuid, text) is
+  'Grava (ou apaga) organizations.settings.branding.logo_path com merge no CAMPO — não toca em app_name, accent_hex nem nas demais chaves de settings. Assevera que o caminho começa pelo proprio organization_id: caminho de outro escopo levanta 22023. Papel insuficiente levanta 42501. Devolve linhas afetadas: 0 = a organização não existe. Chamador: app/api/v1/marca/logo/route.ts.';
+
+-- ── O FORWARD-FIX DA 0157 ───────────────────────────────────────────────────
+--
+-- As três linhas de `logo_path` no `case` abaixo são a razão de a 0157 aparecer
+-- de novo. Sem elas, salvar nome/cor pela tela apaga o logo da organização, em
+-- silêncio. Vigiado por `tests/invariants/marca-logo.test.ts`.
+
+create or replace function public.fn_definir_marca_da_organizacao(
+  p_org   uuid,
+  p_actor uuid,
+  p_marca jsonb
+) returns integer
+    language plpgsql
+    volatile
+    security definer
+    set search_path to 'public', 'pg_temp'
+as $$
+declare
+  v_linhas integer;
+  v_hex    text;
+  v_limpar boolean;
+begin
+  if p_org is null or p_actor is null then
+    raise exception 'marca_da_organizacao_argumento_nulo'
+      using errcode = '22023';
+  end if;
+
+  v_limpar := p_marca is null or jsonb_typeof(p_marca) = 'null';
+
+  if not v_limpar and jsonb_typeof(p_marca) <> 'object' then
+    raise exception 'marca_da_organizacao_forma_invalida: %', jsonb_typeof(p_marca)
+      using errcode = '22023';
+  end if;
+
+  v_hex := nullif(p_marca ->> 'accent_hex', '');
+  if v_hex is not null and v_hex !~ '^#[0-9a-f]{6}$' then
+    raise exception 'marca_da_organizacao_accent_hex_invalido'
+      using errcode = '22023';
+  end if;
+
+  if not exists (
+       select 1 from public.user_organizations uo
+        where uo.user_id = p_actor
+          and uo.organization_id = p_org
+          and uo.role = 'admin'
+          and uo.revoked_at is null
+     )
+     and not exists (
+       select 1 from public.platform_admins pa
+        where pa.user_id = p_actor
+          and pa.revoked_at is null
+     )
+  then
+    raise exception 'marca_da_organizacao_sem_permissao'
+      using errcode = '42501';
+  end if;
+
+  update public.organizations o
+     set settings = case
+           -- "Limpar" com logo gravado NÃO apaga o logo: o campo tem controle
+           -- próprio na tela, e limpar nome+cor responde a OUTRA pergunta.
+           when v_limpar and coalesce(o.settings #>> '{branding,logo_path}', '') = ''
+             then coalesce(o.settings, '{}'::jsonb) - 'branding'
+           when v_limpar
+             then jsonb_set(
+                    coalesce(o.settings, '{}'::jsonb), '{branding}',
+                    jsonb_build_object('logo_path', o.settings #> '{branding,logo_path}'), true)
+           -- `p_marca || preservado`: o lado DIREITO vence em `||`, então o
+           -- `logo_path` gravado sobrevive à substituição do objeto.
+           -- `jsonb_strip_nulls` SÓ no fragmento preservado — nunca em `p_marca`,
+           -- cujo `app_name: null` é um valor com significado.
+           else jsonb_set(
+                    coalesce(o.settings, '{}'::jsonb), '{branding}',
+                    p_marca || jsonb_strip_nulls(
+                      jsonb_build_object('logo_path', o.settings #> '{branding,logo_path}')), true)
+         end
+   where o.id = p_org;
+
+  get diagnostics v_linhas = row_count;
+  return v_linhas;
+end;
+$$;
+
+comment on function public.fn_definir_marca_da_organizacao(uuid, uuid, jsonb) is
+  'Grava organizations.settings.branding com merge ATÔMICO (jsonb_set), sem tocar nas demais chaves do jsonb (llm, routing, visibility_mode, atrito, ai_dispatch_mode, canonical_conversation_tags, lost_reasons_extra, plan) e PRESERVANDO branding.logo_path, que tem escritor próprio (fn_definir_logo_da_organizacao, migration 0158). Devolve linhas afetadas: 0 = a organização não existe. Papel insuficiente levanta 42501. Chamador: app/actions/settings/updateMarcaDaOrganizacao.ts.';
+
+-- OS DOIS REVOKES EM CADA FUNÇÃO (CLAUDE.md, item 9) — origens DISTINTAS de
+-- EXECUTE, e tratar uma só deixa a função exposta com o gate verde:
+--   (A) `from public`  — o grant que o Postgres dá a PUBLIC ao criar qualquer
+--       função; `revoke ... from anon` não o remove.
+--   (B) `from anon`    — o grant DIRETO do `ALTER DEFAULT PRIVILEGES ... GRANT
+--       ALL ON FUNCTIONS TO anon` (linha ~3972 deste arquivo), que vale para
+--       toda função criada DEPOIS dele — isto é, para todo apêndice.
+-- `from authenticated` pelo motivo de (B) e mais um: as duas são VOLÁTEIS.
+-- Definer volátil alcançável por qualquer usuário logado é escrita cross-tenant.
+revoke execute on function public.fn_definir_logo_da_organizacao(uuid, uuid, text)
+  from public, anon, authenticated;
+grant  execute on function public.fn_definir_logo_da_organizacao(uuid, uuid, text)
+  to service_role;
+
+revoke execute on function public.fn_definir_marca_da_organizacao(uuid, uuid, jsonb)
+  from public, anon, authenticated;
+grant  execute on function public.fn_definir_marca_da_organizacao(uuid, uuid, jsonb)
+  to service_role;
+
+notify pgrst, 'reload schema';
+
+
+-- ---- gasto de IA do mês: uma régua só (migration 0159) ----
+--
+-- O NÚMERO EXIBIDO PASSA A SER O NÚMERO QUE DECIDE.
+--
+-- Antes desta função havia duas contagens de gasto no produto e elas divergiam:
+--
+--   * a query inline de `assertBudget` (`lib/agent-engine/edge/llm/run-model-call.ts`),
+--     que soma `llm_calls` do mês corrente — é ela que barrava a chamada;
+--   * `ai_budgets.current_month_consumed_cents`, que é o que a TELA mostra — um
+--     contador materializado pelo gatilho `fn_update_budget_consumption`, que soma
+--     `NEW.cost_cents` SEM olhar a data e nunca zera (o `runBudgetReset` jamais foi
+--     agendado). O único recomputo em produção é o apêndice da 0140, que só roda
+--     no `install.sh`/`update.sh` — numa instalação que não atualiza há três meses,
+--     o card compara três meses de gasto contra um teto MENSAL.
+--
+-- Armar uma proteção contra um número que não é o número que decide é pedir para
+-- a pessoa proteger-se de uma mentira. Uma régua só, e ela é esta.
+--
+-- `security invoker`, NÃO `definer`: a função recebe a organização por argumento
+-- e não valida membership. Uma definer alcançável por `authenticated` seria
+-- leitura de gasto cross-tenant. Quem a chama já tem o `organization_id` de fonte
+-- confiável — o `pg.Pool` do engine (dono do schema) e o admin client via
+-- PostgREST (`service_role`).
+--
+-- ⚠️ E POR SER INVOKER ELA DEPENDE INTEIRAMENTE DOS PRÓPRIOS REVOKES: o bloco
+-- `VARREDURA anon` logo abaixo percorre só `p.prosecdef`, então ele NÃO cura
+-- função invoker. São duas origens distintas de EXECUTE (CLAUDE.md, item 9):
+--   (A) o grant que o Postgres dá a PUBLIC ao criar qualquer função — que
+--       `revoke ... from anon` não remove;
+--   (B) o grant DIRETO a anon do `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON
+--       FUNCTIONS TO anon` do corpo deste arquivo (linha ~3972), que vale para
+--       toda função criada depois dele (isto é, para todo apêndice) — que
+--       `revoke ... from public` não remove.
+-- Tratar só uma deixa a função servida como RPC pela anon key, que vai ao browser.
+-- `authenticated` sai pelo motivo de (B) e mais um: é ele que carrega o JWT de
+-- qualquer pessoa logada, e a organização vem por argumento.
+--
+-- ⚠️ E ENTRA ANTES DO BLOCO DA VARREDURA anon, que é de propósito o último do
+-- arquivo. `tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts` proíbe QUALQUER
+-- `create function` ancorado em início de linha depois dele, e o regex não
+-- distingue definer de invoker. É a mesma dança em dois blocos que a 0158 teve de
+-- fazer: a função aqui, o resto da migration no fim do arquivo.
+create or replace function public.fn_gasto_de_ia_do_mes(p_org uuid)
+returns numeric
+  language sql
+  stable
+  security invoker
+  set search_path to 'public', 'pg_temp'
+as $$
+  select coalesce(sum(cost_cents), 0)::numeric
+    from public.llm_calls
+   where organization_id = p_org
+     and created_at >= date_trunc('month', now());
+$$;
+
+comment on function public.fn_gasto_de_ia_do_mes(uuid) is
+  'Gasto de IA da organização no mês corrente, em centavos de DÓLAR (llm_calls.cost_cents vem de pricing.ts, que calcula em USD). É a ÚNICA definição de gasto do produto: o gate a chama dentro de SQL_ORCAMENTO (lib/agent-engine/edge/llm/orcamento.ts), a tela a chama por RPC e o painel de saúde por tenant a chama. O dashboard de plataforma (app/api/v1/admin/dashboard/kpis) AINDA lê ai_budgets.current_month_consumed_cents, um contador acumulado que nada zera, e por isso pode divergir — a divergência está declarada naquele arquivo e o alerta de lá nunca é critical. Query inline de sum(cost_cents) em outro lugar é uma segunda régua, e a segunda régua sempre diverge — vigiado por tests/unit/orcamento-uma-regua-de-gasto.test.ts. security invoker: recebe a organização por argumento e não valida membership, então definer aqui seria leitura cross-tenant.';
+
+revoke execute on function public.fn_gasto_de_ia_do_mes(uuid)
+  from public, anon, authenticated;
+grant  execute on function public.fn_gasto_de_ia_do_mes(uuid)
+  to service_role;
+
+notify pgrst, 'reload schema';
+
+
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
 -- ⚠️ ESTE BLOCO É, DE PROPÓSITO, O ÚLTIMO DO ARQUIVO. Apêndice novo entra ANTES
@@ -11647,7 +13134,7 @@ alter table public.webhook_events_log
     'waha', 'nuvemshop', 'generic', 'meta_cloud', 'zernio'
   ));
 
--- ---- a mensagem que responde outra (migration 0155) ----
+-- ---- a mensagem que responde outra (migration 0161) ----
 -- O canal intermediado aceita citação (`replyTo` no envio, com o `wamid` da
 -- citada) e o WhatsApp mostra a resposta pendurada na original. Sem guardar
 -- QUEM foi citado, o CRM manda a citação para o cliente e não a mostra de volta
@@ -11667,5 +13154,360 @@ alter table public.messages
 create index if not exists messages_reply_to_idx
   on public.messages (reply_to_message_id)
   where reply_to_message_id is not null;
+-- ---- a marca da instalação sai do .env e vai para o banco (migration 0155) ----
+--
+-- Nome, logo e cor viviam só em `APP_NAME`/`APP_LOGO_URL`/`APP_ACCENT_HEX`:
+-- trocar qualquer um exigia SSH na VPS e reiniciar a stack. Para quem compra
+-- hospedagem e instala sozinho, isso é o mesmo que não ser configurável.
+--
+-- O `.env` CONTINUA sendo escrito, e não é redundância: o `agent.sh` do kit, em
+-- falha de update, reverte só o `APP_IMAGE` — não o schema, não o `git
+-- checkout`. E o `update.sh` aplica ESTE arquivo ANTES de puxar a imagem. Ou
+-- seja, o rollback põe código antigo sobre banco novo por construção, e código
+-- antigo não conhece esta tabela. Com o `.env` intacto a marca degrada para o
+-- valor da instalação em vez de sumir no meio de um rollback.
+--
+-- ── RLS LIGADA COM ZERO POLICIES + REVOKE EXPLÍCITO ─────────────────────────
+--
+-- As duas coisas, e nenhuma substitui a outra:
+--
+--   (1) `enable row level security` sem NENHUMA policy é a forma explícita de
+--       dizer "o PostgREST nunca serve isto". A tabela é lida e escrita só
+--       server-side, pelo admin client (`service_role`, que é `bypassrls`).
+--
+--   (2) O `revoke` abaixo é O ANÁLOGO, PARA TABELA, DA REGRA DE `security
+--       definer` DO ITEM 9 DO CLAUDE.md — e isso não está documentado em lugar
+--       nenhum hoje, e é o furo que a próxima tabela de apêndice repetiria.
+--       Este mesmo arquivo traz `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON
+--       TABLES TO anon` (linha ~3972) e `... TO authenticated` (~3973), e eles
+--       valem para TODA tabela criada DEPOIS deles — isto é, para todo apêndice
+--       novo. TABELA NOVA NASCE CONCEDIDA. Foi exatamente assim que nasceu a
+--       vulnerabilidade que a 0143 consertou em `org_guardrail_layers` (medido:
+--       um `viewer` desligava a camada anti-jailbreak pelo PostgREST — UPDATE 1
+--       + INSERT 1), depois de a 0142 ter escrito "nenhuma função nova, então
+--       não há grant a revogar": leitura de uma doutrina que fala de FUNÇÃO.
+--
+--       Aqui revoga-se de `authenticated` também (a 0143 revogou só de `anon`),
+--       porque nenhuma tela lê esta tabela pelo client de sessão — quem lê é o
+--       `app/layout.tsx`, no servidor. O privilégio é a camada que sobra no dia
+--       em que alguém acrescentar "só uma policy de leitura".
+--
+-- ⚠️ `accent_hex` tem CHECK de REGEX, não de conjunto: ela NÃO entra na lista
+-- `PARES` de `tests/invariants/vocabulario-banco-x-typescript.test.ts`, cujo
+-- extrator só reconhece `= ANY (ARRAY[...])`. A doutrina "coluna nova com CHECK
+-- → uma linha ali" vale para CHECK de CONJUNTO.
+--
+-- Sem `event_log`: nenhum dos 12 handlers de `lib/event-log/register-handlers.ts`
+-- cobriria um tipo `platform_branding.*`, e o drain deixa evento sem handler
+-- intocado — a linha nasceria `pending` para sempre em todo clone (anti-pattern
+-- nº 3). O registro é `audit()`, com consumidor real.
+--
+-- Idempotente e auto-curativo: `create table if not exists` + `drop trigger if
+-- exists` antes do `create trigger`; grants e revokes são declarativos e podem
+-- ser reaplicados. Nenhuma constraint nova sobre dado existente (a tabela nasce
+-- vazia), então não há o que deduplicar antes.
+
+create table if not exists public.platform_branding (
+  id                  smallint primary key default 1,
+  app_name            text,
+  logo_url            text,
+  accent_hex          text,
+  show_powered_by     boolean     not null default true,
+  seeded_from_env     boolean     not null default false,
+  -- Estado, não configuração: é o que torna a falha OBSERVÁVEL (invariante 6 da
+  -- doutrina Sistema Vivo). Sem estas duas, o degrade ("o produto ficou com a
+  -- cor dele") é indistinguível de "a feature nunca foi instalada".
+  fallback_at         timestamptz,
+  fallback_reason     text,
+  updated_at          timestamptz not null default now(),
+  updated_by          uuid,
+  constraint platform_branding_singleton  check (id = 1),
+  constraint platform_branding_accent_hex check (accent_hex is null or accent_hex ~ '^#[0-9a-f]{6}$')
+);
+
+comment on table public.platform_branding is
+  'Marca da INSTALAÇÃO (login, e-mail, 500) — linha única id=1. Semeada do .env na primeira leitura; para NOME e LOGO o .env continua sendo a rede de segurança de rollback (o agent.sh reverte a imagem, não o banco). Para COR não há rede: APP_ACCENT_HEX nasceu junto com esta tabela e o install.sh não o grava — nenhuma versão que desconheça platform_branding pinta accent. Lida/escrita só server-side (service_role). Ver lib/branding/instalacao.ts.';
+
+comment on column public.platform_branding.seeded_from_env is
+  'true = os valores vieram do .env e ninguém os editou pela tela. A escrita humana zera isto, e é o que impede a semeadura de reescrever o que uma pessoa apagou de propósito.';
+
+comment on column public.platform_branding.fallback_at is
+  'Quando a cor configurada foi RECUSADA e o produto caiu na cor dele. NULL = nenhuma recusa em vigor.';
+
+comment on column public.platform_branding.fallback_reason is
+  'Códigos de recusa (FORMA, nunca o hex da marca). Escrito e limpo por lib/branding/instalacao.ts.';
+
+alter table public.platform_branding enable row level security;
+
+-- ZERO POLICIES, DE PROPÓSITO — ver o bloco acima.
+
+revoke all on public.platform_branding from anon, authenticated;
+grant select, insert, update on public.platform_branding to service_role;
+
+drop trigger if exists trg_platform_branding_touch on public.platform_branding;
+create trigger trg_platform_branding_touch
+  before update on public.platform_branding
+  for each row execute function public.fn_touch_updated_at();
+
+notify pgrst, 'reload schema';
+
+
+-- ---- logo da marca: BUCKET e COLUNA (migration 0158) ----
+--
+-- A segunda metade da 0158. As funções estão ANTES do bloco da VARREDURA anon,
+-- e a razão de a migration entrar em dois pedaços está escrita lá: este pedaço
+-- depende de `platform_branding`, criada no bloco da 0155, que é o último do
+-- arquivo — e aquele pedaço cria função, o que a varredura proíbe depois dela.
+--
+-- ─── Por que o bucket é PÚBLICO — o primeiro do repositório ─────────────────
+--
+-- Os quatro que já existiam (`ai-policy`, `lgpd-exports`, `skill-assets`,
+-- `whatsapp-media`) nascem `public = false`. Este não, e a razão é medida: o logo
+-- é renderizado num `<img>` da tela de LOGIN (`app/(public)/layout.tsx`), servida
+-- a quem NÃO tem sessão. URL assinada exige um segredo por requisição e VENCE — a
+-- marca da instalação sumiria da fachada no dia do vencimento, sem ninguém tocar
+-- em nada, e "o logo sumiu" não apontaria para a causa.
+--
+-- O que mantém a exceção contida, e o que `tests/invariants/marca-logo.test.ts`
+-- mede:
+--   * bucket EXCLUSIVO de logo — nada de conversa, export ou base de conhecimento
+--     mora aqui, então "público" não vaza histórico de cliente nenhum;
+--   * ZERO policy em `storage.objects` para ele. `public = true` no Supabase abre
+--     a LEITURA pelo endpoint `/object/public/...`; não abre INSERT nem DELETE,
+--     que continuam só pelo `service_role`, pela rota, depois dos gates;
+--   * caminho não-enumerável (`<prefixo>/<uuid v4>.<png|jpg>`);
+--   * `allowed_mime_types` é BACKSTOP, não a defesa — o Storage compara com o
+--     header que QUEM SOBE escolheu. Quem decide é o farejador de bytes em
+--     `lib/branding/logo-arquivo.ts`.
+--
+-- Registrado em `docs/threat-model.md` ao lado da linha de `whatsapp-media`.
+--
+-- ─── Por que 512 KB ────────────────────────────────────────────────────────
+--
+-- `next.config.ts` roda com `images.unoptimized` e os dois renders do logo usam
+-- `<img>` cru (a URL é de quem hospeda; `next/image` exige allowlist fechada em
+-- BUILD e a imagem é pré-buildada). O arquivo vai INTEIRO para o navegador em
+-- toda página. E a cota do Supabase é do CLIENTE — 1 GB no plano gratuito,
+-- compartilhado com `whatsapp-media`, que não tem poda.
+--
+-- Idempotente e auto-curativo: `on conflict do update` no bucket (o `update.sh`
+-- de um clone precisa CONVERGIR, não só criar), `add column if not exists`, e o
+-- BACKFILL vem antes da constraint — o `update.sh` roda SEM `ON_ERROR_STOP`, e
+-- uma constraint que estourasse deixaria a coluna sem validação em silêncio.
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('brand-logos', 'brand-logos', true, 524288, array['image/png', 'image/jpeg'])
+on conflict (id) do update
+  set public             = excluded.public,
+      file_size_limit    = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+alter table public.platform_branding
+  add column if not exists logo_path text;
+
+comment on column public.platform_branding.logo_path is
+  'Caminho do arquivo de logo em storage/brand-logos, sempre platform/<uuid>.<png|jpg>. Caminho e NÃO url: a url é função determinística do caminho + host do projeto (DIRC-C), e gravá-la amarraria a marca ao host de hoje. Vence logo_url, que continua como rede de rollback do .env. Escrito por app/api/v1/marca/logo/route.ts.';
+
+update public.platform_branding
+   set logo_path = null
+ where logo_path is not null
+   and logo_path !~ '^platform/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpg)$';
+
+-- `drop if exists` + `add`, e não `add ... if not exists` (que o Postgres não tem
+-- para constraint): é o que torna a REGRA idempotente, e não só a criação.
+alter table public.platform_branding
+  drop constraint if exists platform_branding_logo_path;
+alter table public.platform_branding
+  add constraint platform_branding_logo_path check (
+    logo_path is null
+    or logo_path ~ '^platform/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpg)$'
+  );
+
+-- ⚠️ CHECK de REGEX, não de conjunto: fica FORA da lista `PARES` de
+-- `tests/invariants/vocabulario-banco-x-typescript.test.ts`, cujo extrator só
+-- reconhece `= ANY (ARRAY[...])` e estoura sobre regex. Mesma razão de
+-- `platform_branding_accent_hex`.
+
+notify pgrst, 'reload schema';
+
+
+-- ---- o teto de IA que vincula (migration 0159) ----
+--
+-- ⚠️ ESTE BLOCO EXISTE EM DOIS ARQUIVOS, PALAVRA POR PALAVRA:
+-- `supabase/migrations/20260814210000_0159_o_teto_que_vincula.sql` (o que o
+-- Supabase CLI aplica) e o FIM de `supabase/baseline.sql` (o que o kit self-host
+-- aplica, no `install.sh` e no `update.sh`).
+-- `tests/unit/migracao-nao-arma-ninguem.test.ts` compara os dois textos: divergir
+-- significa que o self-hoster recebe um SQL diferente do que a migration afirma,
+-- e é justamente o par que ninguém confere lendo só um dos dois.
+
+-- (1) DDL. Idempotente; re-aplicar é no-op. A linha que já existe recebe 'off'
+--     pelo próprio ALTER — não há UPDATE nenhum aqui, e é essa ausência que
+--     torna impossível esta migration armar alguém.
+alter table public.ai_budgets
+  add column if not exists enforcement_mode text not null default 'off';
+alter table public.ai_budgets
+  add column if not exists enforcement_effective_at timestamptz;
+
+comment on column public.ai_budgets.enforcement_mode is
+  'A INTENÇÃO, declarada por um admin — nunca inferida do valor do teto. off = só acompanhar (a IA nunca para por gasto); avisar = abre budget_warning ao passar do limiar e SEGUE; bloquear = recusa a chamada quando o gasto atinge o teto. Nasce off por DEFAULT do ALTER, e é por isso que ligar o teto no gate não estrangula quem herdou o DEFAULT 5000 de monthly_limit_cents. Escrito só por PATCH /api/v1/ai/budget (admin, auditado); lido por lib/agent-engine/edge/llm/credentials.ts.';
+
+comment on column public.ai_budgets.enforcement_effective_at is
+  'Carência: a partir de quando bloquear passa a valer de fato (now()+72h ao armar pela tela). Nasce NULL, e null <= now() é null — nunca verdadeiro —, então modo bloquear sem esta data ainda não bloqueia. Existe para que armar a proteção não seja um interruptor que corta o WhatsApp do negócio no mesmo instante, sem ninguém ver o aviso antes.';
+
+-- (2) DADOS — RESGATE B->A.
+--
+-- >>> RESGATE B->A: INICIO <<<
+--
+-- O ÚNICO bloco desta migration que escreve 'bloquear', e o único que escreve
+-- `monthly_limit_cents`. Ele preserva o comportamento de HOJE para a única
+-- população que hoje PODE ser bloqueada: quem tem
+-- `organizations.settings.llm.monthly_budget_cents` com um número vigente.
+--
+-- Sem carência (`now()`, não `now()+72h`): essa organização JÁ está capada nesse
+-- número, e dar 72h de folga AFROUXARIA o que ela apertou de propósito.
+--
+-- Garante a linha ANTES do update, porque nenhum gatilho de `organizations`
+-- semeia `ai_budgets` — os produtores são o gatilho de `llm_calls`, os dois
+-- backfills do baseline e o PATCH. Sem o insert, uma organização com teto vigente
+-- e sem linha perderia o bloqueio no instante em que a chave jsonb saísse em (3).
+insert into public.ai_budgets (organization_id)
+select o.id from public.organizations o
+ where jsonb_typeof(o.settings->'llm'->'monthly_budget_cents') = 'number'
+   and (o.settings->'llm'->>'monthly_budget_cents')::numeric >= 100
+   and (o.settings->'llm'->>'monthly_budget_cents')::numeric <= 2147483647
+on conflict (organization_id) do nothing;
+
+update public.ai_budgets b
+   set monthly_limit_cents      = (o.settings->'llm'->>'monthly_budget_cents')::numeric::integer,
+       enforcement_mode         = 'bloquear',
+       enforcement_effective_at = now(),
+       updated_at               = now()
+  from public.organizations o
+ where o.id = b.organization_id
+   and jsonb_typeof(o.settings->'llm'->'monthly_budget_cents') = 'number'
+   and (o.settings->'llm'->>'monthly_budget_cents')::numeric >= 100
+   and (o.settings->'llm'->>'monthly_budget_cents')::numeric <= 2147483647;
+--
+-- As três condições, e cada uma existe para não derrubar o `update.sh` de um
+-- clone ou para não apertar quem ninguém apertou:
+--
+--   * `jsonb_typeof = 'number'` e NÃO `is not null`: o jsonb `'null'` e um valor
+--     com forma errada (string) caem fora. `('"700"'::jsonb->>...)::numeric`
+--     funcionaria, mas `'abc'` levantaria 22P02 dentro do `update.sh` de um clone,
+--     e a doutrina proíbe migration que quebra. Espelha exatamente o `.catch(null)`
+--     do Zod em `credentials.ts`: valor com forma errada JÁ é `null` (ilimitado)
+--     hoje, então não resgatar é PRESERVAR.
+--   * `>= 100` deixa fora o `0` (artefato de `scripts/smoke-llm.ts`, que grava '0'
+--     e NÃO restaura) e o implausível. Um `0` ali bloqueia 100% das chamadas com
+--     gasto zero — a inversão perfeita —, e trazê-lo DESARMADO conserta. É a única
+--     vez que esta migration muda comportamento, e é na direção que AFROUXA.
+--   * `<= 2147483647` porque `monthly_limit_cents` é `integer`. Medido em pg17:
+--     `('{"a":1e20}'::jsonb->>'a')::numeric::integer` levanta `22003 integer out of
+--     range`, e `jsonb_typeof` daquilo é 'number'. É jsonb LIVRE, editável por
+--     qualquer acesso privilegiado ao banco; sem este corte, uma linha assim
+--     abortaria o statement dentro de um `update.sh` sem `ON_ERROR_STOP` — erro
+--     engolido, resgate não feito, exit 0. Fora do intervalo não é orçamento, é
+--     erro de unidade, e erro de unidade não pode calar a IA nem quebrar o kit.
+--
+-- >>> RESGATE B->A: FIM <<<
+
+-- (3) A duplicata some, para não haver duas verdades. Uma instrução, sem
+--     read-modify-write de aplicação — o padrão que a 0157 curou depois de medir
+--     perda real de chave irmã em `organizations.settings` (`visibility_mode`
+--     voltando de 'own' para 'all' em silêncio, e ele é lido DIRETO pela RLS).
+update public.organizations
+   set settings = jsonb_set(settings, '{llm}', (settings->'llm') - 'monthly_budget_cents')
+ where jsonb_typeof(settings->'llm') = 'object'
+   and settings->'llm' ? 'monthly_budget_cents';
+-- Idempotência: a segunda passada casa 0 linhas (a chave já saiu), o que também
+-- torna (2) idempotente sem precisar de guarda de catálogo.
+
+-- (4) SANEAMENTO. `is_throttled` só teve escritor no cron morto
+--     (`workers/ai-budget-checker.cron.ts`, sem rota e sem linha no
+--     `docker/scheduler/entrypoint.sh`), então qualquer `true` é estado preso.
+--     `is_disabled` NÃO é tocado: significaria "um admin desligou", e limpá-lo
+--     religaria IA que alguém desligou de propósito.
+update public.ai_budgets set is_throttled = false where is_throttled;
+
+-- (5) CONSTRAINT — depois dos dados, sempre (doutrina de migrations, item 8). O
+--     `update.sh` roda SEM `ON_ERROR_STOP` e engoliria um 23514, deixando a
+--     coluna sem validação em silêncio. `drop if exists` + `add`, e não
+--     `add ... if not exists` (que o Postgres não tem para constraint): é o que
+--     torna a REGRA idempotente, e não só a criação.
+alter table public.ai_budgets
+  drop constraint if exists ai_budgets_enforcement_mode_check;
+alter table public.ai_budgets
+  add constraint ai_budgets_enforcement_mode_check
+  check (enforcement_mode in ('off', 'avisar', 'bloquear'));
+
+alter table public.ai_budgets
+  drop constraint if exists ai_budgets_bloquear_precisa_de_teto;
+alter table public.ai_budgets
+  add constraint ai_budgets_bloquear_precisa_de_teto
+  check (enforcement_mode <> 'bloquear' or monthly_limit_cents >= 100);
+-- Os dados já satisfazem: 'bloquear' só foi escrito em (2), onde o jsonb era
+-- >= 100. O CHECK é o backstop de "armado sem valor útil" tentando renascer pela
+-- porta da frente — a régua da vez é o 422 da rota, não ele.
+--
+-- ⚠️ SÓ `ai_budgets_bloquear_precisa_de_teto` é CHECK cross-coluna / de domínio,
+-- e por isso fica FORA da lista `PARES` de
+-- `tests/invariants/vocabulario-banco-x-typescript.test.ts` — mesma classificação
+-- que os CHECKs de regex da 0155/0157/0158.
+--
+-- `ai_budgets_enforcement_mode_check` É de vocabulário: um conjunto fechado com
+-- par em TypeScript (`ModoDeOrcamento`, em
+-- `lib/agent-engine/edge/llm/orcamento.ts`), lido no caminho quente. Ele ESTÁ em
+-- `PARES`. Classificá-lo como domínio — o que este comentário e o MANIFEST
+-- fizeram — deixava a coluna fora do único gate que pega a classe: um valor novo
+-- entra num lado só, passa em typecheck/lint/unit, e aparece como 23514 em
+-- produção.
+
+-- (6) INFORMAÇÃO, nunca alarme. Item `info` para as organizações cujo
+--     `is_disabled` foi posto à mão (HIPÓTESE: conjunto vazio — nenhum escritor
+--     vivo jamais rodou): a flag para de agir quando o guard legado de
+--     `workers/ai-response-worker.ts` é repontado para a regra canônica. Mudança
+--     real, declarada, não escondida — e `info` porque nada quebrou.
+insert into public.agent_inbox_items (organization_id, kind, severity, title, body, ref_kind, ref_id)
+select b.organization_id, 'budget_warning', 'info',
+       'A pausa antiga de IA por gasto foi desligada',
+       'Esta organização estava marcada como desabilitada por gasto num mecanismo '
+       'que nunca teve como ser reativado. Para voltar a parar a IA no limite, use '
+       'Uso de IA › Orçamento e escolha "Parar a IA ao chegar no limite".',
+       'ai_budget', b.organization_id
+  from public.ai_budgets b
+ where b.is_disabled
+   and not exists (
+     select 1 from public.agent_inbox_items i
+      where i.organization_id = b.organization_id
+        and i.kind = 'budget_warning' and i.status = 'open'
+   );
+
+notify pgrst, 'reload schema';
+
+
+-- ---- ai_budgets só se escreve pela rota (migration 0160) ----
+--
+-- A 0159 pôs em `ai_budgets` os dois campos que decidem se (e quando) a IA para
+-- de responder. Toda a regra que os protege — escada `off → avisar → bloquear`,
+-- carência de 72h, piso de US$ 1,00 e linha em `api_audit_log` — mora na rota
+-- `PATCH /api/v1/ai/budget`, que usa service role. Mas o corpo deste dump traz
+-- `GRANT ALL ON TABLE public.ai_budgets TO anon` e `TO authenticated`, e a 0159
+-- termina com `notify pgrst, 'reload schema'`: as colunas novas passaram a ser
+-- SERVIDAS pelo PostgREST para a chave anon, que vai ao browser. Um PATCH direto
+-- na REST do Supabase, com o JWT de um admin do tenant, armava a parada sem
+-- escada, sem carência, sem piso e sem auditoria — o comentário da coluna dizia
+-- "escrito só por PATCH /api/v1/ai/budget" e era verdade sobre o CÓDIGO, falso
+-- sobre o SCHEMA.
+--
+-- Medido antes de revogar: TODO escritor de `ai_budgets` no repositório usa
+-- service role (a rota, `lib/ai/budget/check.ts`, os painéis de admin, os
+-- workers e `scripts/qa-wave-11.ts`). Nenhum caminho de produto escreve esta
+-- tabela com o JWT do usuário.
+--
+-- SELECT fica: ler o próprio orçamento pelo PostgREST continua escopado pela
+-- policy de SELECT da 0150. `revoke` é idempotente por natureza — este bloco
+-- pode ser re-aplicado à vontade pelo `update.sh`.
+revoke insert, update, delete on table public.ai_budgets from authenticated, anon;
 
 notify pgrst, 'reload schema';

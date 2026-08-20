@@ -49,7 +49,7 @@ export async function skipNuvemshop(): Promise<void> {
     actorUserId: ctx.userId,
     organizationId: ctx.orgId,
   });
-  redirect("/onboarding/setup-ai");
+  redirect("/onboarding");
 }
 
 export async function markNuvemshopConfigured(): Promise<void> {
@@ -57,7 +57,7 @@ export async function markNuvemshopConfigured(): Promise<void> {
   await patchOnboardingState(ctx.orgId, {
     nuvemshop: { connected_at: new Date().toISOString() },
   });
-  redirect("/onboarding/setup-ai");
+  redirect("/onboarding");
 }
 
 export { OnboardingError };

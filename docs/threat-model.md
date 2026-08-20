@@ -53,6 +53,30 @@ São conclusões de leitura de código.
 
 ### T1 — Brute force e enumeração sem custo 🔴 CONFIRMADO (ausência), INFERIDO (impacto)
 
+> ## ⚠️ ENDEREÇADO DEPOIS DESTA AUDITORIA — releia antes de agir sobre T1
+>
+> Este documento foi auditado contra `789dfa6` (2026-07-27), e o front-matter diz isso. O
+> corpo, porém, fala no **presente** — e um leitor decide pelo corpo. Medido em 2026-08-14 na
+> `main`:
+>
+> - **`lib/auth/rate-limit.ts` existe** e foi escrito para fechar exatamente este risco: o
+>   cabeçalho cita a issue #64 e nomeia login, signup, recuperação de senha e aceite de convite.
+> - É usado nos **quatro** pontos que o texto abaixo diz estarem descobertos:
+>   `app/actions/auth/signInWithPassword.ts`, `signUp.ts`, `requestPasswordReset.ts` e
+>   `app/team/accept-invite/[token]/page.tsx`.
+> - Limites em vigor (`AUTH_LIMITS`): `login` 5 por identificador / 300 s, `signup` 20 por IP /
+>   3600 s, `reset` 30 IP e 3 id / 3600 s, `invite_accept` 60 por IP / 3600 s.
+> - **A sub-afirmação "não existe lockout por conta" sobrevive à letra e morre no espírito.** A
+>   sonda que o texto usa (`grep lockout|failed_attempts`) devolve **zero** — ainda hoje. Mas
+>   `rate-limit.ts:158/165` conta falha de login **por conta**, na chave
+>   `auth:login_fail:id:<hash>`. A sonda é cega para o mecanismo que existe, e é o exemplo mais
+>   limpo deste documento de por que ausência de sonda não é ausência de defesa.
+>
+> **O veredito 🔴 NÃO foi rebaixado aqui, de propósito.** Rebaixar risco de segurança pede
+> reauditoria com teste contra instância viva, que é o que o próprio `confidence` do
+> front-matter diz nunca ter havido. O que esta nota faz é corrigir os **fatos** e marcar o T1
+> como devendo reauditoria — não decidir por ela.
+
 `checkRateLimit` existe (`lib/ai/dispatcher/rate-limit.ts`) e é chamado em **2** pontos
 do código: `/api/v1/webhooks/in/:token` e o dispatcher de IA. Nada mais.
 
@@ -179,6 +203,23 @@ Não avaliado por falta de execução/instância:
 - Se `next.config.ts` define CSP / security headers.
 - Storage: se o bucket `whatsapp-media` está privado de fato e se a expiração das signed
   URLs é adequada.
+- Storage, e este é MEDIDO e DECLARADO em vez de "não avaliado": `brand-logos` (migration
+  0158) é o **único bucket público** do repositório — os outros quatro nascem
+  `public = false`. A exceção existe porque o logo é renderizado num `<img>` da tela de
+  **login**, servida a quem não tem sessão, e URL assinada **vence**: a marca da instalação
+  sumiria da fachada sozinha no dia do vencimento. O que a contém, e o que
+  `tests/invariants/marca-logo.test.ts` reprova quando deixa de valer: bucket **exclusivo**
+  de logo (nada de conversa, export ou base de conhecimento mora nele, então "público" não
+  vaza histórico de cliente), **zero policy** em `storage.objects` citando o bucket
+  (`public = true` abre a LEITURA pelo endpoint `/object/public/...`; INSERT e DELETE
+  continuam só no `service_role`), caminho **não-enumerável** (`<prefixo>/<uuid v4>.<ext>`)
+  e teto de 512 KB. O que entra é decidido pelos **bytes** (`lib/branding/logo-arquivo.ts`),
+  nunca pelo `Content-Type` — `allowed_mime_types` do bucket e `file.type` na rota leem a
+  mesma string que quem sobe escolhe. **SVG é banido**: este repo não define CSP (ver o item
+  acima sobre `next.config.ts`), e SVG navegado direto do endereço da imagem executa script.
+  O que NÃO está coberto: um logo subido é **público para sempre até ser trocado** — quem
+  subir por engano uma arte confidencial precisa removê-la pela tela, e a URL antiga deixa
+  de existir junto com o arquivo (a rota apaga o anterior na troca).
 - Escopo do service role key no Supabase e rotação de chaves.
 - Efetividade do `beforeSend` do Sentry contra PII real.
 

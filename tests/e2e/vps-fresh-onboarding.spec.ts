@@ -151,7 +151,9 @@ test.describe("J1 — onboarding do dono numa instalação fresca", () => {
     await page.waitForURL(/\/onboarding\/connect-whatsapp/);
 
     // sem banner de "WAHA não está configurado"
-    await expect(page.getByText(/waha não está configurado/i)).toHaveCount(0);
+    // O nome do transporte saiu da tela: o aviso agora fala do "WhatsApp desta
+    // instalação", que é como o dono chama a coisa.
+    await expect(page.getByText(/ainda não subiu/i)).toHaveCount(0);
 
     // QR do proxy (poll de 3s até SCAN_QR_CODE) — imagem carregada de fato
     const qr = page.locator('img[src*="/whatsapp/qr"]');
@@ -183,12 +185,69 @@ test.describe("J1 — onboarding do dono numa instalação fresca", () => {
 
     await page.locator("#name").fill("Tomik QA");
     await page.getByRole("button", { name: /criar e continuar/i }).click();
-    await page.waitForURL(/\/onboarding\/invite-team/, { timeout: 20_000 });
-    await snap(page, "j1.7-invite-team");
+    // O wizard ganhou um passo entre treinar e chamar o time: ver o
+    // funcionário atender. Terminar sem nunca tê-lo visto fazer nada era como
+    // o onboarding entregava a pessoa num inbox vazio.
+    await page.waitForURL(/\/onboarding\/testar/, { timeout: 20_000 });
+    await snap(page, "j1.7-testar");
 
-    const { data: agents } = await svc.from("ai_agents").select("name, is_active, is_default");
+    const { data: agents } = await svc
+      .from("ai_agents")
+      .select("id, name, is_active, is_default, published_version_id");
     expect(agents?.length).toBe(1);
     expect(agents?.[0]).toMatchObject({ name: "Tomik QA", is_active: true, is_default: true });
+
+    // A VERSÃO, e não só o agente. Este caso olhava apenas `ai_agents` — e foi
+    // por isso que a regressão do provedor nasceu invisível: o agente ficava
+    // bonito na tabela enquanto a versão publicada apontava para uma empresa de
+    // IA que a instalação não contratou, morrendo em toda mensagem.
+    const { data: versoes } = await svc
+      .from("ai_agent_versions")
+      .select("provider, model, status, channel_session_id")
+      .eq("agent_id", agents?.[0]?.id ?? "");
+    expect(versoes?.length).toBe(1);
+    expect(versoes?.[0]?.status).toBe("published");
+
+    // E o provedor da versão é o MESMO que a instalação escolheu. Comparar com
+    // uma string fixa aqui não provaria nada: o teste passaria justamente na
+    // instalação Anthropic, que é a única em que o defeito não aparecia.
+    const { data: org } = await svc.from("organizations").select("settings").limit(1).maybeSingle();
+    const escolhido =
+      (org?.settings as { llm?: { provider?: string } } | null)?.llm?.provider ?? "anthropic";
+    expect(versoes?.[0]?.provider).toBe(escolhido);
+
+    // O modelo veio do catálogo DAQUELE provedor — nunca um id emprestado.
+    const { data: curado } = await svc
+      .from("ai_models")
+      .select("model_id")
+      .eq("provider", escolhido)
+      .eq("is_default_for_provider", true)
+      .is("deprecated_at", null)
+      .limit(1)
+      .maybeSingle();
+    expect(versoes?.[0]?.model).toBe(curado?.model_id);
+  });
+
+  test("J1.24 ver ele atender: o wizard não termina sem mostrar o funcionário", async ({ page }) => {
+    // O passo que faltava. O onboarding entregava a pessoa num inbox vazio
+    // ("Sem conversas por aqui") logo depois de ela montar um funcionário que
+    // nunca tinha visto fazer nada — e um erro de chave ou de saldo só
+    // apareceria quando um cliente de verdade escrevesse.
+    await login(page);
+    await page.waitForURL(/\/onboarding\/testar/, { timeout: 20_000 });
+    await expect(page.getByRole("heading", { name: /veja ele atender/i })).toBeVisible();
+
+    // O agente desta jornada nasceu SEM canal (o WhatsApp foi pulado em J1.6),
+    // então ficou rascunho — e rascunho não responde. A tela tem de dizer isso
+    // em vez de oferecer um ensaio que nunca funcionaria.
+    await expect(page.getByText(/rascunho/i)).toBeVisible();
+    await snap(page, "j1.24-testar-rascunho");
+
+    await page.getByRole("button", { name: /^continuar$/i }).click();
+    await page.waitForURL(/\/onboarding\/invite-team/, { timeout: 20_000 });
+
+    const org = await orgRow();
+    expect((org.onboarding_state as { teste?: unknown })?.teste).toBeTruthy();
   });
 
   test("J1.8 convite SEM Resend: a UI não pode mentir que enviou email", async ({ page }) => {
@@ -223,22 +282,34 @@ test.describe("J1 — onboarding do dono numa instalação fresca", () => {
     await page.waitForURL(/\/onboarding\/done/);
     await snap(page, "j1.9-done-recap");
 
-    await page.getByRole("button", { name: /ir para o inbox/i }).click();
+    await page.getByRole("button", { name: /começar a usar/i }).click();
     await page.waitForURL(/\/app\/inbox/, { timeout: 30_000 });
 
     const org = await orgRow();
     expect(org.onboarded_at).not.toBeNull();
   });
 
-  test("J1.10 gate MFA: enrola TOTP e VÊ os códigos de recuperação (regressão do bug do gate)", async ({ page }) => {
+  test("J1.10 verificação em duas etapas: ativa pela tela e VÊ os códigos de recuperação", async ({ page }) => {
     await login(page);
     await page.waitForURL(/\/app\//, { timeout: 30_000 });
 
-    // blocker não-dismissível
+    // ⚠️ ESTE CASO MUDOU DE PORTA, e a mudança é o ponto. Ele testava o
+    // BLOQUEADOR não-dismissível que aparecia sozinho para todo admin — e era
+    // exatamente o que fazia a instalação fresca receber um sétimo passo logo
+    // depois do wizard, sem aviso. A verificação virou opcional; o cadastro
+    // agora começa em Configurações › Segurança, por escolha de quem entra.
+    //
+    // O que este caso continua guardando é o que importava nele: o fluxo de
+    // enroll leva até os CÓDIGOS DE RECUPERAÇÃO (a regressão que o nome antigo
+    // citava). Perder isso seria trocar uma tela por nenhuma.
+    await page.goto("/app/settings/security");
+    await expect(page.getByText("Desativada")).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: /^ativar$/i }).click();
+
     await expect(
       page.getByRole("heading", { name: /verificação em duas etapas/i }),
     ).toBeVisible({ timeout: 20_000 });
-    await snap(page, "j1.10-mfa-gate");
+    await snap(page, "j1.10-mfa-ativar");
 
     await page.getByRole("button", { name: /iniciar configuração/i }).click();
     await expect(

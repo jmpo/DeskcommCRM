@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { sendOnboardingInvites } from "@/app/actions/onboarding/sendOnboardingInvites";
 import { ROLES, type Role } from "@/lib/schemas/team";
+import { ROTULO_DO_PAPEL } from "@/lib/auth/types";
 
 export function InviteTeamForm() {
   const [emailsRaw, setEmailsRaw] = useState("");
@@ -68,7 +69,7 @@ export function InviteTeamForm() {
   return (
     <div className="space-y-4 rounded-lg border bg-background p-6">
       <div className="space-y-2">
-        <Label htmlFor="emails">Emails</Label>
+        <Label htmlFor="emails">E-mail de quem vai trabalhar com ele</Label>
         <Textarea
           id="emails"
           value={emailsRaw}
@@ -79,15 +80,20 @@ export function InviteTeamForm() {
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="role">Role</Label>
+        <Label htmlFor="role">O que essas pessoas podem fazer</Label>
         <Select value={role} onValueChange={(v) => setRole(v as Role)}>
           <SelectTrigger id="role">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            {/*
+              Os valores do banco (viewer, agent, manager, admin) apareciam
+              crus no seletor. O produto já traduz esses papéis em
+              `ROTULO_DO_PAPEL` — a tela do wizard era a única que não usava.
+            */}
             {ROLES.map((r) => (
               <SelectItem key={r} value={r}>
-                {r}
+                {ROTULO_DO_PAPEL[r]}
               </SelectItem>
             ))}
           </SelectContent>
@@ -97,8 +103,8 @@ export function InviteTeamForm() {
       {undelivered.length > 0 && (
         <div className="space-y-3 rounded-md border border-amber-300/60 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-950/20">
           <p className="text-sm font-medium">
-            O email não está configurado neste servidor — os convites foram criados, mas não
-            foram enviados. Copie os links e mande direto pra cada pessoa:
+            Esta instalação não envia e-mail. Os convites estão prontos — copie o link de
+            cada pessoa e mande por onde você já fala com ela:
           </p>
           <ul className="space-y-2">
             {undelivered.map((u) => (

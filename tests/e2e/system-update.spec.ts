@@ -6,13 +6,27 @@
  * experiência na tela (rodapé → aviso → clique → progresso → desfecho), não
  * o bash em si — esse é provado na VPS (ver o brief da task).
  *
+ * ═══ QUEM É O DONO AQUI, E POR QUE NÃO É O `e2e-admin` ═══
+ *
+ * O dono do servidor desta spec é `e2e-dono@deskcomm.test`, um usuário
+ * DEDICADO. Antes ele era o `e2e-admin`, que 10 outras specs usam como *admin
+ * de tenant* — e como nenhum seed revogava a promoção e as duas partes do job
+ * `e2e` compartilham banco sem reset, a parte 2 inteira herdava um admin com
+ * escape de plataforma. O escape abre justamente a tela que ESTA spec mede
+ * (`app/app/settings/atualizacao/page.tsx:16` faz `notFound()` sem a flag) e o
+ * `/admin/*` inteiro; a medição do que muda e do que NÃO muda está em
+ * `tests/e2e/utils/precondicao.ts`.
+ *
+ * Trocar de usuário remove a CAUSA. Limpar depois não serviria: `afterAll` não
+ * roda quando a spec estoura.
+ *
  * Pré-requisitos:
  * - `.e2e-creds.json` (o spec roda `seed-e2e-credentials.ts` sozinho se
  *   ausente/incompleto, como `rbac-roles.spec.ts`) + `seed-e2e-system-update.ts`
- *   (promove o usuário `admin` do seed a dono do servidor via `platform_admins`
- *   — é uma superfície diferente do role de organização — e limpa
- *   `system_version`/`system_update_runs` pra não colidir com o índice único
- *   de run em andamento).
+ *   (promove o usuário `dono` do seed a dono do servidor via `platform_admins`
+ *   — é uma superfície diferente do role de organização —, REVOGA a promoção do
+ *   `admin` e limpa `system_version`/`system_update_runs` pra não colidir com o
+ *   índice único de run em andamento).
  * - `INTERNAL_SECRET` no ambiente do Playwright (o segredo que autentica o
  *   agente do host em `/api/v1/system/agent`). Sem ele, o heartbeat simulado
  *   nem autenticaria — o arquivo INTEIRO pula em vez de falhar por motivo
@@ -38,13 +52,17 @@ interface E2ECreds {
   password: string;
   users: Record<string, { id: string; email: string; role: string }>;
   admin_totp?: { factor_id: string; secret: string };
+  dono_totp?: { factor_id: string; secret: string };
 }
 
 function loadCreds(): E2ECreds {
   const needsSeed = (): boolean => {
     if (!fs.existsSync(CREDS_PATH)) return true;
     const c = JSON.parse(fs.readFileSync(CREDS_PATH, "utf8")) as E2ECreds;
-    return !c.users?.agent || !c.admin_totp?.secret;
+    // `dono` entra na condição junto com `agent`: um `.e2e-creds.json` gerado
+    // antes do quinto usuário existir passaria no teste antigo e faria o seed
+    // seguinte estourar com "creds.users.dono ausente".
+    return !c.users?.agent || !c.users?.dono || !c.admin_totp?.secret || !c.dono_totp?.secret;
   };
   if (needsSeed()) {
     execFileSync("npx", ["tsx", "scripts/seed-e2e-credentials.ts"], { stdio: "inherit" });
@@ -164,7 +182,7 @@ test("o dono vê a versão nova na sidebar e atualiza pela tela", async ({ page,
   const changelog =
     "## [1.1.0] — 2026-08-02\n\n**⚠️ Requer atenção**\n\nReconecte o número depois.\n\n### Adicionado\n\n- Botão de atualizar pela tela.\n";
 
-  await loginWithTotp(page, creds.users.admin!.email, creds.admin_totp!.secret);
+  await loginWithTotp(page, creds.users.dono!.email, creds.dono_totp!.secret);
   await heartbeat(request, { latest_version: "1.1.0", changelog });
   await page.goto("/app/inbox");
 
@@ -223,7 +241,7 @@ test("quando a atualização falha, a tela nomeia a versão certa, mostra o log 
   test.setTimeout(120_000);
   resetEstado();
   await heartbeat(request, { current_version: "1.0.0", latest_version: "1.1.0" });
-  await loginWithTotp(page, creds.users.admin!.email, creds.admin_totp!.secret);
+  await loginWithTotp(page, creds.users.dono!.email, creds.dono_totp!.secret);
   await page.goto("/app/settings/atualizacao");
   await page.getByRole("button", { name: /atualizar agora/i }).click();
   await expect(page.getByRole("heading", { name: /atualizando para a versão 1\.1\.0/i })).toBeVisible();
@@ -344,7 +362,7 @@ test("quando o host não conseguiu comparar, a tela não diz que está em dia", 
     off_release: false,
     compare_failed: true,
   });
-  await loginWithTotp(page, creds.users.admin!.email, creds.admin_totp!.secret);
+  await loginWithTotp(page, creds.users.dono!.email, creds.dono_totp!.secret);
   await page.goto("/app/settings/atualizacao");
 
   await expect(page.getByRole("heading", { name: /não consegui checar/i })).toBeVisible();
@@ -363,7 +381,7 @@ test("instalação à frente da versão publicada não vira tela quebrada nem al
   // consegue comparar. Não é defeito — e a tela não pode tratar como se fosse.
   resetEstado();
   await heartbeat(request, { current_version: "abc1234", latest_version: "", off_release: true });
-  await loginWithTotp(page, creds.users.admin!.email, creds.admin_totp!.secret);
+  await loginWithTotp(page, creds.users.dono!.email, creds.dono_totp!.secret);
 
   await page.goto("/app/inbox");
   await expect(page.getByRole("link", { name: /nova versão/i })).toHaveCount(0);
@@ -392,7 +410,7 @@ test("fork sem nenhuma release publicada não afirma 'à frente' sem base", asyn
     off_release: true,
     has_known_release: false,
   });
-  await loginWithTotp(page, creds.users.admin!.email, creds.admin_totp!.secret);
+  await loginWithTotp(page, creds.users.dono!.email, creds.dono_totp!.secret);
 
   await page.goto("/app/settings/atualizacao");
   await expect(

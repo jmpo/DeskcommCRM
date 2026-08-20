@@ -227,7 +227,7 @@ test.describe("ciclo de vida do convite (ponta a ponta + adversarial)", () => {
     await expect(page.getByText("Selecione uma conversa", { exact: true })).toBeVisible();
 
     await page.goto("/app/kanban");
-    await expect(page.getByRole("heading", { name: "Pipelines" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Funis" })).toBeVisible();
   });
 
   test("3. permissão pós-aceite: agent NÃO consegue convidar (403)", async ({ page }) => {
@@ -325,6 +325,73 @@ test.describe("ciclo de vida do convite (ponta a ponta + adversarial)", () => {
     await page.goto(`/team/accept-invite/${valid}`);
     await expect(page.getByRole("heading", { name: /Você foi convidado/i })).toBeVisible();
     await expect(page.getByRole("link", { name: /Fazer login/i })).toBeVisible();
+  });
+
+  /**
+   * Quem é convidado e ainda NÃO tem conta.
+   *
+   * Até aqui a tela oferecia só "Fazer login", então essa pessoa criava conta
+   * pelo caminho comum — e o provisionamento, sem encontrar vínculo nenhum,
+   * abria uma organização e a tornava ADMIN dela. Ela terminava com uma empresa
+   * fantasma, um wizard que não era dela e o gate de MFA de administrador; só
+   * depois, voltando ao link dentro das 24h, entrava na empresa certa, ficando
+   * nas duas — com a organização ativa decidida por sorteio.
+   *
+   * O suíte inteiro não exercitava esse estado: o seed CRIA a conta do
+   * convidado de propósito, que é justamente o que esconde o defeito.
+   */
+  test("10. sem conta → o caminho existe e leva o convite junto", async ({ page }) => {
+    const valid = signInviteToken({
+      invite_id: randomUUID(),
+      email: inv.invitee_email,
+      organization_id: inv.org_id,
+      role: "agent",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+
+    await page.goto(`/team/accept-invite/${valid}`);
+    await page.getByRole("link", { name: /ainda não tenho conta/i }).click();
+
+    // O token viaja: é ele que faz a conta nova nascer amarrada a este convite
+    // em vez de ganhar uma organização própria.
+    await expect(page).toHaveURL(new RegExp(`/signup\\?invite=${encodeURIComponent(valid)}`));
+  });
+
+  test("11. o signup com convite não pede empresa, e trava o e-mail", async ({ page }) => {
+    // Pedir "Nome da empresa" aqui seria mandar a pessoa batizar a organização
+    // de outra gente; deixar o e-mail editável levaria a preencher tudo e
+    // receber divergência no fim.
+    const valid = signInviteToken({
+      invite_id: randomUUID(),
+      email: inv.invitee_email,
+      organization_id: inv.org_id,
+      role: "agent",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+
+    await page.goto(`/signup?invite=${encodeURIComponent(valid)}`);
+    await expect(page.getByLabel("Nome da empresa")).toHaveCount(0);
+    const email = page.getByLabel("Email");
+    await expect(email).toHaveValue(inv.invitee_email);
+    await expect(email).toHaveAttribute("readonly", /.*/);
+  });
+
+  test("12. convite expirado no signup avisa, em vez de abrir empresa nova", async ({ page }) => {
+    const expirado = signInviteToken({
+      invite_id: randomUUID(),
+      email: inv.invitee_email,
+      organization_id: inv.org_id,
+      role: "agent",
+      exp: Math.floor(Date.now() / 1000) - 60,
+    });
+
+    await page.goto(`/signup?invite=${encodeURIComponent(expirado)}`);
+    // `.first()`: o Next monta um `<div role="alert" id="__next-route-announcer__">`
+    // vazio em toda navegação de cliente, então `getByRole("alert")` sozinho casa
+    // DOIS elementos e o strict mode reprova — sobre uma tela que está correta.
+    await expect(page.getByRole("alert").first()).toContainText(/expirou|não é mais válido/i);
+    // E cai no signup COMUM só depois do aviso — nunca em silêncio.
+    await expect(page.getByLabel("Nome da empresa")).toBeVisible();
   });
 });
 

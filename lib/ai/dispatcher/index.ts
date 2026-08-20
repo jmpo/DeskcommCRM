@@ -28,7 +28,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { aiDispatchModeSchema } from "@/lib/schemas/settings";
-import { checkTenantBudget } from "./budget";
 import { checkRateLimit } from "./rate-limit";
 import {
   triggerMatches,
@@ -49,7 +48,6 @@ export type DispatchOutcome =
   | "dispatched"
   | "no_match"
   | "conv_busy"
-  | "budget_exceeded"
   | "rate_limited"
   | "skipped_invalid_payload"
   | "skipped_missing_message"
@@ -93,7 +91,6 @@ const EMPTY_OUTCOMES = (): Record<DispatchOutcome, number> => ({
   dispatched: 0,
   no_match: 0,
   conv_busy: 0,
-  budget_exceeded: 0,
   rate_limited: 0,
   skipped_invalid_payload: 0,
   skipped_missing_message: 0,
@@ -276,23 +273,13 @@ async function processEvent(event: EventRow): Promise<DispatchOutcome> {
     return "conv_busy";
   }
 
-  // Tenant budget guard.
-  const budget = await checkTenantBudget(orgId);
-  if (!budget.ok) {
-    await markEventProcessed(event, "budget_exceeded", {
-      is_throttled: budget.is_throttled,
-      is_disabled: budget.is_disabled,
-      monthly_limit_cents: budget.monthly_limit_cents,
-      consumed_cents: budget.current_month_consumed_cents,
-    });
-    logger.warn("[agent-dispatcher] ai_budget_exceeded", {
-      organization_id: orgId,
-      event_id: event.id,
-      monthly_limit_cents: budget.monthly_limit_cents,
-      consumed_cents: budget.current_month_consumed_cents,
-    });
-    return "budget_exceeded";
-  }
+  // O guard de orçamento saiu daqui junto com `./budget.ts`: ele lia
+  // `ai_budgets.is_throttled/is_disabled`, flags sem escritor vivo desde que o
+  // cron que as ligava foi apagado. Este módulo é `@deprecated` e a rota que o
+  // acionava (`app/api/v1/cron/agent-dispatcher/route.ts`) é no-op permanente,
+  // então não há teto a reimplantar aqui — quem aplica o teto é
+  // `aplicarOrcamento` no seam do engine e `vetoPorTetoDeGasto` no caminho
+  // legado do `ai-response-worker`.
 
   // Per-tenant rate limit (60/min default). Failed limit → requeue, not drop.
   const rateResult = await checkRateLimit(`ai-runs:${orgId}`, RATE_LIMIT_PER_MIN, RATE_LIMIT_WINDOW_SEC);

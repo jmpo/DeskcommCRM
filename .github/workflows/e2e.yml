@@ -1,25 +1,60 @@
 name: e2e
 
 # Issue #63: as specs de tests/e2e/ não rodavam em lugar nenhum. Este job fecha o
-# buraco com o subconjunto que não depende de serviço externo — hoje 29 de 33.
+# buraco com o subconjunto que não depende de serviço externo.
+#
+# NÃO conte aqui quantas são: o summary do job CONTA em vez de afirmar, e
+# `tests/unit/e2e-cobertura-completa.test.ts` reprova o build quando uma spec do
+# disco não está em nenhuma das três listas abaixo. Um número escrito nesta linha
+# é a quarta fonte da mesma verdade, e as três anteriores já divergiram — este
+# cabeçalho dizia "29 de 33" quando o disco tinha 45 e o job rodava 44.
 #
 # A execução é dividida em DUAS invocações do playwright de propósito: o
 # limitador de login do produto é por IP (60/300s) e no CI todos os specs vêm do
 # mesmo 127.0.0.1. Ver o comentário do passo "E2E — parte 1 de 2".
 #
-# NÃO-BLOQUEANTE por ausência, não por mordaça: `e2e` não está na lista de
-# checks obrigatórios da branch protection, então falhar aqui não segura merge.
-# O job em si falha honestamente — a primeira versão deste arquivo usava
-# `continue-on-error: true` no job inteiro e reportou VERDE com o `supabase
-# start` quebrado e zero teste executado. Verde que não distingue "passou" de
-# "nem rodou" é pior que vermelho.
+# É CHECK OBRIGATÓRIO. A régua, para reconferir em vez de acreditar nesta linha:
+#   $ gh api repos/melgarafael/DeskcommCRM/branches/main/protection \
+#       --jq '.required_status_checks.contexts|join(", ")'
+#   verify, build-and-size, invariants, e2e, imagens-ok   # medido em 2026-08-14
 #
-# Quando N execuções seguidas passarem limpas, adicionar `e2e` aos obrigatórios.
+# São CINCO. A versão anterior deste bloco colava a saída de 2026-08-12, com
+# quatro — `imagens-ok` virou obrigatório em 2026-08-13, um dia depois. Trocar
+# uma afirmação vencida por outra vencida é o mesmo defeito, e o commit
+# bcd88c30 desta branch existe justamente por causa dele: quem lê aqui para
+# saber contra o que medir concluiria que imagem quebrada não segura merge.
+# Este cabeçalho afirmou o contrário ("NÃO-BLOQUEANTE por ausência… quando N
+# execuções seguidas passarem limpas, adicionar aos obrigatórios") por tempo
+# demais depois de a promoção ter acontecido — e quem lesse isso mediria o custo
+# de uma mudança contra a régua errada.
+#
+# O job falha honestamente: a primeira versão usava `continue-on-error: true` no
+# job inteiro e reportou VERDE com o `supabase start` quebrado e zero teste
+# executado. Verde que não distingue "passou" de "nem rodou" é pior que vermelho.
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
+
+# O GITHUB_TOKEN deste job serve a `actions/checkout` (clone) e a
+# `actions/setup-node` (manifest de `actions/node-versions`, repo público).
+#
+# `supabase/setup-cli@v3` merece a frase inteira, porque a resposta curta está
+# errada: ele é `using: composite` e aninha `oven-sh/setup-bun`, cujo input
+# `token` tem default `${{ github.token }}` — o token É repassado. Com o
+# `.bun-version` do setup-cli fixo em semver exato, o caminho que gasta o token
+# (api.github.com/repos/oven-sh/bun/git/refs/tags) não é tomado; se um dia for, é
+# leitura de repo público e `contents: read` basta. Grep no `action.yml` de topo
+# não enumera consumidor de token quando a action é composite: o consumidor mora
+# um nível abaixo.
+#
+# `actions/upload-artifact@v7` não tem input de token: publica pela Actions
+# Results API, com ACTIONS_RUNTIME_TOKEN + ACTIONS_RESULTS_URL. Nenhum passo
+# `run:` enxerga o GITHUB_TOKEN — ele só entra no ambiente via
+# `secrets.GITHUB_TOKEN`, ausente aqui.
+permissions:
+  contents: read
 
 jobs:
   e2e:
@@ -102,6 +137,7 @@ jobs:
     env:
       SPECS_PARTE_1: >-
         smoke.spec.ts auth.spec.ts error-pages.spec.ts
+        icone-da-marca.spec.ts
         password-recovery.spec.ts signup-journey.spec.ts
         rbac-roles.spec.ts inbox-scope.spec.ts reset-password-mfa.spec.ts
         degradacao-silenciosa.spec.ts vps-webhook-outbound-ssrf.spec.ts
@@ -112,6 +148,47 @@ jobs:
         agente-papeis-operador.spec.ts prova-painel-provedores.spec.ts
         followup-linguagem.spec.ts followup-ramos.spec.ts
         inbox-responder-citando.spec.ts
+        wizard-do-funcionario.spec.ts mfa-opcional.spec.ts
+      # ⚠️ A ORDEM DESTA LISTA NÃO DECIDE A ORDEM DE EXECUÇÃO. O Playwright
+      # ordena os arquivos por CAMINHO, não pela ordem em que são passados na
+      # linha de comando. Medido no run 31838253496: `marca-logo.spec.ts` estava
+      # escrita por último aqui e executou em 15º de 23 — a linha de progresso
+      # `···F°°··············` mostra 14 testes completando DEPOIS dela.
+      #
+      # Este comentário afirmava, por três commits, que ela era "a ÚLTIMA de
+      # propósito" e que isso limitava contaminação a zero specs. Era falso, e
+      # a consequência foi pior que o comentário errado: creditei a esse
+      # reposicionamento o desaparecimento do React #418 entre dois ciclos.
+      # Não foi ele — a ordem nunca mudou. Foi o `test.afterAll` da própria
+      # spec, que passou a limpar as DUAS camadas de marca e por isso as specs
+      # seguintes deixaram de ver logo gravado.
+      #
+      # O que continua verdade: as duas partes rodam como passos do MESMO job,
+      # contra o MESMO banco, sem reset entre elas — o que uma spec deixa
+      # gravado, as seguintes enxergam. Quem protege contra isso é a limpeza da
+      # spec, não a posição dela nesta lista.
+      #
+      # ⚠️ Ela esteve no TOPO desta lista por três commits, pela razão errada.
+      # Eu media "carga de login por parte" com um regex que contava a PALAVRA
+      # login — e casava comentário, nome de helper e string. O proxy não só era
+      # impreciso: ele INVERTEU o sinal (dizia 162 vs 145; o real, contando
+      # chamadas, é 63 vs 82), então mover a spec "para a parte mais leve" a
+      # mudou para a mais carregada. E o critério era irrelevante desde o
+      # começo — o `AUTH_RATE_LIMIT_LOGIN_IP: "1000"` mais abaixo desliga o
+      # teto no CI, e esta spec faz 6 logins (eram 3 até a revisão que descobriu
+      # que dois casos rodavam DESLOGADOS: `page` é fixture de escopo de teste,
+      # não de worker — cada caso precisa do seu login).
+      #
+      # E o desfecho: a movida não teve efeito NENHUM, porque a ordem é por
+      # caminho (ver o bloco acima). Duas medições erradas em sequência levaram
+      # a uma mudança inócua — que eu ainda por cima creditei por um resultado
+      # que veio de outra coisa. Fica escrito porque o erro instrutivo não é o
+      # proxy ruim: é ter medido de novo, com outro instrumento ruim, em vez de
+      # perguntar se o mecanismo suposto existia.
+      #
+      # (Este comentário mora FORA do bloco `>-` porque dentro dele `#` não é
+      # comentário: é conteúdo, e cada palavra viraria argumento do playwright.
+      # Medido: com o texto dentro, a variável ia de 23 para 205 tokens.)
       SPECS_PARTE_2: >-
         agente-novo-e-uso.spec.ts agente-organiza-operacao.spec.ts
         central-de-avisos-capacidades.spec.ts escalacao-ciclo.spec.ts
@@ -125,11 +202,26 @@ jobs:
         escopo-de-funil-do-agente.spec.ts
         followup-dossie.spec.ts followup-tempo-adaptativo.spec.ts
         gatilho-de-etapa.spec.ts gatilho-de-caso.spec.ts
+        marca-logo.spec.ts
       # Cada item aqui tem o motivo MEDIDO, não presumido — e o gate cobra que a
       # lista exista e some com as outras duas.
       #
-      # `vps-fresh-onboarding`: 8 referências a WAHA/Resend/Nuvemshop/Redis. É a P0
-      # da doutrina de QA Visual e fica fora por dependência de infra.
+      # `vps-fresh-onboarding` fica fora por DUAS razões, e só a primeira estava
+      # escrita — com o número errado, contradito 8 linhas abaixo neste mesmo
+      # arquivo, que já usava 17 como controle positivo:
+      #
+      #   (1) 17 linhas dependem de WAHA/Resend/Nuvemshop/Redis
+      #       (`grep -ciE "waha|resend|nuvemshop|redis"` → 17 linhas, 22 ocorrências).
+      #
+      #   (2) `orgRow()` (`:41-43`) faz `.limit(1).single()` em `organizations` —
+      #       pressupõe banco de UMA organização só. O banco do CI é compartilhado
+      #       entre as duas partes do job, e `signup-journey.spec.ts:32` cria uma
+      #       segunda org sem cleanup: quando a parte 2 começa há ≥2, e o `.single()`
+      #       falha. Esta razão NÃO se resolve com variável de ambiente — é o desenho
+      #       do rig, e é por isso que "basta dar as credenciais" não destrava.
+      #
+      # Continua sendo a P0 da doutrina de QA Visual: `e2e` verde NÃO prova a
+      # jornada de instalação fresca, que é o produto que se vende.
       #
 # As CINCO specs da missão "Follow-up Vivo" (`followup-linguagem`,
       # `followup-ramos`, `followup-dossie`, `followup-tempo-adaptativo`,

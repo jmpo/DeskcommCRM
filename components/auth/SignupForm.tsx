@@ -1,16 +1,32 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTransition, useState } from "react";
 
-import { signupSchema, type SignupInput } from "@/lib/auth/schemas";
+import {
+  signupSchema,
+  signupComConviteSchema,
+  type SignupInput,
+  type SignupComConviteInput,
+} from "@/lib/auth/schemas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signUp } from "@/app/actions/auth/signUp";
 
-export function SignupForm() {
+/**
+ * Convite em curso: a conta está sendo criada para ACEITAR um convite, não para
+ * abrir uma empresa. Muda duas coisas na tela — some o campo "Nome da empresa"
+ * (a empresa já existe; pedir seria mandar a pessoa batizar a organização de
+ * outra gente) e o e-mail fica travado no do convite.
+ */
+export interface ConviteDoSignup {
+  token: string;
+  email: string;
+}
+
+export function SignupForm({ convite }: { convite?: ConviteDoSignup }) {
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -20,14 +36,30 @@ export function SignupForm() {
     handleSubmit,
     formState: { errors },
   } = useForm<SignupInput>({
-    resolver: zodResolver(signupSchema),
-    defaultValues: { org_name: "", email: "", password: "", password_confirm: "" },
+    // O formulário tem UM tipo e DOIS contratos: no modo convite o campo de
+    // empresa não é renderizado, e exigi-lo bloquearia o envio de um campo que
+    // a pessoa não pode ver. O resolver troca; o tipo do form continua o largo,
+    // e `org_name` simplesmente não é enviado ao servidor nesse modo.
+    resolver: (convite
+      ? zodResolver(signupComConviteSchema)
+      : zodResolver(signupSchema)) as Resolver<SignupInput>,
+    defaultValues: {
+      org_name: "",
+      email: convite?.email ?? "",
+      password: "",
+      password_confirm: "",
+    },
   });
 
   const onSubmit = (values: SignupInput) => {
     setServerError(null);
     startTransition(async () => {
-      const res = await signUp(values);
+      // No modo convite o e-mail do formulário é readonly, e readonly no
+      // cliente não vale nada: quem confere de novo é o servidor.
+      const entrada: SignupInput | SignupComConviteInput = convite
+        ? { email: convite.email, password: values.password, password_confirm: values.password_confirm }
+        : values;
+      const res = await signUp(entrada, convite?.token);
       if (res.ok) {
         setSentTo(values.email);
         return;
@@ -58,7 +90,8 @@ export function SignupForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+    <form method="post" onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+      {!convite && (
       <div className="space-y-1.5">
         <Label htmlFor="org_name">Nome da empresa</Label>
         <Input
@@ -73,12 +106,16 @@ export function SignupForm() {
           <p className="text-xs text-destructive">{errors.org_name.message}</p>
         )}
       </div>
+      )}
       <div className="space-y-1.5">
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"
           type="email"
           autoComplete="email"
+          // O convite vale para UM endereço. Deixar editável convidaria a
+          // trocar e receber "email_divergente" depois de preencher tudo.
+          readOnly={Boolean(convite)}
           aria-invalid={errors.email ? true : undefined}
           {...register("email")}
         />

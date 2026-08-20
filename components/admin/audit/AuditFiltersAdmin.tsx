@@ -10,7 +10,12 @@ import {
 } from "@/components/ui/popover";
 import { CaretDown, X } from "@/lib/ui/icons";
 import type { AdminAuditFilters } from "@/hooks/useAdminAuditLog";
-import { ACTION_CODES } from "./action-codes";
+// A lista vem do vocabulário canônico, não de uma cópia local. Havia uma
+// (`./action-codes.ts`), mantida à mão, e ela tinha ficado 120 códigos atrás do
+// que o produto emite — filtro que não oferece a opção lê-se como "isso não
+// acontece". `lib/audit/actions.ts` não importa nada, de propósito: é o que
+// mantém este import de cliente barato. Ver o cabeçalho de lá.
+import { AUDIT_ACTIONS } from "@/lib/audit/actions";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,7 +134,16 @@ export function AuditFiltersAdmin({
     label: `${t.display_name} (${t.slug})`,
   }));
 
-  const actionOptions = ACTION_CODES.map((a) => ({ value: a, label: a }));
+  // Rótulo = o próprio código, e é decisão, não preguiça: a busca do popover
+  // filtra por `label`, então digitar `lgpd.` recorta a família inteira — que é
+  // como um auditor procura. Inventar 209 rótulos em PT-BR recriaria, com outra
+  // roupa, a segunda lista à mão que este componente acabou de matar.
+  // `useMemo` porque a lista é constante e tem 209 itens: sem ele, cada tecla
+  // digitada no campo "Actor" remonta o array inteiro.
+  const actionOptions = useMemo(
+    () => AUDIT_ACTIONS.map((a) => ({ value: a, label: a })),
+    [],
+  );
 
   const selectedTenants = useMemo(() => filters.tenant_ids ?? [], [filters.tenant_ids]);
   const selectedActions = useMemo(() => filters.actions ?? [], [filters.actions]);

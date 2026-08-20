@@ -54,6 +54,11 @@ export const KIND_LABEL = {
   promise_unfulfilled: "O assistente prometeu algo a um cliente e ninguém ficou responsável",
   contact_proposal_expired:
     "Uma informação que o assistente ouviu de um cliente venceu sem ninguém conferir",
+  // Diz o que ACONTECEU, e nunca que algo parou — contraste deliberado com
+  // `budget_exceeded` ("foi atingido"). Quem lê este aviso ainda tem a IA
+  // respondendo; confundir os dois faria o dono do negócio correr atrás de uma
+  // parada que não houve, ou ignorar a que houve.
+  budget_warning: "O gasto de IA passou do aviso que você definiu",
   other: "Aviso do assistente",
 } as const satisfies Record<InboxKind, string>;
 

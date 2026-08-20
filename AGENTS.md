@@ -19,12 +19,18 @@ quebra no clone fresco é um bug de produto, não um detalhe de ambiente.
 
 ## Stack (CONFIRMADO em `package.json`)
 
-Next.js 16.3 (App Router) · React 19.2 · TypeScript 6.0 estrito · Tailwind 3.4 ·
+Next.js 16 (App Router) · React 19 · TypeScript 6 estrito · Tailwind 3 ·
 shadcn/ui · Supabase (Postgres + Auth + Realtime + Storage) · Upstash Redis ·
 Vercel AI Gateway (`@ai-sdk/anthropic|openai|google`) · WAHA Plus (engine NOWEB) ·
-Zod 4 · Vitest 4 · Playwright 1.62 · Sentry 10.
-Runtime: **Node ≥22** (`.nvmrc` = 22; o job `ci` roda 22, mas o `perf` ainda builda em 20 —
-divergência com `engines`, registrada como bug). Gerenciador: **pnpm 9.15.9** (`packageManager`).
+Zod 4 · Vitest 4 · Playwright 1 · Sentry 10.
+
+Só a **major**, de propósito: é onde o idioma muda, e é o que
+`tests/unit/agents-md-versoes.test.ts` verifica contra o `package.json`. Declarar a minor
+aqui fazia todo bump do Dependabot reprovar o `verify` (5 dos 8 pacotes) e não cobria nada
+que a major já não cobrisse — issue #235. Para a versão exata, `package.json` é a fonte.
+
+Runtime: **Node ≥22** (`.nvmrc` = 22; os quatro workflows fixam `node-version: 22` —
+`ci` ×2, `perf`, `e2e`). Gerenciador: **pnpm 9.15.9** (`packageManager`).
 Versão do produto: **1.0.0** (`CHANGELOG.md`, SemVer — mudança que afeta quem roda VPS entra lá).
 
 ## Estrutura que importa
@@ -64,15 +70,27 @@ mudança toca schema, RLS ou UI, `gov:verify` verde **não** é prova — rode `
 **O que o CI cobre.** `.github/workflows/ci.yml`: `verify` = typecheck + lint + test:unit;
 `invariants` = `pnpm test:db` (isolamento RLS + invariantes de governança contra Postgres
 efêmero pg17). `.github/workflows/perf.yml`: `build-and-size` = `pnpm build`.
-**Os três são checks obrigatórios** na branch protection da `main`.
+`.github/workflows/e2e.yml` roda **45 das 46 specs** Playwright contra um Supabase local de
+verdade com o `baseline.sql` aplicado — o mesmo banco que o self-hoster tem. **É check
+obrigatório desde 2026-08-08.** A **única** de fora é `vps-fresh-onboarding` (WAHA + Redis +
+Resend + Nuvemshop; é a P0 da doutrina de QA) — ou seja, `e2e` verde não prova a jornada de
+instalação fresca. `followup-journey`, `webhooks` e `capacidades-do-agente` estiveram fora e
+**voltaram**: rodam hoje (`e2e.yml`, listas `SPECS_PARTE_1`/`SPECS_PARTE_2`).
 
-`.github/workflows/e2e.yml` roda **28 das 32 specs** Playwright contra um Supabase local de
-verdade com o `baseline.sql` aplicado — o mesmo banco que o self-hoster tem. **Não é
-obrigatório ainda** (o conjunto de specs acabou de mudar, então execuções verdes anteriores
-eram de outro conjunto e não provam a estabilidade deste). As 4 de fora: `followup-journey` e
-`webhooks` (precisam de WAHA), `vps-fresh-onboarding` (WAHA + Redis + Resend + Nuvemshop; é a
-P0 da doutrina de QA) e `capacidades-do-agente`, que está fora porque REPROVA de verdade — ver
-o summary do job. Se você mexeu em UI fora desse subconjunto, a prova é sua.
+`.github/workflows/publish-image.yml`: `imagens-ok` = as três imagens Docker constroem. **Obrigatório
+desde 2026-08-13.**
+
+**Os cinco são checks obrigatórios** na branch protection da `main` — medido em 2026-08-14 @ `741c4ec8`:
+
+```console
+$ gh api repos/melgarafael/DeskcommCRM/branches/main/protection --jq '.required_status_checks.contexts|join(", ")'
+verify, build-and-size, invariants, e2e, imagens-ok
+```
+
+> Este bloco estava errado em quatro pontos até 2026-08-14 (dizia "três checks", "28 das 32
+> specs", "e2e não é obrigatório ainda" e listava como excluídas três specs que já rodavam).
+> A pior era a do `e2e`: quem lesse mediria um PR contra a régua errada. **Reconte antes de
+> citar** — `ls tests/e2e/*.spec.ts | wc -l` e o comando acima.
 
 ## Padrões de código (observados no repo, não inventados)
 
@@ -83,6 +101,15 @@ o summary do job. Se você mexeu em UI fora desse subconjunto, a prova é sua.
 - Log: `lib/logger.ts` (estruturado). **`console.log` é proibido** em código merged.
 - Testes ao lado do código (`lib/foo/bar.test.ts`) ou em `tests/{unit,api,invariants,e2e}/`.
 - Comentários em PT-BR são a norma neste repo — mantenha o idioma do arquivo que editar.
+
+### Marca própria (white-label) — o produto é revendido, e o nome não é seu
+
+- **Nunca escreva "Deskcomm"/"DeskcommCRM" em código que alcança o usuário.** `tests/unit/branding.test.ts` varre `app|components|lib|workers|hooks` e reprova; a allowlist **só encolhe**.
+- A marca resolve do **banco** (`platform_branding` para a instalação, `organizations.settings.branding` para a organização). `APP_NAME`/`APP_LOGO_URL`/`APP_ACCENT_HEX` no `.env` são **semente e piso de rollback**, não a fonte.
+- Precisa da marca **fora do DOM** (e-mail, remetente, ícone, `issuer` do MFA)? Use `marcaDaSaida()` de `lib/branding/saida.ts` — um hex e uma frente legível, tema claro. Nunca entregue `MarcaResolvida` a um template de e-mail.
+- Resolvedor de marca **nunca lança**: ele roda em `app/layout.tsx`, e um throw ali é 500 em todas as telas.
+- **O PDF de LGPD não leva marca** — ele nomeia o controlador (`organizations.legal_name`) e o DPO. Isso é decisão, não omissão; há gate no mapa de arquitetura.
+- Contexto de venda em `docs/white-label.md`; mapa em `docs/architecture/marca-propria.architecture.json`.
 
 ## Diretórios e arquivos SENSÍVEIS
 
@@ -127,26 +154,36 @@ o summary do job. Se você mexeu em UI fora desse subconjunto, a prova é sua.
 
 ## Testes existentes (CONFIRMADO)
 
-- **221** arquivos `*.test.ts(x)` unitários (rodam em `test:unit` e no CI)
-- **67** arquivos de invariante de banco em `tests/invariants/` — RLS/isolamento cross-tenant,
+Medido em 2026-08-14 @ `741c4ec8`, com o comando ao lado de cada número:
+
+- **257** arquivos de teste unitário em `tests/unit/` (`git ls-files 'tests/unit/*.test.ts' 'tests/unit/*.test.tsx' | wc -l`). O repo tem **491** arquivos `*.test.ts(x)` no total (`git ls-files '*.test.ts' '*.test.tsx' | wc -l`) — a diferença vive junto ao código, fora de `tests/`, e também roda em `test:unit`.
+- **102** arquivos de invariante de banco em `tests/invariants/` (`git ls-files 'tests/invariants/*.test.ts' | wc -l`) — RLS/isolamento cross-tenant,
   RBAC, governança (G1–G6). Excluídos do `test:unit` de propósito; rodam via `pnpm test:db`
   **e no job `invariants` do CI**.
-- **32** specs Playwright em `tests/e2e/`. **28 rodam no CI** (via `e2e.yml`,
-  não-obrigatório). As 4 de fora dependem de serviço externo (WAHA/Redis/Resend/Nuvemshop) —
-  incluindo `vps-fresh-onboarding` — ou reprovam legitimamente (`capacidades-do-agente`).
-  Ver issue #63.
+- **46** specs Playwright em `tests/e2e/` (`ls tests/e2e/*.spec.ts | wc -l`). **45 rodam no CI** (via `e2e.yml`,
+  **obrigatório**). A única de fora é `vps-fresh-onboarding`, por dependência de serviço externo
+  (WAHA/Redis/Resend/Nuvemshop). Ver issue #63.
 
 ## Limitações conhecidas (estado em 2026-07-29, contra `origin/main` @ 789dfa6)
 
-- **4 das 32 specs E2E seguem fora do CI**, e o `e2e` ainda não é check obrigatório: um PR
-  que o quebre entra na `main` assim mesmo. Se você mexeu em UI coberta só por essas 4, a
-  prova é sua.
-- Rate limit HTTP existe em **2** pontos do código (webhook de captação e dispatcher de IA);
-  login, signup, aceite de convite, crons e MCP estão sem. Não há lockout por conta no login.
+- **1 das 46 specs E2E segue fora do CI** (`vps-fresh-onboarding`), e o `e2e` **é** check
+  obrigatório desde 2026-08-08. Ou seja: um PR que quebre o `e2e` não entra — mas a jornada de
+  instalação fresca, que é o produto que se vende, continua sem gate. Se você mexeu nela, a
+  prova é sua. *(Corrigido em 2026-08-14; a redação anterior — "4 das 32, não-obrigatório" —
+  mudava a régua de qualquer triagem que a lesse.)*
+- Rate limit HTTP: `lib/auth/rate-limit.ts` cobre **login, signup, recuperação de senha e
+  aceite de convite** (contando por IP **e** por identificador hasheado); `checkRateLimit` cobre
+  o webhook de captação e o dispatcher de IA. **Crons e MCP seguem sem.** Meça antes de agir:
+  `grep -rln 'authRateLimited\|checkRateLimit(' app lib --include='*.ts' --include='*.tsx'`.
+  Esta linha dizia "existe em 2 pontos; login e signup estão sem" — era o estado anterior à
+  issue #64, e o `docs/threat-model.md` ainda carrega a versão velha, com nota de reauditoria.
 - Fallback do rate limit é **em memória** — sem Upstash configurado o limite é por processo.
 - `Idempotency-Key` implementado em **1** rota, apesar de o contrato prometer nos POSTs de criação.
-- **6 vars de `lib/env.ts` faltam no `.env.example`**, incluindo 3 secrets. Se você adicionar
-  env var, adicione nos dois lugares (item 9 do DoD).
+- **`.env.example` está completo** — medido em 2026-08-14: das 45 chaves de `lib/env.ts`, a
+  única ausente é `NODE_ENV`, que não é configuração do operador. Esta linha dizia que faltavam
+  6, "incluindo 3 secrets"; os três (`IMPERSONATE_COOKIE_SECRET`, `INTERNAL_CRON_SECRET`,
+  `LGPD_SIGNING_KEY`) estão lá. Se você adicionar env var, adicione nos dois lugares (item 9 do
+  DoD) — a regra continua valendo, o que caiu foi a dívida.
 - `lib/auth/invite-token.ts` cai em `"dev-fallback"` como secret HMAC se nenhum secret existir
   (inalcançável em produção, porque `INTERNAL_SECRET` é obrigatório e derruba o boot).
 - **89 dos 169 handlers de `app/api/**` usam service role** — sem gate automático para o filtro de
@@ -182,7 +219,7 @@ Lei completa em [`docs/doctrine/packaging.md`](docs/doctrine/packaging.md). O n�
 
 ## Critério de conclusão
 
-Vale a **Definition of Done de 15 itens em [`CLAUDE.md`](CLAUDE.md)**. Não declare pronto
+Vale a **Definition of Done em [`CLAUDE.md`](CLAUDE.md)** — conte lá em vez de confiar num número aqui (`sed -n '/^## Definition of Done/,/^Um staff engineer/p' CLAUDE.md | grep -cE '^[0-9]+\. '`; esta linha já disse 15 e o DoD tem 16). A régua tem que DELIMITAR a seção: a primeira versão desta linha oferecia `grep -c '^[0-9]\+\. \*\*' CLAUDE.md`, que devolve **25** — casa toda linha numerada em negrito do arquivo (anti-patterns, packaging, higiene de branches, migrations) e perde os itens 1–10 do próprio DoD, que não são negrito. Trocar o número pelo comando só ajuda se o comando responder à pergunta. Não declare pronto
 sem: typecheck/lint zerados, testes relevantes verdes, RLS testada se tocou tabela
 tenant-aware, migration + baseline + MANIFEST se mudou schema, prova visual se mudou UI, e a
 regra de packaging acima se mudou o artefato que o self-hoster instala.
@@ -195,3 +232,13 @@ Este repositório tem PRDs, specs, regras de negócio e doutrina escritos
 Se a regra não está escrita, diga que não está e pergunte — não preencha a lacuna com
 suposição plausível. Ao documentar, marque o que é `CONFIRMADO` (provado por código) e o
 que é `INFERIDO`.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

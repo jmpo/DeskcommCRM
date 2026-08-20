@@ -24,6 +24,11 @@
 #      isolam cada uma, provado por sabotagem cirúrgica de cada linha.
 set -uo pipefail
 
+# Capturado ANTES de qualquer `cd`: o script muda de diretório várias vezes, e
+# `${BASH_SOURCE[0]}` é relativo ao cwd de quem invocou. Resolvê-lo lá embaixo
+# devolvia string vazia, e o `.` virava `/_common.sh`.
+KIT_DIR_TESTE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../hostgator-setup-kit" && pwd)"
+
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -340,5 +345,111 @@ check "e não anuncia versão nenhuma" \
   grep -q '"latest_version":""' "$CURL_LOG"
 
 echo
+
+echo "── 10. Pin pela metade: o estado que a 1ª atualização deixa, e ninguém via"
+# Medido em ensaio e depois na produção: quem executa a primeira atualização de
+# uma instalação legada é o `update.sh` que já estava no disco — o antigo —, e
+# ele só grava APP_IMAGE. O worker cai no default do compose (`:stable`, canal
+# MÓVEL) e o script termina com "Atualização concluída — app no ar e saudável".
+# Nada na tela dizia que o worker ficou solto; na release seguinte o canal se
+# move e um `up -d` levaria o worker sozinho, com o app na versão antiga.
+# A função vive no _common.sh do kit e precisa ser carregada AQUI. Sem isto os
+# casos cujo esperado é vazio passavam por VACUIDADE — "comando não encontrado"
+# devolve string vazia, que casa com o esperado. Três de cinco verdes eram
+# falsos até esta linha existir.
+# shellcheck source=/dev/null
+. "$KIT_DIR_TESTE/_common.sh"
+command -v pin_incompleto >/dev/null || { echo "  ✗ pin_incompleto não carregou — teste inconclusivo"; FAILS=$((FAILS+1)); }
+
+pin_caso() {  # pin_caso <descrição> <conteúdo do .env> <esperado>
+  local d="$1" env="$2" esperado="$3" r
+  printf '%s\n' "$env" > "$PROJ/.env.pin"
+  r="$(cd "$PROJ" && pin_incompleto .env.pin || true)"
+  check "$d" test "$r" = "$esperado"
+}
+pin_caso "app pinado + worker/scheduler AUSENTES → acusa os dois" \
+  "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0" "worker scheduler"
+pin_caso "app pinado + worker em canal móvel → acusa" \
+  "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0
+WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:stable
+SCHEDULER_IMAGE=ghcr.io/melgarafael/deskcomm-scheduler:1.3.0" "worker"
+pin_caso "as três na mesma versão → silêncio" \
+  "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0
+WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:1.3.0
+SCHEDULER_IMAGE=ghcr.io/melgarafael/deskcomm-scheduler:1.3.0" ""
+pin_caso "app num canal deliberado (:latest) → não é 'metade', silêncio" \
+  "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:latest" ""
+pin_caso "valores entre aspas, como o install grava → silêncio" \
+  "APP_IMAGE='ghcr.io/melgarafael/deskcommcrm:1.3.0'
+WORKER_IMAGE='ghcr.io/melgarafael/deskcomm-worker:1.3.0'
+SCHEDULER_IMAGE='ghcr.io/melgarafael/deskcomm-scheduler:1.3.0'" ""
+rm -f "$PROJ/.env.pin"
+
+
+
+echo "── 11. Autocorreção do pin: preenche lacuna, nunca sobrescreve decisão"
+# O `agent.sh` (cron de 5 min) completa o pin AUSENTE com a versão que a imagem
+# em execução declara. A regra que torna isso seguro: chave ausente é omissão do
+# `update.sh` antigo; chave presente é decisão de quem opera — inclusive a de
+# seguir um canal móvel. Um cron que corrigisse escolha alheia seria pior que o
+# defeito que ele conserta.
+#
+# Aqui o docker é dublado: o que se testa é a REGRA, não o daemon. O caminho com
+# imagem real foi exercitado na VPS, com cron de verdade.
+PIN_DIR="$WORK/autopin"; mkdir -p "$PIN_DIR/bin"
+cat > "$PIN_DIR/bin/docker" <<'STUBDOCKER'
+#!/usr/bin/env bash
+# inspect de contêiner → devolve o nome da imagem; de imagem → devolve a versão
+case "$*" in
+  *"Config.Image"*)  printf 'ghcr.io/melgarafael/deskcomm-worker:stable
+' ;;
+  *"image.version"*) printf '%s
+' "${DUBLE_VERSION:-1.3.0}" ;;
+  *) exit 1 ;;
+esac
+STUBDOCKER
+chmod +x "$PIN_DIR/bin/docker"
+
+autopin() {  # autopin <conteúdo do .env> → ecoa o que a função corrigiu
+  printf '%s
+' "$1" > "$PIN_DIR/.env"
+  ( cd "$PIN_DIR" && PATH="$PIN_DIR/bin:$PATH" bash -c \
+      ". '$KIT_DIR_TESTE/_common.sh'; completar_pin_ausente .env" 2>/dev/null ) || true
+}
+
+R="$(autopin "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0")"
+check "chave AUSENTE → preenche os dois" test "$R" = "worker scheduler"
+check "  e grava a versão da imagem em execução, não um canal" \
+  grep -q "^WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:1.3.0$" "$PIN_DIR/.env"
+check "  com pull_policy de tag imutável" \
+  grep -q "^WORKER_PULL_POLICY=missing$" "$PIN_DIR/.env"
+
+# Rodar de novo sobre o resultado: nada a fazer, e o arquivo não muda.
+ANTES_MD5="$(md5sum "$PIN_DIR/.env" | cut -d' ' -f1)"
+R="$( ( cd "$PIN_DIR" && PATH="$PIN_DIR/bin:$PATH" bash -c ". '$KIT_DIR_TESTE/_common.sh'; completar_pin_ausente .env" 2>/dev/null ) || true )"
+check "idempotente: 2ª passada não corrige nada" test -z "$R"
+check "  e não altera um byte do .env" test "$ANTES_MD5" = "$(md5sum "$PIN_DIR/.env" | cut -d' ' -f1)"
+
+# A REGRA QUE PROTEGE O OPERADOR. Se esta cair, o cron passa a sobrescrever
+# escolha explícita — e a decisão de implementar a autocorreção deixa de valer.
+R="$(autopin "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0
+WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:stable
+SCHEDULER_IMAGE=ghcr.io/melgarafael/deskcomm-scheduler:stable")"
+check "canal móvel EXPLÍCITO → não toca (é decisão de quem opera)" test -z "$R"
+check "  o :stable escolhido continua lá, intacto" \
+  grep -q "^WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:stable$" "$PIN_DIR/.env"
+
+R="$(autopin "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0
+WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:1.3.0
+SCHEDULER_IMAGE=ghcr.io/melgarafael/deskcomm-scheduler:1.3.0")"
+check "já pinada → silêncio" test -z "$R"
+
+# Imagem sem o label (build local): não há versão para gravar, e inventar uma
+# seria pior que não fazer nada.
+R="$( printf 'APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0\n' > "$PIN_DIR/.env"
+      cd "$PIN_DIR" && PATH="$PIN_DIR/bin:$PATH" DUBLE_VERSION="<no value>" bash -c \
+        ". '$KIT_DIR_TESTE/_common.sh'; completar_pin_ausente .env" 2>/dev/null || true )"
+check "imagem sem label de versão → não inventa pin" test -z "$R"
+
 if [ "$FAILS" -eq 0 ]; then echo "OK — todas as provas passaram."; else echo "FALHOU — $FAILS prova(s)."; fi
 exit $((FAILS > 0))

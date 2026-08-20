@@ -22,6 +22,8 @@ import { describe, expect, it } from "vitest";
  */
 import { traduzir } from "@/lib/i18n/dicionario";
 import { IDIOMAS, IDIOMA_PADRAO, normalizarIdioma } from "@/lib/i18n/idiomas";
+import { NAV_DESTINATIONS, NAV_GROUPS } from "@/lib/navigation/registry";
+import { DICIONARIO } from "@/lib/i18n/dicionario";
 
 describe("traduzir", () => {
   it("devolve o espanhol quando existe", () => {
@@ -121,5 +123,32 @@ describe("os elos que somem sem barulho", () => {
     ]) {
       expect(readFileSync(arquivo, "utf8"), arquivo).toMatch(/const t = useT\(\);/);
     }
+  });
+});
+
+describe("o dicionário acompanha o registro de navegação", () => {
+  it("todo item da barra lateral tem tradução", () => {
+    // ⚠️ ESTE CRUZAMENTO NÃO EXISTIA, e a falta dele é do tipo que não
+    // vermelheia: a CHAVE do dicionário é o próprio texto em português, então
+    // renomear um rótulo no registro não quebra nada — `traduzir()` devolve a
+    // chave ausente como português e o espanhol daquele item some da barra
+    // lateral sem aviso. Foi o risco real ao renomear "Kanban"→"Funis" e
+    // "Funis"→"Etapas do funil" nesta rodada.
+    // Nome próprio não se traduz: cair para o português É o comportamento
+    // certo para eles. A lista é curta de propósito — cada entrada aqui é uma
+    // renúncia consciente, não um lugar para esconder rótulo esquecido.
+    const NOMES_PROPRIOS = ["Nuvemshop"];
+    const semTraducao = NAV_DESTINATIONS.filter((d) => d.sidebar)
+      .filter((d) => !NOMES_PROPRIOS.includes(d.label))
+      .filter((d) => !(d.label in DICIONARIO));
+    expect(
+      semTraducao.map((d) => d.label),
+      "item de menu sem entrada em lib/i18n/dicionario.ts — o espanhol dele cai para o português",
+    ).toEqual([]);
+  });
+
+  it("todo grupo da barra lateral tem tradução", () => {
+    const semTraducao = NAV_GROUPS.filter((g) => !(g.label in DICIONARIO));
+    expect(semTraducao.map((g) => g.label)).toEqual([]);
   });
 });

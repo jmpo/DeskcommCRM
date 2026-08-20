@@ -1,8 +1,13 @@
 /**
  * AI budget alarm email (PT-BR). Plain HTML — no React Email runtime.
  *
- * Triggered by `workers/ai-budget-checker.cron.ts` when the monthly consumption
- * crosses `alarm_threshold_pct` and once per 24h thereafter.
+ * SEM CHAMADOR HOJE. O único era `workers/ai-budget-checker.cron.ts`, apagado na
+ * limpeza do teto de orçamento (0159) por nunca ter tido agendador. Quem avisa o
+ * cliente que o gasto passou do ponto escolhido é o item `budget_warning` na
+ * Central (`agent_inbox_items`), aberto pelo próprio gate. Este arquivo fica de
+ * pé porque o alarme POR E-MAIL continua sendo uma peça desejada — e é a dívida
+ * D1 de marca (`tests/unit/branding.test.ts`): ele ainda escreve o nosso nome,
+ * o que só passa a importar no dia em que ele voltar a ser enviado.
  */
 export interface BudgetAlarmEmailOptions {
   pct: number;
@@ -14,7 +19,7 @@ export interface BudgetAlarmEmailOptions {
 
 const brl = new Intl.NumberFormat("pt-BR", {
   style: "currency",
-  currency: "BRL",
+  currency: "USD",
 });
 
 function fmt(cents: number): string {

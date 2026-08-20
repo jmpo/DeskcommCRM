@@ -56,8 +56,33 @@ export const ROTULO_DO_PASSO: Readonly<Record<LeadStage, string>> = {
   lost: "Perdido",
 };
 
+/**
+ * O mesmo passo, explicado para quem nunca configurou um CRM.
+ *
+ * ⚠️ MORA AO LADO DO RÓTULO DE PROPÓSITO. O wizard precisa de uma frase, e não
+ * de um rótulo de duas palavras: "Em qualificação" não diz nada a quem instalou
+ * o sistema há dez minutos e está decidindo o que cada coluna do quadro
+ * significa. Escrever essa frase lá teria criado uma SEGUNDA redação dos mesmos
+ * sete passos — e duas redações divergem no primeiro ajuste de qualquer uma.
+ * Aqui, quem mudar o vocabulário do funil do agente vê as duas juntas.
+ */
+export const EXPLICACAO_DO_PASSO: Readonly<Record<LeadStage, string>> = {
+  new: "acabou de chamar e ninguém respondeu ainda",
+  contacted: "já foi respondido",
+  qualifying: "ele está entendendo o que a pessoa precisa",
+  qualified: "já dá para saber o que oferecer",
+  negotiating: "está fechando preço, horário ou condições",
+  won: "fechou negócio",
+  lost: "não fechou",
+};
+
 function ehPasso(valor: string): valor is LeadStage {
   return (LEAD_STAGES as readonly string[]).includes(valor);
+}
+
+/** A explicação do passo. Hint fora do vocabulário não inventa frase. */
+export function explicacaoDoPasso(passo: string): string | null {
+  return ehPasso(passo) ? EXPLICACAO_DO_PASSO[passo] : null;
 }
 
 /** Rótulo de tela. Hint fora do vocabulário (banco antigo) sai cru, mas nunca em branco. */

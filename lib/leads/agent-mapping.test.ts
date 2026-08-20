@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { diffParaUpdates, validarMapeamento } from './agent-mapping';
+import {
+  diffParaUpdates,
+  explicacaoDoPasso,
+  validarMapeamento,
+  EXPLICACAO_DO_PASSO,
+  ROTULO_DO_PASSO,
+} from './agent-mapping';
+import { LEAD_STAGES } from '@/lib/agent-engine/agent/lead-state';
 
 const etapas = [
   { id: 'e1', name: 'Novo', is_won: false, is_lost: false, agent_stage_hint: null },
@@ -181,5 +188,31 @@ describe('diffParaUpdates', () => {
     // (e1) primeiro; exigir o UNSET (e2) na frente só passa se a função ordenar.
     const ups = diffParaUpdates(etapas, { negotiating: 'e1' });
     expect(ups[0]).toEqual({ stageId: 'e2', hint: null });
+  });
+});
+
+describe("o vocabulário dos passos", () => {
+  it("todo passo tem rótulo E explicação — as duas, sempre", () => {
+    // Elas moram juntas de propósito (ver o comentário de `EXPLICACAO_DO_PASSO`):
+    // o wizard mostra a frase, a tela de mapeamento mostra o rótulo. Um passo
+    // novo com só uma das duas deixa uma das telas com buraco — e o buraco do
+    // wizard é pior, porque quem o lê está decidindo o que cada coluna do
+    // quadro significa e não tem onde procurar a resposta.
+    for (const passo of LEAD_STAGES) {
+      expect(ROTULO_DO_PASSO[passo], passo).toBeTruthy();
+      expect(EXPLICACAO_DO_PASSO[passo], passo).toBeTruthy();
+    }
+  });
+
+  it("a explicação é uma frase, não um rótulo repetido", () => {
+    // "Em qualificação" não diz nada a quem instalou o sistema há dez minutos.
+    for (const passo of LEAD_STAGES) {
+      expect(EXPLICACAO_DO_PASSO[passo], passo).not.toBe(ROTULO_DO_PASSO[passo]);
+      expect(EXPLICACAO_DO_PASSO[passo].length, passo).toBeGreaterThan(8);
+    }
+  });
+
+  it("passo que não existe não ganha frase inventada", () => {
+    expect(explicacaoDoPasso("mql")).toBeNull();
   });
 });

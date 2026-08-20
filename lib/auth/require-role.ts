@@ -105,7 +105,7 @@ export async function requireRole(min: Role, opts: RequireRoleOpts = {}): Promis
   // Fica DEPOIS do rank e ANTES do retorno de sucesso, de propósito: quem não
   // tem papel suficiente continua levando 403 por falta de papel, sem que a
   // resposta revele o estado de MFA de quem nem chegaria lá.
-  if (rank >= ROLE_RANK[min] && (await mfaEmDivida(effectiveRole as Role, user.is_platform_admin))) {
+  if (rank >= ROLE_RANK[min] && (await mfaEmDivida())) {
     void audit({
       action: "authz.denied",
       actorUserId: user.id,

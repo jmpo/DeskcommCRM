@@ -42,8 +42,11 @@ O procedimento completo está em [`doctrine/packaging.md`](doctrine/packaging.md
 - [ ] `git tag vX.Y.Z && git push origin vX.Y.Z` a partir de um commit da `main`
 - [ ] `gh run list --workflow=publish-image.yml --limit 3` → verde
 - [ ] As **três** imagens existem na versão: `deskcommcrm`, `deskcomm-worker`, `deskcomm-scheduler`
-- [ ] `stable` aponta para esta versão (mesmo digest de `X.Y.Z`)
 - [ ] `gh release create vX.Y.Z` com as notas do CHANGELOG
+- [ ] **Depois da release**, `stable` e `X.Y.Z` são o mesmo digest nas três imagens.
+      Nesta ordem, e não antes: na v1.3.0 a conferência rodou antes do
+      `gh release create`, passou, e o próprio `release` republicou a versão em
+      cima — verde às 19:53, divergente às 19:58.
 
 **Provar (o item que exige VPS, e não é opcional)**
 

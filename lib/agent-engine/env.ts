@@ -29,16 +29,45 @@ const envSchema = z.object({
   // OpenAI e a chave no `.env` continuava sem credencial utilizável, e a única
   // saída era cadastrar BYOK pela tela — sem nada dizendo isso.
   OPENAI_API_KEY: z.string().min(1).optional(),
+  // A TERCEIRA irmã, e a que mais doía faltar: OpenRouter é a opção **[1]** do
+  // menu do instalador, a que ele chama de caminho mais simples. O ramo
+  // `provider === 'openrouter'` existe em `resolveOrgLlmConfig` e
+  // `llmEdgeConfigFromEnv` já lia `env.OPENROUTER_API_KEY` — mas o parâmetro
+  // declara a chave como opcional (typecheck passa sem ela) e `loadEnv` devolve
+  // `parsed.data`, e o Zod remove o que o schema não declara. A chave estava no
+  // `.env`, sumia no boot do worker, e TODO turno morria em
+  // `LlmNotConfiguredError` mandando cadastrar credencial pela tela.
+  // Consertar a irmã da OpenAI e deixar esta é o modo de falha desta família:
+  // ao mexer aqui, confira as três de uma vez.
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
   // Modelo default do agente quando a org não define o dela (knob, nunca constante).
   AGENT_DEFAULT_MODEL: z.string().min(1).default('claude-sonnet-4-5'),
   // Teto de conexões por pool do pg. Sem valor = pg decide (default 10).
   DB_POOL_MAX: z.coerce.number().int().positive().optional(),
-  // Knobs da fila — defaults conservadores, documentados no .env.example.
+  // Knobs da fila. (Esta linha já afirmou "documentados no .env.example" quando
+  // NENHUMA chave QUEUE_ estava lá — o autor da issue #258 teve de ler o
+  // código-fonte para achar o intervalo que estava lhe custando a cota. O que
+  // cada knob FAZ é dito aqui, que é semântica e não envelhece; onde mexer e o
+  // que medir está em docs/runbooks/custo-e-cota-do-supabase.md.)
   QUEUE_MAX_CONCURRENCY: z.coerce.number().int().positive().default(8),
   QUEUE_VISIBILITY_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
   // Porta do /healthz (bind 0.0.0.0 no container; 0 = porta efêmera em teste).
   HEALTH_PORT: z.coerce.number().int().min(0).max(65_535).default(8787),
-  QUEUE_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(250),
+  // TETO de espera do laço da fila: com a fila vazia é quanto ele dorme entre uma
+  // consulta ao relógio e a próxima; com job agendado, ele acorda no vencimento e
+  // este valor só limita a soneca. Era 250 e a fila era consultada abrindo uma
+  // transação de claim inteira — 5 statements, ~17/s para sempre numa instalação
+  // que não atende ninguém (issue #258: 8,09 GB/mês de egress medidos contra uma
+  // cota de 5 GB do plano free do Supabase). O 2000 mantém o SIGNIFICADO da chave
+  // para quem já a configurou, cabe 4× dentro do INBOUND_DEBOUNCE_MS (8000) e fica
+  // abaixo do idleTimeoutMillis do pool (10s), acima do qual cada rodada reconecta.
+  QUEUE_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(2_000),
+  // Ritmo do "havia trabalho e eu não peguei" — cap QUEUE_MAX_CONCURRENCY cheio ou
+  // lane do contato ocupada. Aqui há job vencido esperando vaga, então recolher o
+  // ritmo custaria throughput no pico sem economizar nada no ocioso: é o único
+  // estado que segue nos 250 ms de sempre. Separar os dois é o que impede o valor
+  // que o operador escolheu para economizar de governar também o caminho ocupado.
+  QUEUE_CLAIM_RETRY_INTERVAL_MS: z.coerce.number().int().positive().default(250),
   QUEUE_REAPER_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   SHUTDOWN_GRACE_MS: z.coerce.number().int().positive().default(30_000),
   // Watchdog de sessão (Fase 4A-2) — o ÚNICO ponto do engine que fala com o
@@ -55,6 +84,20 @@ const envSchema = z.object({
   // 'engine' (default) = o drain deste worker consome; 'native' = o dispatcher
   // EPIC-13 consome e o drain daqui NÃO liga. Nunca os dois.
   AGENT_DISPATCH_CONSUMER: z.enum(['engine', 'native']).default('engine'),
+  // Kill switch do teto de gasto de IA. `on` (ausente = on) não liga nada:
+  // respeita o que cada organização escolheu. A chave só AFROUXA — 'avisar'
+  // rebaixa bloqueio a aviso, 'off' (e as grafias falsas comuns) cala tudo.
+  //
+  // ⚠️ ESTA LINHA É O QUE FAZ A ALAVANCA CHEGAR A QUEM GASTA. `loadEnv` devolve
+  // `parsed.data`, e o Zod REMOVE o que o schema não declara: a chave estaria no
+  // `.env`, sumiria no boot do worker, e o operador que puxasse a alavanca veria
+  // a IA continuar bloqueada sem nenhuma pista do porquê. É a mesma família de
+  // defeito das três chaves de provedor acima — a quarta irmã.
+  //
+  // `z.string()` cru e NUNCA `z.enum`: um valor inesperado aqui derrubaria o
+  // worker no boot, e derrubar o worker é o oposto do que um kill switch faz.
+  // Quem normaliza é `normalizarChaveDeOrcamento` (edge/llm/orcamento.ts).
+  AI_BUDGET_ENFORCEMENT: z.string().min(1).optional(),
   // Modo do gate de disclosure: 'inject' (default conservador) ou 'veto'.
   DISCLOSURE_MODE: z.enum(['inject', 'veto']).default('inject'),
   // Resposta 'queued' (sessão ≠ WORKING): job reagendado com este atraso, SEM

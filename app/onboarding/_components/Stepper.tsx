@@ -4,42 +4,45 @@ import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
-interface StepDef {
-  /** Trecho da rota que identifica o passo (ver app/onboarding/<segmento>). */
-  segment: string;
-  label: string;
+export interface PassoVisivel {
+  segmento: string;
+  rotulo: string;
+  cumprido: boolean;
 }
 
-const STEPS: StepDef[] = [
-  { segment: "welcome", label: "Boas-vindas" },
-  { segment: "connect-whatsapp", label: "WhatsApp" },
-  { segment: "connect-nuvemshop", label: "Loja" },
-  { segment: "setup-ai", label: "IA" },
-  { segment: "invite-team", label: "Time" },
-  { segment: "done", label: "Concluído" },
-];
-
 /**
- * O passo atual sai da própria rota. Antes vinha por prop, alimentada de um
- * header `x-pathname` que NADA no projeto escrevia (não há middleware): o valor
- * chegava sempre vazio, caía no fallback e o indicador ficava travado em
- * "Boas-vindas" durante o onboarding inteiro. Ler a rota aqui dispensa o header,
- * o prop e o mapeamento no layout.
+ * O indicador de progresso.
+ *
+ * Duas coisas mudaram, e as duas eram defeito:
+ *
+ * 1. A lista era FIXA aqui dentro. Ela mostrava "Loja" mesmo quando a
+ *    integração estava desligada — o padrão de toda instalação pelo kit — e a
+ *    pessoa via um passo que nunca lhe seria oferecido. Agora os passos chegam
+ *    de `lib/onboarding/passos.ts`, a mesma fonte que decide a ordem e monta o
+ *    resumo final.
+ *
+ * 2. "Concluído" era `índice < atual`: bastava estar num passo adiante para os
+ *    anteriores ficarem verdes, inclusive os que a pessoa pulou e os que nunca
+ *    apareceram. Agora quem responde é o estado gravado.
+ *
+ * O passo ATUAL continua saindo da rota — o header `x-pathname` que alimentava
+ * isso antes nunca era escrito por ninguém, e o indicador ficava travado no
+ * primeiro passo o wizard inteiro.
  */
-export function Stepper() {
+export function Stepper({ passos }: { passos: PassoVisivel[] }) {
   const pathname = usePathname() ?? "";
-  const idx = STEPS.findIndex((s) => pathname.includes(`/${s.segment}`));
+  const idx = passos.findIndex((p) => pathname.includes(`/${p.segmento}`));
+
   return (
     <ol
       aria-label="onboarding steps"
       className="flex w-full items-center justify-between gap-2 px-2 py-3"
     >
-      {STEPS.map((s, i) => {
+      {passos.map((p, i) => {
         const isActive = i === idx;
-        const isDone = i < idx;
         return (
           <li
-            key={s.segment}
+            key={p.segmento}
             aria-current={isActive ? "step" : undefined}
             className="flex flex-1 flex-col items-center text-xs"
           >
@@ -47,8 +50,8 @@ export function Stepper() {
               className={cn(
                 "flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-medium",
                 isActive && "border-primary bg-primary text-primary-foreground",
-                isDone && "border-primary/40 bg-primary/10 text-primary",
-                !isActive && !isDone && "border-muted-foreground/20 text-muted-foreground",
+                !isActive && p.cumprido && "border-primary/40 bg-primary/10 text-primary",
+                !isActive && !p.cumprido && "border-muted-foreground/20 text-muted-foreground",
               )}
             >
               {i + 1}
@@ -59,7 +62,7 @@ export function Stepper() {
                 isActive ? "font-medium text-foreground" : "text-muted-foreground",
               )}
             >
-              {s.label}
+              {p.rotulo}
             </span>
           </li>
         );

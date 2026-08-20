@@ -14,10 +14,9 @@ import { type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ok, fail } from "@/lib/api/wrappers";
-import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
-import { bufToBytea, encryptKey } from "@/lib/crypto/aes_gcm";
-import { validateProviderKey, type Provider } from "@/lib/ai/provider-validators";
+import { type Provider } from "@/lib/ai/provider-validators";
+import { guardarCredencial } from "@/lib/ai/credenciais/guardar";
 import { IDS_DE_PROVEDOR } from "@/lib/ai/pontos/provedores";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -79,33 +78,22 @@ export async function POST(req: NextRequest): Promise<Response> {
   const input = parsed.data;
   const provider = input.provider as Provider;
 
-  let encrypted;
-  try {
-    encrypted = encryptKey(input.api_key);
-  } catch (err) {
-    console.error("[ai.credentials] encrypt failed", err);
-    return fail("internal_error", "Erro ao cifrar credential.", 500, { requestId });
-  }
+  // O miolo — cifrar, gravar, auditar e validar em segundo plano — mora em
+  // `lib/ai/credenciais/guardar.ts` porque o wizard precisa exatamente do mesmo
+  // e cada item dessa lista tem consequência de segurança se as duas cópias
+  // divergirem. Aqui ficam auth, formato do erro e o `requestId`.
+  const guardado = await guardarCredencial({
+    admin: createAdminClient(),
+    orgId: activeOrg.orgId,
+    userId: authUser.id,
+    provider,
+    label: input.label,
+    apiKey: input.api_key,
+    requestId,
+  });
 
-  const admin = createAdminClient();
-  const { data: created, error: insErr } = await admin
-    .from("ai_provider_credentials")
-    .insert({
-      organization_id: activeOrg.orgId,
-      provider,
-      label: input.label,
-      api_key_encrypted: bufToBytea(encrypted.ciphertext),
-      api_key_iv: bufToBytea(encrypted.iv),
-      api_key_tag: bufToBytea(encrypted.tag),
-      api_key_last4: encrypted.last4,
-      is_active: true,
-      created_by: authUser.id,
-    })
-    .select(SAFE_COLUMNS)
-    .single();
-
-  if (insErr || !created) {
-    if (insErr?.code === "23505") {
+  if (!guardado.ok) {
+    if (guardado.motivo === "label_em_uso") {
       return fail(
         "label_already_used",
         "Já existe uma credential com este label e provider.",
@@ -116,55 +104,13 @@ export async function POST(req: NextRequest): Promise<Response> {
     return fail("internal_error", "Erro ao criar credential.", 500, { requestId });
   }
 
-  await audit({
-    action: "ai.credential_created",
-    actorUserId: authUser.id,
-    organizationId: activeOrg.orgId,
-    resourceType: "ai_provider_credential",
-    resourceId: created.id,
-    requestId,
-    metadata: {
-      provider,
-      label: input.label,
-      last4: encrypted.last4,
-    },
-  });
-
-  // Validação async fire-and-forget. Plaintext só vive até o callback resolver
-  // — nunca persistido nem logado.
-  void runAsyncValidation(created.id, activeOrg.orgId, provider, input.api_key);
+  // A resposta continua saindo da view segura: ela é quem garante que nenhum
+  // campo cifrado atravesse a fronteira HTTP.
+  const { data: created } = await createAdminClient()
+    .from("ai_provider_credentials_safe")
+    .select(SAFE_COLUMNS)
+    .eq("id", guardado.id)
+    .single();
 
   return ok(created, { status: 201, requestId });
-}
-
-async function runAsyncValidation(
-  credentialId: string,
-  organizationId: string,
-  provider: Provider,
-  apiKey: string,
-): Promise<void> {
-  try {
-    const result = await validateProviderKey(provider, apiKey);
-    const admin = createAdminClient();
-    const patch = result.ok
-      ? {
-          validated_at: new Date().toISOString(),
-          validation_error: null,
-          models_available: result.models,
-        }
-      : {
-          validated_at: null,
-          validation_error: result.error,
-        };
-    const { error } = await admin
-      .from("ai_provider_credentials")
-      .update(patch)
-      .eq("id", credentialId)
-      .eq("organization_id", organizationId);
-    if (error) {
-      console.error("[ai.credentials] async validation persist failed", error.message);
-    }
-  } catch (err) {
-    console.error("[ai.credentials] async validation crashed", err);
-  }
 }

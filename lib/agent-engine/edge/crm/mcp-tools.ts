@@ -101,6 +101,12 @@ export async function buildMcpTurnTools(
     toolIds: allowed,
     handoffToolEnabled: false,
     handoffSignal,
+    // "Em que negócios ele pode mexer" — o campo é OPCIONAL na interface, e
+    // omiti-lo não é neutro: `escopo ?? []` e vazio significa NENHUM. Este
+    // turno, que é o de produção, montava as capacidades de CRM sem escopo, e
+    // por isso TODA escrita de lead era recusada — com a capacidade ligada na
+    // tela e o card parado. Quem passava era só o dispatcher antigo.
+    pipelineIds: agentConfig.pipelineIds,
   });
 
   return {

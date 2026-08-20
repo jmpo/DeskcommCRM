@@ -206,7 +206,13 @@ async function main(): Promise<void> {
         versao_id: versao[0]!.id,
         tools: TOOLS.length,
         telefone: TELEFONE,
-        webhook_token: (sessaoFinal as { webhook_path_token: string }).webhook_path_token,
+        // PREFIXO, não o token — pelo mesmo motivo de
+        // `scripts/observar-escalacao-turno-real.ts:245`, que este bloco copia
+        // linha a linha. `webhook_path_token` é credencial viva: autentica o
+        // webhook do WAHA e resolve o tenant. Este arquivo é o irmão que mede o
+        // gate ARMADO — o caminho que o outro script declara não cobrir —, então
+        // é justamente o que alguém roda a seguir e cola numa conversa.
+        webhook_token_prefixo: `${(sessaoFinal as { webhook_path_token: string }).webhook_path_token.slice(0, 8)}…`,
       },
       null,
       2,

@@ -113,7 +113,15 @@ supabase login
 # Conecte ao seu projeto (project-ref está na URL do dashboard)
 supabase link --project-ref <seu-project-ref>
 
-# Aplica o SCHEMA — o baseline, não a cadeia de migrations
+# Num projeto Supabase NOVO, habilite antes as extensões que o schema usa —
+# sem elas o baseline para em `type public.vector does not exist`.
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -c \
+  'create extension if not exists vector with schema public;
+   create extension if not exists citext with schema public;
+   create extension if not exists pg_trgm with schema public;'
+
+# Aplica o SCHEMA — o baseline, não a cadeia de migrations.
+# Re-aplicar é seguro e não erra: o arquivo é idempotente (issue #184).
 psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/baseline.sql
 ```
 

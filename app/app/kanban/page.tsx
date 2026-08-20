@@ -47,13 +47,14 @@ export default async function KanbanPickerPage() {
     <div className="flex h-full flex-col gap-4 p-6">
       <header className="flex items-center gap-3">
         <Kanban size={28} className="text-muted-foreground" weight="duotone" />
-        {/* ⚠️ O TÍTULO CONTINUA "Pipelines", e não é desatenção. Trocá-lo por
-            "Funis" — que é como a tela de Configurações chama a mesma coisa —
-            quebra `rbac-roles.spec.ts` e `invite-lifecycle.spec.ts`, que usam
-            este heading para provar que `agent` alcança o Kanban. Uniformizar o
-            vocabulário do produto é decisão de quem o mantém, vale para as duas
-            telas de uma vez, e não é carona de uma feature de CRUD. */}
-        <h1 className="text-2xl font-semibold tracking-tight">Pipelines</h1>
+        {/* Era "Pipelines" — nome de quem construiu o sistema, não de quem
+            vende. O comentário anterior aqui listava o preço de trocá-lo
+            (`rbac-roles.spec.ts` e `invite-lifecycle.spec.ts`) e dizia que
+            uniformizar era decisão do dono do produto. Ela foi tomada, e o preço
+            era maior do que o comentário contava: são QUATRO assertions em TRÊS
+            specs, e `pipelines-gestao.spec.ts` — a spec da própria feature que
+            gerou o comentário — é uma delas. Todas atualizadas junto. */}
+        <h1 className="text-2xl font-semibold tracking-tight">Funis</h1>
       </header>
 
       <FunisClient funis={funis} podeGerenciar={podeGerenciar} />

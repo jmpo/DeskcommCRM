@@ -25,6 +25,7 @@ import * as path from "node:path";
 
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 
+import { afirmarAdminDeTenantPuro } from "./utils/precondicao";
 import { generateTotp, msUntilNextTotpWindow } from "./utils/totp";
 import { catalogoEntregueAoOperador } from "@/lib/agent-engine/agent/entrega-de-capacidade";
 
@@ -47,6 +48,19 @@ function loadCreds(): Creds {
 
 const creds = loadCreds();
 const ts = Date.now();
+
+// ── Precondição de identidade ────────────────────────────────────────────────
+// Esta spec dirige o agente como um ADMIN DE TENANT, o usuário compartilhado que
+// `seed-e2e-system-update.ts` promovia sem revogar.
+//
+// ⚠️ Medido: com rank `admin` (5, o teto), os gates
+// `!user.is_platform_admin && ROLE_RANK[...] < X` de `app/app/**` já passam pelo
+// rank — a promoção não muda o desfecho deste arquivo hoje. A precondição guarda
+// a IDENTIDADE, para que a próxima asserção não pegue carona no escape. Ver
+// `utils/precondicao.ts` para a medição completa.
+test.beforeAll(async () => {
+  await afirmarAdminDeTenantPuro(creds.users.admin!.email);
+});
 
 /** As capacidades da W4 que cabem no teto de 20 por agente, mais o essencial de contexto. */
 const CAPACIDADES = [

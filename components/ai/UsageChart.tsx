@@ -10,15 +10,11 @@ import {
   Legend,
 } from "recharts";
 import type { UsagePayload } from "@/lib/ai/usage/aggregate";
+import { formatCentsUSD } from "@/lib/money";
 
 interface Props {
   payload: UsagePayload;
 }
-
-const brl = new Intl.NumberFormat("pt-BR", {
-  style: "currency",
-  currency: "BRL",
-});
 
 function formatDateTick(s: string): string {
   const d = new Date(`${s}T00:00:00Z`);
@@ -107,11 +103,11 @@ export function UsageChart({ payload }: Props) {
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(v: number) => brl.format(v / 100)}
+                tickFormatter={(v: number) => formatCentsUSD(v)}
                 width={70}
               />
               <Tooltip
-                formatter={(value) => [brl.format(Number(value) / 100), "Custo"]}
+                formatter={(value) => [formatCentsUSD(Number(value)), "Custo"]}
                 labelFormatter={(label) => formatDateTick(String(label))}
                 contentStyle={tooltipStyle}
               />

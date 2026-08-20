@@ -15,6 +15,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { publicarMemoriaDaOrg } from "@/lib/ai/memoria-da-org";
 
 export const dynamic = "force-dynamic";
 
@@ -97,38 +98,18 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const admin = createAdminClient();
 
-  const { data: maxRow } = await admin
-    .from("org_memory_versions")
-    .select("version_number")
-    .eq("organization_id", org.orgId)
-    .order("version_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  // ponytail: select-max + insert não é atômico sob publicação concorrente; publicação
-  // é admin-only pela tela. Se virar concorrente, usar advisory lock por org.
-  const nextVersion = ((maxRow?.version_number as number | null) ?? 0) + 1;
-
-  const { data: ver, error: verErr } = await admin
-    .from("org_memory_versions")
-    .insert({
-      organization_id: org.orgId,
-      version_number: nextVersion,
-      content: parsed.data.content,
-      created_by: authUser.id,
-    })
-    .select("id, version_number")
-    .single();
-  if (verErr || !ver) {
-    return fail("internal_error", "Erro ao publicar versão da memória.", 500, { requestId });
+  const pub = await publicarMemoriaDaOrg(admin, org.orgId, authUser.id, parsed.data.content);
+  if (!pub.ok) {
+    return fail(
+      "internal_error",
+      pub.erro === "versao"
+        ? "Erro ao publicar versão da memória."
+        : "Erro ao ativar a versão da memória.",
+      500,
+      { requestId },
+    );
   }
-
-  const { error: ptrErr } = await admin.from("org_memory_pointers").upsert(
-    { organization_id: org.orgId, version_id: ver.id, updated_at: new Date().toISOString() },
-    { onConflict: "organization_id" },
-  );
-  if (ptrErr) {
-    return fail("internal_error", "Erro ao ativar a versão da memória.", 500, { requestId });
-  }
+  const ver = { id: pub.versionId, version_number: pub.versionNumber };
 
   await audit({
     action: "ai.org_memory_published",

@@ -14,9 +14,15 @@
  * `update.sh` e estabilizando em 2600. Numa organização sem gasto no mês, o
  * contador saltava de 0 para o histórico inteiro.
  *
- * Isso não é estatística: `lib/ai/dispatcher/budget.ts` lê esse número para
- * decidir throttle, e é ele que a tela mostra. Uma instalação podia ver a IA
+ * Isso não era estatística: `lib/ai/dispatcher/budget.ts` lia esse número para
+ * decidir throttle, e era ele que a tela mostrava. Uma instalação podia ver a IA
  * parar sem nenhuma chamada nova ter sido feita.
+ *
+ * ATUALIZAÇÃO (0159): aquele leitor foi APAGADO, e a decisão de parar passou a
+ * usar `public.fn_gasto_de_ia_do_mes` — a régua única, que soma `llm_calls` do
+ * mês corrente e não depende deste contador. A coluna materializada segue viva
+ * (o dashboard de plataforma a lê), então a propriedade abaixo continua valendo
+ * a pena: um número errado na tela ainda é um número errado na tela.
  *
  * ## O que este arquivo mede, e por que assim
  *

@@ -581,6 +581,8 @@ export type Database = {
           alarm_threshold_pct: number
           current_month_consumed_cents: number
           current_period_start: string
+          enforcement_effective_at: string | null
+          enforcement_mode: string
           is_disabled: boolean
           is_throttled: boolean
           last_alarm_sent_at: string | null
@@ -593,6 +595,8 @@ export type Database = {
           alarm_threshold_pct?: number
           current_month_consumed_cents?: number
           current_period_start?: string
+          enforcement_effective_at?: string | null
+          enforcement_mode?: string
           is_disabled?: boolean
           is_throttled?: boolean
           last_alarm_sent_at?: string | null
@@ -605,6 +609,8 @@ export type Database = {
           alarm_threshold_pct?: number
           current_month_consumed_cents?: number
           current_period_start?: string
+          enforcement_effective_at?: string | null
+          enforcement_mode?: string
           is_disabled?: boolean
           is_throttled?: boolean
           last_alarm_sent_at?: string | null
@@ -6100,6 +6106,10 @@ export type Database = {
       fn_encrypt_oauth: {
         Args: { plaintext: string }
         Returns: string
+      }
+      fn_gasto_de_ia_do_mes: {
+        Args: { p_org: string }
+        Returns: number
       }
       fn_is_platform_admin: {
         Args: Record<PropertyKey, never>

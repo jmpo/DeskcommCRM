@@ -72,6 +72,13 @@ function makeAdminStub(nuvemshop: { status: string; expires_at: string | null } 
       if (table === "api_audit_log") return thenable({ data: null, error: null });
       throw new Error(`unexpected table ${table}`);
     },
+    // `fn_gasto_de_ia_do_mes` (migration 0159) — a régua ÚNICA de gasto, a mesma
+    // que o gate consulta antes de recusar uma chamada de LLM. O painel a chama
+    // porque a coluna materializada soma sem olhar a data e nunca zera.
+    rpc: async (fn: string) => {
+      if (fn !== "fn_gasto_de_ia_do_mes") throw new Error(`unexpected rpc ${fn}`);
+      return { data: 0, error: null };
+    },
   };
 }
 

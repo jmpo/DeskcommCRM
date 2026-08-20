@@ -64,7 +64,8 @@ vi.mock("@/lib/agent-engine/edge/llm/credentials", () => ({
     defaultModel: "gpt-5",
     params: {},
     enabledModels: [],
-    monthlyBudgetCents: null,
+    orcamento: { modo: "off", tetoCents: 0, efetivoEm: null, limiarPct: 80 },
+    orcamentoIndisponivelPorque: null,
   })),
 }));
 

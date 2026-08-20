@@ -168,15 +168,23 @@ registry).
 Fica registrado como o buraco se manifestou, porque a forma é instrutiva: o workflow rodava só em
 push na `main`, em tag e em release. **Nenhum PR conseguia revelar que quebrava a imagem** — e o
 artefato que o self-hoster instala era o único sem gate. Um bump de `next` (16.2.12 → 16.3.0) passou
-por `verify`, `build-and-size`, `invariants` e `e2e` — os quatro obrigatórios — e derrubou o build do
+por `verify`, `build-and-size`, `invariants` e `e2e` — que eram, na época, os quatro obrigatórios; hoje são cinco, com `imagens-ok` — e derrubou o build do
 Dockerfile na `main`.
 
 A causa era fina: `.dockerignore` deixa `tests/` fora da imagem, e a partir do next 16.3 o
 `next build` typecheca os `*.test.ts` **colocados** (os que moram em `app/`, `components/`, `lib/`).
 Sete deles importam `@/tests/helpers/*`. Dentro da imagem, os módulos não existem.
 
-**Falta um passo do mantenedor:** incluir `build-and-push` na branch protection. Enquanto não
-estiver lá, o check informa mas não barra.
+**Resolvido, por um caminho diferente do que esta linha previa** (2026-08-13). Em vez de
+exigir `build-and-push` — cujo nome muda a cada imagem da matriz —, criou-se o job de fachada
+`imagens-ok`, que depende dele, falha junto, e **é** required check da `main`. Ou seja: imagem
+quebrada **barra** o merge.
+
+Quem conferisse pelo nome literal `build-and-push` na branch protection não o acharia e
+concluiria que a pendência continua — a afirmação sobre o NOME segue verdadeira e a afirmação
+sobre a CONSEQUÊNCIA ("informa mas não barra") ficou falsa. É a consequência que decide se um
+triador deixa passar um PR que quebra a imagem. Meça a consequência, não o nome:
+`gh api repos/melgarafael/DeskcommCRM/branches/main/protection --jq '.required_status_checks.contexts'`.
 
 ---
 

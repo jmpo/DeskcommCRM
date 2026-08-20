@@ -165,7 +165,35 @@ fi
 # Cinto e suspensório: o "LC_ALL=C" acima já torna esc() incapaz de abortar
 # por sequência inválida, mas a morte do agente é grave o bastante (run
 # travado pra sempre) pra justificar a redundância explícita do "|| true".
+# Pin pela metade: o app fixado numa versão e o worker/scheduler seguindo canal
+# móvel. É o estado que a PRIMEIRA atualização de uma instalação legada deixa —
+# medido em ensaio e na produção —, e o `update.sh` que o produz é o antigo, que
+# não sabe avisar. Este agente é o único que roda DEPOIS dele já com o kit novo
+# em disco (cron de 5 min, lido a cada execução), então é por aqui que a
+# informação alcança quem parou na primeira e não voltou.
+#
+# Ele AVISA, não corrige. Gravar no `.env` de uma instalação alheia é mudança de
+# comportamento e precisa de decisão de quem opera — não de um cron.
+# Preenche a lacuna sozinho, e só a lacuna. O estado dura no máximo um ciclo de
+# cron (5 min) em vez de durar até alguém rodar o update de novo — que era o que
+# acontecia, porque a tela dizia "concluída" e ninguém volta.
+PIN_CORRIGIDO="$(completar_pin_ausente .env)" || PIN_CORRIGIDO=""
+[ -n "$PIN_CORRIGIDO" ] && log_err "fixei a versão de $PIN_CORRIGIDO no .env (estava sem versão fixa; usei a que já estava rodando)"
+
+# O que sobra depois de corrigir: valor explícito em canal móvel, que é decisão
+# do operador e não se toca. Aqui só se avisa.
+PIN_FALTANDO="$(pin_incompleto .env)" || PIN_FALTANDO=""
+
 BODY="{\"kind\":\"heartbeat\",\"current_version\":\"${CURRENT}\",\"current_sha\":\"${CURRENT_SHA}\",\"off_release\":${OFF_RELEASE},\"latest_version\":\"${LATEST_TAG}\",\"compare_failed\":${COMPARE_FAILED},\"has_known_release\":${HAS_KNOWN_RELEASE},\"changelog\":\"$(esc "$CHANGELOG")\"}" || true
+
+# Só no log do host, de propósito. Mandar isto no heartbeat seria inútil: o
+# schema da rota é `z.object` sem `.strict()`, então o Zod DESCARTA chave
+# desconhecida em silêncio — o campo viajaria e não chegaria a lugar nenhum,
+# que é a definição de controle decorativo. Quando o app aprender o campo, aí
+# ele entra no BODY junto.
+if [ -n "$PIN_FALTANDO" ]; then
+  log_err "a versão de $PIN_FALTANDO está solta (seguindo um canal, não uma versão fixa) — rode 'bash hostgator-setup-kit/update.sh' mais uma vez para fixar"
+fi
 RESP="$(post "$BODY")"
 
 [ "$(json_field "$RESP" update_requested)" = "true" ] || exit 0

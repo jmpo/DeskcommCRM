@@ -5,6 +5,23 @@ on:
   push:
     branches: [main]
 
+# O GITHUB_TOKEN destes jobs serve a `actions/checkout` (clone) e a
+# `actions/setup-node` (manifest de `actions/node-versions`, repo público) —
+# `contents: read` cobre os dois, que é o escopo que o próprio modelo de dados do
+# CodeQL prescreve para essas duas actions. O `cache: pnpm` NÃO usa este token
+# (usa ACTIONS_RUNTIME_TOKEN), `pnpm/action-setup` não tem input de token, e
+# nenhum passo `run:` enxerga o token — ele só entra no ambiente via
+# `secrets.GITHUB_TOKEN`, que não aparece em nenhum destes workflows.
+#
+# No topo, e não por job, porque os dois jobs precisam do mesmo escopo e job
+# acrescentado depois nasce restrito em vez de herdar o default do repositório.
+# Esse default hoje é `read` (medido em actions/permissions/workflow), então isto
+# não corrige vazamento em vigor: tira a garantia de uma configuração que muda
+# fora do repo, num clique, sem PR e sem deixar rastro aqui. `packages: write`
+# continua por job em publish-image.yml — mesma regra, menor escopo que precisa.
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest

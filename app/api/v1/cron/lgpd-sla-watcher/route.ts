@@ -21,6 +21,7 @@ import { env } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit } from "@/lib/audit";
 import { triggerSlaAlarm } from "@/lib/lgpd/sla-alarm";
+import { marcaDaSaida, type MarcaDeSaida } from "@/lib/branding/saida";
 import type { LgpdRequest } from "@/lib/lgpd/types";
 import type { AlarmThreshold } from "@/lib/lgpd/sla-alarm";
 
@@ -101,6 +102,20 @@ export async function GET(req: NextRequest): Promise<Response> {
   let dedupedCount = 0;
   let errorsCount = 0;
 
+  // Uma organização pode ter muitas solicitações vencidas no mesmo lote (o teto
+  // é 500), e a marca dela é a mesma para todas. Sem esta memória o cron faria
+  // uma leitura de `organizations.settings` por LINHA para devolver o mesmo
+  // objeto. Vive só dentro desta invocação de propósito: o próximo ciclo (12h
+  // depois) tem de reler, senão uma troca de marca demoraria meio dia a valer.
+  const marcaPorOrg = new Map<string, MarcaDeSaida>();
+  const marcaDe = async (orgId: string): Promise<MarcaDeSaida> => {
+    const guardada = marcaPorOrg.get(orgId);
+    if (guardada) return guardada;
+    const resolvida = await marcaDaSaida(orgId);
+    marcaPorOrg.set(orgId, resolvida);
+    return resolvida;
+  };
+
   for (const row of requests) {
     const threshold: AlarmThreshold =
       row.request_type === "data_request" ? "data_request_d5" : "redact_d10";
@@ -139,6 +154,7 @@ export async function GET(req: NextRequest): Promise<Response> {
         threshold,
         organizationDpoEmail: dpoEmail,
         organizationName: orgName,
+        marca: await marcaDe(row.organization_id),
       });
 
       if (result.reason === "dedup_24h") {

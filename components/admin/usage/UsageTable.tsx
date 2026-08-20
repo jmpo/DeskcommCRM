@@ -12,17 +12,14 @@ import {
 import { ChartBar } from "@/lib/ui/icons";
 import type { UsageTenantRow } from "@/app/api/v1/admin/usage/route";
 import type { UsageRange } from "@/hooks/useAdminUsage";
+import { formatCentsUSD } from "@/lib/money";
 
 // ---------------------------------------------------------------------------
 // Formatters
 // ---------------------------------------------------------------------------
 
-function fmtBRL(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
+// DÓLAR: o número é `llm_calls.cost_cents`, e `pricing.ts` cota o provedor em USD.
+const fmtUSD = formatCentsUSD;
 
 function fmtNum(n: number): string {
   return n.toLocaleString("pt-BR");
@@ -139,7 +136,7 @@ export function UsageTable({ tenants, range }: UsageTableProps) {
                   {fmtNum(row.ai_tokens_total)}
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm font-medium">
-                  {fmtBRL(row.ai_cost_cents)}
+                  {fmtUSD(row.ai_cost_cents)}
                 </TableCell>
               </TableRow>
             ))}

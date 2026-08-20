@@ -6,6 +6,14 @@ on:
   push:
     branches: [main]
 
+# O GITHUB_TOKEN deste job serve a `actions/checkout` (clone) e a
+# `actions/setup-node` (manifest de `actions/node-versions`, repo público).
+# `pnpm build` é local e o relatório de tamanho é escrita em arquivo do runner
+# (`>> $GITHUB_STEP_SUMMARY`), sem token. Ver o comentário em ci.yml para o
+# porquê de o bloco ficar no topo.
+permissions:
+  contents: read
+
 jobs:
   build-and-size:
     runs-on: ubuntu-latest
