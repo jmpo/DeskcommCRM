@@ -19,7 +19,10 @@
  * por que nada funciona.
  */
 import { normalizarErro } from "@/lib/agent-engine/edge/llm/run-model-call";
-import { OPENROUTER_ENDPOINT } from "@/lib/agent-engine/edge/llm/providers";
+import {
+  cabecalhosDeAtribuicaoOpenRouter,
+  OPENROUTER_ENDPOINT,
+} from "@/lib/agent-engine/edge/llm/providers";
 
 export type ResultadoDaProva =
   | { ok: true }
@@ -68,7 +71,16 @@ export function montarRequisicaoDeProva(
     case "openrouter":
       return {
         url: `${baseUrl ?? OPENROUTER_ENDPOINT}/chat/completions`,
-        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        // Os mesmos cabeçalhos de atribuição dos outros dois caminhos. Este era
+        // o terceiro call site de OpenRouter e tinha ficado de fora — se os
+        // headers fossem requisito de funcionamento, como o corpo do PR #266
+        // supôs, a prova de crédito da instalação estaria falhando hoje. Ela
+        // não está: são atribuição, e por isso ficam opcionais aqui também.
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          "content-type": "application/json",
+          ...cabecalhosDeAtribuicaoOpenRouter(),
+        },
         body: { model: modelo, max_tokens: 1, messages: msg },
       };
     case "google":

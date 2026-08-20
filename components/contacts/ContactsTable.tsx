@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { formatRelative } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { ChatCircle } from "@/lib/ui/icons";
 import {
   Table,
   TableBody,
@@ -11,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type { Contact } from "@/lib/types/contacts";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 
@@ -35,6 +37,9 @@ export function ContactsTable({ contacts }: Props) {
           <TableHead>Tags</TableHead>
           <TableHead>Última atividade</TableHead>
           <TableHead>Status</TableHead>
+          <TableHead className="w-[52px]">
+            <span className="sr-only">Conversa</span>
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -73,6 +78,26 @@ export function ContactsTable({ contacts }: Props) {
                   <Badge variant="success">Ativo</Badge>
                 )}
               </div>
+            </TableCell>
+            <TableCell>
+              {c.conversa ? (
+                <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                  <Link
+                    href={`/app/inbox?id=${c.conversa.id}`}
+                    title="Abrir conversa no Inbox"
+                    aria-label={`Abrir conversa com ${displayName(c)} no Inbox`}
+                  >
+                    <ChatCircle size={16} weight="regular" aria-hidden />
+                    {c.conversa.unread > 0 && (
+                      <span className="sr-only">{c.conversa.unread} sem ler</span>
+                    )}
+                  </Link>
+                </Button>
+              ) : (
+                <span className="text-muted-foreground text-xs" aria-hidden>
+                  —
+                </span>
+              )}
             </TableCell>
           </TableRow>
         ))}

@@ -21,29 +21,47 @@ interface Props {
   onCriada?: () => void;
 }
 
+/**
+ * `comoSePreenche: null` = o conteúdo é colado à mão, e o cartão vazio oferece
+ * o diálogo de cadastro. Os outros dois são preenchidos por pipeline e NÃO têm
+ * o que colar: `conversations` vem da ingestão anonimizada
+ * (cron `kb-conversations-batch`) e `catalog` da sincronização do e-commerce.
+ * Oferecer "Configurar" neles obrigava o diálogo a mentir o tipo no envio.
+ */
 const TYPE_META: Record<
   KnowledgeSourceType,
-  { label: string; Icon: typeof HelpCircle; description: string }
+  {
+    label: string;
+    Icon: typeof HelpCircle;
+    description: string;
+    comoSePreenche: string | null;
+  }
 > = {
   faq: {
     label: "FAQ",
     Icon: HelpCircle,
     description: "Perguntas frequentes do tenant.",
+    comoSePreenche: null,
   },
   policy: {
     label: "Política",
     Icon: ShieldCheck,
     description: "Documento PDF de políticas (troca, devolução, privacidade).",
+    comoSePreenche: null,
   },
   conversations: {
     label: "Conversas opt-in",
     Icon: MessageSquare,
     description: "Conversas anonimizadas para aprendizado.",
+    comoSePreenche:
+      "Entra sozinha: conversas resolvidas que alguém marcar como aproveitáveis pela IA são anonimizadas e indexadas em lote. Não há conteúdo para colar aqui.",
   },
   catalog: {
     label: "Catálogo",
     Icon: Package,
     description: "Produtos sincronizados do e-commerce.",
+    comoSePreenche:
+      "Os produtos vêm da sincronização com o e-commerce, não de conteúdo digitado aqui.",
   },
 };
 
@@ -71,6 +89,10 @@ export function KnowledgeSourceCard({
 
   // Empty state.
   if (!source) {
+    // Sem `agentId` o diálogo nem era montado e o botão abria coisa nenhuma —
+    // controle decorativo. Só oferece cadastro quem tem os dois: tipo que
+    // aceita texto colado e agente para amarrar a fonte.
+    const cadastroManual = (type === "faq" || type === "policy") && !!agentId;
     return (
       <Card className="flex h-full flex-col">
         <CardHeader>
@@ -81,24 +103,28 @@ export function KnowledgeSourceCard({
           <p className="text-sm text-text-muted">{meta.description}</p>
         </CardHeader>
         <CardContent className="flex-1">
-          <p className="text-sm text-text-muted">Nenhuma fonte configurada.</p>
+          <p className="text-sm text-text-muted">
+            {meta.comoSePreenche ?? "Nenhuma fonte configurada."}
+          </p>
         </CardContent>
         <CardFooter>
           {/* Onde havia um botão `disabled` fixo com um toast "Em breve." que,
               por estar desabilitado, nunca aparecia. A API sempre existiu;
               faltava a tela. */}
-          <Button variant="secondary" size="sm" onClick={() => setNovaAberta(true)}>
-            Configurar {meta.label}
-          </Button>
-          {agentId ? (
-            <NovaFonteDialog
-              agentId={agentId}
-              tipo={type}
-              rotulo={meta.label}
-              aberto={novaAberta}
-              onFechar={() => setNovaAberta(false)}
-              onCriada={() => onCriada?.()}
-            />
+          {cadastroManual ? (
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setNovaAberta(true)}>
+                Configurar {meta.label}
+              </Button>
+              <NovaFonteDialog
+                agentId={agentId}
+                tipo={type}
+                rotulo={meta.label}
+                aberto={novaAberta}
+                onFechar={() => setNovaAberta(false)}
+                onCriada={() => onCriada?.()}
+              />
+            </>
           ) : null}
         </CardFooter>
       </Card>

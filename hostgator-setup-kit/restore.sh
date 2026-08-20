@@ -14,7 +14,7 @@ read -r -p "Digite 'RESTAURAR' para confirmar: " a
 [ "$a" = "RESTAURAR" ] || die "Cancelado."
 
 step "Restaurando $DUMP"
-gunzip -c "$DUMP" | docker run --rm -i postgres:17-alpine psql "$SUPABASE_DB_URL" \
+gunzip -c "$DUMP" | docker run --rm -i postgres:17-alpine psql "$(url_do_schema)" \
   && c_grn "✓ banco restaurado" || die "Falha na restauração — veja o log acima."
 
 c_ylw "Reinicie o app: docker compose $(dc_files) restart app"

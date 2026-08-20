@@ -624,6 +624,7 @@ export async function sendMessageHandler(
     last_outbound_at: string;
     last_message_at: string;
     last_message_preview: string;
+    unread_count_for_assignee: number;
     bot_silenced_until?: string;
   } = {
     last_outbound_at: now,
@@ -634,6 +635,9 @@ export async function sendMessageHandler(
       media_storage_path: input.media_storage_path,
       type: input.type,
     }),
+    // Resposta humana/CRM zera pendências — espelha fn_mark_conversation_message
+    // outbound, que o envio pelo CRM não chama (só atualiza colunas à mão).
+    unread_count_for_assignee: 0,
   };
   if (ctx.actor.type === "user") {
     const silenceUntil = extendBotSilence(c.bot_silenced_until, now);

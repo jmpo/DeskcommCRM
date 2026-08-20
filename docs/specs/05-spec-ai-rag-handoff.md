@@ -99,7 +99,7 @@ Default. Razões: barato ($0.02/1M tokens; <$1/mês pra tenant médio com 10k ch
 
 ### 2.5 Outras dependências
 
-- **PDF parsing**: `pdf-parse` (Node) com fallback `pdfjs-dist` se layout complexo.
+- **PDF parsing**: `pdfjs-dist` (build `legacy`), engine única. Já houve um `pdf-parse` como primária "com fallback pdfjs-dist", mas não eram duas engines: o `pdf-parse@1` vendoriza o próprio pdf.js da Mozilla (v1.10.100, de 2018) e era o mesmo motor duas vezes, com a cópia velha rodando primeiro — e falhando (issue #238). Para saber o que está instalado hoje, `grep pdf package.json`.
 - **Markdown chunking**: `unified` + `remark-parse` pra respeitar headings.
 - **Tokenizer pra contagem**: `gpt-tokenizer` (compatível com cl100k_base; aproximação suficiente).
 - **PII detection**: regex próprias (CPF, telefone E.164, email, CEP) + lista de nomes próprios PT-BR (heurística).
@@ -450,14 +450,13 @@ export async function POST(req: Request) {
 **Pipeline**:
 
 ```ts
-import pdfParse from "pdf-parse";
+import { extractPdfText } from "@/lib/ai/rag/extractors/pdf";
 
 async function extractPolicyText(blobPath: string): Promise<string> {
   const blob = await supabaseAdmin.storage.from("ai-policy").download(blobPath);
   if (blobPath.endsWith(".pdf")) {
     const buffer = Buffer.from(await blob.data!.arrayBuffer());
-    const parsed = await pdfParse(buffer);
-    return parsed.text;
+    return await extractPdfText(buffer); // pdfjs-dist; lança PdfExtractError
   } else {
     // markdown
     return await blob.data!.text();

@@ -41,6 +41,10 @@ const NOWEB_ID = "3EB0WATCHDOGPROOF";
 let wahaMock: http.Server;
 let wahaPort = 0;
 const sendTextCalls: Array<{ session: string; chatId: string; text: string }> = [];
+const startCalls: string[] = [];
+const wahaStatusByName: Record<string, string> = { [WAHA_SESSION_NAME]: "WORKING" };
+const STOPPED_SESSION = "bbbbbbbb-0000-4000-8000-000000000006";
+const STOPPED_NAME = "watchdog-stopped-session";
 
 function watchdogCfg(): WatchdogConfig {
   return {
@@ -54,12 +58,25 @@ function watchdogCfg(): WatchdogConfig {
 }
 
 beforeAll(async () => {
-  // WAHA-mock: /api/sessions responde WORKING; /api/sendText devolve o shape
-  // NOWEB aninhado (o que quebrava o parse antigo).
+  // WAHA-mock: /api/sessions espelha wahaStatusByName; POST /start marca STARTING;
+  // /api/sendText devolve o shape NOWEB aninhado (o que quebrava o parse antigo).
   wahaMock = http.createServer((req, res) => {
+    const start = req.method === "POST" ? req.url?.match(/^\/api\/sessions\/([^/]+)\/start/) : null;
+    if (start) {
+      const name = decodeURIComponent(start[1] ?? "");
+      startCalls.push(name);
+      wahaStatusByName[name] = "STARTING";
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ status: "STARTING" }));
+      return;
+    }
     if (req.method === "GET" && req.url?.startsWith("/api/sessions")) {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify([{ name: WAHA_SESSION_NAME, status: "WORKING" }]));
+      res.end(
+        JSON.stringify(
+          Object.entries(wahaStatusByName).map(([name, status]) => ({ name, status })),
+        ),
+      );
       return;
     }
     if (req.method === "POST" && req.url === "/api/sendText") {
@@ -134,6 +151,25 @@ describe("4A-2 — watchdog reconcilia o espelho e reenvia queued", () => {
       [SESSION],
     );
     expect(rows[0]!.status).toBe("WORKING");
+  });
+
+  it("retoma sessão STOPPED — credencial no disco, sem pedir QR", async () => {
+    wahaStatusByName[STOPPED_NAME] = "STOPPED";
+    await pool.query(
+      `insert into channel_sessions (id, organization_id, waha_session_name, status, webhook_secret_encrypted)
+       values ($1, $2, $3, 'STOPPED', '\\x00'::bytea) on conflict (id) do nothing`,
+      [STOPPED_SESSION, ORG, STOPPED_NAME],
+    );
+    startCalls.length = 0;
+
+    const fixed = await reconcileSessions(pool, watchdogCfg(), log);
+    expect(fixed).toBeGreaterThanOrEqual(1);
+    expect(startCalls).toEqual([STOPPED_NAME]);
+
+    const { rows } = await pool.query("select status from channel_sessions where id = $1", [
+      STOPPED_SESSION,
+    ]);
+    expect(rows[0]!.status).toBe("STARTING");
   });
 
   it("redrive: a queued sai sent COM external_id (shape NOWEB parseado)", async () => {

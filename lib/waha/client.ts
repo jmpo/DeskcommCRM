@@ -203,7 +203,17 @@ export class WahaClient {
       // Já está como queremos: não reiniciar a sessão à toa. Este caminho roda
       // em TODA reconexão, e um restart desnecessário por rodada seria pior que
       // o gasto que ele evita.
-      if (JSON.stringify(sessao.config.ignore) === JSON.stringify(CONVERSAS_IGNORADAS)) return;
+      // Comparação chave a chave, não `JSON.stringify`: `stringify` é sensível
+      // à ORDEM das chaves, então o dia em que o WAHA devolver o mesmo objeto
+      // com as chaves noutra sequência, esta guarda passa a dizer "mudou" e a
+      // sessão reinicia a cada reconexão — sem que nada tenha mudado.
+      const jaConvergida =
+        typeof sessao.config.ignore === "object" &&
+        sessao.config.ignore !== null &&
+        Object.entries(CONVERSAS_IGNORADAS).every(
+          ([k, v]) => (sessao.config!.ignore as Record<string, unknown>)[k] === v,
+        );
+      if (jaConvergida) return;
 
       const res = await fetch(url, {
         method: "PUT",
@@ -213,8 +223,15 @@ export class WahaClient {
       if (!res.ok) {
         logger.warn("[waha] não consegui convergir a config da sessão", { status: res.status });
       }
-    } catch {
-      // Rede fora aqui não é assunto de quem só quer iniciar a sessão.
+    } catch (err) {
+      // Rede fora aqui não é assunto de quem só quer iniciar a sessão — a
+      // convergência é oportunista e a sessão sobe do mesmo jeito. Mas os
+      // outros dois caminhos de falha deste mesmo bloco logam, e sem esta
+      // linha a única falha INVISÍVEL seria justamente a que faz a economia
+      // não acontecer: a config fica velha e ninguém fica sabendo.
+      logger.warn("[waha] não consegui falar com o WAHA para convergir a config", {
+        erro: err instanceof Error ? err.message : "unknown",
+      });
     }
   }
 

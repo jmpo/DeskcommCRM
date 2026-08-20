@@ -34,9 +34,17 @@ const EXEMPLO = `## Pergunta: Qual o prazo de entrega?
 ## Pergunta: Vocês fazem troca?
 ## Resposta: Sim, em até 30 dias, com o produto sem uso.`;
 
+/**
+ * Só os dois tipos cujo conteúdo colado a API ingere de fato. `conversations` e
+ * `catalog` são preenchidos por pipeline (ingestão anonimizada e sincronização
+ * do e-commerce) e não têm o que colar — oferecê-los aqui obrigava a mentir o
+ * tipo no envio, que é o que produzia a colisão do índice único.
+ */
+type TipoComTextoColado = "faq" | "policy";
+
 interface Props {
   agentId: string;
-  tipo: "faq" | "policy" | "conversations" | "catalog";
+  tipo: TipoComTextoColado;
   rotulo: string;
   aberto: boolean;
   onFechar: () => void;
@@ -60,10 +68,11 @@ export function NovaFonteDialog({ agentId, tipo, rotulo, aberto, onFechar, onCri
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           agent_id: agentId,
-          // 'conversations'/'catalog' não têm ingestão de texto colado; o que a
-          // API converte é o formato de FAQ, então o tipo enviado é o que ela
-          // sabe tratar. O rótulo do cartão continua sendo o do slot.
-          source_type: tipo === "policy" ? "policy" : "faq",
+          // O tipo escolhido é o tipo enviado. Aqui havia
+          // `tipo === "policy" ? "policy" : "faq"`: "Catálogo" e "Conversas
+          // opt-in" viravam `faq`, e com uma FAQ ativa o segundo insert batia
+          // no índice único (agent_id, source_type) — 500 sem explicação.
+          source_type: tipo,
           name: nome.trim(),
           markdown_blob: conteudo,
         }),

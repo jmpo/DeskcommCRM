@@ -32,6 +32,11 @@ Edite o `.env` e preencha (mínimo):
 - **Supabase** (Settings → API do seu projeto): `NEXT_PUBLIC_SUPABASE_URL`,
   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Banco direto** (Settings → Database → connection string): `SUPABASE_DB_URL`
+  > É a conexão do **app**. Quem mexe no **schema** — `create extension`, o
+  > `baseline.sql`, a promoção do dono, o `pg_dump` do backup — pode ser outra:
+  > `SUPABASE_DB_ADMIN_URL`. Ela é **opcional** e, vazia, tudo roda pela de cima
+  > (é o caso da nuvem: a string do pooler já vem privilegiada). Preencha quando
+  > o Postgres for **seu** e a de cima for uma role menor — ver §2.
 - **Domínio**: `DOMAIN`, `NEXT_PUBLIC_APP_URL=https://SEU_DOMINIO`,
   `WAHA_WEBHOOK_BASE_URL=https://SEU_DOMINIO`
   > Rodando SEM TLS (ex.: `http://IP:PORTA`, sem o Caddy)? Basta o
@@ -57,11 +62,12 @@ Edite o `.env` e preencha (mínimo):
 ```bash
 # uma vez, do seu computador ou da VPS (precisa do psql):
 # projeto Supabase NOVO: habilite antes as extensões que o schema usa
-psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -c \
+DDL="${SUPABASE_DB_ADMIN_URL:-$SUPABASE_DB_URL}"   # a do dono do banco, se houver
+psql "$DDL" -v ON_ERROR_STOP=1 -c \
   'create extension if not exists vector with schema public;
    create extension if not exists citext with schema public;
    create extension if not exists pg_trgm with schema public;'
-psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/baseline.sql
+psql "$DDL" -v ON_ERROR_STOP=1 -f supabase/baseline.sql
 ```
 
 O `baseline.sql` é idempotente — cria o CRM inteiro + as tabelas do agente
@@ -90,7 +96,34 @@ grant usage, select on all sequences in schema public to agent_worker;
 grant execute on all functions in schema public to agent_worker;
 ```
 
-E aponte `SUPABASE_DB_URL` do `.env` para ela.
+Aponte `SUPABASE_DB_URL` do `.env` para ela — e deixe a conexão do **dono** em
+`SUPABASE_DB_ADMIN_URL`. Antes isto era uma recomendação sem encaixe: o
+`install.sh` e o `update.sh` usavam a MESMA string para o app e para o schema, e
+quem seguia este parágrafo via o `baseline.sql` falhar por falta de permissão —
+com a saída de editar o `.env` na mão entre uma etapa e outra (issue #192).
+
+Para conferir quem é quem na sua instalação, sem acreditar neste texto:
+
+```bash
+# cada linha diz "chamada ao Postgres → com qual string"
+grep -nE '(psql|pg_dump) "' hostgator-setup-kit/*.sh
+```
+
+`url_do_schema` (em `hostgator-setup-kit/_common.sh`) é a resolução: usa
+`SUPABASE_DB_ADMIN_URL` e, ausente ou vazia, cai em `SUPABASE_DB_URL`.
+
+Duas consequências que valem saber antes de escolher onde declarar:
+
+- O `docker-compose.prod.yml` entrega o `.env` inteiro ao `app` e ao `worker`
+  (`env_file: .env`). Declarar `SUPABASE_DB_ADMIN_URL` ali a expõe aos
+  contêineres. Para não expor, passe-a só no comando:
+  `SUPABASE_DB_ADMIN_URL='...' bash hostgator-setup-kit/install.sh`.
+- Em compensação, o `update.sh` roda **sozinho** (cron do `agent.sh`) e é ele
+  que entrega migration nova ao clone. Sem a chave no `.env`, cada atualização
+  precisa da sua mão. Escolha consciente, não descuido.
+
+O `install.sh` **nunca grava** `SUPABASE_DB_ADMIN_URL` no `.env` — se ela estiver
+lá, foi você que pôs.
 
 ## 3. Subir
 
@@ -202,7 +235,9 @@ e é preciso repetir o comando quando a marca mudar.
 
 - **Backup diário** (do seu crontab na VPS):
   `0 3 * * * /caminho/repo/scripts/backup-db.sh /var/backups/deskcomm`
-  (restaure com `pg_restore --clean --no-owner -d "$SUPABASE_DB_URL" arquivo.dump`)
+  (restaure com
+  `pg_restore --clean --no-owner -d "${SUPABASE_DB_ADMIN_URL:-$SUPABASE_DB_URL}" arquivo.dump`
+  — `--clean` derruba e recria objetos, o que é trabalho de dono do banco)
 - **Flywheel** (auto-melhoria): o worker julga conversas reais a cada 6h
   (`FLYWHEEL_INTERVAL_MS`) e grava PROPOSTAS de melhoria de prompt em
   `flywheel_distiller_proposals`. Nada é aplicado sozinho: revise e cole o

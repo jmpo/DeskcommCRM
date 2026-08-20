@@ -746,3 +746,24 @@ erro. É por isso que perguntar sem gravar é pior que não perguntar. Antes de 
 qualquer caso acima, rode `source .env && echo "$APP_NAME|$SUPPORT_EMAIL"` e confirme que o
 que você digitou está no arquivo — sintoma de marca ausente costuma ser isto, não o
 resolvedor.
+
+## O sistema cabe num telefone de 390px? (2026-08-20)
+
+Origem: issue #203 — em 390px o shell reservava a faixa do sidebar de desktop
+(`ml-60`/`ml-16`) e o header vazava para fora, medido `scrollWidth=462` contra
+`clientWidth=390`. O usuário leigo abre o CRM no celular; barra horizontal na
+primeira tela é a primeira impressão.
+
+| caso | prioridade | estado |
+|---|---|---|
+| Em 390×844, o sidebar de desktop sai da árvore acessível e a navegação vira gaveta | `[P1]` | **PASS**, medido por ferramenta em `tests/e2e/navegacao.spec.ts` (bloco `mobile`): `documentElement.scrollWidth <= clientWidth + 1` depois do login, com a gaveta aberta, e depois de navegar por ela. Evidência em `.superpowers/evidence/nav-mobile-390-drawer-aberta.png` — a captura é apoio, quem afirma é a medida |
+| `/admin` em 390px | — | **NÃO COBERTO.** `components/admin/AdminSidebar.tsx:58` é `w-60` sem prefixo responsivo: o mesmo defeito da #203, instância não consertada. Público é só platform admin, por isso ficou como issue e não como bloqueio |
+| Estouro DENTRO do `<main>` | — | **NÃO COBERTO.** `AppShell.tsx` dá `overflow-auto` ao `<main>`, que é contêiner de rolagem próprio: conteúdo largo rola lá dentro sem aumentar `documentElement.scrollWidth`. A sonda é fiel ao sintoma da #203 e não prova que as telas densas (Kanban, Inbox) são usáveis em 390px |
+
+**Armadilha que custou dois testes verdes:** `loginComoAdmin` espera a virada da
+janela TOTP entre logins consecutivos (o servidor recusa código repetido), e
+essa espera sozinha estoura o teto global de 30 s do `playwright.config.ts`.
+Toda spec que usa o helper sobe o teto (240 s em quatro delas, 90 s em uma) —
+isso não está escrito em lugar nenhum, e quem adota o helper sem subir o teto vê
+dois testes alheios estourarem sem call log de locator. Se você for adotar o
+helper numa spec nova: `test.describe.configure({ timeout: 120_000 })`.

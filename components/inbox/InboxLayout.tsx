@@ -6,6 +6,7 @@ import { estadoDaJanela, formatarDecorrido } from "@/lib/channels/janela";
 import { JanelaFechadaAviso } from "@/components/inbox/JanelaFechadaAviso";
 import { useClaimConversation } from "@/hooks/inbox/useClaimConversation";
 import { useCloseConversation } from "@/hooks/inbox/useCloseConversation";
+import { useMarkAsRead } from "@/hooks/inbox/useMarkAsRead";
 import {
   useConversationsRealtime,
   type ConversationsFilters,
@@ -145,7 +146,16 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
   const claim = useClaimConversation();
   const close = useCloseConversation();
 
+  // A leitura da conversa aberta é do upstream e fica: sem ela o contador de
+  // não-lidas nunca zera para quem abre a conversa.
+  useMarkAsRead(
+    selectedConversation?.id ?? null,
+    selectedConversation?.unread_count_for_assignee ?? 0,
+  );
+
   // Aceita `null`: é o VOLTAR do celular, que limpa a seleção e devolve a lista.
+  // É um SUPERCONJUNTO do `handleSelect` do upstream — o tipo dele não aceita
+  // `null`, e sem isso o botão de voltar não teria o que chamar.
   //
   // A seleção NÃO vive na URL (só o `?filter=` vive) — então este voltar é
   // estado local, e o botão de voltar do navegador não desfaz a seleção. É a
