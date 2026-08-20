@@ -57,9 +57,40 @@ permissions:
   contents: read
 
 jobs:
-  e2e:
+  # ─────────────────────────────────────────────────────────────────────────
+  # AS DUAS PARTES RODAM EM PARALELO, e cada uma com o SEU banco.
+  #
+  # Antes eram dois PASSOS do mesmo job, em sequência. Medido em 20/08/2026:
+  #
+  #   preparação (Supabase + baseline) ... 1m41s
+  #   build de produção .................. 1m47s
+  #   navegador + fixtures ................. 29s
+  #   parte 1 ............................ 8m22s
+  #   parte 2 ........................... 10m28s   → total ~22m47s
+  #
+  # As duas partes eram 83% do relógio, uma esperando a outra. Em paralelo o
+  # total vira `preparação + a parte mais longa` ≈ 14min: cada job repete os
+  # ~4min de preparo, mas ao mesmo tempo.
+  #
+  # E há um ganho que não é de tempo: hoje as duas partes dividem o MESMO banco
+  # sem reset entre elas — o próprio arquivo avisava que "o que uma spec deixa
+  # gravado, as seguintes enxergam". Com um job por parte, cada uma sobe o seu
+  # Supabase do zero. O isolamento deixa de depender da limpeza de cada spec.
+  #
+  # `fail-fast: false` de propósito: quando a parte 1 quebra, ainda se quer
+  # saber se a 2 também quebrou. Cancelar a irmã esconde metade do diagnóstico
+  # e obriga a uma segunda execução para descobrir.
+  # ─────────────────────────────────────────────────────────────────────────
+  e2e-parte:
+    name: e2e — parte ${{ matrix.parte }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Cada job agora leva UMA parte: preparo (~4min) + a mais longa (10m28) com
+    # folga. O teto por passo abaixo é quem nomeia onde pendurou.
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        parte: [1, 2]
     # ─────────────────────────────────────────────────────────────────────────
     # A COBERTURA DEIXA DE SER PROSA DIGITADA À MÃO.
     #
@@ -446,36 +477,25 @@ jobs:
       # workers, dois specs gerando o mesmo código no mesmo intervalo de 30s
       # fazem o segundo ser recusado como replay. Foi o que derrubava a
       # `reset-password-mfa` (issue #80): ela passa sozinha e falha em paralelo.
-      - name: E2E — parte 1 de 2
+      - name: E2E — parte ${{ matrix.parte }} de 2
         # Teto POR PASSO, e não só o do job.
         #
-        # O job já tinha `timeout-minutes: 30`, mas ele é para os dois passos
-        # somados: uma parte pendurada come o orçamento da outra e o desfecho
-        # sai como "the job running on runner has exceeded the maximum execution
-        # time" — sem dizer ONDE pendurou. Aconteceu: uma execução ficou presa
-        # nesta parte 1, que normalmente leva 8m22, e só se soube disso abrindo
-        # o job e olhando qual passo estava `in_progress`.
+        # O job tem o dele, mas ele também cobre o preparo e o build: uma
+        # execução pendurada NO TESTE saía como "the job has exceeded the
+        # maximum execution time", sem dizer onde. Aconteceu em 20/08 — uma
+        # execução ficou presa na parte 1, e só se soube abrindo o job para ver
+        # qual passo estava `in_progress`.
         #
-        # 14 minutos é ~1,7× o medido (8m22 em 2026-08-20). Folga para runner
-        # carregado, apertado o bastante para que pendurar seja rápido de
+        # 16 minutos é ~1,5× a parte mais longa medida (10m28). Folga para
+        # runner carregado, apertado o bastante para que pendurar seja rápido de
         # descobrir — e a falha passa a NOMEAR o passo.
-        timeout-minutes: 14
-        run: pnpm exec playwright test --workers=1 $SPECS_PARTE_1
-        env:
-          # Só o que NÃO vem do `.env.e2e`: isto é ajuste de CI, não config do
-          # produto. CI = 1 IP para todos os specs, e o teto de produção
-          # (60/5min) é irreal aqui. O teto por CONTA (5 falhas) NÃO muda — é
-          # ele que barra brute force.
-          AUTH_RATE_LIMIT_LOGIN_IP: "1000"
-          # ver o comentário do passo de build: vazio NÃO desliga.
-          SENTRY_DSN: "off"
-
-      - name: E2E — parte 2 de 2 (processo novo, contador de login zerado)
-        # Mesmo raciocínio do passo anterior: ~1,5× o medido (10m28), e o total
-        # dos dois tetos (30) casa com o do job, então quem estoura primeiro é
-        # sempre o PASSO — que é o que diz onde foi.
         timeout-minutes: 16
-        run: pnpm exec playwright test --workers=1 $SPECS_PARTE_2
+        # Expansão indireta: as duas listas vivem no `env` do job (para o passo
+        # de cobertura poder contá-las juntas), e a matriz escolhe qual delas
+        # roda. Um `if` por parte duplicaria o comando e o teto.
+        run: |
+          VAR="SPECS_PARTE_${{ matrix.parte }}"
+          pnpm exec playwright test --workers=1 ${!VAR}
         env:
           # Só o que NÃO vem do `.env.e2e`: isto é ajuste de CI, não config do
           # produto. CI = 1 IP para todos os specs, e o teto de produção
@@ -486,7 +506,14 @@ jobs:
           SENTRY_DSN: "off"
 
       - name: Declarar o que este job ainda NÃO cobre
-        if: always()
+        # Só na parte 1: ele conta as DUAS listas e o resultado é o mesmo nas
+        # duas execuções — rodando na matriz inteira, o resumo sairia duplicado.
+        #
+        # E fica AQUI, e não no agregador, porque as listas moram no `env` deste
+        # job. Copiá-las para lá criaria uma SEGUNDA fonte da mesma verdade, que
+        # é exatamente a classe de defeito que a barra lateral tinha: duas
+        # medidas da mesma coisa, e o dia em que discordam.
+        if: always() && matrix.parte == 1
         run: |
           # CONTA, não afirma. A versão anterior deste passo era prosa digitada à
           # mão e dizia "32 de 33" com 39 arquivos no disco — a única coisa que
@@ -509,8 +536,38 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-parte-${{ matrix.parte }}
           path: |
             playwright-report/
             test-results/
           retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # ESTE JOB EXISTE PELO NOME.
+  #
+  # `e2e` é status check OBRIGATÓRIO na branch protection. Uma matriz produz
+  # `e2e — parte 1` / `e2e — parte 2`, nomes que a proteção não conhece — sem
+  # este agregador, a regra passaria a exigir um check que ninguém mais publica
+  # e todo PR ficaria travado (ou, pior, a proteção ficaria sem efeito e ninguém
+  # notaria).
+  #
+  # Ele também é o lugar certo para a declaração de cobertura: ela conta as DUAS
+  # listas, e rodando dentro da matriz sairia duplicada no resumo.
+  # ─────────────────────────────────────────────────────────────────────────
+  e2e:
+    name: e2e
+    needs: e2e-parte
+    # `always()` para o job RODAR mesmo com uma parte vermelha — é ele quem
+    # traduz o resultado das duas em um só. Sem isto ele seria PULADO, e um
+    # check pulado não é o mesmo que reprovado.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Reprovar se alguma parte reprovou
+        if: needs.e2e-parte.result != 'success'
+        run: |
+          echo "::error::Uma das partes do E2E não passou (resultado: ${{ needs.e2e-parte.result }})."
+          exit 1
