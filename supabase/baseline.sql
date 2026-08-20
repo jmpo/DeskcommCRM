@@ -13510,4 +13510,41 @@ notify pgrst, 'reload schema';
 -- pode ser re-aplicado à vontade pelo `update.sh`.
 revoke insert, update, delete on table public.ai_budgets from authenticated, anon;
 
+-- ---- o arquivo do webhook pode perder o corpo (migration 0162) ----
+--
+-- `webhook_events_log` guarda o payload cru de todo webhook e NUNCA era podado.
+-- Medido numa instalação real em 20/08/2026: o banco inteiro em 545 MB, dos
+-- quais 468 MB (86%) eram esta tabela — contra 3,2 MB de `messages`. Nenhuma
+-- linha com mais de 30 dias: as 56.291 eram de 20 dias. Cresce ~23 MB/dia, e o
+-- teto do plano gratuito do Supabase é 500 MB, que é onde a maioria dos clones
+-- vive.
+--
+-- ESVAZIAR o corpo, e não apagar a linha: as três colunas pesadas são ~97% do
+-- peso, e a linha sem elas custa ~200 B. Assim o índice forense inteiro
+-- (provider, tipo, id externo, horário, assinatura, desfecho) sobrevive por
+-- ~11 MB — e é ele que responde as perguntas de depois do incidente.
+--
+-- `raw_body` precisa aceitar NULL para que "descartado" não se confunda com
+-- "corpo vazio", que é caso real (webhook de ping). Medido antes de afrouxar:
+-- nenhum leitor consulta essa coluna no repositório inteiro.
+--
+-- `archived_at` já existia na tabela e não tinha NENHUM dono (0 linhas com
+-- valor em 56.350) — promessa de esqueleto, anti-pattern nº 3. Ganha dono aqui
+-- em vez de nascer uma coluna nova com o mesmo significado.
+alter table public.webhook_events_log
+  alter column raw_body drop not null;
+
+comment on column public.webhook_events_log.raw_body is
+  'Corpo cru como o provedor mandou. NULL = existiu e foi descartado pela retenção; `archived_at` diz quando.';
+
+comment on column public.webhook_events_log.archived_at is
+  'Quando as colunas pesadas (raw_body, payload_parsed, headers) foram descartadas pela retenção. NULL = a linha ainda tem o corpo.';
+
+-- PARCIAL: a varredura procura "velha e ainda com corpo", e o índice encolhe
+-- sozinho conforme a poda avança — o oposto de um índice sobre a tabela toda,
+-- na única tabela que este bloco existe para impedir que cresça.
+create index if not exists webhook_events_log_a_esvaziar_idx
+  on public.webhook_events_log (received_at)
+  where archived_at is null;
+
 notify pgrst, 'reload schema';

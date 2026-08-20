@@ -136,7 +136,18 @@ services:
       # hash. Sem o prefixo ele compara literal → o app (que manda o plaintext) toma 401.
       WAHA_API_KEY: "sha512:${WAHA_API_KEY_SHA512}"
       WHATSAPP_HOOK_URL: ${WAHA_WEBHOOK_BASE_URL}/api/v1/webhooks/waha
-      WHATSAPP_HOOK_EVENTS: "message,message.any,message.ack,message.edited,message.revoked,session.status,state.change"
+      # `message` NÃO entra, e `message.any` sozinho não perde nada — medido.
+      #
+      # O WAHA emite os DOIS para a mesma mensagem, e `lib/waha/ingest.ts` já
+      # chama isso de corrida e deduplica. Só que o arquivo do corpo cru guarda
+      # as duas cópias: numa instalação real, 22.939 linhas de `message` ao lado
+      # de 24.582 de `message.any` — 41% da tabela que era 86% do banco.
+      #
+      # A prova de que dá para tirar veio do banco, não da doc: cruzando os ids
+      # de mensagem dos dois eventos em 22.815 mensagens reais, os que chegaram
+      # SÓ por `message` foram ZERO, e 1.642 chegaram só por `message.any` (os
+      # que saíram de nós, que `message` não cobre). Superconjunto estrito.
+      WHATSAPP_HOOK_EVENTS: "message.any,message.ack,message.edited,message.revoked,session.status,state.change"
       WHATSAPP_HOOK_HMAC: ${WAHA_HMAC_SECRET}
       # WAHA lê WHATSAPP_DEFAULT_ENGINE (NÃO WAHA_DEFAULT_ENGINE — o nome errado
       # fazia cair no default WEBJS, engine com browser que trava/corrompe a sessão
