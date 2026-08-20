@@ -1,0 +1,134 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# O VIGIA DA UPSTREAM — para não voltar a mesclar 50 commits de uma vez.
+#
+# Medido nesta semana: a distância com a upstream foi de 50 → 66 → 80 commits em
+# poucas horas. O merge de 50 custou TRÊS conflitos, e dois deles eram conserto
+# que ele fez em cima de código nosso — coisa que só se descobre lendo o diff
+# inteiro. Com tandas de 3 ou 4 por dia, não há o que resolver.
+#
+# ⚠️ LIMITAÇÃO CONHECIDA, e ela é do GitHub, não deste arquivo: PR aberto pelo
+# `GITHUB_TOKEN` NÃO dispara workflow (é a proteção contra recursão). Então o PR
+# nasce sem CI, e alguém precisa fechá-lo e reabri-lo para os gates rodarem — ou
+# configurar um PAT em `secrets.PAT_SYNC`. O corpo do PR diz isso a quem abrir,
+# em vez de deixar a pessoa concluir que o CI "não pegou".
+# ─────────────────────────────────────────────────────────────────────────────
+name: Vigia da upstream
+
+on:
+  schedule:
+    # 09:00 UTC ≈ 06:00 em São Paulo / 05:00 em Assunção: o PR está lá quando o
+    # dia começa, em vez de chegar no meio do trabalho.
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Duas execuções ao mesmo tempo criariam duas branches sobre o mesmo ponto e
+  # a segunda sobrescreveria a primeira no meio do merge.
+  group: vigia-da-upstream
+  cancel-in-progress: false
+
+jobs:
+  vigiar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # A branch de sync é criada e empurrada por este job.
+      contents: write
+      # Abre o PR, ou comenta no que já existe.
+      pull-requests: write
+      # A saída de conflito vira issue: branch quebrada empurrada seria pior que
+      # nenhuma branch — ninguém revisa um merge pela metade.
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # O merge precisa do histórico inteiro; `fetch-depth: 1` não tem base
+          # comum com a upstream e o merge falharia por "unrelated histories".
+          fetch-depth: 0
+
+      - name: Buscar a upstream
+        run: |
+          git remote add upstream https://github.com/melgarafael/DeskcommCRM.git
+          git fetch upstream main --quiet
+
+      - name: Quantos commits ela tem que nós não temos
+        id: contar
+        run: |
+          N=$(git rev-list --count origin/main..upstream/main)
+          echo "n=$N" >> "$GITHUB_OUTPUT"
+          echo "A upstream está $N commits à frente." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Nada a fazer
+        if: steps.contar.outputs.n == '0'
+        run: echo "Já estamos em dia — nenhuma branch criada." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tentar o merge numa branch própria
+        id: merge
+        if: steps.contar.outputs.n != '0'
+        run: |
+          git config user.name "vigia-da-upstream"
+          git config user.email "actions@github.com"
+          git checkout -B sync/upstream-auto origin/main
+          # `|| true` porque conflito NÃO é falha deste job: é o desfecho que a
+          # issue existe para relatar. Sem isto o passo morre aqui e ninguém
+          # fica sabendo POR QUE não veio PR hoje.
+          if git merge upstream/main --no-edit; then
+            echo "conflito=nao" >> "$GITHUB_OUTPUT"
+          else
+            echo "conflito=sim" >> "$GITHUB_OUTPUT"
+            git diff --name-only --diff-filter=U > /tmp/conflitos.txt
+            git merge --abort
+          fi
+
+      - name: Empurrar e abrir o PR
+        if: steps.contar.outputs.n != '0' && steps.merge.outputs.conflito == 'nao'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ steps.contar.outputs.n }}
+        run: |
+          git push --force-with-lease origin sync/upstream-auto
+          # `--force-with-lease` e não `--force`: se alguém tiver empurrado nesta
+          # branch desde a última rodada, o push falha em vez de apagar o trabalho.
+          if gh pr view sync/upstream-auto --json number >/dev/null 2>&1; then
+            gh pr comment sync/upstream-auto --body "Atualizado pelo vigia: agora são **${N}** commits da upstream."
+          else
+            gh pr create --base main --head sync/upstream-auto \
+              --title "Sync automático: ${N} commits da upstream" \
+              --body "$(printf '%s\n' \
+                "Aberto pelo vigia diário. O merge de \`upstream/main\` aplicou **sem conflito**." \
+                "" \
+                "## ⚠️ O CI não roda sozinho aqui" \
+                "" \
+                "PR aberto pelo \`GITHUB_TOKEN\` não dispara workflow — é a proteção do GitHub contra recursão. **Feche e reabra este PR** para os gates rodarem, ou configure um PAT em \`secrets.PAT_SYNC\`." \
+                "" \
+                "Sem os cinco obrigatórios verdes, não mergeie: o merge limpo diz que os arquivos combinaram, não que o produto funciona." \
+                "" \
+                "## O que revisar mesmo com tudo verde" \
+                "" \
+                "- **Números de migration.** Colisão entre a numeração dele e a nossa não gera conflito de git (arquivos diferentes) e só aparece num teste depois." \
+                "- **O namespace do kit.** O merge já reintroduziu \`ghcr.io/melgarafael\` uma vez; a instalação de cliente tem de continuar nascendo neste fork." \
+                "- **Conserto dele em cima de código nosso.** Já aconteceu duas vezes, e nos dois casos a versão dele era melhor.")"
+          fi
+
+      - name: Abrir issue quando houver conflito
+        if: steps.contar.outputs.n != '0' && steps.merge.outputs.conflito == 'sim'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ steps.contar.outputs.n }}
+        run: |
+          LISTA=$(sed 's/^/- `/; s/$/`/' /tmp/conflitos.txt)
+          gh issue create \
+            --title "Sync da upstream parou em conflito (${N} commits)" \
+            --body "$(printf '%s\n' \
+              "O vigia tentou mesclar \`upstream/main\` e parou em conflito. **Nenhuma branch foi empurrada**: merge pela metade é pior que nenhum, porque ninguém revisa isso." \
+              "" \
+              "## Arquivos em conflito" "" "${LISTA}" "" \
+              "## Como resolver" "" \
+              '```bash' \
+              "git fetch upstream && git checkout -b sync/upstream-manual origin/main" \
+              "git merge upstream/main" \
+              '```' "" \
+              "Quanto mais commits acumulam, mais caro fica — resolver hoje custa menos que na semana que vem.")"

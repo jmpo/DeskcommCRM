@@ -54,6 +54,12 @@ const DIR = join(process.cwd(), ".github/workflows");
 const ESCRITA_JUSTIFICADA: Record<string, string> = {
   "publish-image.yml::packages: write":
     "publica a imagem do app no GHCR — é o artefato que o self-hoster instala",
+  "vigia-da-upstream.yml::contents: write":
+    "empurra a branch `sync/upstream-auto` com o merge da upstream — é o produto do job",
+  "vigia-da-upstream.yml::pull-requests: write":
+    "abre o PR de sync, ou comenta no que já existe quando a distância muda",
+  "vigia-da-upstream.yml::issues: write":
+    "conflito vira issue: branch quebrada empurrada é pior que nenhuma, porque ninguém revisa um merge pela metade",
 };
 
 interface Workflow {
