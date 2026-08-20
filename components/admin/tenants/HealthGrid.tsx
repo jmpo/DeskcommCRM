@@ -31,12 +31,24 @@ function formatLag(seconds: number | null): string {
   return `${Math.round(seconds / 3600)}h`;
 }
 
+/**
+ * DÓLAR. `llm_calls.cost_cents` é centavo de USD — `pricing.ts` calcula em
+ * dólares e multiplica por 100. Formatar em BRL fazia o operador ler um gasto
+ * ~5x menor do que o que a fatura do provedor vai cobrar.
+ */
 function formatCents(cents: number): string {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
-    currency: "BRL",
+    currency: "USD",
   }).format(cents / 100);
 }
+
+/** O teto vincula esta organização? É o que separa "100%" de "100% e parou". */
+const MODO_LABEL: Record<TenantHealthResponse["ai"]["enforcement_mode"], string> = {
+  off: "Não aplicado",
+  avisar: "Só avisa",
+  bloquear: "Para a IA no limite",
+};
 
 // ---------------------------------------------------------------------------
 // Props
@@ -88,6 +100,7 @@ export function HealthGrid({ health }: HealthGridProps) {
       label: "Orçamento",
       value: ai.budget_cents ? formatCents(ai.budget_cents) : "Ilimitado",
     },
+    { label: "Limite", value: MODO_LABEL[ai.enforcement_mode] },
   ];
 
   // Audit lag card

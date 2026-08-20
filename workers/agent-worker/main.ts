@@ -43,10 +43,13 @@ import {
   recordRunMetrics,
   type CacheAlertKnobs,
 } from '@/lib/agent-engine/obs/metrics';
+import { rodarLoopDaFila } from '@/lib/agent-engine/queue/loop';
 import {
+  cancelJob,
   claimJobs,
   completeJob,
   failJob,
+  faltaParaOProximoJob,
   reapExpiredJobs,
   type JobKind,
   type JobRow,
@@ -61,6 +64,45 @@ export type JobHandler = (job: JobRow, pool: pg.Pool, ctx: JobHandlerContext) =>
 function errMsg(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   return (message.split('\n', 1)[0] ?? '').slice(0, 300);
+}
+
+/**
+ * VETO PERMANENTE DE NEGÓCIO × INCIDENTE DE SISTEMA — a fila precisa distinguir.
+ *
+ * O erro é lido pela PROPRIEDADE `terminal`, e não pela classe, porque o
+ * contrato é da fila e não do seam que o produziu: quem sabe que "tentar de novo
+ * daqui a um minuto dá o mesmo resultado" é quem lança. Hoje o único produtor é
+ * `LlmBudgetExceededError` (`lib/agent-engine/edge/llm/run-model-call.ts`), que
+ * declara a propriedade com a razão escrita ao lado.
+ *
+ * Sem esta distinção, um bloqueio por orçamento ia para `failJob`, que reagenda
+ * até `max_attempts` (5) e então insere um `job_dead` **crítico por job, sem
+ * dedup**: N conversas × 5 tentativas viravam N alertas críticos rotulados "Uma
+ * tarefa do assistente falhou", afogando o único `budget_exceeded` — que é o
+ * alerta que explica. O precedente está escrito no próprio `queue.ts`: "Caso
+ * real desta VPS: 16 alertas críticos idênticos".
+ *
+ * ⚠️ ESTA DECISÃO SÓ É SEGURA PORQUE O TRABALHO NÃO FICA ÓRFÃO — e essa parte
+ * mora em OUTRO arquivo, então ela é dita aqui com o escopo exato:
+ *
+ *   * `inbound_turn`, `followup_turn` e `case_reply_turn` passam por
+ *     `runAgentTurn` (`lib/agent-engine/agent/inbound-turn.ts`), que envolve o
+ *     turno INTEIRO em `comHandoffSeOrcamentoAcabar`. Qualquer chamada de modelo
+ *     do turno — inclusive as indiretas (`classifyStage`, `maybeCompact`), que
+ *     rodam ANTES da principal — cai na escolta, e a conversa é devolvida à fila
+ *     humana antes do relance. Nesses três, o job termina porque OUTRA PESSOA
+ *     assumiu, não porque foi descartado. (A versão anterior desta frase era
+ *     falsa: a escolta cobria só as duas chamadas diretas, o classificador
+ *     estourava primeiro, e este `cancelJob` descartava o job com o lead no
+ *     vácuo — a frase falsa era a justificativa da decisão irreversível.)
+ *   * `operator_turn` NÃO tem handoff, e não deve ter: o lead já foi respondido
+ *     pelo Conversador, e o Operador é retaguarda. O que se perde ali é o
+ *     `registrarDesfecho` daquele turno — perda real, limitada e sem conserto
+ *     por retry (o teto continua estourado no minuto seguinte). O sinal que
+ *     sobra é o `budget_exceeded` na Central, que é o alerta que explica.
+ */
+function ehVetoPermanenteDeNegocio(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { terminal?: unknown }).terminal === true;
 }
 
 /**
@@ -276,11 +318,26 @@ export async function startWorker(
         log.error('métricas do run não registradas', { job_id: job.id, error: errMsg(metricsErr) });
       }
     } catch (err) {
-      log.error('job falhou', { job_id: job.id, kind: job.kind, error: errMsg(err) });
+      const terminal = ehVetoPermanenteDeNegocio(err);
+      // `warn`, não `error`: veto de negócio é o sistema funcionando como
+      // configurado. Rotulá-lo de erro treina quem opera a ignorar o painel.
+      if (terminal) {
+        log.warn('job cancelado por veto permanente de negócio', {
+          job_id: job.id,
+          kind: job.kind,
+          error: errMsg(err),
+        });
+      } else {
+        log.error('job falhou', { job_id: job.id, kind: job.kind, error: errMsg(err) });
+      }
       try {
-        await failJob(pool, job.id, workerId, err);
+        if (terminal) {
+          await cancelJob(pool, job.id, workerId, errMsg(err));
+        } else {
+          await failJob(pool, job.id, workerId, err);
+        }
       } catch (failErr) {
-        log.error('failJob indisponível — lease expira via reaper', {
+        log.error('disposição do job indisponível — lease expira via reaper', {
           job_id: job.id,
           error: errMsg(failErr),
         });
@@ -288,24 +345,25 @@ export async function startWorker(
     }
   };
 
-  const workerLoop = (async () => {
-    while (!shuttingDown) {
-      let claimed: JobRow[] = [];
-      try {
-        claimed = await claimJobs(pool, { workerId, maxConcurrency: env.QUEUE_MAX_CONCURRENCY });
-      } catch (err) {
-        log.error('claim falhou', { error: errMsg(err) });
-      }
-      for (const job of claimed) {
+  const workerLoop = rodarLoopDaFila<JobRow>({
+    relogio: () => faltaParaOProximoJob(pool),
+    claimar: () => claimJobs(pool, { workerId, maxConcurrency: env.QUEUE_MAX_CONCURRENCY }),
+    aoClaimar: (jobs) => {
+      for (const job of jobs) {
         const running = runJob(job);
         inFlight.add(running);
         void running.finally(() => inFlight.delete(running));
       }
-      if (claimed.length === 0 || shuttingDown) {
-        await sleep(env.QUEUE_POLL_INTERVAL_MS);
-      }
-    }
-  })();
+    },
+    // O `{ signal }` é o que faz o `docker stop` não esperar a espera inteira —
+    // e é por isso que `rodarLoopDaFila` trata a rejeição em vez de propagá-la:
+    // `sleep` abortado REJEITA, e essa rejeição chegaria ao `await workerLoop`
+    // logo abaixo, matando o processo antes do drain dos jobs em voo.
+    dormir: (ms) => sleep(ms, undefined, { signal: loopsAbort.signal }),
+    deveParar: () => shuttingDown,
+    intervalos: { ociosoMs: env.QUEUE_POLL_INTERVAL_MS, retryMs: env.QUEUE_CLAIM_RETRY_INTERVAL_MS },
+    log,
+  });
 
   let resolveStopped!: () => void;
   const stopped = new Promise<void>((resolve) => {
@@ -350,11 +408,28 @@ export async function startWorker(
   process.once('SIGINT', (signal) => void shutdown(signal));
 
   // A linha que a Fase 0 exige ver: worker conectado ao Supabase, schema ok, pronto.
+  // Os dois intervalos vão junto porque governam a conta de egress do banco (issue
+  // #258) e quem os ajusta precisa conseguir CONFERIR o que está em vigor sem ler
+  // o código-fonte — foi o que o autor da issue teve de fazer para achar o knob.
   log.info('agent-engine pronto', {
     worker_id: workerId,
     healthz_port: port,
     max_concurrency: env.QUEUE_MAX_CONCURRENCY,
+    poll_ocioso_ms: env.QUEUE_POLL_INTERVAL_MS,
+    claim_retry_ms: env.QUEUE_CLAIM_RETRY_INTERVAL_MS,
   });
+  // Acima de 10 s a espera ociosa passa do idleTimeoutMillis do pool (10 s, o
+  // default do pg): a conexão morre entre uma rodada e outra, e cada consulta ao
+  // relógio volta a pagar TCP+TLS+startup. Medido: 499 B por rodada depois de 12 s
+  // de sono contra 66 B depois de 2 s — subir o intervalo além daí gasta mais do
+  // que economiza. Aviso em vez de teto no schema: um `.max()` faria o worker
+  // RECUSAR subir numa máquina cujo .env já tem um valor maior, e a doutrina de
+  // packaging proíbe atualização que exija edição manual de arquivo.
+  if (env.QUEUE_POLL_INTERVAL_MS >= 10_000) {
+    log.warn('QUEUE_POLL_INTERVAL_MS ≥ 10s — cada rodada ociosa reconecta ao banco e gasta MAIS que um valor menor', {
+      poll_ocioso_ms: env.QUEUE_POLL_INTERVAL_MS,
+    });
+  }
   await stopped;
 }
 

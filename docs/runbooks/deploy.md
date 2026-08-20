@@ -107,7 +107,26 @@ nenhum, revertendo o que você acabou de subir.
 
 Requisitos: >= 4 GB de RAM **ou** swap (medido: ~4min num VPS de 3.8 GB com 4 GB
 de swap) — e isto é o requisito **deste caminho de exceção**, não da operação
-normal. A régua de operação (7 contêineres, ~150 MB por número de WhatsApp,
-`mem_limit` somando 2560m entre app+worker+waha) é outra, e não mudou.
+normal. A régua de operação é outra, e não mudou. Ela tem três parcelas, e **duas
+são medidas e uma é herdada** — a distinção importa porque a herdada é a que
+costuma ser citada como se fosse nossa:
+
+| parcela | estado | como conferir |
+|---|---|---|
+| 7 contêineres | **medido** | `docker compose -f docker-compose.prod.yml config --services \| wc -l` |
+| `mem_limit` somando 2560m (app 768 + worker 512 + waha 1280) | **medido** | `grep -n 'mem_limit' docker-compose.prod.yml` |
+| ~150 MB por número de WhatsApp | **herdado do upstream WAHA**, nunca medido neste projeto | `docker stats --no-stream` na sua VPS |
+
+O terceiro número vem de `docs/research/reference-synthesis.md` (síntese do curso
+WAHA, 2026-05), não de uma medição nossa — e circula em sete documentos que se
+citam entre si. Uma medição pontual na produção do projeto (2026-08-14, **uma**
+sessão pareada, VPS compartilhada com outras stacks) deu **304,5 MiB no contêiner
+`waha` inteiro**, contra o `mem_limit` de 1280 MiB. Um ponto não decompõe baseline
+e sessão: para isso seriam necessários dois números pareados, e não é ensaio que
+se faça numa instalação viva.
+
+**Nada disso mexe no tier recomendado.** A régua que sustenta os 4 GB é a soma da
+stack em operação, não o WAHA isolado — e a folga existe justamente porque a
+parcela por sessão não é conhecida com precisão.
 
 Ao terminar, feche o ciclo — merge na `main` e volte a VPS pra imagem oficial.

@@ -35,8 +35,8 @@ export function EmptyKanban({ primary, secondary }: VariantProps = {}) {
   return (
     <EmptyState
       icon={Kanban}
-      headline="Pipeline vazio"
-      subcopy="Crie um lead pra começar a movimentar cards entre as etapas."
+      headline="Quadro vazio"
+      subcopy="Ainda não há nenhum cliente aqui. Assim que a primeira conversa começar, o cartão aparece nesta coluna."
       primary={primary}
       secondary={secondary}
     />
@@ -71,8 +71,8 @@ export function EmptyPipeline({ primary, secondary }: VariantProps = {}) {
   return (
     <EmptyState
       icon={GitBranch}
-      headline="Sem pipelines configurados"
-      subcopy="Crie um pipeline pra organizar leads em etapas."
+      headline="Nenhum funil ainda"
+      subcopy="Um funil é o caminho que o cliente percorre até fechar. Crie o primeiro para ter um quadro."
       primary={primary}
       secondary={secondary}
     />

@@ -2,6 +2,9 @@ import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { redirect } from "next/navigation";
 import { WelcomeForm } from "./_form";
 import { branding } from "@/lib/branding";
+import { createClient } from "@/lib/supabase/server";
+import { lerRetratoDaInstalacao } from "@/lib/instalacao/retrato";
+import { JaEstaPronto } from "../_components/JaEstaPronto";
 
 export const dynamic = "force-dynamic";
 
@@ -10,15 +13,27 @@ export default async function WelcomePage() {
   const activeOrg = await resolveActiveOrg(user);
   if (!activeOrg) redirect("/login");
 
+  const supabase = await createClient();
+  const retrato = await lerRetratoDaInstalacao({ supabase, orgId: activeOrg.orgId });
+
   return (
     <div className="space-y-6">
       <header>
         <h2 className="text-2xl font-semibold tracking-tight">Boas-vindas ao {branding().name}</h2>
         <p className="text-sm text-muted-foreground">
-          Vamos configurar sua operação em alguns passos rápidos.
+          Vamos montar quem vai atender seus clientes — e onde ele vai trabalhar.
         </p>
       </header>
-      <WelcomeForm defaultOrgName={activeOrg.name} />
+
+      <JaEstaPronto retrato={retrato} />
+
+      {/*
+        O instalador NUNCA pergunta o nome do negócio: toda organização nasce
+        "Minha Empresa", hardcoded. Mandar esse texto como valor inicial fazia a
+        pessoa ter de apagá-lo antes de escrever o nome dela — e quem não
+        percebia seguia com o placeholder no cabeçalho do sistema para sempre.
+      */}
+      <WelcomeForm defaultOrgName={retrato.empresa.aindaSemNomeProprio ? "" : activeOrg.name} />
     </div>
   );
 }

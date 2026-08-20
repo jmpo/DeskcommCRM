@@ -43,6 +43,42 @@ function isRedirectError(err: unknown): boolean {
   );
 }
 
+/**
+ * O estado do pareamento em palavras — nunca o enum do transporte.
+ * Cada linha responde "e agora?", que é a pergunta de quem está olhando.
+ */
+function rotuloDoEstado(s: Status): string {
+  switch (s) {
+    case "SCAN_QR_CODE":
+      return "Pronto para conectar";
+    case "STARTING":
+    case "INIT":
+      return "Preparando o código…";
+    case "WORKING":
+      return "Conectado!";
+    case "FAILED":
+      return "O código expirou";
+    default:
+      return "Não consegui falar com o WhatsApp";
+  }
+}
+
+function explicacaoDoEstado(s: Status): string {
+  switch (s) {
+    case "SCAN_QR_CODE":
+      return "Escaneie o código abaixo com o celular que vai atender.";
+    case "STARTING":
+    case "INIT":
+      return "Isso leva alguns segundos. O código aparece aqui sozinho.";
+    case "WORKING":
+      return "O número está no ar. Seguindo para o próximo passo.";
+    case "FAILED":
+      return "É normal — ele vale poucos minutos. Dá para gerar outro.";
+    default:
+      return "O serviço roda no seu servidor e não respondeu agora.";
+  }
+}
+
 export function ConnectWhatsappClient({ wahaConfigured, sessionName }: Props) {
   const [pending, startTransition] = useTransition();
   const [info, setInfo] = useState<SessionInfo>({ status: "INIT", session: sessionName });
@@ -59,8 +95,22 @@ export function ConnectWhatsappClient({ wahaConfigured, sessionName }: Props) {
       setBusy(true);
       try {
         const res = await fetch("/api/v1/onboarding/whatsapp/session", { method: "POST" });
-        const json = (await res.json()) as { data?: SessionInfo };
-        if (!cancelled && json.data) setInfo(json.data);
+        const json = (await res.json()) as { data?: SessionInfo; error?: { message?: string } };
+        if (cancelled) return;
+        if (json.data) {
+          setInfo(json.data);
+          return;
+        }
+        // MEDIDO percorrendo o wizard com o serviço de WhatsApp fora do ar: a
+        // resposta vinha 502, `json.data` era undefined, nada era gravado — e a
+        // tela ficava dizendo "Preparando o código… Isso leva alguns segundos"
+        // PARA SEMPRE. Uma mentira gentil é pior que um erro: a pessoa espera
+        // por algo que nunca vai acontecer, e a única saída visível é pular.
+        setInfo({
+          status: "ERROR",
+          session: sessionName,
+          error: json.error?.message ?? `o servidor respondeu ${res.status}`,
+        });
       } catch (err) {
         if (!cancelled) setInfo({ status: "ERROR", session: sessionName, error: String(err) });
       } finally {
@@ -84,12 +134,26 @@ export function ConnectWhatsappClient({ wahaConfigured, sessionName }: Props) {
           setInfo(json.data);
           if (json.data.status === "SCAN_QR_CODE") setQrTick((t) => t + 1);
         }
+        // Falha de leitura durante a espera NÃO é transitória quando se
+        // repete: sem isto, a tela seguia em "preparando" enquanto toda
+        // tentativa falhava.
+        if (!res.ok) {
+          setInfo((antes) =>
+            antes.status === "INIT" || antes.status === "STARTING"
+              ? { status: "ERROR", session: sessionName, error: `o servidor respondeu ${res.status}` }
+              : antes,
+          );
+        }
       } catch {
-        // ignore transient errors
+        setInfo((antes) =>
+          antes.status === "INIT" || antes.status === "STARTING"
+            ? { status: "ERROR", session: sessionName, error: "não consegui falar com o servidor" }
+            : antes,
+        );
       }
     }, 3000);
     return () => clearInterval(id);
-  }, [wahaConfigured, status]);
+  }, [wahaConfigured, status, sessionName]);
 
   // 3) When status → WORKING, auto-advance.
   useEffect(() => {
@@ -126,45 +190,28 @@ export function ConnectWhatsappClient({ wahaConfigured, sessionName }: Props) {
     <div className="space-y-4 rounded-lg border bg-background p-6">
       {!wahaConfigured && (
         <div className="rounded-md border border-amber-300/60 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-100">
-          <p className="font-medium">WAHA não está configurado.</p>
+          <p className="font-medium">O WhatsApp desta instalação ainda não subiu.</p>
           <p className="mt-1">
-            Suba o Docker (<code>docker compose up -d waha</code>) e recarregue, ou pule este passo
-            agora — você pode configurar WhatsApp depois em{" "}
-            <strong>Configurações → Canais</strong>.
+            Ele roda no seu próprio servidor. Dá para seguir sem ele agora e conectar o
+            número depois, em <strong>Canais › Conexões</strong> — seu funcionário fica
+            pronto de qualquer jeito, só não terá por onde atender ainda.
           </p>
         </div>
       )}
 
       {wahaConfigured && (
         <div className="rounded-md border bg-muted/40 p-4">
-          <p className="text-sm font-medium">
-            Sessão: <code>{sessionName}</code>
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Status: <code>{busy ? "STARTING…" : status}</code>
-          </p>
-
-          {showQr && (
-            <div className="mt-4 flex flex-col items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                key={qrTick}
-                src={`/api/v1/onboarding/whatsapp/qr?t=${qrTick}`}
-                alt="QR Code para conectar WhatsApp"
-                className="h-64 w-64 rounded-md border bg-white p-2"
-              />
-              <p className="max-w-xs text-center text-xs text-muted-foreground">
-                Abra o WhatsApp no celular → Configurações → Aparelhos conectados → Conectar um
-                aparelho → escaneie o código acima.
-              </p>
-            </div>
-          )}
-
-          {status === "STARTING" && (
-            <p className="mt-3 text-xs text-muted-foreground">
-              Aguardando WAHA gerar o QR Code…
-            </p>
-          )}
+          {/*
+            O que estava aqui: "Sessão: org_f3d61bc0" e "Status: INIT".
+            O primeiro é um identificador que o produto deriva do id interno da
+            organização — não há nada que o dono faça com ele. O segundo é o
+            enum do transporte, em inglês e maiúsculas. Medido percorrendo o
+            wizard: com o serviço de WhatsApp fora do ar, a tela ficava PARADA
+            em "INIT", sem código, sem erro e sem próximo passo. A pessoa olha
+            uma palavra que não significa nada e não sabe se espera ou desiste.
+          */}
+          <p className="text-sm font-medium">{rotuloDoEstado(busy ? "STARTING" : status)}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{explicacaoDoEstado(busy ? "STARTING" : status)}</p>
 
           {status === "WORKING" && (
             <p className="mt-3 text-sm font-medium text-emerald-700 dark:text-emerald-400">
@@ -187,12 +234,21 @@ export function ConnectWhatsappClient({ wahaConfigured, sessionName }: Props) {
             </div>
           )}
 
-          {(status === "ERROR" || status === "NOT_STARTED") && (
-            <p className="mt-3 text-xs text-muted-foreground">
-              {info.error
-                ? `Erro: ${info.error}`
-                : "Sessão ainda não iniciada — clique em Já configurei pra recarregar."}
-            </p>
+          {(status === "ERROR" || status === "NOT_STARTED" || status === "STOPPED") && (
+            <div className="mt-3 space-y-2">
+              <p className="text-sm">
+                O serviço de WhatsApp desta instalação não respondeu. Ele roda no seu
+                servidor, junto com o resto do sistema — quem instalou consegue religá-lo.
+              </p>
+              {info.error && (
+                <p className="text-xs text-muted-foreground">
+                  Detalhe técnico: <code className="break-all">{info.error}</code>
+                </p>
+              )}
+              <Button type="button" size="sm" variant="outline" disabled={busy} onClick={restartSession}>
+                {busy ? "Tentando…" : "Tentar de novo"}
+              </Button>
+            </div>
           )}
         </div>
       )}
@@ -232,7 +288,7 @@ export function ConnectWhatsappClient({ wahaConfigured, sessionName }: Props) {
             })
           }
         >
-          Já configurei (continuar)
+          Conectei em outro lugar
         </Button>
       </div>
     </div>

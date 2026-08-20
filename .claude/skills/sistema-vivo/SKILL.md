@@ -119,7 +119,7 @@ Nunca escreva "tudo em realtime" numa spec. Diga *quem observa* e *o que age*.
 | Por qual porta se chega? | `lib/navigation/registry.ts` — ou allowlist **com justificativa escrita** em `tests/unit/navegacao-completude.test.ts` |
 | Qual meu anti-morte? | Motor de follow-up (`lib/followup/`, `lib/agent-engine/cron/`) + Radar de Risco |
 | Qual a continuidade IA↔humano? | `buildHandoffSummary()` em `lib/agent-engine/agent/human-handoff.ts` |
-| Atualizei o mapa? | `docs/architecture/*.json` (fonte da verdade) + re-render archify |
+| Atualizei o mapa? | `docs/architecture/*.json` (fonte da verdade). **Sem re-render:** o archify 2.11.0 recusa o formato `architecture` — ver `docs/architecture/README.md` |
 
 **Orientação antes de implementar:** rode `graphify query "<pergunta>"` sobre `graphify-out/` para descobrir de quem a peça recebe e quem ela deve alimentar — evita criar ilha por desconhecimento do que já existe.
 

@@ -28,6 +28,20 @@ vi.mock("sonner", () => ({
 import { SetupAiForm } from "@/app/onboarding/setup-ai/_form";
 
 /**
+ * As listas de "o que ele já sabe" e "o que nunca faz" vêm do servidor, das
+ * mesmas fontes que o runtime usa. Aqui são fixas de propósito: o que está sob
+ * teste é o que a tela diz quando a publicação falha, não o catálogo.
+ */
+function montar() {
+  return (
+    <SetupAiForm
+      capacidades={["Ver os clientes", "Mover o negócio no funil"]}
+      conferencias={["Respeitar quem pediu para parar"]}
+    />
+  );
+}
+
+/**
  * `findByRole` e não `getByRole`: enquanto a transição está pendente o botão se
  * chama "Criando...", e o aviso pode aparecer num commit ANTES de o pendente
  * cair. Buscar pelo rótulo final é o que espera o formulário estar clicável de
@@ -52,7 +66,7 @@ describe("setup de IA: o que a tela diz quando o agente fica rascunho", () => {
       publish_error: "channel_sessions_list_failed: permission denied for table channel_sessions",
     });
 
-    render(<SetupAiForm />);
+    render(montar());
     await enviar();
 
     const aviso = await screen.findByRole("alert");
@@ -69,12 +83,41 @@ describe("setup de IA: o que a tela diz quando o agente fica rascunho", () => {
     // `publish_error` é a do agente publicado.
     createDefaultAgentMock.mockResolvedValue({ ok: true, agent_id: "agente-1" });
 
-    render(<SetupAiForm />);
+    render(montar());
     await enviar();
 
     await waitFor(() => expect(createDefaultAgentMock).toHaveBeenCalled());
     expect(screen.queryByRole("alert")).toBeNull();
     expect(toastWarning).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A SEGUNDA causa. O agente pode ficar rascunho por dois motivos bem
+   * diferentes: não se sabe qual número ele atenderia (canal), ou não se sabe
+   * qual modelo ele usaria (o provedor escolhido na instalação ainda não tem
+   * catálogo aqui). A tela afirmava sempre o primeiro — e mandar a pessoa
+   * conferir o WhatsApp quando o WhatsApp está certo é pior do que não dizer
+   * nada: ela mexe no que funciona e o rascunho continua rascunho.
+   */
+  it("causa 'modelo': não acusa o WhatsApp, e diz o caminho real", async () => {
+    createDefaultAgentMock.mockResolvedValue({
+      ok: true,
+      agent_id: "agente-1",
+      publish_blocked_by: "modelo",
+      provider: "openrouter",
+    });
+
+    render(montar());
+    await enviar();
+
+    const aviso = await screen.findByRole("alert");
+    expect(aviso).toHaveTextContent(/rascunho/i);
+    // A causa certa, nomeando o provedor que a pessoa escolheu no instalador.
+    expect(aviso).toHaveTextContent(/openrouter/i);
+    // E NUNCA a causa errada: o número de WhatsApp não tem nada a ver com isto.
+    expect(aviso).not.toHaveTextContent(/números de WhatsApp/i);
+    expect(screen.getByRole("button", { name: /continuar sem publicar/i })).toBeInTheDocument();
+    expect(toastWarning).toHaveBeenCalled();
   });
 
   it("uma retentativa que dá certo apaga o aviso anterior", async () => {
@@ -83,7 +126,7 @@ describe("setup de IA: o que a tela diz quando o agente fica rascunho", () => {
       agent_id: "agente-1",
       publish_error: "channel_sessions_list_failed: connection refused",
     });
-    render(<SetupAiForm />);
+    render(montar());
     await enviar();
     await screen.findByRole("alert");
 

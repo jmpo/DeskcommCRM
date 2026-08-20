@@ -4,8 +4,10 @@
  *
  * Reusa `generateDraftReply` (agent-engine) via um pool de Postgres próprio
  * do processo Next.js — sem tools, sem guardrails de envio (revisão humana
- * antes de sair). Sem rate-limiter dedicado: `assertBudget` dentro de
- * `runModelCall` já limita custo por org.
+ * antes de sair). Sem rate-limiter dedicado: o gate de orçamento dentro de
+ * `runModelCall` (`aplicarOrcamento`) já limita custo por org — desde a 0159
+ * pelo teto que a organização configurou na tela, e não mais por um escalar de
+ * jsonb que ninguém editava.
  */
 import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
@@ -63,7 +65,7 @@ export async function POST(_req: NextRequest, { params }: RouteParams): Promise<
 
   // Falha controlada (getLeadContext ok:false) volta como reason:'error' e vira
   // 500 abaixo. Exceção inesperada (credencial inválida, provider fora, pool
-  // morto, assertBudget) NÃO é engolida: sobe pro handler global do Next, que a
+  // morto, orçamento atingido) NÃO é engolida: sobe pro handler global do Next, que a
   // registra — perder a causa raiz de uma chamada de LLM seria cegueira em prod.
   const result: DraftReplyResult = await generateDraftReply(
     pool,

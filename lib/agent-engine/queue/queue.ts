@@ -146,6 +146,48 @@ const CLAIM_SQL = `
  * ponytail: cap é do daemon único; se um dia houver N daemons em bancos separados,
  * vira knob agregado por daemon.
  */
+/**
+ * Quantos MILISSEGUNDOS faltam até o próximo job ficar claimável — `null` quando
+ * não há nenhum `pending`. É o relógio que o loop consulta ANTES de abrir o claim.
+ *
+ * Um `select` só, sem `connect`, sem `begin` e sem advisory lock: o claim custa 5
+ * statements e 638 B de egress por rodada (medido no protocolo, fila vazia), e
+ * numa instalação ociosa ele rodava 4×/s para sempre — a issue #258. Este aqui
+ * custa 1 statement e 54 B, e é servido por `idx_job_queue_claim` (o parcial de
+ * `status='pending'` que já existe): Index Only Scan, 1 buffer, 0,010 ms medidos
+ * com 50 mil linhas na tabela — não degrada com o histórico.
+ *
+ * A garantia não é "o claim nunca perde um job por causa desta leitura". Ela é
+ * MAIS FRACA e é a verdadeira: como a leitura é uma FOTO (o `now()` dela é o
+ * instante da própria transação), um job que vence entre a foto e o despertar
+ * fica esperando — mas só até a próxima foto, porque nada no produto tira uma
+ * linha de `pending`+vencida. Ou seja: **a foto nunca esconde um job por mais de
+ * um `QUEUE_POLL_INTERVAL_MS`**. Medido: 1.300 estados de fronteira em fuzz
+ * diferencial contra o `claimJobs` real, zero casos de job escondido.
+ *
+ * Três armadilhas, todas com caso em tests/invariants/queue-relogio.test.ts:
+ *   - o `case when` é OBRIGATÓRIO: `greatest(NULL, 0)` no Postgres devolve 0, não
+ *     NULL — sem ele a fila VAZIA se disfarçaria de "job vencido" e o loop
+ *     voltaria a girar no ritmo curto, que é exatamente o defeito da issue;
+ *   - o `least(..., 86400000)` segura `run_after = 'infinity'`, que o hold do
+ *     session-watchdog grava, e que estouraria o `int4` do cast;
+ *   - o `::int` faz o pg devolver `number`; sem ele viria `string` de `numeric`.
+ */
+export async function faltaParaOProximoJob(pool: Pool): Promise<number | null> {
+  const { rows } = await pool.query<{ falta_ms: number | null }>(
+    `select case
+              when min(run_after) is null then null
+              else least(
+                     greatest(extract(epoch from (min(run_after) - now())) * 1000, 0),
+                     86400000
+                   )::int
+            end as falta_ms
+       from job_queue
+      where status = 'pending'`,
+  );
+  return rows[0]?.falta_ms ?? null;
+}
+
 export async function claimJobs(pool: Pool, opts: ClaimOptions): Promise<JobRow[]> {
   const client = await pool.connect();
   try {

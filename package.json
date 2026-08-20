@@ -107,7 +107,7 @@
     "eslint": "^9.12.0",
     "eslint-config-next": "^16.2.10",
     "jsdom": "^30.0.1",
-    "postcss": "^8.5.25",
+    "postcss": "^8.5.26",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "tailwindcss": "^3.4.13",
@@ -119,9 +119,14 @@
   },
   "packageManager": "pnpm@9.15.9",
   "pnpm": {
+    "//overrides": "Pisos de versão para dependência TRANSITIVA com advisory. Não é atalho: `pnpm update <pkg>` só casa o padrão contra o package.json (hono/js-yaml/nanoid não estão lá, e não se movem), e `pnpm update` sem alvo reescreve 29 ranges diretas e arrasta 139 pacotes. Override é a única ferramenta que move transitiva sem arrastar o mundo. Os seletores com `@<major>` são LOAD-BEARING: o lock tem duas árvores de brace-expansion (1.x e 5.x) e duas de path-to-regexp (6.x e 8.x); sem o escopo, o override rebaixa a árvore nova para a antiga — em silêncio, com `pnpm audit` ainda verde.",
     "overrides": {
-      "postcss": "^8.5.25",
-      "sharp": "^0.35.0"
+      "postcss": "^8.5.26",
+      "sharp": "^0.35.0",
+      "hono": "^4.12.34",
+      "js-yaml": "^4.3.1",
+      "brace-expansion@1": "^1.1.18",
+      "path-to-regexp@6": "^6.3.0"
     }
   }
 }

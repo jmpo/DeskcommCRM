@@ -118,7 +118,7 @@ sucesso" um site mudo. Detalhes em [`hostgator-setup-kit/README.md`](hostgator-s
 ### Primeiro acesso
 
 Abra `https://<seu-domínio>` (o cadeado leva ~1 min pra aparecer), entre com o admin, e tenha o
-**Google Authenticator** ou **Authy** à mão — o primeiro login de admin exige MFA. No onboarding,
+**Google Authenticator** ou **Authy** à mão *se* você quiser ligar a verificação em duas etapas — ela é **opcional** e fica em Configurações › Segurança; o primeiro login **não** a exige. No onboarding,
 escaneie o QR code com o WhatsApp do seu número.
 
 ### 🤖 Prefere que uma IA instale pra você?
@@ -283,6 +283,14 @@ docker compose up -d        # WAHA local (opcional em dev sem WhatsApp)
 # O schema real vive no baseline.sql, o mesmo que o install.sh aplica na VPS.
 # `supabase db push` "passa" e deixa o banco vazio.
 supabase link --project-ref <seu-ref>
+
+# Num projeto Supabase NOVO, habilite antes as extensões que o schema usa —
+# sem elas o baseline para em `type public.vector does not exist`.
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -c \
+  'create extension if not exists vector with schema public;
+   create extension if not exists citext with schema public;
+   create extension if not exists pg_trgm with schema public;'
+
 psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/baseline.sql
 
 pnpm dev
@@ -328,14 +336,22 @@ pnpm test:db       # Postgres efêmero + baseline install/update + invariantes
 pnpm test:e2e      # Playwright (requer dev server)
 ```
 
-**Quatro checks são obrigatórios** pra mergear na `main` — todos verificados na branch protection, não só no papel:
+**Estes checks são obrigatórios** pra mergear na `main`. A lista abaixo já disse "quatro" e depois "cinco" — **meça, não confie nela**:
+
+```bash
+gh api repos/melgarafael/DeskcommCRM/branches/main/protection \
+  --jq '.required_status_checks.contexts|join(", ")'
+# em 2026-08-14: verify, build-and-size, invariants, e2e, imagens-ok
+```
+
 
 | Check | O que faz |
 |---|---|
 | `verify` | typecheck + lint + `lint:channels` + `test:unit` + `test:shell` |
-| `invariants` | sobe um Postgres limpo, aplica o `baseline.sql` em modo **install** (`ON_ERROR_STOP=1`) e depois em modo **update** (provando idempotência), e roda **618 invariantes em 98 arquivos** — RBAC, atribuição, escopo, roteamento, follow-up, webhooks e automações |
+| `invariants` | sobe um Postgres limpo, aplica o `baseline.sql` em modo **install** e depois em modo **update** — as duas passadas com `ON_ERROR_STOP=1`, que é o que torna a segunda uma prova de idempotência e não só um "terminou" —, e roda os invariantes de RBAC, atribuição, escopo, roteamento, follow-up, webhooks e automações |
 | `build-and-size` | `pnpm build` em Node 22 |
-| `e2e` | sobe Supabase local, aplica o `baseline.sql` e roda **44 das 45 specs** Playwright pelo frontend |
+| `e2e` | sobe Supabase local, aplica o `baseline.sql` e roda **48 das 49 specs** Playwright pelo frontend |
+| `imagens-ok` | reprova quando qualquer uma das três imagens Docker (`app`, `worker`, `scheduler`) não constrói — é o artefato que o self-hoster instala |
 
 A única spec fora do `e2e` é `vps-fresh-onboarding` — ela precisa de WAHA + Redis + Resend + Nuvemshop de verdade. Ela é a **P0** da nossa doutrina de QA visual, então `e2e` verde **não** prova a jornada de instalação fresca; essa se prova numa VPS.
 
@@ -383,9 +399,12 @@ git commit -m "feat(escopo): descrição"
 # abre PR — o template já traz o checklist de Definition of Done
 ```
 
-Essa linha é a lista **completa** dos gates obrigatórios, de propósito: rodar só metade e descobrir o
-resto como surpresa vermelha depois de horas de espera é a pior primeira experiência que este
-repositório sabe entregar.
+Essas duas linhas são **tudo o que dá para rodar na sua máquina**, de propósito: rodar só metade e
+descobrir o resto como surpresa vermelha depois de horas de espera é a pior primeira experiência
+que este repositório sabe entregar.
+
+Dois gates obrigatórios **não** cabem aí e só rodam no CI: o `e2e` (precisa de Supabase local) e
+o `imagens-ok` (constrói as três imagens Docker). Verde na sua máquina não é verde no merge.
 
 **Definition of Done:** typecheck zero, lint zero, testes relevantes verdes, RLS testada se toca tabela tenant-aware, audit log emitido em mutações, migration versionada **+ apêndice no `baseline.sql`** se muda schema (senão a mudança não chega em quem se auto-hospeda). Detalhes em [`CLAUDE.md`](CLAUDE.md#definition-of-done).
 

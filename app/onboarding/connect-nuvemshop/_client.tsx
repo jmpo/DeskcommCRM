@@ -9,16 +9,21 @@ import {
   skipNuvemshop,
   markNuvemshopConfigured,
 } from "@/app/actions/onboarding/skipWhatsapp";
-import { branding } from "@/lib/branding";
+import { useMarcaDaInstalacao } from "@/lib/branding/contexto";
 
 export function ConnectNuvemshopClient() {
   const [pending, startTransition] = useTransition();
+  // Por PROP do servidor, nunca `branding()`: no navegador aquela função lê
+  // `window.__PUBLIC_ENV__` (a marca do BANCO) e no SSR lê `process.env` (só o
+  // `.env`). Renderizar o nome a partir dela faz o texto do servidor divergir do
+  // hidratado — hydration mismatch. Ver `lib/branding/contexto.tsx`.
+  const marca = useMarcaDaInstalacao();
 
   return (
     <div className="space-y-4 rounded-lg border bg-background p-6">
       <p className="text-sm">
         Ao clicar em <strong>Conectar</strong>, você será redirecionado para autorizar o
-        {branding().name} na sua conta Nuvemshop.
+        {marca.name} na sua conta Nuvemshop.
       </p>
 
       <div className="flex flex-wrap gap-2">

@@ -128,7 +128,10 @@ const KNOWN_DEBT: { reason: string; files: string[] }[] = [
     files: [
       "app/api/v1/ai/pacing/route.ts",
       "app/api/v1/cron/contact-avatars/route.ts",
-      "components/connections/AntiBanSheet.tsx",
+      // `components/connections/AntiBanSheet.tsx` SAIU desta lista: ele lia
+      // `waha_session_name` como último degrau do NOME que o usuário vê, e por
+      // isso um canal sem apelido aparecia no painel como `org_2dd5e6ea`. Agora
+      // usa `nomeDoCanal`, que não conhece provedor nenhum. A catraca só encolhe.
     ],
   },
   {

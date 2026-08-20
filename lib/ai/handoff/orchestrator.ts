@@ -30,7 +30,17 @@ export type HandoffReason =
   | "low_confidence"
   | "critical_stage"
   | "legal_mention"
-  | "refund_mention";
+  | "refund_mention"
+  /**
+   * O teto de gasto com IA parou o atendimento automático. NÃO é pedido do lead —
+   * quem lê `last_handoff_reason` precisa distinguir, porque a primeira frase que
+   * o humano digita depende disso.
+   *
+   * O literal vem de `HANDOFF_REASON_ORCAMENTO` (`lib/agent-engine/edge/llm/orcamento.ts`),
+   * a MESMA constante que o engine grava: dois caminhos param a IA pelo mesmo
+   * motivo, e duas grafias fariam quem filtra por uma achar metade das conversas.
+   */
+  | "orcamento_de_ia";
 
 export interface TriggerHandoffInput {
   conversationId: string;

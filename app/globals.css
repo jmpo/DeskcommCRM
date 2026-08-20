@@ -143,6 +143,101 @@
   --radius: var(--radius-md);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Espelho do tema claro para SUBÁRVORE.
+
+   `:root` casa só o `<html>`. Medido antes de escrever: `grep -c
+   'data-theme="light"' app/globals.css` = 0 — ou seja, um `<div
+   data-theme="light">` dentro de uma página escura NÃO recebia nenhum token
+   claro; herdava os escuros do `<html>` e renderizava uma tela que mente. É
+   exatamente o que o preview lado a lado da marca precisa fazer.
+
+   Custom property herdada não tem como voltar ao valor do `:root` dentro de
+   uma subárvore (`initial`/`revert` a deixam sem valor, não com o valor de
+   cima), então redeclarar é obrigação da linguagem, não escolha. O conjunto
+   redeclarado é EXATAMENTE o que `[data-theme="dark"]` sobrescreve — 59
+   props — e um teste (`tests/unit/branding-tema-claro-escopavel.test.ts`)
+   reprova quando os dois divergem; sem ele a cópia envelhece calada.
+
+   Por que a seletor NÃO é `:root, [data-theme="light"]`, que seria a forma
+   óbvia: `extrairRegua` (lib/branding/contraste.ts) acha o bloco claro por
+   igualdade exata de seletor (`r.seletor === ":root"`), e a lista o quebraria
+   — a régua inteira, e com ela os 37 testes de contraste, deixariam de ser
+   extraídos.
+
+   As 11 paradas `--color-accent-NNN` ficam DE FORA de propósito. Elas são
+   idênticas nos dois blocos do produto, então omiti-las não muda pixel algum
+   aqui; e, na instalação que trocou a cor, a subárvore clara passa a herdar a
+   rampa do `<html>` (a do revendedor) em vez de fixar a Sage. Pelo mesmo
+   motivo os papéis abaixo mantêm a forma `var(--color-accent-NNN)`.
+
+   Buraco conhecido: `--color-accent-fg` é literal `#ffffff` e, numa subárvore
+   clara sob página escura, ficaria preso ao branco mesmo quando a marca exige
+   preto. Fechar isso pede um bloco de escopo claro no CSS injetado
+   (lib/branding/css.ts), que só ganha consumidor com a tela de marca.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --color-bg: #faf9f6;
+  --color-surface: #ffffff;
+  --color-surface-elevated: #f5f3ee;
+  --color-overlay: rgba(28, 26, 22, 0.42);
+  --color-text: #1c1a16;
+  --color-text-muted: #5d594f;
+  --color-text-subtle: #7d786c;
+  --color-border: #e7e3da;
+  --color-border-strong: #d2cdbf;
+  --color-accent: var(--color-accent-600);
+  --color-accent-fg: #ffffff;
+  --color-accent-soft: var(--color-accent-100);
+  --color-accent-hover: var(--color-accent-700);
+  --color-neutral-50: #faf9f6;
+  --color-neutral-100: #f3f1ec;
+  --color-neutral-200: #e7e3da;
+  --color-neutral-300: #d2cdbf;
+  --color-neutral-400: #a9a395;
+  --color-neutral-500: #7d786c;
+  --color-neutral-600: #5d594f;
+  --color-neutral-700: #46433b;
+  --color-neutral-800: #2e2c26;
+  --color-neutral-900: #1c1a16;
+  --color-neutral-950: #0e0d0a;
+  --color-success: #5a8a5f;
+  --color-success-bg: rgba(90, 138, 95, 0.12);
+  --color-success-fg: #41673f;
+  --color-warning: #b07a2b;
+  --color-warning-bg: rgba(176, 122, 43, 0.12);
+  --color-warning-fg: #875a1a;
+  --color-error: #a94a3c;
+  --color-error-bg: rgba(169, 74, 60, 0.12);
+  --color-error-fg: #8a3a2e;
+  --color-info: #4a7a93;
+  --color-info-bg: rgba(74, 122, 147, 0.12);
+  --color-info-fg: #355d72;
+  --shadow-xs: 0 1px 2px 0 rgba(20, 18, 14, 0.04);
+  --shadow-sm: 0 1px 2px 0 rgba(20, 18, 14, 0.05), 0 1px 1px 0 rgba(20, 18, 14, 0.03);
+  --shadow-md: 0 4px 12px -2px rgba(20, 18, 14, 0.06), 0 2px 4px -1px rgba(20, 18, 14, 0.04);
+  --shadow-lg: 0 12px 32px -6px rgba(20, 18, 14, 0.10), 0 4px 12px -2px rgba(20, 18, 14, 0.06);
+  --shadow-xl: 0 24px 48px -12px rgba(20, 18, 14, 0.16), 0 8px 16px -4px rgba(20, 18, 14, 0.08);
+  --background: var(--color-bg);
+  --foreground: var(--color-text);
+  --card: var(--color-surface);
+  --card-foreground: var(--color-text);
+  --popover: var(--color-surface);
+  --popover-foreground: var(--color-text);
+  --primary: var(--color-accent);
+  --primary-foreground: var(--color-accent-fg);
+  --secondary: var(--color-surface-elevated);
+  --secondary-foreground: var(--color-text);
+  --muted: var(--color-surface-elevated);
+  --muted-foreground: var(--color-text-muted);
+  --accent-foreground: var(--color-accent-fg);
+  --destructive: var(--color-error);
+  --destructive-foreground: #ffffff;
+  --border: var(--color-border);
+  --input: var(--color-border);
+  --ring: var(--color-accent-500);
+}
+
 [data-theme="dark"] {
   /* Surfaces (dark — drawn) */
   --color-bg: #161510;
@@ -242,6 +337,13 @@
   [data-theme="dark"] {
     color-scheme: dark;
   }
+  /* Par do espelho de tokens acima: sem isto, uma subárvore clara dentro de uma
+     página escura recebe os tokens claros mas mantém o `color-scheme: dark` do
+     `<html>` — e o navegador continua pintando scrollbar, `<input>` e menu
+     nativo em escuro dentro de uma caixa clara. */
+  [data-theme="light"] {
+    color-scheme: light;
+  }
 
   body {
     background-color: var(--color-bg);
@@ -277,6 +379,26 @@
   }
   [data-theme="dark"] :focus-visible {
     outline-color: var(--color-accent-400);
+  }
+
+  /* Modo de alto contraste do sistema (Windows High Contrast / forced-colors).
+     Medido antes de escrever: 0 ocorrências de `forced-colors` no repo inteiro
+     e, em `app/ components/ lib/`, 18 arquivos que matam `outline`
+     (`outline-none` / `outline: none` / outline transparente) — 14 deles
+     desenhando o foco com `ring-*`, que é `box-shadow`, e o forced-colors APAGA
+     box-shadow. (Contagem com este arquivo de fora: incluí-lo devolvia 19/15,
+     porque o grep achava as palavras deste próprio comentário.) Nesses 14, o
+     indicador de foco some por completo naquele modo: quem navega por teclado
+     perde a posição do cursor. É WCAG 2.4.7 nível A, não preferência.
+
+     `Highlight` é cor de sistema (a paleta do usuário), a única que o modo não
+     substitui. `!important` porque o que precisa ser vencido é justamente o
+     `outline: none`/`outline: transparent` desses 14 arquivos. */
+  @media (forced-colors: active) {
+    :focus-visible {
+      outline: 2px solid Highlight !important;
+      outline-offset: 2px !important;
+    }
   }
 
   /* Scrollbar — subtle greige */

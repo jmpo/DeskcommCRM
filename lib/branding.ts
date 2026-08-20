@@ -50,7 +50,38 @@ export function resolveBranding(
   };
 }
 
-/** Lê a marca da fonte correta em cada lado da fronteira servidor/navegador. */
+/**
+ * A marca da instalação — **SOMENTE em componente de servidor.**
+ *
+ * ⚠️ NÃO CHAME ISTO DE UM `"use client"`. Em client component use
+ * `useMarcaDaInstalacao()` (`lib/branding/contexto.tsx`), que recebe a marca por
+ * prop do servidor. A regra é vigiada por
+ * `tests/unit/marca-sem-divergencia-de-hidratacao.test.tsx`, que varre todo
+ * arquivo `"use client"` — comentário não reprova build, teste reprova.
+ *
+ * ── Por que a regra existe ───────────────────────────────────────────────────
+ *
+ * Esta função lê fontes DIFERENTES nos dois lados da fronteira, e as duas
+ * deixaram de concordar. No navegador ela lê `window.__PUBLIC_ENV__`, que desde
+ * a onda do logo carrega a marca RESOLVIDA (banco acima do `.env`). No servidor
+ * — inclusive no SSR de um client component, onde `window` não existe — ela lê
+ * `process.env`, que é só o `.env`. Numa instalação com logo gravado pela tela e
+ * `APP_LOGO_URL` vazio (o caso normal de quem sobe logo pela tela), o SSR
+ * renderizava o nome em `<span>` e o cliente hidratava um `<img>`: troca de tipo
+ * de elemento, React #418 em toda tela, árvore descartada e regerada.
+ *
+ * No SERVIDOR o comportamento é correto e é DELIBERADO: o texto sob o "Entrar"
+ * sai daqui (o `.env`) enquanto o título da aba sai do banco, e
+ * `tests/e2e/icone-da-marca.spec.ts:64-77` cruza as duas resoluções de propósito
+ * — é o que faz "trocar o nome pela tela e a aba não acompanhar" reprovar. Por
+ * isso o defeito se fecha tirando os client components daqui, e não mudando o
+ * que esta função devolve.
+ *
+ * O ramo do navegador continua de pé porque a alternativa é pior: sem ele, um
+ * client component que voltasse a chamar `branding()` cairia no padrão do
+ * produto nos DOIS lados e mostraria a marca errada em SILÊNCIO. Divergir é
+ * barulhento (o console acusa), e barulhento é o modo de falhar que se conserta.
+ */
 export function branding(): Branding {
   if (typeof window !== "undefined") {
     const runtime = window.__PUBLIC_ENV__;

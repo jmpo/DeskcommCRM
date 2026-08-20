@@ -11,12 +11,42 @@ import { audit } from "@/lib/audit";
 import { listSelectableChannels, type SelectableChannel } from "@/lib/channels/selectable";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiAgentDefaultSchema, type PromptTemplate } from "@/lib/schemas/onboarding";
-import { requireOnboardingCtx, patchOnboardingState, OnboardingError } from "./_shared";
+import { capacidadesPadraoDoOnboarding } from "@/lib/ai/agents/capacidades-padrao";
+import { publicarMemoriaDaOrg } from "@/lib/ai/memoria-da-org";
+import { escolherModeloDoProvedor } from "@/lib/ai/agents/escolher-modelo";
+import { chaveDePlataforma } from "@/lib/ai/runtime/agent";
+import {
+  requireOnboardingCtx,
+  patchOnboardingState,
+  loadOnboardingState,
+  OnboardingError,
+} from "./_shared";
 
-const PROMPT_BODIES: Record<PromptTemplate, string> = {
-  ecommerce_friendly: `Você é um(a) atendente virtual amigável de uma loja online. Cumprimente, entenda a dúvida do cliente, ofereça opções claras e use linguagem calorosa. Confirme detalhes do pedido antes de agir.`,
-  ecommerce_professional: `Você é um(a) atendente virtual profissional de e-commerce. Comunicação objetiva, formal e empática. Sempre cite o número do pedido quando relevante e ofereça próximos passos práticos.`,
-  support_minimal: `Você é um(a) agente de suporte minimalista. Responda em frases curtas, peça apenas o necessário e direcione para um humano quando a confiança for baixa.`,
+/**
+ * O jeito de falar do funcionário.
+ *
+ * Os corpos diziam "loja online" e "e-commerce" em dois dos três — num produto
+ * que se declara multi-nicho por escrito, e cuja maioria de adopters roda em
+ * clínica, imobiliária e infoproduto. Uma clínica terminava o onboarding com um
+ * atendente que se apresentava como sendo de uma loja virtual.
+ *
+ * Recebem o nome do negócio E o ramo: um funcionário que sabe onde trabalha é o
+ * mínimo que se espera de alguém contratado, e saber o QUE o lugar faz é a
+ * diferença entre "Olá, como posso ajudar?" e uma primeira frase que já mostra
+ * que ele entendeu onde está. O ramo é o que o dono respondeu no primeiro passo;
+ * quem não respondeu recebe a versão sem ele, e não uma inventada.
+ */
+function ondeTrabalha(negocio: string, oQueFaz: string | undefined): string {
+  return oQueFaz ? `${negocio}, que é: ${oQueFaz}` : negocio;
+}
+
+const PROMPT_BODIES: Record<PromptTemplate, (onde: string) => string> = {
+  ecommerce_friendly: (n) =>
+    `Você atende os clientes de ${n}. Fale de forma calorosa e próxima, como alguém que gosta de ajudar. Cumprimente, entenda o que a pessoa precisa e ofereça opções claras. Confirme os detalhes antes de agir.`,
+  ecommerce_professional: (n) =>
+    `Você atende os clientes de ${n}. Fale de forma objetiva, cordial e profissional. Vá direto ao ponto, sem parecer frio, e sempre termine indicando o próximo passo.`,
+  support_minimal: (n) =>
+    `Você atende os clientes de ${n}. Responda em frases curtas, peça apenas o que for necessário e chame uma pessoa do time assim que a dúvida sair do seu alcance.`,
 };
 
 /** O agente padrão desta organização, do jeito que este passo precisa vê-lo. */
@@ -39,7 +69,43 @@ interface AgenteDoOnboarding {
 type PublishOutcome =
   | { published: true }
   | { published: false; reason: "no_channel" }
+  /**
+   * Há provedor e modelo, mas nenhuma chave utilizável: nem credencial validada
+   * da organização, nem chave da instalação no ambiente. Publicar assim entrega
+   * um funcionário que morre em toda mensagem.
+   */
+  | { published: false; reason: "sem_chave"; provider: string }
+  | {
+      published: false;
+      reason: "no_model";
+      provider: string;
+      /**
+       * As duas causas pedem conselhos OPOSTOS: catálogo vazio pede esperar (ou
+       * forçar) a sincronização; catálogo cheio sem nenhum modelo que sirva pede
+       * trocar de provedor. Dizer "ainda não baixamos a lista" para quem já tem
+       * 400 modelos é o conselho que nunca resolve.
+       */
+      motivo: "catalogo_vazio" | "nenhum_com_ferramentas";
+    }
   | { published: false; reason: "failed"; message: string };
+
+/**
+ * O provedor de IA que a instalação escolheu.
+ *
+ * O instalador pergunta "qual inteligência artificial vai atender seus
+ * clientes?" e grava a resposta em `organizations.settings.llm.provider`. Este
+ * passo publicava `"anthropic"` literal, e como o provider da VERSÃO vence o da
+ * organização em `resolveOrgLlmConfig`, quem escolheu outro terminava o wizard
+ * com um agente "Publicado" que morre em toda mensagem pedindo uma chave que
+ * ele nunca teve.
+ *
+ * `settings` é jsonb livre: leitura defensiva, igual à do agent-engine.
+ */
+function provedorDaInstalacao(settings: unknown): string {
+  const llm = (settings as { llm?: unknown } | null)?.llm;
+  const provider = (llm as { provider?: unknown } | null | undefined)?.provider;
+  return typeof provider === "string" && provider.trim() !== "" ? provider : "anthropic";
+}
 
 function mensagemDoErro(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -87,13 +153,81 @@ async function publishFirstVersion(
   const [canal] = canais;
   if (!canal) return { published: false, reason: "no_channel" };
 
-  const { data: model } = await admin
+  // Erro de leitura aqui NÃO pode virar "assume anthropic": publicar sem saber
+  // qual provedor a instalação escolheu é exatamente o defeito de origem, com
+  // outra roupa.
+  const { data: org, error: orgErr } = await admin
+    .from("organizations")
+    .select("settings")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (orgErr) return { published: false, reason: "failed", message: orgErr.message };
+
+  const provider = provedorDaInstalacao(org?.settings);
+
+  // O modelo daquele provedor. Não existe fallback literal: um id de outro
+  // provedor (ou inventado) produz o pior desfecho do produto — o agente
+  // responde texto plausível e nunca cria o lead nem move o card.
+  //
+  // Buscar SÓ o `is_default_for_provider` travava a OpenRouter, que é a opção
+  // [1] do instalador: medido num ambiente real, ela chega com 400 modelos
+  // sincronizados e NENHUM marcado como padrão, porque o cron de catálogo não
+  // escreve esse campo. A regra de escolha (com o requisito de ferramentas)
+  // vive em `escolherModeloDoProvedor`.
+  const { data: modelos } = await admin
     .from("ai_models")
-    .select("model_id")
-    .eq("provider", "anthropic")
-    .eq("is_default_for_provider", true)
+    .select("model_id, is_default_for_provider, supports_tools, input_price_per_million_cents, output_price_per_million_cents")
+    .eq("provider", provider)
+    .is("deprecated_at", null);
+
+  const escolha = escolherModeloDoProvedor(
+    (modelos ?? []) as Parameters<typeof escolherModeloDoProvedor>[0],
+  );
+  if (!escolha.escolhido) {
+    return { published: false, reason: "no_model", provider, motivo: escolha.motivo };
+  }
+  const modelId = escolha.modelId;
+
+  // "Em que negócios ele pode mexer". Toda organização nasce com um funil de
+  // entrada, criado por gatilho no INSERT de `organizations`. Sem preencher
+  // isto, `pipeline_ids` fica vazio — e vazio significa NENHUM, então toda
+  // escrita de lead é recusada e o card nunca sai do lugar.
+  //
+  // Falha ou ausência = escopo vazio, nunca um funil chutado: mexer no funil
+  // errado é pior que não mexer em nenhum.
+  const { data: funil } = await admin
+    .from("crm_pipelines")
+    .select("id")
+    .eq("organization_id", orgId)
+    .eq("is_default", true)
+    .eq("is_archived", false)
+    .maybeSingle();
+  const pipelineIds = funil?.id ? [funil.id as string] : [];
+
+  // QUAL CHAVE ESTA VERSÃO USA — e as duas origens são legítimas.
+  //
+  // Credencial validada da organização vence (quem colou a chave no wizard, ou
+  // cadastrou pela tela); na falta dela, `credential_id: null` significa "a chave
+  // da instalação", que é o caso mais comum do kit. Sem NENHUMA das duas, não se
+  // publica: o agente responderia erro em toda mensagem e o dono só descobriria
+  // com o primeiro cliente.
+  //
+  // `validated_at` não nulo é exigência de `loadCredential`, não capricho: uma
+  // credencial que o provedor ainda não confirmou não é utilizável pelo turno.
+  const { data: credencial } = await admin
+    .from("ai_provider_credentials")
+    .select("id")
+    .eq("organization_id", orgId)
+    .eq("provider", provider)
+    .eq("is_active", true)
+    .not("validated_at", "is", null)
     .limit(1)
     .maybeSingle();
+
+  const credentialId = (credencial?.id as string | undefined) ?? null;
+  if (!credentialId && !chaveDePlataforma(provider)) {
+    return { published: false, reason: "sem_chave", provider };
+  }
 
   const { data: version, error: versionErr } = await admin
     .from("ai_agent_versions")
@@ -102,11 +236,16 @@ async function publishFirstVersion(
       agent_id: agent.id,
       version_number: 1,
       system_prompt: systemPrompt,
-      provider: "anthropic",
-      // Fallback do modelo vem da main (catálogo do 0104); o canal vem daqui
-      // (listagem que exclui arquivado). O hunk pedia as DUAS metades: ficar com
-      // um lado só perderia o modelo atual ou o filtro de canal excluído.
-      model: (model?.model_id as string) ?? "claude-sonnet-5",
+      // Provedor e modelo saem SEMPRE da mesma origem — o par é indivisível.
+      // Emprestar só o id do modelo de outro provedor manda um nome que o
+      // endpoint não conhece.
+      provider,
+      model: modelId,
+      // Sem capacidades o turno não monta ferramenta nenhuma: o agente
+      // entregue conversa e não alcança contato, lead nem funil.
+      credential_id: credentialId,
+      tool_ids: capacidadesPadraoDoOnboarding(),
+      pipeline_ids: pipelineIds,
       channel_session_id: canal.id,
       status: "published",
       published_at: new Date().toISOString(),
@@ -158,7 +297,23 @@ export type CreateAgentResult =
    * a parte que podia falhar falhou (`sendOnboardingInvites` → `undelivered`):
    * avançar calado seria a UI mentindo sobre o que o servidor conseguiu fazer.
    */
-  | { ok: true; agent_id: string; publish_error?: string }
+  /**
+   * `publish_blocked_by` diz à tela QUAL causa explicar. Sem ele, o alerta
+   * afirmava sempre a causa do canal ("não consegui ler os números de
+   * WhatsApp") — e afirmar a causa errada é pior que não afirmar nenhuma:
+   * manda a pessoa consertar o que não está quebrado.
+   */
+  | {
+      ok: true;
+      agent_id: string;
+      publish_error?: string;
+      publish_blocked_by?: "canal" | "modelo" | "chave";
+      provider?: string;
+      /** Catálogo vazio e catálogo sem modelo que sirva pedem conselhos opostos. */
+      motivo_do_modelo?: "catalogo_vazio" | "nenhum_com_ferramentas";
+      /** As regras da casa não foram gravadas — o agente existe assim mesmo. */
+      regras_nao_salvas?: string;
+    }
   | { ok: false; error: "auth_required" | "no_active_org" | "invalid_input" | "db_error"; details?: unknown };
 
 export async function createDefaultAgent(formData: FormData): Promise<CreateAgentResult> {
@@ -173,6 +328,7 @@ export async function createDefaultAgent(formData: FormData): Promise<CreateAgen
   const raw = {
     name: String(formData.get("name") ?? "Atendente IA").trim(),
     prompt_template: String(formData.get("prompt_template") ?? "ecommerce_friendly"),
+    regras_da_casa: String(formData.get("regras_da_casa") ?? "").trim() || undefined,
   };
 
   let input;
@@ -186,7 +342,19 @@ export async function createDefaultAgent(formData: FormData): Promise<CreateAgen
   }
 
   const admin = createAdminClient();
-  const systemPrompt = PROMPT_BODIES[input.prompt_template];
+
+  // O ramo que o dono escreveu no primeiro passo. Falha de leitura NÃO derruba o
+  // passo: o funcionário nasce sem essa frase, que é degradação honesta — o
+  // contrário seria travar a contratação por causa de um adjetivo.
+  let oQueFaz: string | undefined;
+  try {
+    const { state } = await loadOnboardingState(ctx.orgId);
+    oQueFaz = state.welcome?.o_que_faz;
+  } catch {
+    oQueFaz = undefined;
+  }
+
+  const systemPrompt = PROMPT_BODIES[input.prompt_template](ondeTrabalha(ctx.orgName, oQueFaz));
 
   // O agente padrão do onboarding é UM por organização, e o banco já garante
   // isso: `ai_agents_one_default_per_org` é índice único parcial em
@@ -220,6 +388,21 @@ export async function createDefaultAgent(formData: FormData): Promise<CreateAgen
         organization_id: ctx.orgId,
         name: input.name,
         system_prompt: systemPrompt,
+        // `mcp_agent`, e não o `rag_bot` que o banco tem como padrão.
+        //
+        // O default do banco é de quando o produto só tinha o formato antigo, e o
+        // onboarding nunca escrevia este campo. O resultado: o funcionário que a
+        // pessoa acabava de montar abria no EDITOR LEGADO — "Temperature",
+        // "Top K", "Similarity threshold" — e as capacidades que ele recebeu
+        // ligadas (mexer no contato, no negócio, no funil) ficavam invisíveis
+        // para o dono. Funcionavam no runtime e não tinham superfície de
+        // configuração, que é o invariante 6 do Sistema Vivo quebrado.
+        //
+        // O que travava a virada era o editor novo exigir `credential_id`, e
+        // instalação pelo kit não ter nenhuma linha em `ai_provider_credentials`.
+        // Isso foi resolvido: a versão aceita `credential_id: null` (= a chave da
+        // instalação) e o seletor oferece essa opção.
+        kind: "mcp_agent",
         is_default: true,
         is_active: true,
         created_by: ctx.userId,
@@ -231,6 +414,19 @@ export async function createDefaultAgent(formData: FormData): Promise<CreateAgen
       return { ok: false, error: "db_error", details: error?.message };
     }
     agent = data;
+  }
+
+  // As regras da casa valem para QUALQUER agente da organização, então vão para
+  // a memória da org — o mesmo lugar que a tela de Memória edita depois — e não
+  // para o prompt deste agente. Enfiá-las no prompt faria a segunda contratação
+  // nascer sem elas.
+  //
+  // Falha aqui NÃO derruba o passo: o agente já existe e o treinamento
+  // principal aconteceu. Some do caminho crítico e vira aviso.
+  let regrasNaoSalvas: string | null = null;
+  if (input.regras_da_casa) {
+    const pub = await publicarMemoriaDaOrg(admin, ctx.orgId, ctx.userId, input.regras_da_casa);
+    if (!pub.ok) regrasNaoSalvas = pub.mensagem;
   }
 
   const publicacao = await publishFirstVersion(admin, ctx.orgId, agent, systemPrompt, ctx.userId);
@@ -274,10 +470,50 @@ export async function createDefaultAgent(formData: FormData): Promise<CreateAgen
   // redirect aqui deixaria como única pista um badge "Rascunho" numa tela que a
   // pessoa ainda não viu.
   if (!publicacao.published && publicacao.reason === "failed") {
-    return { ok: true, agent_id: agent.id, publish_error: publicacao.message };
+    return {
+      ok: true,
+      agent_id: agent.id,
+      publish_error: publicacao.message,
+      publish_blocked_by: "canal",
+      ...(regrasNaoSalvas ? { regras_nao_salvas: regrasNaoSalvas } : {}),
+    };
   }
 
-  redirect("/onboarding/invite-team");
+  // Mesma postura, outra causa: o provedor escolhido na instalação ainda não
+  // tem modelo no catálogo desta instalação (o da OpenRouter só chega no cron
+  // diário). Avançar calado deixaria a pessoa achar que o funcionário está no
+  // ar — e ele não responde uma única mensagem.
+  // Sem chave utilizável: o agente fica rascunho e a tela explica. Avançar
+  // calado deixaria a pessoa achar que o funcionário está no ar.
+  if (!publicacao.published && publicacao.reason === "sem_chave") {
+    return {
+      ok: true,
+      agent_id: agent.id,
+      publish_blocked_by: "chave",
+      provider: publicacao.provider,
+      ...(regrasNaoSalvas ? { regras_nao_salvas: regrasNaoSalvas } : {}),
+    };
+  }
+
+  if (!publicacao.published && publicacao.reason === "no_model") {
+    return {
+      ok: true,
+      agent_id: agent.id,
+      publish_blocked_by: "modelo",
+      provider: publicacao.provider,
+      motivo_do_modelo: publicacao.motivo,
+      ...(regrasNaoSalvas ? { regras_nao_salvas: regrasNaoSalvas } : {}),
+    };
+  }
+
+  // Publicou o agente, mas as regras da casa não foram gravadas. O passo
+  // aconteceu; o que a pessoa escreveu, não. Redirecionar calado apagaria da
+  // tela o único lugar onde esse texto existia.
+  if (regrasNaoSalvas) {
+    return { ok: true, agent_id: agent.id, regras_nao_salvas: regrasNaoSalvas };
+  }
+
+  redirect("/onboarding");
 }
 
 export async function skipAi(): Promise<void> {
@@ -285,5 +521,5 @@ export async function skipAi(): Promise<void> {
   await patchOnboardingState(ctx.orgId, {
     ai: { agent_id: "", prompt_template: "skipped", skipped: true },
   });
-  redirect("/onboarding/invite-team");
+  redirect("/onboarding");
 }

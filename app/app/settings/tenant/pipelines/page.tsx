@@ -43,7 +43,7 @@ export default async function PipelinesSettingsPage() {
   return (
     <div className="flex h-full flex-col gap-6 p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Funis</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Etapas do funil</h1>
         <p className="text-sm text-muted-foreground">
           Para onde o agente leva o card em cada passo do atendimento
           {podeEditarConfig ? ", vocabulário, custom fields e motivos de perda" : ""}.

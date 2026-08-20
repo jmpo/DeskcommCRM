@@ -70,7 +70,24 @@ const versionShapeSchema = z
     system_prompt: z.string().trim().min(10).max(20000),
     provider: z.enum(PROVIDERS),
     model: z.string().trim().min(1).max(120),
-    credential_id: UUID,
+    /**
+     * `null` = usar a chave que veio na INSTALAÇÃO.
+     *
+     * Era UUID obrigatório, e isso trancava a porta para o cenário mais comum do
+     * produto: quem instala pelo kit cola a chave no `.env` e nunca abre a tela
+     * de Credenciais — não existe uma única linha em `ai_provider_credentials`.
+     * O runtime SEMPRE soube lidar com isso (`chaveDePlataforma` em
+     * `lib/ai/runtime/agent.ts`, mesma precedência de `resolveOrgLlmConfig`); só
+     * o editor não deixava salvar. O efeito: o agente do onboarding tinha de
+     * nascer `rag_bot`, no editor legado, e as capacidades ficavam invisíveis
+     * para o dono.
+     *
+     * ⚠️ QUEM ACEITA `null` PRECISA CONFERIR QUE A CHAVE EXISTE. O schema é de
+     * FORMA, não de ambiente: nulo aqui significa "usa a da instalação", e se ela
+     * não existir o agente é publicado para morrer em toda mensagem. A guarda
+     * mora na rota de versões, que é quem conhece o `process.env` do servidor.
+     */
+    credential_id: UUID.nullable(),
     tool_ids: z
       .array(z.string().min(1).max(80))
       // O mesmo teto que a tela mostra ("13 de 20") é o que o servidor recusa —

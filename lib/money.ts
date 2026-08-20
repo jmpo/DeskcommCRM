@@ -59,3 +59,23 @@ export function parseReaisToCents(input: string): number | null {
 export function formatCentsBRL(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+
+/**
+ * Centavos de DÓLAR → "US$ 249,90". Para todo número que sai de
+ * `llm_calls.cost_cents` / `ai_invocations.cost_cents`.
+ *
+ * ⚠️ EXISTE PORQUE O NÚMERO É DÓLAR E SETE TELAS O ESCREVIAM EM REAL.
+ * `lib/agent-engine/edge/llm/pricing.ts` cota o provedor em USD e grava centavo
+ * de USD; formatar em BRL fazia o dono do negócio ler um valor ~5x menor do que
+ * o que estava sendo cobrado dele — e, depois que o teto passou a vincular,
+ * armar um limite ~5x maior do que pensava. A conversão de moeda NÃO é feita
+ * (exigiria fonte de câmbio, dependência externa nova num produto self-host):
+ * o que muda é o rótulo dizer a unidade real.
+ *
+ * Vírgula decimal porque a frase é pt-BR; "US$" porque a moeda é dólar. É a
+ * mesma escolha de `emDolares` em `lib/agent-engine/edge/llm/orcamento.ts` —
+ * mas ali ela não pode importar daqui (o módulo é do engine e roda no worker).
+ */
+export function formatCentsUSD(cents: number): string {
+  return ((cents ?? 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "USD" });
+}

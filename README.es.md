@@ -121,7 +121,7 @@ un sitio mudo. Detalles en [`hostgator-setup-kit/README.md`](hostgator-setup-kit
 ### Primer acceso
 
 Abre `https://<tu-dominio>` (el candado tarda ~1 min en aparecer), entra con el admin y ten a
-mano **Google Authenticator** o **Authy** — el primer inicio de sesión de admin exige MFA. En el
+mano **Google Authenticator** o **Authy** *si* querés activar la verificación en dos pasos — es **opcional** y está en Configuración › Seguridad; el primer inicio de sesión **no** la exige. En el
 onboarding, escanea el código QR con el WhatsApp de tu número.
 
 ### 🤖 ¿Prefieres que una IA lo instale por ti?
@@ -306,7 +306,14 @@ pnpm test:db       # Postgres efímero + baseline install/update + invariantes
 pnpm test:e2e      # Playwright (requiere dev server)
 ```
 
-**Cuatro checks son obligatorios** para mergear en `main` — todos verificados en la branch protection, no solo en el papel:
+**Estos checks son obligatorios** para mergear en `main`. Esta lista ya dijo "cuatro" y después "cinco" — **medí, no confíes en ella**:
+
+```bash
+gh api repos/melgarafael/DeskcommCRM/branches/main/protection \
+  --jq '.required_status_checks.contexts|join(", ")'
+# el 2026-08-14: verify, build-and-size, invariants, e2e, imagens-ok
+```
+
 
 | Check | Qué hace |
 |---|---|
@@ -330,7 +337,7 @@ Entre los invariantes está el **test de aislamiento RLS**: crea 2 organizacione
 | [`VISION.md`](VISION.md) | **Visión y posicionamiento** — qué es el proyecto, en qué cree y hacia dónde va |
 | [`CHANGELOG.md`](CHANGELOG.md) | Qué cambió en cada versión — **lee la sección de tu versión antes de actualizar** |
 | [`docs/SETUP.md`](docs/SETUP.md) | Setup de desarrollo, paso a paso, de todas las integraciones |
-| [`docs/white-label.md`](docs/white-label.md) | **Instalar para clientes** — cambiar la marca, una instalación por cliente vs compartida, reventa |
+| [`docs/white-label.es.md`](docs/white-label.es.md) | **Instalar para clientes** — cambiar la marca, una instalación por cliente vs compartida, reventa |
 | [`docs/runbooks/waha-hostgator.md`](docs/runbooks/waha-hostgator.md) | Runbook de WAHA en producción (dimensionamiento, recuperación) |
 | [`CLAUDE.md`](CLAUDE.md) | Convenciones no negociables (lectura obligatoria para contribuir) |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Visión de 1 página de la arquitectura |
@@ -359,7 +366,9 @@ pnpm test:db   # necesita Docker — es el job `invariants`, obligatorio para me
 git commit -m "feat(alcance): descripción"
 ```
 
-Esa línea es la lista **completa** de los gates obligatorios, a propósito: correr solo la mitad y descubrir el resto como sorpresa roja después de horas de espera es la peor primera experiencia que este repositorio sabe entregar.
+Esas dos líneas son **todo lo que podés correr en tu máquina**, a propósito: correr solo la mitad y descubrir el resto como sorpresa roja después de horas de espera es la peor primera experiencia que este repositorio sabe entregar.
+
+Dos gates obligatorios **no** entran ahí y solo corren en CI: `e2e` (necesita un Supabase local) y `imagens-ok` (construye las tres imágenes Docker). Verde en tu máquina no es verde en el merge.
 
 **Definition of Done:** typecheck en cero, lint en cero, tests relevantes verdes, RLS testeada si toca una tabla tenant-aware, audit log emitido en mutaciones, migration versionada **+ apéndice idempotente en `baseline.sql`** si cambia el schema (si no, el cambio nunca llega a quien se auto-hospeda).
 

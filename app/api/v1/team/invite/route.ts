@@ -22,6 +22,7 @@ import { inviteMemberSchema, validateRequest } from "@/lib/schemas";
 import { signInviteToken, INVITE_TTL_SECONDS } from "@/lib/auth/invite-token";
 import { buildInviteEmail } from "@/lib/email/templates/invite";
 import { sendEmail } from "@/lib/email/resend";
+import { marcaDaSaida } from "@/lib/branding/saida";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   // (não fica queimado no bundle como process.env.NEXT_PUBLIC_APP_URL direto).
   const baseUrl = env.NEXT_PUBLIC_APP_URL;
   const inviterName = authUser.full_name ?? authUser.email ?? "Um colega";
+  // Uma vez, fora do laço: a marca é a mesma para todo convite desta chamada, e
+  // resolvê-la por destinatário multiplicaria a leitura por 20 (o teto do lote).
+  const marca = await marcaDaSaida(activeOrg.orgId);
 
   // Emails com membership ATIVA na org — para pular o reconvite de quem já é membro.
   // O schema `auth` NÃO é acessível via PostgREST (erro "Invalid schema: auth"), então
@@ -110,6 +114,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       acceptUrl,
       role: inv.role,
       expiresAt,
+      marca,
     });
 
     const result = await sendEmail({
@@ -117,6 +122,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       subject,
       html,
       text,
+      fromName: marca.nome,
       tags: [
         { name: "kind", value: "team_invite" },
         { name: "org", value: activeOrg.orgId },

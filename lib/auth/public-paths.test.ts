@@ -24,4 +24,22 @@ describe("isPublicPath", () => {
   it("não libera a rota de estado da versão (exige sessão)", () => {
     expect(isPublicPath("/api/v1/system/version")).toBe(false);
   });
+
+  /**
+   * Os documentos legais são linkados do checkbox OBRIGATÓRIO da primeira tela
+   * do produto (`/onboarding/welcome`). Fora daqui, `proxy.ts` manda o visitante
+   * para `/login?next=/legal/terms` — e um aceite de termos que só se lê depois
+   * de ter conta é um aceite que ninguém pode conferir antes de aceitar.
+   */
+  it("libera os documentos legais — o aceite acontece antes de existir conta", () => {
+    expect(isPublicPath("/legal/terms")).toBe(true);
+    expect(isPublicPath("/legal/privacy")).toBe(true);
+  });
+
+  it("e só esses dois: /legal não é um portão aberto", () => {
+    // Entrada larga aqui é furo de auth em toda a aplicação, não só nesta tela.
+    expect(isPublicPath("/legal")).toBe(false);
+    expect(isPublicPath("/legal/terms/interno")).toBe(false);
+    expect(isPublicPath("/legal/qualquer-outra")).toBe(false);
+  });
 });

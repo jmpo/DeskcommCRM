@@ -16,6 +16,7 @@ import * as path from "node:path";
 
 import { test, expect, type Page } from "@playwright/test";
 
+import { afirmarAdminDeTenantPuro } from "./utils/precondicao";
 import { generateTotp, msUntilNextTotpWindow } from "./utils/totp";
 
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
@@ -44,6 +45,21 @@ function loadCreds(): Creds {
 }
 
 let creds = loadCreds();
+
+// ── Precondição de identidade ────────────────────────────────────────────────
+// Esta spec dirige o produto como ADMIN DE TENANT (`creds.users.admin`), o
+// usuário compartilhado por 10 arquivos — e que `seed-e2e-system-update.ts`
+// promovia a dono do servidor sem revogar, num banco que o job `e2e` não reseta
+// entre as duas partes.
+//
+// ⚠️ Medido, e a diferença importa: com rank `admin` (5, o teto), a promoção NÃO
+// muda a navegação nem os gates `!is_platform_admin && ROLE_RANK < X` — muda só
+// as superfícies exclusivas do dono. Nenhuma asserção deste arquivo abre uma
+// delas hoje. A precondição existe para que a primeira que abrir não passe
+// medindo o escape. O raciocínio inteiro está em `utils/precondicao.ts`.
+test.beforeAll(async () => {
+  await afirmarAdminDeTenantPuro(creds.users.admin!.email);
+});
 
 async function login(page: Page, email: string): Promise<void> {
   await page.goto("/login");

@@ -118,7 +118,21 @@ function referenciasBrutas(texto: string): string[] {
       // não é citação de prova — é o achado do @MaestroConexoes um nível mais
       // fundo: o extrator já lia sintaxe, e ainda assim tratava `<n>` e `*`
       // como nome literal.
-      !/[<>*?{}]/.test(r),
+      !/[<>*?{}]/.test(r) &&
+      // Nem EXTENSÃO SOLTA: `` `.png` ``, `` `.svg` `` — o último segmento é só
+      // o ponto e o sufixo, sem nome. Não existe arquivo assim, e prosa técnica
+      // escreve exatamente assim ao falar do FORMATO em vez do arquivo:
+      // "SVG renomeado para `.png`", "PNG ou JPG". O extrator resolvia isso
+      // como `docs/.png` e reprovava mandando procurar uma imagem que ninguém
+      // tentou citar — a mensagem apontava para um arquivo faltando, quando o
+      // que faltava era um nome.
+      //
+      // Entrou depois de morder DUAS vezes em um dia: primeiro no
+      // `user-journey-map.md` (`fec15a35`), depois nos três `white-label*.md`,
+      // reintroduzida por quem tinha acabado de consertar a primeira. Duas
+      // instâncias da mesma classe em arquivos diferentes é o sinal de que o
+      // conserto pertence ao extrator, não ao texto.
+      !/(^|\/)\.[a-z0-9]+$/i.test(r),
   );
 }
 

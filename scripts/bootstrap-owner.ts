@@ -8,7 +8,8 @@
  *   4. a linha em `platform_admins` (super-admin de plataforma)
  *
  * Depois disso o dono faz login e o onboarding do app cuida do resto
- * (WhatsApp, IA, time). MFA TOTP é forçado no 1º login do admin.
+ * (WhatsApp, IA, time). A verificação em duas etapas é OPCIONAL e se liga em
+ * Configurações › Segurança — ver `lib/auth/politica-mfa.ts`.
  *
  * Uso (o install.sh exporta as vars; localmente lê .env/.env.local):
  *   OWNER_EMAIL=dono@empresa.com OWNER_PASSWORD='senha-forte' \
@@ -195,12 +196,23 @@ async function ensurePlatformAdmin(userId: string): Promise<void> {
     console.log("[bootstrap] super-admin já existia");
     return;
   }
-  // granted_by = o próprio dono (auto-concessão no bootstrap). mfa_required
-  // fica no default (true) — TOTP é forçado no login.
+  // granted_by = o próprio dono (auto-concessão no bootstrap).
+  //
+  // ⚠️ `mfa_required: false` EXPLÍCITO, contra o default `true` da coluna. A
+  // coluna nunca era lida pelo gate — ele olhava só `is_platform_admin` —, então
+  // o default nunca teve efeito e ninguém percebeu. Agora ela decide, e deixá-la
+  // em `true` significaria o oposto do que se pediu: TODA instalação nova
+  // voltaria a receber o bloqueador de tela cheia logo depois do onboarding,
+  // porque o `install.sh` cria o dono como platform admin.
+  //
+  // Instalações que JÁ EXISTEM ficam como estão — mudar o default não reescreve
+  // linha, e ninguém tem a proteção desligada pelas nossas costas. Quem quiser
+  // exigir liga em Configurações › Segurança.
   const { error } = await admin.from("platform_admins").insert({
     user_id: userId,
     granted_by: userId,
     scope: "full",
+    mfa_required: false,
     reason: "Bootstrap inicial do self-host (dono da instância)",
   } as never);
   if (error) throw new Error(`platform_admin: ${error.message}`);

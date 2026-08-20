@@ -10,7 +10,14 @@ export type { BudgetStatus };
 export interface BudgetPatch {
   monthly_limit_cents?: number;
   alarm_threshold_pct?: number;
-  action_at_100pct?: "throttle" | "disable";
+  /**
+   * A INTENÇÃO, declarada — não inferida da forma do payload. É o campo que
+   * decide se o teto vincula alguém; sem ele, "escolhi um teto" e "nunca abri a
+   * tela" seriam o mesmo dado.
+   */
+  enforcement_mode?: "off" | "avisar" | "bloquear";
+  /** Renuncia às 72h de carência ao armar a parada. */
+  confirmar_imediato?: boolean;
 }
 
 interface SingleResponse {
@@ -56,8 +63,11 @@ export function useUpdateBudget() {
           ...(patch.alarm_threshold_pct !== undefined
             ? { alarm_threshold_pct: patch.alarm_threshold_pct }
             : {}),
-          ...(patch.action_at_100pct !== undefined
-            ? { action_at_100pct: patch.action_at_100pct }
+          // `confirmar_imediato` NÃO entra: ele não é estado, é a renúncia à
+          // carência naquele clique. O `enforcement_effective_at` que ele decide
+          // vem do servidor — otimizá-lo aqui seria a tela inventar uma data.
+          ...(patch.enforcement_mode !== undefined
+            ? { enforcement_mode: patch.enforcement_mode }
             : {}),
         };
         qc.setQueryData(aiBudgetQueryKey, optimistic);

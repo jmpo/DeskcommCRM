@@ -83,6 +83,46 @@ export type ChatIdentity =
   | { kind: "unknown"; phone: null; lid: null };
 
 /**
+ * Corta o chatId no `@` do sufixo — o que `replace(/@.*$/, "")` fazia aqui, sem
+ * o custo quadrático que fez o CodeQL apontar as duas linhas (js/polynomial-redos,
+ * alertas #6 e #7).
+ *
+ * ⚠️ NÃO troque por `indexOf("@")` nem por `lastIndexOf("@")`: nenhum dos dois é
+ * equivalente. `.` não casa terminador de linha e `$` (sem /m) só casa no fim da
+ * string, então o `@` que a regex achava é o PRIMEIRO **depois do ÚLTIMO
+ * terminador de linha**. Em `"@@@\n@lid"` a regex devolvia `"@@@\n"`; `indexOf`
+ * devolveria `""` e `lastIndexOf`, `"@@@\n@"`. Medido por varredura exaustiva
+ * (37.449 strings, alfabeto `{@ a \n \r LS PS + espaço}`): esta formulação diverge
+ * em 0; `indexOf` em 11.760; `lastIndexOf` em 11.798.
+ *
+ * Os quatro terminadores são exatamente os que `.` não casa (`\n \r U+2028 U+2029`
+ * — NEL, TAB e NBSP casam, então não entram). Escritos como escape de propósito:
+ * a versão com o caractere cru é indistinguível a olho da versão corrompida por
+ * um copy-paste, e `tsc`/`eslint` dão verde nas duas — só a semântica muda
+ * (4.582 divergências em 37.449).
+ *
+ * Por que era caro: o motor reinicia a tentativa a partir de CADA `@`, e quando há
+ * um terminador de linha no meio todas falham — O(n²). O `endsWith("@lid")` acima
+ * NÃO protege: `"@".repeat(n) + "\n@lid"` passa por ele. Medido nesta função,
+ * `String.replace` sendo síncrono (trava o event loop do processo inteiro, todos
+ * os tenants): 64 KB de `from` custam ~2,9 s; 256 KB, ~48 s. A entrada é externa —
+ * `payload.from` chega por `JSON.parse(rawBody) as WahaEnvelope` (cast, sem Zod) e
+ * `WAHA_WEBHOOK_REQUIRE_SIGNATURE` é `false` por padrão. Esta varredura é linear:
+ * 1 MB em 0,7 ms.
+ */
+function semSufixoDeChat(chatId: string): string {
+  const aposQuebra =
+    Math.max(
+      chatId.lastIndexOf("\n"),
+      chatId.lastIndexOf("\r"),
+      chatId.lastIndexOf("\u2028"),
+      chatId.lastIndexOf("\u2029"),
+    ) + 1;
+  const arroba = chatId.indexOf("@", aposQuebra);
+  return arroba === -1 ? chatId : chatId.slice(0, arroba);
+}
+
+/**
  * Resolve um chatId WAHA em identidade canônica:
  *  - `{number}@c.us` | `@s.whatsapp.net` -> phone E.164 ("+55...")
  *  - `{lid}@lid` -> lid (somente dígitos; número protegido pelo WhatsApp)
@@ -100,13 +140,16 @@ export type ChatIdentity =
  * opostas: um é decisão de produto, o outro é buraco de conhecimento. Só o
  * segundo é anomalia, então só ele emite evento.
  */
+
 export function parseChatId(chatId: string): ChatIdentity {
   if (chatId.endsWith("@g.us")) return { kind: "group", phone: null, lid: null };
   if (chatId.endsWith("@lid")) {
-    return { kind: "lid", phone: null, lid: chatId.replace(/@.*$/, "") };
+    return { kind: "lid", phone: null, lid: semSufixoDeChat(chatId) };
   }
   if (chatId.endsWith("@c.us") || chatId.endsWith("@s.whatsapp.net")) {
-    const digits = chatId.replace(/@.*$/, "").replace(/^\+/, "");
+    // `replace(/^\+/, "")` fica: é ancorado em `^`, casa 1 caractere, O(1) — não é
+    // o que o CodeQL apontou.
+    const digits = semSufixoDeChat(chatId).replace(/^\+/, "");
     return { kind: "phone", phone: "+" + digits, lid: null };
   }
   return { kind: "unknown", phone: null, lid: null };

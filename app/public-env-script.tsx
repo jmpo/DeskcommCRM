@@ -12,8 +12,34 @@ import { env } from "@/lib/env";
  *
  * `await headers()` força render dinâmico: garante que o script use o env de
  * runtime, nunca o placeholder embutido durante `next build`.
+ *
+ * ── Por que a MARCA entra por prop, e o Supabase não ─────────────────────────
+ *
+ * Até esta onda as duas chaves de marca eram `env.APP_NAME` e `env.APP_LOGO_URL`
+ * — o arquivo de instalação CRU. Consequência medida: `platform_branding.logo_url`
+ * e `MarcaDeSaida.logoUrl` existiam e não tinham nenhum leitor, porque o único
+ * render de logo do produto (`components/shell/Sidebar.tsx`) lê
+ * `window.__PUBLIC_ENV__.APP_LOGO_URL`. O operador salvava um valor que nada
+ * mostrava, e a tela dizia "salvo".
+ *
+ * A correção não é este arquivo ler o banco: ele injeta o payload no `<head>` e
+ * não é o lugar onde a precedência das camadas mora. Ele passa a RECEBER a marca
+ * já resolvida, montada pela mesma função que o título da aba e o CSS da marca
+ * usam (`marcaResolvida()`, em `app/layout.tsx`) — três montagens da pilha
+ * divergiriam, e a divergência apareceria como aba com uma marca e barra lateral
+ * com outra. As chaves do Supabase continuam vindo de `env` porque não têm
+ * camada nenhuma acima: não há "URL do Supabase da organização".
  */
-export async function PublicEnvScript() {
+export async function PublicEnvScript({
+  marca,
+}: {
+  /**
+   * A marca da INSTALAÇÃO já resolvida (banco acima, `.env` embaixo). Quem
+   * resolve é o layout raiz; recebê-la pronta é o que impede este componente de
+   * virar uma segunda fonte de verdade sobre precedência de marca.
+   */
+  readonly marca: { readonly name: string; readonly logoUrl: string | null };
+}) {
   await headers();
 
   const payload = JSON.stringify({
@@ -24,8 +50,13 @@ export async function PublicEnvScript() {
     SENTRY_DSN: env.SENTRY_DSN,
     // Marca da instalação (white-label): os client components (Sidebar, AdminSidebar)
     // leem daqui. Não são segredo — já aparecem na tela. Ver lib/branding.ts.
-    APP_NAME: env.APP_NAME,
-    APP_LOGO_URL: env.APP_LOGO_URL,
+    APP_NAME: marca.name,
+    // `?? ""` e não `?? null`: do outro lado da fronteira quem lê é
+    // `resolveBranding` (lib/branding.ts), que trata string vazia como ausência
+    // de marca — é o mesmo formato que o `.env` entregava (`APP_LOGO_URL=` vira
+    // `""`), então o navegador não precisa aprender um segundo jeito de dizer
+    // "não tem logo".
+    APP_LOGO_URL: marca.logoUrl ?? "",
   })
     // Evita quebrar o </script> se algum valor contiver a sequência.
     .replace(/</g, "\\u003c");

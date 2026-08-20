@@ -98,7 +98,18 @@ compatíveis textualmente e incompatíveis semanticamente. Isso não gera confli
 nenhum gate.
 
 Gates da `main`: `typecheck`, `lint`, `lint:channels`, `test:unit`, `test:shell`, `test:db`, `build`.
-Obrigatórios no merge: `verify`, `build-and-size`, `invariants`.
+Obrigatórios no merge — **cinco**, e não confie nesta lista: meça.
+
+```bash
+gh api repos/melgarafael/DeskcommCRM/branches/main/protection \
+  --jq '.required_status_checks.contexts|join(", ")'
+# em 2026-08-14: verify, build-and-size, invariants, e2e, imagens-ok
+```
+
+Esta linha listava **três** — faltavam `e2e` e `imagens-ok`, que são justamente os que
+cobrem o artefato que o self-hoster instala. Um triador que a lesse declararia "passou os
+obrigatórios" tendo rodado 3 de 5, dentro do próprio documento que o `CLAUDE.md` aponta
+como o lugar onde medir contra a régua errada é o modo de falha número um.
 
 Meça exit code **direto**. `cmd | tail` devolve o exit do `tail` — verde falso.
 

@@ -25,7 +25,7 @@ interface EnrollState {
  *
  * On completion, reloads the page so the parent layout re-evaluates the gate.
  */
-export function MfaEnrollModal() {
+export function MfaEnrollModal({ motivo = "obrigatorio" }: { motivo?: "obrigatorio" | "escolha" } = {}) {
   const [step, setStep] = useState<Step>("intro");
   const [enrollState, setEnrollState] = useState<EnrollState | null>(null);
   const [code, setCode] = useState("");
@@ -87,10 +87,20 @@ export function MfaEnrollModal() {
               <h2 id="mfa-title" className="text-xl font-semibold">
                 Configure a verificação em duas etapas
               </h2>
+              {/*
+                ⚠️ O MESMO MODAL ATENDE DOIS MOMENTOS OPOSTOS. Ele nasceu dentro
+                do bloqueador de tela cheia, onde "sua conta exige" era verdade;
+                reusá-lo no botão "Ativar" de Configurações fazia a tela afirmar
+                uma obrigação que não existe — a pessoa está ligando a proteção
+                por vontade própria. E "2FA" é jargão: o resto do produto diz
+                "verificação em duas etapas".
+              */}
               <p className="mt-1 text-sm text-muted-foreground">
-                Sua conta exige 2FA. Use um aplicativo autenticador (Google
-                Authenticator, 1Password, Authy, Bitwarden) para gerar códigos
-                de 6 dígitos.
+                {motivo === "obrigatorio"
+                  ? "Esta empresa exige a verificação em duas etapas de quem administra. "
+                  : "A cada login, além da senha, o sistema vai pedir um código de 6 dígitos. "}
+                Use um aplicativo autenticador (Google Authenticator, 1Password, Authy,
+                Bitwarden) para gerar os códigos.
               </p>
             </div>
             {error && (

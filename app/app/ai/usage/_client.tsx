@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAiUsage, type AiUsageFilters } from "@/hooks/ai/useAiUsage";
 import { UsageFilters, type UsageFiltersAgent } from "@/components/ai/UsageFilters";
 import { UsageChart } from "@/components/ai/UsageChart";
+import { formatCentsUSD } from "@/lib/money";
 
 interface Props {
   agents: UsageFiltersAgent[];
@@ -15,11 +16,6 @@ interface Props {
     to?: string;
   };
 }
-
-const brl = new Intl.NumberFormat("pt-BR", {
-  style: "currency",
-  currency: "BRL",
-});
 
 function StatCard({
   label,
@@ -91,7 +87,9 @@ export function UsageDashboardClient({ agents, initial }: Props) {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
               label="Custo no período"
-              value={brl.format(q.data.totals.cost_cents / 100)}
+              // DÓLAR: esta tela mostrava o MESMO número em duas moedas — o card de
+              // orçamento logo acima em US$ e este StatCard em R$, dois centímetros abaixo.
+              value={formatCentsUSD(q.data.totals.cost_cents)}
             />
             <StatCard
               label="Atendimentos com IA"

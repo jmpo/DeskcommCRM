@@ -41,6 +41,7 @@ import { WahaChannelAdapter } from '../edge/channel/waha-adapter';
 // egress de canal — o envio em si vai pelo adapter (ChannelAdapter). Ver F2-25.
 import { applySendOutcome } from '../edge/crm/send-message';
 import {
+  LlmBudgetExceededError,
   runModelCall,
   tool,
   type LlmEdgeConfig,
@@ -48,6 +49,7 @@ import {
   type ToolSet,
 } from '../edge/llm/run-model-call';
 import type { ProviderRegistry } from '../edge/llm/providers';
+import { HANDOFF_REASON_ORCAMENTO } from '../edge/llm/orcamento';
 import { MIRROR_WARN_ONLY, mirrorLeadStageToCrm } from '../edge/crm/move-lead-stage';
 import { insertInboxItem } from '../db/repository';
 import { buildNativeMediaParts } from './media-parts';
@@ -361,6 +363,137 @@ export const CHECKPOINT_INSTRUCTION =
   'da conversa até aqui (inclua o que o resumo anterior já dizia). ' +
   DECLARACAO_INSTRUCTION +
   ' Sem texto fora do JSON.';
+
+/**
+ * Reexportado do módulo puro, onde ele PRECISA morar: o caminho legado
+ * (`workers/ai-response-worker.ts`) grava a mesma razão e não pode importar este
+ * arquivo. Fica visível aqui porque é daqui que o engine a grava.
+ */
+export { HANDOFF_REASON_ORCAMENTO };
+
+/**
+ * Primeira linha do resumo que vai ao humano quando o orçamento interrompe o
+ * turno. É TEXTO FIXO, e tem de ser: o desvio existe porque não há orçamento
+ * para chamar o modelo, então gerar este resumo por LLM seria gastar exatamente
+ * o que acabou de ser recusado. O contexto útil vem logo abaixo, do checkpoint
+ * durável (`buildHandoffSummary`), que também não custa token nenhum.
+ */
+export const RESUMO_DO_HANDOFF_POR_ORCAMENTO =
+  'A IA parou de responder porque o teto de gasto mensal com IA desta organização foi ' +
+  'atingido — o lead NÃO pediu atendimento humano. Assuma a conversa; para devolvê-la ao ' +
+  'atendimento automático, ajuste o teto em Uso de IA › Orçamento e use "Devolver ao ' +
+  'automático" no cabeçalho da conversa.';
+
+/** Título do item da Central que este handoff abre — rótulo visível, logo constante. */
+export const TITULO_DO_HANDOFF_POR_ORCAMENTO = 'Teto de gasto com IA atingido — assumir a conversa';
+
+/**
+ * ORÇAMENTO ESGOTADO NÃO PODE VIRAR SILÊNCIO PARA O LEAD.
+ *
+ * `aplicarOrcamento` recusa a chamada ANTES de sair byte para o provedor
+ * (`../edge/llm/run-model-call.ts`), e a exceção subia direto para o `catch` do
+ * worker. Do lado de fora, no WhatsApp, isso é uma pessoa que perguntou alguma
+ * coisa e não recebeu resposta nenhuma — nem da IA, nem de gente. A proteção que
+ * existe para salvar dinheiro quebrava o invariante 4 da doutrina do Sistema
+ * Vivo: nenhuma demanda sem próximo passo.
+ *
+ * A resposta certa já existe no repositório e é feita exatamente para isto:
+ * `performHumanHandoff` transiciona a conversa `ai_handling`→`pending` (fila
+ * humana), silencia o bot, cancela os follow-ups agendados do lead e abre um
+ * `agent_inbox_items` kind `handoff` — TUDO em banco, SEM GASTAR UM TOKEN, o que
+ * aqui não é detalhe: o motivo do desvio é justamente não haver orçamento. Por
+ * isso o resumo é texto fixo mais o checkpoint durável, nunca um resumo gerado.
+ *
+ * RELANÇA sempre. Quem decide o destino do job é a fila
+ * (`workers/agent-worker/main.ts` manda erro terminal para `cancelJob`, não para
+ * `failJob`). Engolir aqui trocaria uma falha visível por uma silenciosa, e pior:
+ * o turno seguiria para o fechamento como se o modelo tivesse respondido.
+ *
+ * Se o PRÓPRIO handoff falhar (banco fora), a exceção DELE é que sobe — e é o
+ * comportamento certo: ela não é terminal, então o job re-tenta e o handoff volta
+ * a ser tentado. Preservar o erro de orçamento aqui faria o job ser cancelado com
+ * o lead ainda no vácuo, que é o defeito que esta função existe para fechar.
+ *
+ * É função de módulo, e não closure do turno, para poder ser exercitada sozinha:
+ * o caminho de erro de um turno de agente é caro demais para se provar só de
+ * ponta a ponta, e o que precisa ser provado aqui é pequeno e exato.
+ *
+ * ═══ POR QUE ELA ENVOLVE O TURNO INTEIRO, E NÃO AS CHAMADAS DE MODELO ═══
+ *
+ * A primeira versão envolvia as DUAS chamadas diretas de `runModelCall` do
+ * turno. Estava errada, e do jeito mais silencioso possível: o turno faz outras
+ * chamadas de modelo ANTES delas, por funções auxiliares —
+ * `classifyStage` (`stage-classifier.ts`, purpose `stage_classifier`, roda em
+ * TODO turno porque `main.ts` monta `stageClassifier: {…}` como literal de
+ * objeto, sempre definido) e `maybeCompact`/flush (`compaction.ts`, purposes
+ * `compaction`/`flush`). Nenhum desses purposes está em `PURPOSES_ISENTOS`, e
+ * nenhum tinha try/catch: com o teto estourado, o erro subia do classificador
+ * ANTES de a escolta existir, o handoff NUNCA rodava, e o worker — que lê
+ * `terminal` e chama `cancelJob` — descartava o job. Lead no vácuo, sem retry,
+ * sem alerta. A escolta cobria o caso raro e faltava no dominante.
+ *
+ * Envolver o turno inteiro é o único desenho que não envelhece: não há lista de
+ * auxiliares a manter, e o auxiliar que alguém acrescentar amanhã já nasce
+ * coberto. `resumoDoCheckpoint` é uma FUNÇÃO resolvida dentro do catch (e não um
+ * valor pronto), porque no caminho novo a escolta abre antes de o checkpoint ter
+ * sido lido — e ler o checkpoint no caminho feliz seria uma query a mais por
+ * turno para um texto que quase nunca é usado.
+ */
+export async function comHandoffSeOrcamentoAcabar<T>(
+  ctx: {
+    pool: pg.Pool;
+    tenantId: string;
+    leadId: string;
+    conversationId: string;
+    /**
+     * Resolvido SÓ no caminho de erro: `buildHandoffSummary(latestCheckpoint(...))`
+     * — do checkpoint durável, zero LLM.
+     */
+    resumoDoCheckpoint: () => Promise<string>;
+    log: Logger;
+  },
+  chamada: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await chamada();
+  } catch (err) {
+    if (!(err instanceof LlmBudgetExceededError)) throw err;
+    const resumo = await ctx.resumoDoCheckpoint();
+    await performHumanHandoff(
+      ctx.pool,
+      { tenantId: ctx.tenantId, leadId: ctx.leadId, conversationId: ctx.conversationId },
+      {
+        reason: HANDOFF_REASON_ORCAMENTO,
+        conversationSummary: `${RESUMO_DO_HANDOFF_POR_ORCAMENTO}\n\n${resumo}`,
+        inboxTitle: TITULO_DO_HANDOFF_POR_ORCAMENTO,
+        log: ctx.log,
+      },
+    );
+    ctx.log.warn('turno interrompido pelo teto de gasto — conversa devolvida à fila humana');
+    throw err;
+  }
+}
+
+/**
+ * O resumo que vai ao humano quando o orçamento interrompe o turno, lido do
+ * checkpoint durável. Falhar aqui NÃO pode impedir o handoff: sem resumo o
+ * humano assume com menos contexto; sem handoff ele não assume nada.
+ */
+async function resumoDoCheckpointDuravel(
+  pool: pg.Pool,
+  tenantId: string,
+  leadId: string,
+  log: Logger,
+): Promise<string> {
+  try {
+    return buildHandoffSummary(await latestCheckpoint(pool, tenantId, leadId));
+  } catch (err) {
+    log.warn('resumo do checkpoint não pôde ser lido — o handoff segue sem ele', {
+      error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
+    });
+    return buildHandoffSummary(null);
+  }
+}
 
 /**
  * Bloco de sistema RESIDENTE das tools de caso (spec 15 §5.2) — entra no prefixo
@@ -798,7 +931,52 @@ export async function avisarCapacidadesAusentes(
   }
 }
 
+/**
+ * O NÚCLEO DO TURNO, SEMPRE SOB A ESCOLTA DO ORÇAMENTO.
+ *
+ * Esta função é o único ponto do produto por onde os três kinds de turno de
+ * lead passam (`inbound_turn`, `followup_turn`, `case_reply_turn` — quatro call
+ * sites), e por isso é aqui que a escolta mora. Envolver o turno INTEIRO, e não
+ * as chamadas de modelo, é o que faz a proteção alcançar as chamadas indiretas
+ * (`classifyStage`, `maybeCompact`/flush) — que são justamente as PRIMEIRAS do
+ * turno, e portanto as que estouram primeiro quando o teto acabou. Ver o
+ * cabeçalho de `comHandoffSeOrcamentoAcabar` para o defeito medido.
+ *
+ * `executarTurnoDoAgente` NÃO é exportada de propósito: exportá-la criaria um
+ * caminho para o turno rodar desescoltado, e a guarda de artefato
+ * (`tests/unit/handoff-por-orcamento.test.ts`) conta exatamente um call site.
+ */
 export async function runAgentTurn(
+  deps: InboundTurnDeps,
+  job: JobRow,
+  pool: pg.Pool,
+  ctx: { workerId: string },
+  input: AgentTurnInput,
+): Promise<void> {
+  const leadIdDoJob = job.contact_id;
+  if (leadIdDoJob === null) {
+    throw new Error('job de turno sem contact_id — o CHECK da fila deveria impedir');
+  }
+  const logDaEscolta = withFields(deps.log, {
+    job_id: job.id,
+    tenant_id: job.organization_id,
+    lead_id: leadIdDoJob,
+  });
+  await comHandoffSeOrcamentoAcabar(
+    {
+      pool,
+      tenantId: job.organization_id,
+      leadId: leadIdDoJob,
+      conversationId: input.conversationId,
+      resumoDoCheckpoint: () =>
+        resumoDoCheckpointDuravel(pool, job.organization_id, leadIdDoJob, logDaEscolta),
+      log: logDaEscolta,
+    },
+    () => executarTurnoDoAgente(deps, job, pool, ctx, input),
+  );
+}
+
+async function executarTurnoDoAgente(
   deps: InboundTurnDeps,
   job: JobRow,
   pool: pg.Pool,
@@ -2124,6 +2302,11 @@ export async function runAgentTurn(
       : [{ role: 'user', content: [{ type: 'text', text: openingText }, ...nativeParts] }];
 
   // O modelo decide tools livremente dentro do teto de steps (knob AGENT_MAX_STEPS).
+  //
+  // Sem escolta LOCAL: quem cobre o teto de gasto é `runAgentTurn`, que envolve
+  // este corpo inteiro. Escoltar aqui deixaria de fora as chamadas de modelo dos
+  // auxiliares (`classifyStage`, `maybeCompact`), que rodam ANTES desta e por
+  // isso são as que estouram primeiro.
   const turn = await runModelCall(
     pool,
     deps.llmCfg,
@@ -2180,6 +2363,12 @@ export async function runAgentTurn(
       : turn.result.response.messages;
 
   // Fechamento imposto pelo runtime: 2ª chamada, mesma conversa, só o checkpoint.
+  //
+  // Também sob o handoff (o do turno inteiro, em `runAgentTurn`): o teto pode
+  // ser cruzado ENTRE as duas chamadas — a primeira é que gasta o grosso do
+  // turno. Aqui o lead já recebeu resposta, mas a conversa ficaria sem
+  // checkpoint e sem dono, e o próximo inbound cairia no mesmo bloqueio, agora
+  // sem nada tendo mudado no meio.
   const closing = await runModelCall(
     pool,
     deps.llmCfg,

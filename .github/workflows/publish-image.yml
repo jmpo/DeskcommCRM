@@ -15,8 +15,27 @@ on:
   push:
     tags: ["v*"]
     branches: ["main"]
-  release:
-    types: [published]
+  # NÃO acrescente `release: types: [published]` aqui. Ele já esteve, e o efeito
+  # foi medido na v1.3.0: `gh release create` empurra a tag E publica a release,
+  # então o MESMO commit foi construído DUAS vezes, com 5 minutos de diferença.
+  #
+  #   19:53:04  evento=push     v1.3.0 -> publicou 1.3.0, 1.3 e stable
+  #   19:58:05  evento=release  v1.3.0 -> reconstruiu e MOVEU 1.3.0 e 1.3,
+  #                                       sem mover stable (a condição exige push)
+  #
+  # Duas consequências, e a segunda é a grave:
+  #
+  # 1. `stable` e `1.3.0` ficaram em digests DIFERENTES (mesmo `revision`
+  #    9bd59e9 e mesmo `version`, builds distintos) — quem comparasse os dois
+  #    concluiria, com razão, que são artefatos diferentes.
+  # 2. A tag de VERSÃO foi movida depois de publicada. A doutrina inteira se
+  #    apoia em "instalação de cliente aponta para número de versão, nunca para
+  #    tag móvel" (docs/doctrine/packaging.md, invariante 3) — e era o nosso
+  #    próprio workflow movendo o número. Republicar uma release antiga (editar
+  #    e salvar) reconstruiria e moveria aquela versão de novo.
+  #
+  # O gatilho de push da tag já cobre o fluxo real: a tag é sempre empurrada,
+  # com ou sem release. Vigiado por tests/unit/packaging-artefato-do-cliente.test.ts.
   # Em PR a imagem é CONSTRUÍDA e não publicada. Sem isto, nada no PR consegue
   # revelar que a mudança quebra a imagem — foi assim que um bump de `next`
   # passou por `verify`, `build-and-size`, `invariants` e `e2e` (os quatro

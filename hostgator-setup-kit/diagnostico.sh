@@ -168,8 +168,30 @@ if [ "$AFETADO" = "nao" ]; then
   titulo "${G}✓ Esta instalação NÃO está afetada.${Z}"
   item "O worker roda uma imagem publicada (${IMG_WORKER})."
   item "Ele recebe as correções de cada versão, como o resto do sistema."
-  [ "$ENV_TEM_WORKER" = "nao" ] && \
-    item "${D}(o .env ainda não fixa WORKER_IMAGE; o próximo update.sh acerta isso)${Z}"
+  # Não é o incidente do worker congelado — por isso o exit continua 0 —, mas é
+  # um estado que a doutrina proíbe (invariante 3: instalação de cliente não
+  # aponta para tag móvel) e que o U6-c mediu acontecer de verdade: a primeira
+  # execução do update.sh numa instalação legada traz o worker publicado e o
+  # deixa seguindo `stable`. Na release seguinte esse canal se move, e um
+  # `up -d` levaria o worker sozinho para a versão nova enquanto o app fica na
+  # antiga. Um aviso em cinza-claro era pouco para isso.
+  if [ "$ENV_TEM_WORKER" = "nao" ]; then
+    tag_do_worker="${IMG_WORKER##*:}"
+    case "$tag_do_worker" in
+      latest|main|stable)
+        printf '\n'
+        item "${Y}⚠ Mas a versão do agente está SOLTA.${Z}"
+        item "  Ele está seguindo o canal '${tag_do_worker}', não uma versão fixa — então pode"
+        item "  saltar sozinho para a próxima versão num reinício, enquanto o resto do"
+        item "  servidor continua onde está."
+        item "  ${B}Rode 'bash hostgator-setup-kit/update.sh' mais uma vez${Z} para fixar tudo na"
+        item "  mesma versão. É rápido: não há o que baixar de novo."
+        ;;
+      *)
+        item "${D}(o .env não fixa WORKER_IMAGE, mas a imagem não está num canal móvel)${Z}"
+        ;;
+    esac
+  fi
   exit 0
 fi
 

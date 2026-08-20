@@ -35,9 +35,11 @@ import { Info } from "@/lib/ui/icons";
 import Link from "next/link";
 
 import { TETO_TOOLS_POR_AGENTE } from "@/lib/mcp/tools/selecao-por-pacote";
+import { PROVEDORES } from "@/lib/ai/pontos/provedores";
 
 import { ModelPicker, useModelMeta } from "./ModelPicker";
-import { CredentialPicker, findCredential } from "./CredentialPicker";
+import { CHAVE_DA_INSTALACAO, CredentialPicker, findCredential } from "./CredentialPicker";
+import { rotuloDoEstadoDoCanal } from "@/lib/channels/estado";
 import { ToolPicker } from "./ToolPicker";
 import { TriggerEditor, type TriggerValue } from "./TriggerEditor";
 import { HandoffKeywordsInput } from "./HandoffKeywordsInput";
@@ -69,6 +71,13 @@ export type { ChannelSessionLite };
 
 interface BaseProps {
   credentials: CredentialRow[];
+  /**
+   * Provedores cujas chaves vieram na INSTALAÇÃO (o `.env`), e não da tela de
+   * Credenciais. Sem isto, o editor exigia uma linha em `ai_provider_credentials`
+   * que a instalação pelo kit nunca cria — e o dono caía numa tela onde não
+   * conseguia salvar nada.
+   */
+  provedoresDaInstalacao?: string[];
   channelSessions: ChannelSessionLite[];
   routerMembership?: { routerId: string; routerName: string } | null;
   readOnly?: boolean;
@@ -158,7 +167,9 @@ function buildState(args: {
     priority: agent?.priority ?? 0,
     provider: (version?.provider as Provider) ?? "anthropic",
     model: version?.model ?? "",
-    credential_id: version?.credential_id ?? "",
+    // `null` gravado = a versão usa a chave da instalação. Sem esta tradução,
+    // reabrir o agente mostraria o campo em branco e pediria para escolher de novo.
+    credential_id: version ? (version.credential_id ?? CHAVE_DA_INSTALACAO) : "",
     channel_session_id: version?.channel_session_id ?? "",
     system_prompt:
       version?.system_prompt ??
@@ -195,7 +206,8 @@ function toVersionPayload(s: FormState) {
     system_prompt: s.system_prompt,
     provider: s.provider,
     model: s.model,
-    credential_id: s.credential_id,
+    // O token é da TELA; o contrato da versão é `null` = chave da instalação.
+    credential_id: s.credential_id === CHAVE_DA_INSTALACAO ? null : s.credential_id,
     tool_ids: s.tool_ids,
     trigger_config: s.trigger_config,
     channel_session_id: s.channel_session_id,
@@ -278,6 +290,14 @@ export function AgentForm(props: Props) {
     if (!form.model) errors.model = "Escolha o modelo de inteligência artificial.";
     if (!form.credential_id)
       errors.credential_id = "Escolha a chave de acesso da empresa de inteligência artificial.";
+    // Escolher "a chave desta instalação" para um provedor que a instalação NÃO
+    // tem seria publicar um agente que morre em toda mensagem. A mesma recusa
+    // existe no servidor (rota de versões); aqui ela chega antes do clique.
+    if (
+      form.credential_id === CHAVE_DA_INSTALACAO &&
+      !(props.provedoresDaInstalacao ?? []).includes(form.provider)
+    )
+      errors.credential_id = `Esta instalação não tem chave de ${form.provider}. Escolha outra empresa de IA ou cadastre uma chave.`;
     if (!form.channel_session_id)
       errors.channel_session_id = "Escolha por qual número de WhatsApp ele atende.";
     if (form.tool_ids.length > TETO_TOOLS_POR_AGENTE)
@@ -576,9 +596,19 @@ export function AgentForm(props: Props) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="anthropic">Anthropic</SelectItem>
-                  <SelectItem value="openai">OpenAI</SelectItem>
-                  <SelectItem value="google">Google (Gemini)</SelectItem>
+                  {/*
+                    Derivado de PROVEDORES, nunca escrito à mão: esta lista tinha
+                    três itens fixos enquanto o sistema executava quatro, e a
+                    OpenRouter — a opção [1] do instalador — não aparecia. Um
+                    agente publicado nela abria com o campo em BRANCO, porque
+                    nenhum item casava com o valor, e o primeiro save silencioso
+                    trocava o provedor do dono por outro.
+                  */}
+                  {PROVEDORES.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.rotulo}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -601,6 +631,7 @@ export function AgentForm(props: Props) {
               onChange={(id) => patch({ credential_id: id })}
               disabled={disabled}
               id="credential_id"
+              instalacaoTemChave={(props.provedoresDaInstalacao ?? []).includes(form.provider)}
             />
             {validation.credential_id ? (
               <p className="text-xs text-destructive">{validation.credential_id}</p>
@@ -643,8 +674,16 @@ export function AgentForm(props: Props) {
                 <SelectContent>
                   {props.channelSessions.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
+                      {/*
+                        O estado vinha CRU daqui — a opção lia "org_2dd5e6ea ·
+                        STARTING", juntando o identificador interno da sessão com
+                        o enum em inglês do banco. O nome agora nunca é o
+                        identificador (ver `nomeDoCanal`), e o estado passa pela
+                        mesma tradução que a tela de Conexões usa.
+                      */}
                       {s.display_name}
-                      {s.phone_number ? ` · ${s.phone_number}` : ""} · {s.status}
+                      {s.phone_number ? ` · ${s.phone_number}` : ""} ·{" "}
+                      {rotuloDoEstadoDoCanal(s.status)}
                     </SelectItem>
                   ))}
                   {props.channelSessions.length === 0 ? (

@@ -1,4 +1,5 @@
 import { type NextRequest } from "next/server";
+import { normalizarModoDeOrcamento } from "@/lib/agent-engine/edge/llm/orcamento";
 import { requirePlatformAdmin } from "@/lib/auth/requirePlatformAdmin";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ok, fail } from "@/lib/api/wrappers";
@@ -49,7 +50,6 @@ export async function GET(_req: NextRequest) {
     convPendingRes,
     wahaBanRes,
     lgpdRiskRes,
-    aiBudgetRes,
   ] = await Promise.all([
     admin
       .from("organizations")
@@ -74,31 +74,17 @@ export async function GET(_req: NextRequest) {
       .select("*", { count: "exact", head: true })
       .not("status", "in", "(completed,failed)")
       .lt("due_at", new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString()),
-
-    admin
-      .from("ai_budgets")
-      .select("*", { count: "exact", head: true })
-      .gte(
-        "current_month_consumed_cents",
-        // NOTE: Supabase JS can't do column-to-column comparison; we use a raw filter
-        // via rpc or we fetch all and filter. For now we use a safe threshold via
-        // a computed column query approach: filter where consumed >= 80% of limit.
-        // Supabase doesn't support col-vs-col in the JS client so we rpc instead.
-        0,
-      ),
   ]);
 
-  // ai_budget_warnings: count where consumed >= 80% of limit
-  // Supabase JS client can't do col-col comparison, so we use raw SQL via rpc.
-  const { data: aiBudgetCountData } = await admin.rpc(
-    "fn_admin_ai_budget_warning_count" as never,
-    {} as never,
-  );
-  // If RPC doesn't exist yet, fall back to 0 — don't crash
-  const aiBudgetWarnings: number =
-    typeof aiBudgetCountData === "number"
-      ? aiBudgetCountData
-      : (aiBudgetRes.count ?? 0);
+  // O KPI de orçamento saiu daqui e passou a ser contado a partir das MESMAS
+  // linhas que alimentam os alertas, mais abaixo. O que havia antes: um
+  // `admin.rpc("fn_admin_ai_budget_warning_count")` para uma função que NÃO
+  // EXISTE (grep global: um hit, a própria chamada). O `error` era descartado,
+  // `data` vinha `null`, `typeof null === "object"` caía no fallback — e o
+  // fallback era um `count` de `ai_budgets` com `.gte("current_month_consumed_cents", 0)`,
+  // filtro sempre verdadeiro porque a coluna é `numeric NOT NULL DEFAULT 0`.
+  // O cartão renderizava O TOTAL DE ORGANIZAÇÕES sob o subtítulo "tenants com
+  // uso ≥80%", e ninguém tinha como perceber: o número era plausível.
 
   // ── Alerts: top 20, union from 4 sources ─────────────────────────────────
   const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -143,18 +129,28 @@ export async function GET(_req: NextRequest) {
       .order("due_at", { ascending: true })
       .limit(20),
 
-    // AI budget warnings
+    // Orçamentos de IA — UMA leitura serve o KPI e os alertas.
+    //
+    // Sem `order("updated_at")`: aquela coluna é reescrita pelo gatilho de
+    // consumo a cada linha de `llm_calls` e por todo backfill do baseline, ou
+    // seja, é o carimbo da última chamada de IA — não do orçamento ter mudado
+    // nem de ele ter cruzado o limiar. Ordenar por ela trazia "quem usou IA por
+    // último", e cortava em 20 antes de saber quem estava perto do teto. A
+    // ordenação certa é por percentual, e ela acontece depois de calcular.
+    //
+    // `.gt("monthly_limit_cents", 0)` é um filtro DE VERDADE (o anterior,
+    // `.gte(..., 0)`, era sempre verdadeiro): sem teto não há percentual.
     admin
       .from("ai_budgets")
       .select(`
         organization_id,
         monthly_limit_cents,
         current_month_consumed_cents,
-        updated_at,
+        enforcement_mode,
         organizations!inner(display_name)
       `)
-      .order("updated_at", { ascending: false })
-      .limit(20),
+      .gt("monthly_limit_cents", 0)
+      .limit(2000),
 
     // Tenant pending overflow: conversations pending count per org > 50
     // Use a raw query via rpc or aggregate in JS
@@ -205,22 +201,81 @@ export async function GET(_req: NextRequest) {
   }
 
   // AI budget alerts
-  for (const row of aiBudgetAlertsRes.data ?? []) {
-    const org = (row as { organizations?: { display_name?: string } }).organizations;
-    const consumed = row.current_month_consumed_cents;
-    const limit = row.monthly_limit_cents;
-    if (limit <= 0) continue;
-    const pct = consumed / limit;
-    if (pct < 0.8) continue;
+  //
+  // O KPI conta USO; o ALERTA exige ação, e por isso pula
+  // `enforcement_mode = 'off'`. A diferença entre os dois números não é
+  // inconsistência: um teto que ninguém aplica é um número maior que outro
+  // número — chamar isso de alerta treina o operador a ignorar a cor exatamente
+  // onde ela precisa ser crível.
+  //
+  // ⚠️ DIVERGÊNCIA DECLARADA — ESTE NÚMERO NÃO É O DO MÊS, E NÃO É O QUE DECIDE.
+  //
+  // Ele vem de `ai_budgets.current_month_consumed_cents`, o contador
+  // materializado pelo gatilho `fn_update_budget_consumption`, que soma
+  // `NEW.cost_cents` SEM OLHAR A DATA e nunca zera (o único recomputo é o
+  // apêndice da 0140, que só roda no `install.sh`/`update.sh`). Na prática é
+  // gasto ACUMULADO desde a instalação. Quem decide se a IA para é
+  // `fn_gasto_de_ia_do_mes` — a régua única, usada pelo gate, pelo card do
+  // cliente e pelo painel de saúde por tenant
+  // (`app/api/v1/admin/tenants/[id]/health/route.ts`). Consequência conferível:
+  // um tenant pode ler 240% AQUI e 30% na própria tela de saúde, e o de aqui é
+  // o errado.
+  //
+  // Por que não a régua: ela é `fn_gasto_de_ia_do_mes(uuid)`, uma org por
+  // chamada — N round-trips numa rota que já faz oito consultas. A alternativa
+  // barata (um `group by organization_id` sobre `llm_calls` inline) seria uma
+  // SEGUNDA RÉGUA, exatamente o que `tests/unit/orcamento-uma-regua-de-gasto.test.ts`
+  // existe para impedir. O conserto certo é uma variante em lote da própria
+  // régua (`fn_gasto_de_ia_do_mes_em_lote(uuid[])`), e é item próprio.
+  //
+  // Enquanto isso, DUAS MITIGAÇÕES, ambas abaixo: o rótulo diz "acumulado" (não
+  // "este mês"), e a severidade NUNCA chega a `critical` a partir deste número —
+  // um alarme vermelho dizendo "a IA deste tenant parou" sobre um contador que
+  // não zera é o alarme não-crível que o vizinho de `aiOverallStatus` diz querer
+  // evitar.
+  const perto = (aiBudgetAlertsRes.data ?? [])
+    .map((row) => {
+      const org = (row as { organizations?: { display_name?: string } }).organizations;
+      const limit = Number(row.monthly_limit_cents ?? 0);
+      return {
+        organization_id: row.organization_id,
+        nome: (org as { display_name?: string })?.display_name ?? row.organization_id,
+        modo: normalizarModoDeOrcamento(
+          (row as { enforcement_mode?: string | null }).enforcement_mode ?? null,
+        ),
+        pct: limit > 0 ? Number(row.current_month_consumed_cents ?? 0) / limit : 0,
+      };
+    })
+    .filter((r) => r.pct >= 0.8);
+
+  const aiBudgetWarnings = perto.length;
+
+  for (const row of perto
+    .filter((r) => r.modo !== "off")
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 20)) {
     alerts.push({
       id: `budget-${row.organization_id}`,
-      severity: pct >= 1 ? "critical" : "warning",
+      // SEMPRE `warning`, nunca `critical`. O percentual vem do contador
+      // acumulado (ver acima), então "passou de 100%" aqui não prova que a IA
+      // parou — o tenant pode estar com o gasto do MÊS bem abaixo do teto. Um
+      // vermelho que às vezes mente treina o operador a ignorar o vermelho.
+      severity: "warning",
       kind: "ai_budget",
       tenant_id: row.organization_id,
-      tenant_name: (org as { display_name?: string })?.display_name ?? row.organization_id,
-      message: `Budget IA ${Math.round(pct * 100)}% consumido este mês`,
-      link: "/admin/usage",
-      created_at: row.updated_at,
+      tenant_name: row.nome,
+      message:
+        row.modo === "bloquear"
+          ? `Budget IA ${Math.round(row.pct * 100)}% do teto (gasto acumulado) — este tenant escolheu parar a IA no limite`
+          : `Budget IA ${Math.round(row.pct * 100)}% do teto (gasto acumulado)`,
+      // Leva à saúde DO TENANT, e não a `/admin/usage`: é a única tela de admin
+      // que lê a régua real (`fn_gasto_de_ia_do_mes`). Quem clicar por causa
+      // deste alerta chega no número que decide, não em outro acumulado.
+      link: `/admin/tenants/${row.organization_id}/health`,
+      // Estado DERIVADO na hora, como o alerta de overflow logo abaixo: não há
+      // instante em que ele "nasceu" gravado em lugar nenhum, e `updated_at` da
+      // linha é o carimbo da última chamada de IA, não deste cruzamento.
+      created_at: new Date().toISOString(),
     });
   }
 

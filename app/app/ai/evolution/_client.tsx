@@ -31,7 +31,8 @@ import type { EvolutionPayload } from "@/lib/ai/evolution/aggregate";
  * "casos que precisaram de uma pessoa". A tela é escrita para o segundo.
  */
 
-const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+// DÓLAR: `outcome.cost_cents` vem de `llm_calls`, que `pricing.ts` grava em centavo de USD.
+const usd = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "USD" });
 
 /**
  * O bloco se chama "o que MUDOU", mas o payload traz um período só — não há
@@ -546,7 +547,7 @@ function Conteudo({ payload }: { payload: NonNullable<ReturnType<typeof useEvolu
           />
           <StatCard
             rotulo="Custo da IA no período"
-            valor={brl.format(outcome.cost_cents / 100)}
+            valor={usd.format(outcome.cost_cents / 100)}
             significa="O que você pagou aos provedores de IA para tudo isto acontecer."
           />
         </div>

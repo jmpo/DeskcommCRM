@@ -5,6 +5,7 @@
  * on the org and stamps `onboarding_state.welcome` with accepted_at + meta.
  */
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { audit } from "@/lib/audit";
@@ -26,6 +27,7 @@ export async function acceptWelcome(formData: FormData): Promise<AcceptWelcomeRe
 
   const raw = {
     display_name: String(formData.get("display_name") ?? "").trim(),
+    o_que_faz: String(formData.get("o_que_faz") ?? "").trim() || undefined,
     timezone: String(formData.get("timezone") ?? "America/Sao_Paulo"),
     accepted_terms_at: new Date().toISOString(),
   };
@@ -48,6 +50,7 @@ export async function acceptWelcome(formData: FormData): Promise<AcceptWelcomeRe
           accepted_at: input.accepted_terms_at ?? new Date().toISOString(),
           timezone: input.timezone,
           display_name: input.display_name,
+          ...(input.o_que_faz ? { o_que_faz: input.o_que_faz } : {}),
         },
       },
       { display_name: input.display_name, timezone: input.timezone },
@@ -57,14 +60,29 @@ export async function acceptWelcome(formData: FormData): Promise<AcceptWelcomeRe
     throw err;
   }
 
+  // MEDIDO percorrendo o wizard: o cabeçalho continuava dizendo "Minha Empresa"
+  // (o nome que o instalador deixa) durante TODO o resto do onboarding, mesmo
+  // com o banco já gravado com o nome novo. O layout do onboarding é
+  // compartilhado entre os passos e o App Router não o re-renderiza numa
+  // navegação dentro da mesma árvore — então ele servia o nome do primeiro
+  // render até um recarregamento completo.
+  //
+  // A pessoa acabou de dizer como se chama o negócio dela e o sistema seguia
+  // chamando-o de outra coisa. Invalidar o layout é o que faz o nome novo
+  // aparecer no passo seguinte.
+  revalidatePath("/onboarding", "layout");
+
   await audit({
     action: "onboarding.welcome_completed",
     actorUserId: ctx.userId,
     organizationId: ctx.orgId,
     resourceType: "organization",
     resourceId: ctx.orgId,
+    // O ramo NÃO entra no audit: é texto livre que o dono escreveu, e o audit
+    // é append-only com retenção de 5 anos — nada que a anonimização da LGPD
+    // não alcance depois deve cair lá por conveniência de diagnóstico.
     metadata: { display_name: input.display_name, timezone: input.timezone },
   });
 
-  redirect("/onboarding/connect-whatsapp");
+  redirect("/onboarding");
 }

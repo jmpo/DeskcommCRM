@@ -78,10 +78,16 @@ export function KPICards({ kpis }: KPICardsProps) {
         Icon={Scales}
         danger={kpis.lgpd_at_risk > 0}
       />
+      {/* "acumulado", e não "no mês": o número vem de
+          `ai_budgets.current_month_consumed_cents`, um contador que o gatilho
+          soma sem olhar a data e que nada zera — ele é o gasto desde a
+          instalação. O rótulo antigo dizia "uso ≥80%" sobre um teto MENSAL, e a
+          divergência cresce com o tempo. Ver o comentário do cálculo em
+          `app/api/v1/admin/dashboard/kpis/route.ts`. */}
       <KPICard
         label="Budgets IA"
         value={kpis.ai_budget_warnings}
-        subtitle="tenants com uso ≥80%"
+        subtitle="tenants com gasto acumulado ≥80% do teto"
         Icon={ChartBar}
         accent={kpis.ai_budget_warnings > 0}
       />

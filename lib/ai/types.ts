@@ -37,7 +37,15 @@ export type SkipReason =
   | "force_human"
   | "assigned_to_human"
   | "window_24h_expired"
-  | "budget_throttled"
+  /**
+   * O teto mensal de gasto com IA foi atingido e a organização escolheu que a
+   * IA parasse. Chamava-se `budget_throttled` enquanto o guard lia
+   * `ai_budgets.is_throttled` — flag que perdeu o escritor e foi aposentada; o
+   * nome agora é o mesmo do `agent_inbox_items.kind` que explica a parada na
+   * Central e o da classe `LlmBudgetExceededError` do engine, para que a mesma
+   * coisa tenha um nome só nos dois caminhos.
+   */
+  | "budget_exceeded"
   | "silenced_post_handoff"
   | "handoff_recent"
   | "conversation_not_found"

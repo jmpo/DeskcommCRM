@@ -113,7 +113,21 @@ export default defineConfig({
   retries: 0,
   use: {
     baseURL: BASE_URL,
-    trace: "on-first-retry",
+    // ⚠️ Era `on-first-retry`, e com `retries: 0` logo acima isso significa
+    // **trace nunca gravado**. As duas linhas estão certas isoladamente e
+    // erradas juntas: uma diz "só no retry", a outra diz "não há retry".
+    //
+    // O preço apareceu inteiro numa investigação real: um vermelho em
+    // `marca-logo.spec.ts` afirmava "a recusa apagou o logo", e responder o que
+    // de fato aconteceu com o DOM custou quatro agentes e uma cadeia de
+    // eliminação — porque o único artefato do run era um `error-context.md`
+    // que fotografou a página do `afterAll`, não a que falhou. Um trace teria
+    // dado URL, DOM e rede daquele instante, sem hipótese nenhuma.
+    //
+    // `retain-on-failure` grava sempre e descarta no verde: custa disco só
+    // quando já se está pagando o custo maior, que é ter um vermelho.
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
   },
   webServer: {
     // Produção (`next build` antes!): dev-server compila por rota (40-80s) e

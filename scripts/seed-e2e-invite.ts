@@ -38,9 +38,36 @@ interface BaseCreds {
   users: Record<string, { id: string; email: string; role: string }>;
 }
 
+/**
+ * ⚠️ NÃO volte para `admin.schema("auth").from("users")` — foi o que estava aqui
+ * e é um ERRO ENGOLIDO que aborta o `e2e` inteiro.
+ *
+ * Medido em 2026-08-14 contra o Supabase local:
+ *
+ *   GET /rest/v1/users  (Accept-Profile: auth)
+ *   → {"code":"PGRST106","message":"Invalid schema: auth",
+ *      "hint":"Only the following schemas are exposed: public, storage, graphql_public"}
+ *
+ * O PostgREST NÃO expõe o schema `auth` (`supabase/config.toml:10`), e a versão
+ * anterior descartava o `error`: `data` nulo virava "o convidado não existe".
+ * Consequência: o seed sempre caía no `createUser`, que dá certo na PRIMEIRA vez
+ * e depois falha para sempre com `A user with this email address has already
+ * been registered` — matando `invite-lifecycle.spec.ts` no `load()`, isto é,
+ * **em tempo de coleta**, o que derruba a PARTE 1 inteira sem rodar um teste.
+ * No CI passa despercebido porque lá o banco nasce vazio a cada execução.
+ *
+ * A Admin API é o caminho que o resto do repo já usa (seed-e2e-credentials.ts,
+ * reset-password-mfa.spec.ts). Pagina porque `listUsers` não filtra por email.
+ */
 async function findUserId(email: string): Promise<string | null> {
-  const { data } = await admin.schema("auth").from("users").select("id").eq("email", email).maybeSingle();
-  return (data as { id: string } | null)?.id ?? null;
+  for (let pagina = 1; pagina <= 5; pagina++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page: pagina, perPage: 200 });
+    if (error) throw new Error(`listUsers (página ${pagina}): ${error.message}`);
+    const achado = data.users.find((u) => u.email === email);
+    if (achado) return achado.id;
+    if (data.users.length < 200) break;
+  }
+  return null;
 }
 
 async function main(): Promise<void> {

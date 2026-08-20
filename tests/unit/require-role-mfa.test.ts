@@ -102,13 +102,35 @@ describe("requireRole — MFA é política de sessão, não de cadastro", () => 
     expect(r.ok).toBe(true);
   });
 
-  it("papel que não exige MFA não é afetado (manager em aal1 com fator)", async () => {
+  it("QUEM TEM FATOR PROVA — mesmo num papel que a política não obriga", async () => {
+    // ⚠️ ESTE CASO INVERTEU, e a inversão APERTA a regra em vez de afrouxá-la.
+    //
+    // Antes, `mfaEmDivida` começava perguntando a política
+    // (`requiresMfa(role, …)`), então um manager que cadastrou a verificação por
+    // vontade própria tinha o fator IGNORADO na sessão — o mesmo que não ter.
+    // Passava batido porque o cadastro era obrigatório justo para os papéis que
+    // a política cobria; com o cadastro virando opcional, isso viraria o buraco
+    // central: quem ligasse a proteção não estaria protegido.
+    //
+    // Cadastrar e provar são perguntas diferentes. Quem TEM fator prova, sempre.
     preparar({ role: "manager", temFator: true, aal: "aal1" });
     const r = await requireRole("manager", { requestId: "req-4" });
-    expect(r.ok).toBe(true);
+    expect(r.ok).toBe(false);
   });
 
-  it("platform admin em aal1 com fator é BARRADO (requiresMfa cobre os dois)", async () => {
+  it("e quem NÃO tem fator não é cobrado, qualquer que seja o papel", async () => {
+    // A outra metade da regra: a dívida é de quem tem o que provar.
+    for (const role of ["admin", "manager", "viewer"] as const) {
+      preparar({ role, temFator: false, aal: "aal1" });
+      const r = await requireRole(role, { requestId: `req-4-${role}` });
+      expect(r.ok, role).toBe(true);
+    }
+  });
+
+  it("platform admin em aal1 com fator é BARRADO — agora por TER fator", async () => {
+    // O desfecho é o mesmo de antes; o motivo mudou. Antes ele vinha de
+    // `requiresMfa` cobrir platform admin; agora vem de ele ter um fator para
+    // provar — e o desfecho seria o mesmo se ele fosse um viewer comum.
     preparar({ role: "viewer", temFator: true, aal: "aal1", isPlatformAdmin: true });
     const r = await requireRole("viewer", { requestId: "req-5" });
     expect(r.ok).toBe(false);

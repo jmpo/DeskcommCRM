@@ -9,6 +9,7 @@ import {
   Tooltip,
 } from "recharts";
 import type { UsageSeries } from "@/app/api/v1/admin/usage/route";
+import { formatCentsUSD } from "@/lib/money";
 
 interface UsageChartsProps {
   series: UsageSeries;
@@ -19,12 +20,8 @@ function formatDateTick(date: string): string {
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
+// DÓLAR: o número é `llm_calls.cost_cents`, e `pricing.ts` cota o provedor em USD.
+const formatCurrency = formatCentsUSD;
 
 function formatNumber(n: number): string {
   return n.toLocaleString("pt-BR");
@@ -142,7 +139,7 @@ export function UsageCharts({ series }: UsageChartsProps) {
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={(v: number) =>
-                  (v / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                  formatCurrency(v)
                 }
                 width={70}
               />

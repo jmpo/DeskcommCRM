@@ -33,19 +33,20 @@ import {
   Trash,
   Warning,
 } from "@/lib/ui/icons";
+import { lerEstadoDoCanal } from "@/lib/channels/estado";
 
 type Variant = "success" | "warning" | "error" | "neutral";
 
-const STATUS_MAP: Record<string, { label: string; variant: Variant }> = {
-  WORKING: { label: "Conectado", variant: "success" },
-  SCAN_QR_CODE: { label: "Escaneie o QR", variant: "warning" },
-  STARTING: { label: "Conectando…", variant: "warning" },
-  STOPPED: { label: "Parado", variant: "error" },
-  FAILED: { label: "Caiu", variant: "error" },
-};
-
+/**
+ * O vocabulário saiu daqui para `lib/channels/estado.ts`, sem mudar uma palavra:
+ * esta era a tradução mais completa do produto (cobre os cinco valores do CHECK)
+ * e virou a fonte única. O que MUDOU foi o fallback — ele devolvia
+ * `{ label: status }`, ou seja, o enum cru na tela no dia em que aparecesse um
+ * estado fora da lista.
+ */
 function statusInfo(status: string): { label: string; variant: Variant } {
-  return STATUS_MAP[status] ?? { label: status, variant: "neutral" };
+  const l = lerEstadoDoCanal(status);
+  return { label: l.rotulo, variant: l.tom };
 }
 
 function errMsg(err: unknown, fallback: string): string {

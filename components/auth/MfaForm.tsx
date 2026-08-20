@@ -60,6 +60,10 @@ export function MfaForm({ next }: MfaFormProps) {
 
   return (
     <form
+      // Ver a nota nos outros formulários de autenticação: sem JavaScript o
+      // submit nativo é GET, e o código de verificação iria para a query
+      // string — histórico, log do servidor e Referer.
+      method="post"
       onSubmit={(e) => {
         e.preventDefault();
         submit();

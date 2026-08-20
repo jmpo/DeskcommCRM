@@ -22,6 +22,7 @@ import {
   Lightbulb,
   ListChecks,
   Lock,
+  Palette,
   Plugs,
   PlugsConnected,
   PuzzlePiece,
@@ -164,9 +165,19 @@ export const NAV_DESTINATIONS: NavDestination[] = [
 
   // ---- CRM — o funil ----
   {
+    // ⚠️ ERA "Kanban", e a URL continua sendo. O nome saiu da interface porque o
+    // produto tinha CINCO vocabulários para a mesma coisa — "Kanban" no menu,
+    // "Pipelines" no título desta tela, "Funis" no menu ao lado, "funil" em todo
+    // o corpo dela e "quadro" no onboarding inteiro. Três deles no mesmo
+    // viewport: o <h1> dizia "Pipelines", o estado vazio dizia "Sem pipelines
+    // configurados" e o botão embaixo dizia "Criar meu primeiro funil".
+    //
+    // Ficou "Funis" porque é o que esta tela É: a lista dos funis, de onde se
+    // abre o quadro de cada um. "Pipeline" é palavra de quem construiu o
+    // sistema; "funil de vendas" é palavra de quem vende.
     href: "/app/kanban",
-    label: "Kanban",
-    description: "O quadro de cards: onde cada negócio está no funil.",
+    label: "Funis",
+    description: "Seus funis de venda — clique em um para abrir o quadro de clientes.",
     icon: Kanban,
     group: "crm",
     sidebar: true,
@@ -182,9 +193,15 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   {
     // Estava enterrado em Configurações e ninguém sabia que existia — o achado
     // que originou esta reorganização. A URL não muda; só o lugar na navegação.
+    //
+    // ⚠️ ERA "Funis", nome que ele DISPUTAVA com o destino acima: os dois
+    // listavam as mesmas linhas de `crm_pipelines`, lado a lado no mesmo grupo,
+    // com nomes que não diziam qual servia para quê. A diferença real é o VERBO,
+    // e é ela que o nome carrega agora: lá se ABRE o funil, aqui se CONFIGURA o
+    // que ele significa.
     href: "/app/settings/tenant/pipelines",
-    label: "Funis",
-    description: "As etapas do seu funil, o vocabulário do negócio e os motivos de perda.",
+    label: "Etapas do funil",
+    description: "As colunas de cada funil, o vocabulário do negócio e os motivos de perda.",
     icon: Funnel,
     group: "crm",
     minRole: "manager",
@@ -447,6 +464,21 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     group: "organizacao",
     section: "Sua empresa",
     minRole: "admin",
+  },
+  {
+    href: "/app/settings/marca",
+    label: "Marca",
+    description: "O nome e a cor que sua empresa mostra dentro do sistema.",
+    icon: Palette,
+    group: "organizacao",
+    section: "Sua empresa",
+    // `admin` pelo mesmo motivo da linha de cima: o que se edita ali é
+    // identidade da empresa, e dá-lo a `manager` o colocaria abaixo de billing e
+    // de API tokens na mesma prancheta.
+    minRole: "admin",
+    // SEM `sidebar`: fica só no hub. Trocar a marca é tarefa de uma vez, e
+    // agrupar o menu já o fez crescer — duas telas a mais estouraram a dobra em
+    // 900px, medido pelo e2e `navegacao.spec.ts`.
   },
   {
     href: "/app/settings/billing",

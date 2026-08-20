@@ -28,13 +28,31 @@ import type { Idioma } from "./idiomas";
 type Traducoes = Record<string, Partial<Record<Exclude<Idioma, "pt-BR">, string>>>;
 
 export const DICIONARIO: Traducoes = {
+  // ─── Cabeçalhos de grupo da barra lateral ───
+  //
+  // ⚠️ NUNCA TIVERAM TRADUÇÃO, e o defeito era invisível: `Sidebar.tsx:83` já
+  // chamava `t(group.label)`, então o espanhol recebia os cabeçalhos em
+  // português e nada ficava vermelho — `traduzir()` devolve a chave ausente
+  // como está. Achado pelo cruzamento novo entre DICIONARIO e NAV_GROUPS.
+  Atendimento: { es: "Atención" },
+  CRM: { es: "CRM" },
+  "Agente de IA": { es: "Agente de IA" },
+  Canais: { es: "Canales" },
+  Análise: { es: "Análisis" },
+  Organização: { es: "Organización" },
+
   // ─── Navegação (a barra lateral, presente em toda tela) ───
   Inbox: { es: "Inbox" },
   Radar: { es: "Radar" },
   "Respostas rápidas": { es: "Respuestas rápidas" },
-  Kanban: { es: "Kanban" },
   Contatos: { es: "Contactos" },
+  // A CHAVE É O TEXTO PT-BR, então renomear um rótulo no registro de navegação
+  // sem mexer aqui NÃO quebra teste nenhum — degrada em silêncio: `traduzir()`
+  // devolve a chave ausente como português e o espanhol da barra lateral some.
+  // "Kanban" saiu do menu (a tela virou "Funis"); "Etapas do funil" é o nome novo
+  // da tela de configuração, que antes disputava "Funis" com ela.
   Funis: { es: "Embudos" },
+  "Etapas do funil": { es: "Etapas del embudo" },
   Agentes: { es: "Agentes" },
   "Follow-ups": { es: "Seguimientos" },
   Roteadores: { es: "Enrutadores" },

@@ -29,6 +29,7 @@ import { Signpost, Plus } from "@/lib/ui/icons";
 import { usePermission } from "@/hooks/auth/AuthProvider";
 import { useRouters, useCreateRouter, type RouterListItem } from "@/hooks/ai/useRouters";
 import type { ChannelSessionLite } from "../agents/[id]/_components/AgentForm";
+import { rotuloDoEstadoDoCanal } from "@/lib/channels/estado";
 
 interface Props {
   initialState: { routers: RouterListItem[] };
@@ -173,8 +174,11 @@ function CreateRouterDialog({
               <SelectContent>
                 {channelSessions.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
+                    {/* Mesmo JSX do editor de agente, e o mesmo defeito: o
+                        estado saía cru. Consertar só um lado deixaria o outro. */}
                     {s.display_name}
-                    {s.phone_number ? ` · ${s.phone_number}` : ""} · {s.status}
+                    {s.phone_number ? ` · ${s.phone_number}` : ""} ·{" "}
+                    {rotuloDoEstadoDoCanal(s.status)}
                   </SelectItem>
                 ))}
                 {channelSessions.length === 0 ? (

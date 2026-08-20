@@ -27,6 +27,9 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs, type LanguageModel, type StopCondition, type ToolSet } from "ai";
 
+// Fonte única do endpoint — a mesma constante que o registry de produção usa.
+// Repetir a URL aqui criaria dois lugares para consertar quando ela mudar.
+import { OPENROUTER_ENDPOINT } from "@/lib/agent-engine/edge/llm/providers";
 import { CredentialUnavailableError, loadCredential } from "@/lib/ai/credentials";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit } from "@/lib/audit";
@@ -131,7 +134,31 @@ function buildSentinelRegex(keywords: string[]): RegExp | null {
  * "Unauthenticated. Configure AI_GATEWAY_API_KEY or use a provider module.",
  * which is exactly what this does — a direct provider module per `provider`.
  */
-function buildModel(provider: string, apiKey: string, modelId: string): LanguageModel {
+/**
+ * Exportada por causa do invariante: este switch é o SEGUNDO lugar que precisa
+ * conhecer um provedor novo (o primeiro é `createDefaultRegistry`, em
+ * `lib/agent-engine/edge/llm/providers.ts`), e ficou três casos atrás dele.
+ * `tests/unit/provedores-x-registry.test.ts` chama esta função para cada id de
+ * `IDS_DE_PROVEDOR` — sem export, a única guarda possível seria procurar
+ * `case "..."` no texto do arquivo, que passa com um switch que compila e não
+ * executa.
+ */
+/**
+ * A chave de plataforma do provedor — as mesmas variáveis que
+ * `llmEdgeConfigFromEnv` lê no turno de produção. Google não tem: o runtime
+ * real também não tem ramo de fallback para ele, e prometer aqui um caminho que
+ * lá não existe faria o ensaio passar e a mensagem real falhar.
+ */
+export function chaveDePlataforma(provider: string): string | null {
+  const nome = { anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", openrouter: "OPENROUTER_API_KEY" }[
+    provider
+  ];
+  if (!nome) return null;
+  const v = (process.env[nome] ?? "").trim();
+  return v === "" ? null : v;
+}
+
+export function buildModel(provider: string, apiKey: string, modelId: string): LanguageModel {
   switch (provider) {
     case "anthropic":
       return createAnthropic({ apiKey })(modelId);
@@ -139,6 +166,13 @@ function buildModel(provider: string, apiKey: string, modelId: string): Language
       return createOpenAI({ apiKey })(modelId);
     case "google":
       return createGoogleGenerativeAI({ apiKey })(modelId);
+    // O ensaio precisa alcançar o mesmo provedor que o turno real alcança.
+    // Sem este caso, o dono que instalou pela opção [1] do instalador publica
+    // o agente, clica em "Teste" para conferir antes de confiar, e recebe
+    // `unsupported_provider` — enquanto a mensagem de verdade seria respondida
+    // normalmente pelo worker. Erro no ensaio lê-se como produto quebrado.
+    case "openrouter":
+      return createOpenAI({ apiKey, baseURL: OPENROUTER_ENDPOINT })(modelId);
     default:
       throw new Error(`unsupported_provider: ${provider}`);
   }
@@ -239,16 +273,37 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     const agent = agentRaw as AgentRow | null;
 
     // 4) Load credential. Plaintext lives only in this scope.
-    if (!version.credential_id) {
-      return await failRun(run, "credential_invalid", "version has no credential", startedAt);
-    }
+    //
+    // Duas origens, na MESMA ordem que `resolveOrgLlmConfig` aplica no turno de
+    // produção: a credencial cadastrada pela tela vence, e na falta dela vale a
+    // chave de plataforma que veio na instalação.
+    //
+    // Sem o segundo caminho, o ensaio recusava com "version has no credential"
+    // justamente na instalação mais comum — a que rodou o `install.sh`, colou a
+    // chave no `.env` e nunca abriu a tela de Credenciais. O agente atendia um
+    // cliente de verdade normalmente, e o botão de testar dizia que não dava.
+    // Ensaio mais rígido que a produção não é cautela: é dizer que está
+    // quebrado o que está funcionando.
     let credentialApiKey: string;
-    try {
-      const credential = await loadCredential(version.credential_id, run.organization_id);
-      credentialApiKey = credential.apiKey;
-    } catch (err) {
-      const reason = err instanceof CredentialUnavailableError ? err.reason : "decrypt_failed";
-      return await failRun(run, `credential_${reason}`, "credential unavailable", startedAt);
+    if (version.credential_id) {
+      try {
+        const credential = await loadCredential(version.credential_id, run.organization_id);
+        credentialApiKey = credential.apiKey;
+      } catch (err) {
+        const reason = err instanceof CredentialUnavailableError ? err.reason : "decrypt_failed";
+        return await failRun(run, `credential_${reason}`, "credential unavailable", startedAt);
+      }
+    } else {
+      const daInstalacao = chaveDePlataforma(version.provider);
+      if (!daInstalacao) {
+        return await failRun(
+          run,
+          "credential_invalid",
+          `sem chave para ${version.provider}: cadastre em IA › Credenciais ou configure a chave desta instalação`,
+          startedAt,
+        );
+      }
+      credentialApiKey = daInstalacao;
     }
 
     // 5) Resolve inbound text + dispatch context.

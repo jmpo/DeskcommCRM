@@ -129,7 +129,9 @@ async function main() {
     .from("event_log")
     .delete()
     .eq("organization_id", ORG_ID)
-    .in("event_type", ["ai.budget_warning", "ai.budget_throttled", "ai.budget_reset"]);
+    // `ai.budget_throttled` e `ai.budget_reset` perderam o único emissor com os
+    // dois crons apagados — limpar por eles é limpar o que ninguém escreve.
+    .in("event_type", ["ai.budget_warning"]);
 
   const browser = await chromium.launch({ headless: true });
 
@@ -221,23 +223,36 @@ async function main() {
       | null;
     const d = body?.data;
     const singleWrap = !!d && !("data" in (d as object));
+    // O contrato do GET mudou com a 0159: `is_throttled`/`is_disabled` perderam o
+    // escritor (o cron morto) e saíram do tipo, e `action_at_100pct` saiu porque
+    // o produto nunca distinguiu "pausar" de "desabilitar". Exigi-los aqui fazia
+    // o caso reprovar por defeito DO INSTRUMENTO. No lugar entram os quatro
+    // campos que a tela passou a consumir de verdade.
     const requiredFields = [
       "organization_id",
       "monthly_limit_cents",
       "current_month_consumed_cents",
       "pct",
-      "is_throttled",
-      "is_disabled",
       "alarm_threshold_pct",
-      "action_at_100pct",
+      "enforcement_mode",
+      "enforcement_effective_at",
+      "enforcement_env",
+      "blocked_now",
+      "gasto_incompleto",
       "current_period_start",
       "last_alarm_sent_at",
       "updated_at",
     ];
     const missing = requiredFields.filter((k) => !(d && k in (d as object)));
     const limitOk = d?.monthly_limit_cents === 5000;
-    const consumedOk = d?.current_month_consumed_cents === 0;
-    const pctOk = d?.pct === 0;
+    // ⚠️ O GASTO NÃO VEM MAIS DA COLUNA SEMEADA. Ele vem de
+    // `fn_gasto_de_ia_do_mes`, que soma `llm_calls` do mês corrente — semear
+    // `current_month_consumed_cents: 0` deixou de ter efeito sobre a resposta.
+    // Por isso a asserção passou a ser sobre a FORMA (número não-negativo e um
+    // `pct` coerente com o teto), não sobre o valor que este script escreveu.
+    const consumido = Number(d?.current_month_consumed_cents ?? Number.NaN);
+    const consumedOk = Number.isFinite(consumido) && consumido >= 0;
+    const pctOk = d?.pct === Math.round((consumido * 10000) / 5000) / 100;
     const pass =
       resp.status() === 200 &&
       singleWrap &&
@@ -375,123 +390,14 @@ async function main() {
   await browser.close();
 
   // ============== WORKER tests ==============
-  // Lazy-import workers (after env loaded).
-  const checkerMod = (await import(
-    path.resolve(process.cwd(), "workers/ai-budget-checker.cron.ts")
-  )) as typeof import("../workers/ai-budget-checker.cron");
-  const resetMod = (await import(
-    path.resolve(process.cwd(), "workers/ai-budget-reset.cron.ts")
-  )) as typeof import("../workers/ai-budget-reset.cron");
-
-  // AC-WORKER-1 (warning at 80%) — set 4000/5000=80%, last_alarm_sent_at=null
-  await seedBudget(sb, {
-    monthly_limit_cents: 5000,
-    current_month_consumed_cents: 4000,
-    alarm_threshold_pct: 80,
-    is_throttled: false,
-    is_disabled: false,
-    last_alarm_sent_at: null,
-    action_at_100pct: "throttle",
-  });
-  // Clear prior events
-  await sb
-    .from("event_log")
-    .delete()
-    .eq("organization_id", ORG_ID)
-    .in("event_type", ["ai.budget_warning", "ai.budget_throttled", "ai.budget_reset"]);
-
-  try {
-    const stats = await checkerMod.runBudgetChecker();
-    const after = await readBudget(sb);
-    const { data: warnEvents } = await sb
-      .from("event_log")
-      .select("id, payload, created_at")
-      .eq("organization_id", ORG_ID)
-      .eq("event_type", "ai.budget_warning")
-      .order("created_at", { ascending: false });
-    const warnCount = warnEvents?.length ?? 0;
-    const lastAlarm = after?.last_alarm_sent_at as string | null;
-    const stamped = !!lastAlarm;
-    const pass =
-      stats.scanned >= 1 &&
-      stats.warnings_emitted >= 1 &&
-      stats.throttled === 0 &&
-      stamped &&
-      warnCount >= 1;
-    record(
-      "AC-WORKER-1 (budget-checker emits warning)",
-      pass,
-      `stats=${JSON.stringify(stats)} last_alarm_sent_at=${lastAlarm} warn_events=${warnCount}`,
-    );
-  } catch (e) {
-    record("AC-WORKER-1 (budget-checker emits warning)", false, `error: ${(e as Error).message}`);
-  }
-
-  // AC-WORKER-2 (100% triggers throttle) — set 10000/5000 = 200%
-  await seedBudget(sb, {
-    monthly_limit_cents: 5000,
-    current_month_consumed_cents: 10000,
-    alarm_threshold_pct: 80,
-    is_throttled: false,
-    is_disabled: false,
-    last_alarm_sent_at: new Date().toISOString(), // suppress warn cooldown
-    action_at_100pct: "throttle",
-  });
-  try {
-    const stats = await checkerMod.runBudgetChecker();
-    const after = await readBudget(sb);
-    const { data: thrEvents } = await sb
-      .from("event_log")
-      .select("id")
-      .eq("organization_id", ORG_ID)
-      .eq("event_type", "ai.budget_throttled");
-    const throttled = !!after?.is_throttled;
-    const eventCount = thrEvents?.length ?? 0;
-    const pass = stats.throttled >= 1 && throttled && eventCount >= 1;
-    record(
-      "AC-WORKER-2 (100% triggers throttle)",
-      pass,
-      `stats=${JSON.stringify(stats)} db.is_throttled=${throttled} throttle_events=${eventCount}`,
-    );
-  } catch (e) {
-    record("AC-WORKER-2 (100% triggers throttle)", false, `error: ${(e as Error).message}`);
-  }
-
-  // AC-WORKER-3 (reset)
-  await seedBudget(sb, {
-    monthly_limit_cents: 5000,
-    current_month_consumed_cents: 4500,
-    is_throttled: true,
-    is_disabled: true, // verify reset does NOT touch this
-    current_period_start: "2026-03-01",
-    last_alarm_sent_at: new Date().toISOString(),
-  });
-  try {
-    const stats = await resetMod.runBudgetReset();
-    const after = await readBudget(sb);
-    const periodStart = String(after?.current_period_start ?? "");
-    const consumed = Number(after?.current_month_consumed_cents);
-    const isThr = !!after?.is_throttled;
-    const isDis = !!after?.is_disabled;
-    const expectedPeriodStart = new Date(
-      Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
-    )
-      .toISOString()
-      .slice(0, 10);
-    const pass =
-      stats.reset_count >= 1 &&
-      consumed === 0 &&
-      isThr === false &&
-      isDis === true && // unchanged
-      periodStart === expectedPeriodStart;
-    record(
-      "AC-WORKER-3 (monthly reset)",
-      pass,
-      `stats=${JSON.stringify(stats)} consumed=${consumed} is_throttled=${isThr} is_disabled=${isDis} period_start=${periodStart} expected=${expectedPeriodStart}`,
-    );
-  } catch (e) {
-    record("AC-WORKER-3 (monthly reset)", false, `error: ${(e as Error).message}`);
-  }
+  // AC-WORKER-1/2/3 SAÍRAM junto com os workers que exercitavam:
+  // `workers/ai-budget-checker.cron.ts` e `workers/ai-budget-reset.cron.ts`
+  // foram apagados — nenhum dos dois teve agendador algum dia (nada em
+  // `docker/scheduler/entrypoint.sh`, nenhuma rota em `app/api/v1/cron/`), e o
+  // que eles escreviam (`is_throttled`/`is_disabled`) deixou de ter leitor.
+  // Quem aplica o teto hoje é `aplicarOrcamento` (seam do engine) e
+  // `vetoPorTetoDeGasto` (caminho legado do ai-response-worker); a prova deles
+  // são `tests/unit/orcamento-*.test.ts` e o passo 6 de `scripts/smoke-llm.ts`.
 
   // AC-IA-10 (handoff guard inspection — source review)
   try {
@@ -502,7 +408,7 @@ async function main() {
     const lines = workerSrc.split("\n");
     let guardLine = -1;
     for (let i = 0; i < lines.length; i++) {
-      if (/skip\("budget_throttled"\)/.test(lines[i]!)) {
+      if (/skip\("budget_exceeded"\)/.test(lines[i]!)) {
         guardLine = i + 1;
         break;
       }
@@ -551,7 +457,7 @@ async function main() {
       .from("event_log")
       .delete()
       .eq("organization_id", ORG_ID)
-      .in("event_type", ["ai.budget_warning", "ai.budget_throttled", "ai.budget_reset"]);
+      .in("event_type", ["ai.budget_warning"]);
     console.log("[cleanup] reset budget + removed seeded events");
   } catch (e) {
     console.log(`[cleanup] error: ${(e as Error).message}`);

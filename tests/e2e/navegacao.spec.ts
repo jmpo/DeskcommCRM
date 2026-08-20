@@ -13,6 +13,7 @@ import * as path from "node:path";
 
 import { test, expect, type Page } from "@playwright/test";
 
+import { afirmarAdminDeTenantPuro } from "./utils/precondicao";
 import { generateTotp, msUntilNextTotpWindow } from "./utils/totp";
 
 interface E2ECreds {
@@ -26,6 +27,22 @@ const creds = JSON.parse(fs.readFileSync(CREDS_PATH, "utf8")) as E2ECreds;
 const EVIDENCE = path.join(process.cwd(), ".superpowers", "evidence");
 
 fs.mkdirSync(EVIDENCE, { recursive: true });
+
+// ── Precondição de identidade ────────────────────────────────────────────────
+// O menu é `sidebarGroups(isPlatformAdmin, role)` (`registry.ts:510-519`), então
+// a suspeita natural é que promover o `e2e-admin` a dono do servidor inflasse o
+// sidebar que esta spec mede item a item.
+//
+// ⚠️ MEDIDO, e a suspeita não se confirma: `canSee` (`registry.ts:503-507`) é
+// `isPlatformAdmin || ROLE_RANK[role] >= ROLE_RANK[minRole]`; `ROLE_RANK.admin`
+// é 5, o TETO, e o maior `minRole` do registro é `"admin"`. Para um admin de
+// tenant o menu é IDÊNTICO promovido ou não — as asserções de `toHaveText`
+// abaixo não mudariam. Guardar a identidade aqui continua valendo (é a spec de
+// navegação; qualquer destino futuro exclusivo do dono apareceria primeiro
+// nela), mas registrar a diferença entre "muda" e "poderia mudar" é o ponto.
+test.beforeAll(async () => {
+  await afirmarAdminDeTenantPuro(creds.users.admin!.email);
+});
 
 async function login(page: Page, email: string): Promise<void> {
   await page.goto("/login");
@@ -86,12 +103,25 @@ test.describe("navegação agrupada", () => {
     });
   });
 
-  test("chega em Funis pelo CRM, sem passar por Configurações", async ({ page }) => {
+  test("chega nas Etapas do funil pelo CRM, sem passar por Configurações", async ({ page }) => {
     await loginAdmin(page);
 
-    // O caso que originou tudo: o usuário não sabia que Funis existia.
-    await sidebar(page).getByRole("link", { name: "Funis" }).click();
-    await page.waitForURL(/pipelines/);
+    // O caso que originou tudo: o usuário não sabia que esta tela existia.
+    //
+    // ⚠️ O ITEM MUDOU DE NOME, e o nome antigo ("Funis") passou para o VIZINHO —
+    // a lista de funis, em /app/kanban. Um teste que continuasse clicando em
+    // "Funis" seguiria verde medindo a outra tela; por isso a asserção de URL
+    // abaixo é específica (`settings/tenant/pipelines`) e não o antigo
+    // /pipelines/, que casa com as duas.
+    await sidebar(page).getByRole("link", { name: "Etapas do funil" }).click();
+    await page.waitForURL(/settings\/tenant\/pipelines/);
+    await expect(page.getByRole("heading", { name: "Etapas do funil", level: 1 })).toBeVisible();
+  });
+
+  test("e a lista de funis é o item vizinho, com nome próprio", async ({ page }) => {
+    await loginAdmin(page);
+    await sidebar(page).getByRole("link", { name: "Funis", exact: true }).click();
+    await page.waitForURL(/\/app\/kanban/);
     await expect(page.getByRole("heading", { name: "Funis", level: 1 })).toBeVisible();
   });
 

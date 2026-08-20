@@ -12,9 +12,11 @@
  *   3. 2ª chamada byte-idêntica LÊ cache (cacheReadTokens > 0);
  *   4. prefixo medido ≥ mínimo cacheável do modelo;
  *   5. llm_calls persistiu tokens/custo (custo > 0);
- *   6. budget da org bloqueia ANTES do provider (LlmBudgetExceededError).
+ *   6. o teto de `ai_budgets` avisa na 1ª chamada acima dele e BLOQUEIA na 2ª,
+ *      antes do provider (LlmBudgetExceededError) — e o script restaura o estado.
  *
- * Requer ANTHROPIC_API_KEY real no env. Custo: ~2 chamadas curtas de Haiku.
+ * Requer ANTHROPIC_API_KEY real no env. Custo: ~4 chamadas curtas de Haiku (as 2
+ * do teste de cache são as caras; as do passo 6 são de uma palavra).
  */
 import pg from 'pg';
 import { z } from 'zod';
@@ -162,34 +164,143 @@ async function main(): Promise<void> {
   check(agg.cost > 0, `custo persistido > 0 (${agg.cost.toFixed(4)} cents)`);
   check(agg.cache_write > 0 && agg.cache_read > 0, 'cache_read/write_tokens persistidos em llm_calls');
 
-  // 6. budget bloqueia ANTES do provider
+  // ── 6. O TETO QUE VINCULA: avisa antes de parar, e para ANTES do provider ──
+  //
+  // Este passo gravava `'0'` em `organizations.settings.llm.monthly_budget_cents`
+  // e checava a exceção. Duas coisas o tornaram uma prova vazia:
+  //
+  //   (a) o resolvedor não lê mais aquele campo do jsonb — o teto mora em
+  //       `ai_budgets`, atrás de `enforcement_mode`. O passo passaria a provar
+  //       que um campo ignorado é ignorado;
+  //   (b) `purpose: 'connection_test'` entrou em `PURPOSES_ISENTOS`. Mesmo com o
+  //       teto armado corretamente, um teste de conexão NUNCA é recusado — o
+  //       smoke ficaria verde por isenção, que é o pior verde que existe.
+  //
+  // A prova nova exercita a ESCADA inteira contra o mecanismo real: com o gasto
+  // do mês acima do teto, a 1ª chamada AVISA e segue (condição 6: ninguém é
+  // bloqueado sem ter sido avisado no mês) e só a 2ª bloqueia. Custo: uma
+  // chamada curta a mais.
+  // ⚠️ O RETRATO PRECISA SER COMPLETO, NÃO "O QUE EU LEMBREI DE OLHAR". A versão
+  // anterior lia só `exists` e devolvia `enforcement_mode='off'` no fim — o teto
+  // e o limiar que o dono configurou eram sobrescritos por 100 e 50 e ficavam
+  // assim, sem aviso. Restaurar menos do que se sobrescreve é a mesma família de
+  // defeito que esta feature conserta.
+  const ESTADO_ANTERIOR = await db.query<{
+    existe: boolean;
+    teto: number | null;
+    limiar: number | null;
+    modo: string | null;
+    efetivo_em: Date | null;
+  }>(
+    `select exists(select 1 from ai_budgets where organization_id = $1) as existe,
+            (select monthly_limit_cents      from ai_budgets where organization_id = $1) as teto,
+            (select alarm_threshold_pct      from ai_budgets where organization_id = $1) as limiar,
+            (select enforcement_mode         from ai_budgets where organization_id = $1) as modo,
+            (select enforcement_effective_at from ai_budgets where organization_id = $1) as efetivo_em`,
+    [ORG],
+  );
+  // Gasto anterior do mês, para o teto (que tem piso de US$ 1,00) ser alcançável
+  // sem queimar US$ 1 de verdade em Haiku. É uma linha de `llm_calls` como
+  // qualquer outra — a régua `fn_gasto_de_ia_do_mes` soma exatamente isto.
+  //
+  // O `id` volta porque ela precisa ser APAGADA no fim: sem isso o smoke deixa
+  // um gasto fantasma de US$ 5,00 no mês corrente da organização, no número que
+  // passou a decidir se a IA para de responder.
+  const { rows: semeada } = await db.query<{ id: string }>(
+    `insert into llm_calls (organization_id, purpose, provider, model, cost_cents)
+     values ($1, 'agent_turn', 'anthropic', $2, 500)
+     returning id`,
+    [ORG, MODEL],
+  );
+  const GASTO_SEMEADO_ID = semeada[0]!.id;
   await db.query(
-    `update organizations
-     set settings = jsonb_set(settings, '{llm,monthly_budget_cents}', '0'::jsonb) where id = $1`,
+    `insert into ai_budgets (organization_id, monthly_limit_cents, alarm_threshold_pct,
+                             enforcement_mode, enforcement_effective_at)
+     values ($1, 100, 50, 'bloquear', now() - interval '1 minute')
+     on conflict (organization_id) do update
+       set monthly_limit_cents      = 100,
+           alarm_threshold_pct      = 50,
+           enforcement_mode         = 'bloquear',
+           enforcement_effective_at = now() - interval '1 minute'`,
+    [ORG],
+  );
+
+  // 1ª acima do teto: avisa e SEGUE. `agent_turn` porque `connection_test` é
+  // isento — o purpose faz parte do que está sendo provado.
+  await runModelCall(db, cfg, {
+    tenantId: ORG,
+    purpose: 'agent_turn',
+    system: 'Responda com uma palavra.',
+    messages: [{ role: 'user', content: 'diga ok' }],
+  });
+  const { rows: aviso } = await db.query<{ n: string }>(
+    `select count(*)::text as n from agent_inbox_items
+      where organization_id = $1 and kind = 'budget_warning' and status = 'open'`,
+    [ORG],
+  );
+  check(aviso[0]!.n === '1', 'gasto acima do teto: 1ª chamada AVISA e segue (budget_warning aberto)');
+
+  const { rows: antes } = await db.query<{ n: string }>(
+    `select count(*)::text as n from llm_calls where organization_id = $1`,
     [ORG],
   );
   let budgetErr: unknown = null;
   try {
     await runModelCall(db, cfg, {
       tenantId: ORG,
-      purpose: 'connection_test',
-      system,
+      purpose: 'agent_turn',
+      system: 'Responda com uma palavra.',
       messages: [{ role: 'user', content: 'não deve sair byte' }],
     });
   } catch (err) {
     budgetErr = err;
   }
-  check(budgetErr instanceof LlmBudgetExceededError, 'budget 0 → LlmBudgetExceededError antes do provider');
-  const { rows: after } = await db.query<{ n: string }>(
-    `select count(*)::text as n from llm_calls where organization_id = $1`,
+  check(budgetErr instanceof LlmBudgetExceededError, 'já avisado: 2ª chamada → LlmBudgetExceededError');
+  const { rows: after } = await db.query<{ n: string; recusas: string }>(
+    `select count(*)::text as n,
+            count(*) filter (where status = 'erro' and error_code = 'orcamento_esgotado')::text as recusas
+       from llm_calls where organization_id = $1`,
     [ORG],
   );
-  check(after[0]!.n === '2', 'recusa por budget não gerou chamada nem linha nova');
+  // A recusa NÃO chama o provedor, mas GRAVA a linha de falha (`registrarFalha`)
+  // — a tela de Execuções tem que explicar por que o agente parou. Exatamente
+  // uma linha a mais que antes da recusa, e ela é a recusa por orçamento.
+  check(
+    Number(after[0]!.n) === Number(antes[0]!.n) + 1 && after[0]!.recusas === '1',
+    'recusa por teto: nenhuma chamada ao provedor, e a recusa virou linha orcamento_esgotado em llm_calls',
+  );
   const { rows: inbox } = await db.query<{ n: string }>(
     `select count(*)::text as n from agent_inbox_items where organization_id = $1 and kind = 'budget_exceeded'`,
     [ORG],
   );
-  check(after[0]!.n === '2' && inbox[0]!.n === '1', 'alerta humano budget_exceeded criado (1x, sem duplicar)');
+  check(inbox[0]!.n === '1', 'alerta humano budget_exceeded criado (1x, sem duplicar)');
+
+  // RESTAURA. Sem isto, um smoke rodado por engano contra um banco que não é o
+  // efêmero deixa a organização PARADA para sempre — a mesma família de defeito
+  // que esta feature conserta (controle que age sem quem o ligou perceber).
+  const anterior = ESTADO_ANTERIOR.rows[0]!;
+  if (anterior.existe) {
+    await db.query(
+      `update ai_budgets
+          set monthly_limit_cents      = $2,
+              alarm_threshold_pct      = $3,
+              enforcement_mode         = $4,
+              enforcement_effective_at = $5
+        where organization_id = $1`,
+      [ORG, anterior.teto, anterior.limiar, anterior.modo, anterior.efetivo_em],
+    );
+  } else {
+    await db.query(`delete from ai_budgets where organization_id = $1`, [ORG]);
+  }
+  // O gasto semeado sai junto. Ele alimenta `fn_gasto_de_ia_do_mes`, que é a
+  // régua que o gate consulta: deixá-lo é deixar US$ 5,00 de gasto que ninguém
+  // teve dentro do número que decide.
+  await db.query(`delete from llm_calls where id = $1`, [GASTO_SEMEADO_ID]);
+  await db.query(
+    `update agent_inbox_items set status = 'resolved'
+      where organization_id = $1 and kind in ('budget_exceeded','budget_warning') and status = 'open'`,
+    [ORG],
+  );
 
   console.log(
     `\nSMOKE LLM PASS — ai@7: modelo=${call1.model} custo_total=${agg.cost.toFixed(4)}c ` +

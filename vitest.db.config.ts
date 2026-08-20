@@ -19,6 +19,13 @@ export default defineConfig({
     // agent-no-credential depende dele). Rodar os arquivos em paralelo cria
     // interferência cross-file (flakiness real observada nos dois casos).
     fileParallelism: false,
+    // Banco NOVO por arquivo, copiado do molde que scripts/test-db.sh preparou.
+    // É o que tira a ordem de execução de dentro do veredito (issue #207): sem
+    // isto os arquivos dividem estado global, colidem em UUID de fixture e
+    // `--sequence.shuffle.files` fica vermelho em 3 de 4 seeds — por colisão de
+    // fixture, não por defeito do produto. Guardado por
+    // tests/invariants/harness-isola-por-arquivo.test.ts.
+    setupFiles: ["./tests/db/banco-limpo-por-arquivo.ts"],
     // webhooks-trigger-events.test.ts chama os handlers REST diretamente (não
     // só SQL cru), e eles importam lib/env transitivamente (via lib/audit) —
     // sem isso o import falha (env obrigatória ausente) e derruba a suíte

@@ -2,9 +2,11 @@
 # gov-loop G1-02 — baseline install+update gate + RLS isolation invariants.
 #
 # Sobe um Postgres efêmero (pgvector/pgvector:pg17), aplica supabase/baseline.sql
-# em modo install (ON_ERROR_STOP=1 — qualquer statement falhando derruba o run),
-# re-aplica em modo update (sem a flag — idempotência) e roda a suíte vitest de
-# invariantes (tests/invariants/**) conectada ao container via `docker exec psql`.
+# em modo install e depois em modo update — as DUAS passadas com ON_ERROR_STOP=1,
+# que é o que torna a segunda uma prova de idempotência e não só um "terminou"
+# (issue #184) — e roda a suíte vitest de invariantes (tests/invariants/**)
+# conectada ao container via `docker exec psql`, com a ordem dos arquivos
+# EMBARALHADA e cada arquivo num banco próprio (issue #207).
 # O container é SEMPRE derrubado no EXIT (sucesso ou falha).
 set -euo pipefail
 
@@ -13,6 +15,17 @@ BASELINE="$ROOT/supabase/baseline.sql"
 PORT="${TEST_DB_PORT:-54329}"
 CONTAINER="deskcomm-test-db-$$"
 IMAGE="pgvector/pgvector:pg17"
+# O baseline é aplicado UMA vez, num banco-MOLDE. Cada ARQUIVO de tests/invariants
+# recebe uma cópia nova dele — `create database postgres template $TEMPLATE`, ~0,2s
+# medidos — feita pelo setupFile declarado em vitest.db.config.ts.
+#
+# Sem isso os 100 arquivos dividem um único banco global e o veredito do job
+# obrigatório `invariants` passa a depender da ORDEM em que o vitest resolveu
+# rodá-los (issue #207): medido em a8b09280, 3 de 4 seeds de
+# `--sequence.shuffle.files` ficavam vermelhas — por colisão de fixture entre
+# arquivos, não por defeito do produto. Gate que sorteia não prova o isolamento
+# multi-tenant que ele carrega.
+TEMPLATE="inv_baseline"
 
 [ -f "$BASELINE" ] || { echo "FATAL: $BASELINE não encontrado" >&2; exit 1; }
 
@@ -40,8 +53,10 @@ for _ in $(seq 1 60); do
 done
 [ "$ready" = 1 ] || { echo "FATAL: postgres não ficou pronto em 60s" >&2; exit 1; }
 
+docker exec "$CONTAINER" psql -U postgres -d postgres -q -c "create database $TEMPLATE" >/dev/null
+
 psql_install() {
-  docker exec -i "$CONTAINER" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f - "$@"
+  docker exec -i "$CONTAINER" psql -U postgres -d "$TEMPLATE" -v ON_ERROR_STOP=1 -q -f - "$@"
 }
 
 echo "==> prelude: stubs mínimos do Supabase (roles, auth.uid(), extensions)"
@@ -191,7 +206,7 @@ echo "==> conferindo que o banco efêmero é o do PRODUTO (antes do baseline)"
 # `-q` é obrigatório: sem ele o stdout leva "CREATE FUNCTION"/"DROP FUNCTION"
 # junto do resultado e a comparação com "t" falha sempre — sonda que reprova o
 # banco certo é tão inútil quanto sonda que aprova o errado.
-fidelidade="$(docker exec -i "$CONTAINER" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q -tA -f - <<'SQL'
+fidelidade="$(docker exec -i "$CONTAINER" psql -U postgres -d "$TEMPLATE" -v ON_ERROR_STOP=1 -q -tA -f - <<'SQL'
 create function public.fn_sonda_fidelidade_do_harness() returns int
   language sql security definer as $fn$ select 1 $fn$;
 select exists (
@@ -218,11 +233,39 @@ echo "==> modo INSTALL: aplicando baseline.sql com ON_ERROR_STOP=1"
 psql_install < "$BASELINE"
 echo "    ✓ install ok"
 
-echo "==> modo UPDATE: re-aplicando baseline.sql sem ON_ERROR_STOP (idempotência)"
-docker exec -i "$CONTAINER" psql -U postgres -d postgres -q -f - < "$BASELINE" >/dev/null
-echo "    ✓ update ok (re-apply terminou; erros tolerados por contrato)"
+# COM `ON_ERROR_STOP=1`, e é isto que torna o passo uma prova (issue #184).
+#
+# Antes ele re-aplicava SEM a flag e chamava o resultado de "idempotência". Não
+# era: sem a flag o psql segue após cada erro, então o passo saía verde com 301
+# erros dentro — inclusive os 4 `policy already exists` que faziam uma mudança de
+# RLS do apêndice NÃO chegar ao clone. O `update.sh` também roda sem a flag e
+# filtra esses erros como benignos, então nem ele nem este gate viam o defeito, e
+# o README dizia "provando idempotência" apontando para cá.
+#
+# A flag é a diferença entre "re-aplicar terminou" e "re-aplicar não errou".
+echo "==> modo UPDATE: re-aplicando baseline.sql COM ON_ERROR_STOP=1 (idempotência de verdade)"
+psql_install < "$BASELINE"
+echo "    ✓ update ok (zero erro na re-aplicação)"
 
-echo "==> invariantes: vitest (tests/invariants)"
-TEST_DB_CONTAINER="$CONTAINER" vitest run --config vitest.db.config.ts "$@"
+echo "==> banco \`postgres\` a partir do molde (o setupFile o recria a cada arquivo)"
+# Criar aqui, ALÉM do reset por arquivo, tem dois motivos medidos:
+#  - `docker exec … psql -d postgres` (o que se digita para depurar o container)
+#    continua funcionando;
+#  - se alguém remover o `setupFiles` de vitest.db.config.ts, a suíte volta ao
+#    regime ANTIGO — banco global compartilhado — em vez de explodir com
+#    "database postgres does not exist" em 99 arquivos. Aí o invariante
+#    tests/invariants/harness-isola-por-arquivo.test.ts aponta a regressão certa,
+#    com duas asserções, em vez de o run virar um muro de ruído.
+docker exec -i "$CONTAINER" psql -U postgres -d template1 -q -v ON_ERROR_STOP=1 -f - <<SQL
+drop database if exists postgres with (force);
+create database postgres template $TEMPLATE;
+SQL
+
+echo "==> invariantes: vitest (tests/invariants) — banco novo por ARQUIVO, ordem sorteada"
+# `--sequence.shuffle.files`: com o isolamento por arquivo a ordem deixa de ser
+# variável escondida, e sortear é o que impede a próxima colisão de fixture de
+# ficar dormente até alguém renomear um arquivo.
+TEST_DB_CONTAINER="$CONTAINER" TEST_DB_TEMPLATE="$TEMPLATE" \
+  vitest run --config vitest.db.config.ts --sequence.shuffle.files=true "$@"
 
 echo "==> test:db verde"

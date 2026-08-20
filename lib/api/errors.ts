@@ -49,6 +49,17 @@ export const ApiErrorCodes = {
   invalid_owner: "invalid_owner", // novo dono não é membro ativo agent+ da org (bulk assign, G3-04)
   trigger_kind_not_implemented: "trigger_kind_not_implemented", // publish de followup-flow com kind sem motor de enrollment (stage_change/conversation_end)
 
+  // 415 — tipo de mídia
+  unsupported_media_type: "unsupported_media_type",
+  // SVG recusado como logo. Código PRÓPRIO e não o genérico acima porque a pessoa
+  // que sobe um SVG fez a coisa mais natural do mundo (é o formato em que um
+  // designer entrega logo) e precisa ler "mande PNG ou JPG", não "tipo de mídia
+  // não suportado". A razão da recusa está em lib/branding/logo-arquivo.ts.
+  logo_svg_recusado: "logo_svg_recusado",
+
+  // 413
+  payload_too_large: "payload_too_large",
+
   // 429
   rate_limited: "rate_limited",
 

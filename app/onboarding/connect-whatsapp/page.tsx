@@ -17,9 +17,9 @@ export default async function ConnectWhatsappPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h2 className="text-2xl font-semibold tracking-tight">Conectar WhatsApp</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">Dê um telefone a ele</h2>
         <p className="text-sm text-muted-foreground">
-          Escaneie o QR Code com o WhatsApp Business para conectar seu número à plataforma.
+          É por este número que ele vai atender seus clientes. Tenha o celular por perto.
         </p>
       </header>
       <ConnectWhatsappClient

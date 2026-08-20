@@ -3,6 +3,7 @@
 import QRCode from "qrcode";
 import { redirect } from "next/navigation";
 
+import { marcaDaSaida } from "@/lib/branding/saida";
 import { createClient } from "@/lib/supabase/server";
 
 export type EnrollMfaResult =
@@ -32,9 +33,30 @@ export async function enrollMfa(): Promise<EnrollMfaResult> {
     }
   }
 
+  // ── O campo que grava no celular é `issuer`, não `friendlyName` ───────────
+  //
+  // O `friendlyName` NÃO entra na URI `otpauth://` (medido contra o GoTrue
+  // v2.188.1); o que o app autenticador mostra vem do `issuer` e do e-mail.
+  // Ele era o único campo daqui com marca, e trocá-lo não mudava nada no
+  // telefone de ninguém — a marca precisava ir para o `issuer`, que o SDK só
+  // envia quando presente (`@supabase/auth-js@2.112.1`).
+  //
+  // Classe B: o cadastro de MFA é anterior à escolha de organização, então a
+  // marca certa é a da INSTALAÇÃO — `marcaDaSaida(null)`.
+  //
+  // ALCANCE: isto NÃO reescreve fator já cadastrado. Vale só para quem enrolar
+  // depois; o que já está no celular de alguém continua como estava.
+  //
+  // O sufixo de data no `friendlyName` NÃO é enfeite: o GoTrue recusa nome
+  // duplicado por usuário ("A factor with the friendly name ... already
+  // exists"), e é a data que evita a colisão entre tentativas. Ela é UTC, e de
+  // propósito — trocar por horário local só criaria uma colisão nova perto da
+  // meia-noite.
+  const marca = await marcaDaSaida(null);
   const { data, error } = await supabase.auth.mfa.enroll({
     factorType: "totp",
-    friendlyName: `DeskcommCRM ${new Date().toISOString().slice(0, 10)}`,
+    friendlyName: `Acesso ${new Date().toISOString().slice(0, 10)}`,
+    issuer: marca.nome,
   });
   if (error || !data) {
     return { ok: false, error: "enroll_failed", message: error?.message };

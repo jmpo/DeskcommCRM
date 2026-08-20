@@ -24,6 +24,27 @@ export const signupSchema = z
 
 export type SignupInput = z.infer<typeof signupSchema>;
 
+/**
+ * Signup de quem foi CONVIDADO: a empresa já existe, então pedir o nome dela
+ * seria pedir para a pessoa batizar a organização de outra gente.
+ *
+ * É um schema à parte, e não `org_name` opcional no de cima, de propósito: o
+ * caminho normal continua exigindo o nome, com a mesma mensagem, e nada no
+ * fluxo de quem abre a própria empresa afrouxa por causa deste.
+ */
+export const signupComConviteSchema = z
+  .object({
+    email: z.string().email("Email inválido"),
+    password: z.string().min(8, "Senha deve ter pelo menos 8 caracteres"),
+    password_confirm: z.string(),
+  })
+  .refine((v) => v.password === v.password_confirm, {
+    path: ["password_confirm"],
+    message: "As senhas não coincidem",
+  });
+
+export type SignupComConviteInput = z.infer<typeof signupComConviteSchema>;
+
 export const forgotPasswordSchema = z.object({
   email: z.string().email("Email inválido"),
 });

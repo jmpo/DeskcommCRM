@@ -100,6 +100,16 @@ export interface AuditRow {
 export interface ExportPayload {
   request_id: string;
   organization_id: string;
+  /**
+   * Razão social do CONTROLADOR (`organizations.legal_name`, `NOT NULL` em
+   * `supabase/baseline.sql:1749`). É o que o rodapé do relatório imprime — e é
+   * de propósito que NÃO é a marca: ver `lib/lgpd/pdf-renderer.tsx`.
+   */
+  organization_legal_name: string;
+  /** Nome fantasia. Não vai para o rodapé; existe para o JSON do export. */
+  organization_display_name: string;
+  /** Encarregado da organização. `null` cai em `env.LGPD_DPO_EMAIL`. */
+  dpo_email: string | null;
   generated_at: string;
   no_local_footprint: boolean;
   contact: ContactSnapshot | null;
@@ -127,9 +137,50 @@ interface CollectArgs {
 const RECENT_MESSAGES_LIMIT = 100;
 const AUDIT_LIMIT = 200;
 
+/** A identidade JURÍDICA da organização — quem responde pelos dados. */
+interface Controlador {
+  legal_name: string;
+  display_name: string;
+  dpo_email: string | null;
+}
+
+/**
+ * Lê o controlador. NUNCA lança e nunca inventa: se a leitura falhar, os campos
+ * saem vazios e o rodapé mostra o traço de campo ausente. Abortar o export
+ * seria trocar um rodapé feio por um SLA legal de D+7 estourado; preencher com
+ * o nome do produto seria escrever a entidade errada num documento jurídico.
+ */
+async function lerControlador(
+  admin: ReturnType<typeof createAdminClient>,
+  organizationId: string,
+  requestId: string,
+): Promise<Controlador> {
+  const vazio: Controlador = { legal_name: "", display_name: "", dpo_email: null };
+  const { data, error } = await admin
+    .from("organizations")
+    .select("legal_name, display_name, dpo_email")
+    .eq("id", organizationId)
+    .maybeSingle();
+  if (error || !data) {
+    logger.warn("[lgpd-export-worker] organization load failed", {
+      request_id: requestId,
+      error: error?.message ?? "not_found",
+    });
+    return vazio;
+  }
+  return {
+    legal_name: data.legal_name ?? "",
+    display_name: data.display_name ?? "",
+    dpo_email: data.dpo_email ?? null,
+  };
+}
+
 export async function collectExportData(args: CollectArgs): Promise<ExportPayload> {
   const admin = createAdminClient();
   const { organizationId, requestId, externalCustomerId } = args;
+  // ANTES do primeiro `return`: o caminho "nenhum dado localizado" também gera
+  // um relatório entregue ao titular, e ele precisa nomear o controlador igual.
+  const controlador = await lerControlador(admin, organizationId, requestId);
   let contactId = args.contactId;
 
   // Resolve contact_id when only external customer id is provided.
@@ -152,7 +203,7 @@ export async function collectExportData(args: CollectArgs): Promise<ExportPayloa
 
   // No contact AND no external customer -> empty footprint.
   if (!contactId && !externalCustomerId) {
-    return emptyPayload(requestId, organizationId);
+    return emptyPayload(requestId, organizationId, controlador);
   }
 
   // Contact snapshot (PII intentionally retained — this report is the data
@@ -397,6 +448,9 @@ export async function collectExportData(args: CollectArgs): Promise<ExportPayloa
   return {
     request_id: requestId,
     organization_id: organizationId,
+    organization_legal_name: controlador.legal_name,
+    organization_display_name: controlador.display_name,
+    dpo_email: controlador.dpo_email,
     generated_at: new Date().toISOString(),
     no_local_footprint: !contact && conversations.length === 0 && orders.length === 0,
     contact,
@@ -411,10 +465,17 @@ export async function collectExportData(args: CollectArgs): Promise<ExportPayloa
   };
 }
 
-function emptyPayload(requestId: string, organizationId: string): ExportPayload {
+function emptyPayload(
+  requestId: string,
+  organizationId: string,
+  controlador: Controlador,
+): ExportPayload {
   return {
     request_id: requestId,
     organization_id: organizationId,
+    organization_legal_name: controlador.legal_name,
+    organization_display_name: controlador.display_name,
+    dpo_email: controlador.dpo_email,
     generated_at: new Date().toISOString(),
     no_local_footprint: true,
     contact: null,
