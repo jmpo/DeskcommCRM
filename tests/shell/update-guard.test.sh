@@ -127,7 +127,7 @@ STUB
 printf 'services:\n  app:\n    image: \${APP_IMAGE:-x}\n' > "$PROJ/docker-compose.prod.yml"
 printf 'select 1;\n' > "$PROJ/supabase/baseline.sql"
 cat > "$PROJ/.env" <<ENV
-APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:latest
+APP_IMAGE=ghcr.io/jmpo/deskcommcrm:latest
 APP_PULL_POLICY=always
 SUPABASE_DB_URL=postgresql://x/y
 NEXT_PUBLIC_APP_URL=https://crm.exemplo.com.br
@@ -180,7 +180,7 @@ echo nova > nova.txt; git add -A; git commit --quiet -m "v1.1.0"; git tag v1.1.0
 git checkout --quiet v0.9.0
 run_update --to v1.1.0
 check "a atualização termina com sucesso" test "$RC" -eq 0
-check ".env aponta para a imagem da versão instalada" grep -q '^APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.1.0$' .env
+check ".env aponta para a imagem da versão instalada" grep -q '^APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.1.0$' .env
 check "a chave APP_IMAGE não duplicou" test "$(grep -c '^APP_IMAGE=' .env)" -eq 1
 run_update --to v1.1.0 --force
 check "segunda execução também não duplica" test "$(grep -c '^APP_IMAGE=' .env)" -eq 1
@@ -210,9 +210,9 @@ echo "── 4b. As três imagens sobem juntas, na mesma versão"
 # runtime do agente de IA — ficava congelado no código do dia da instalação.
 # Se estas três linhas voltarem a divergir, o defeito voltou.
 check "o worker é pinado na MESMA versão do app" \
-  grep -q '^WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:1.1.0$' .env
+  grep -q '^WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:1.1.0$' .env
 check "o scheduler é pinado na MESMA versão do app" \
-  grep -q '^SCHEDULER_IMAGE=ghcr.io/melgarafael/deskcomm-scheduler:1.1.0$' .env
+  grep -q '^SCHEDULER_IMAGE=ghcr.io/jmpo/deskcomm-scheduler:1.1.0$' .env
 check "o worker herda a política da tag imutável" \
   grep -q '^WORKER_PULL_POLICY=missing$' .env
 check "o scheduler herda a política da tag imutável" \
@@ -241,7 +241,7 @@ echo topo > topo.txt; git add -A; git commit --quiet -m "main, depois da release
 clona_raso() {  # clona_raso <destino> — igual ao install.sh: --depth 1
   git clone --depth 1 --quiet "file://$SRC" "$1"
   cat > "$1/.env" <<ENV
-APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:latest
+APP_IMAGE=ghcr.io/jmpo/deskcommcrm:latest
 APP_PULL_POLICY=always
 SUPABASE_DB_URL=postgresql://x/y
 NEXT_PUBLIC_APP_URL=https://crm.exemplo.com.br
@@ -263,7 +263,7 @@ check "aborta com o código de recusa (3), não com falha genérica" test "$RC" 
 check "explica em português que é retrocesso" grep -q "ANTERIOR à que já está instalada" "$OUTFILE"
 check "não chegou a rodar o backup" test ! -f "$BACKUP_MARK"
 check "NÃO rebobinou: o HEAD é o mesmo de antes" test "$(git rev-parse HEAD)" = "$HEAD_ANTES"
-check "a imagem do .env continua intacta" grep -q '^APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:latest$' .env
+check "a imagem do .env continua intacta" grep -q '^APP_IMAGE=ghcr.io/jmpo/deskcommcrm:latest$' .env
 check "completou a história para poder decidir (deixou de ser raso)" \
   test "$(git rev-parse --is-shallow-repository)" = "false"
 
@@ -292,7 +292,7 @@ bash hostgator-setup-kit/agent.sh > "$WORK/agente.out" 2>&1
 check "o agente chegou a executar o update (o app de mentira pediu)" \
   grep -q '"kind":"run_progress"\|"kind":"run_result"' "$CURL_LOG"
 check "NÃO reiniciou o container" test -z "$(grep -F 'up -d app' "$DOCKER_LOG" || true)"
-check "NÃO reescreveu a imagem do .env" grep -q '^APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:latest$' .env
+check "NÃO reescreveu a imagem do .env" grep -q '^APP_IMAGE=ghcr.io/jmpo/deskcommcrm:latest$' .env
 check "reportou 'failed', não 'failed_rolled_back'" \
   test -n "$(grep -F '"status":"failed"' "$CURL_LOG" || true)"
 check "não reportou rollback nenhum" test -z "$(grep -F 'failed_rolled_back' "$CURL_LOG" || true)"
