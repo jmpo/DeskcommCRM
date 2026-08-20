@@ -110,10 +110,28 @@ describe("cobertura do e2e no CI", () => {
   });
 
   it("as listas são de fato passadas ao Playwright", () => {
-    // A terceira ponta. Declarar não é executar: sem o consumo, acrescentar o nome
-    // à variável deixa este gate verde e a spec continua fora do run.
-    expect(yml).toMatch(/playwright test --workers=1 \$SPECS_PARTE_1/);
-    expect(yml).toMatch(/playwright test --workers=1 \$SPECS_PARTE_2/);
+    // A terceira ponta, e a que mais importa: declarar não é executar. Sem o
+    // consumo, acrescentar o nome à variável deixa este gate verde e a spec
+    // continua fora do run.
+    //
+    // ⚠️ A FORMA do consumo mudou quando as partes viraram MATRIZ, e este caso
+    // pegou a mudança — que é o que ele existe para fazer. Antes o comando
+    // citava `$SPECS_PARTE_1` e `$SPECS_PARTE_2` literalmente, um por passo;
+    // hoje é um passo só, com expansão indireta pelo valor da matriz.
+    //
+    // A prova passa a ter DUAS pernas, e as duas são necessárias: o comando lê
+    // a variável pelo nome montado, e a matriz enumera as duas partes. Tirar o
+    // `2` da matriz desliga metade da suíte sem tocar em nenhuma lista — é
+    // exatamente o buraco que este caso fecha.
+    expect(yml, "o comando não lê a lista pelo nome montado").toMatch(
+      /playwright test --workers=1 \$\{!VAR\}/,
+    );
+    expect(yml, "o nome da variável não é montado a partir da matriz").toMatch(
+      /VAR="SPECS_PARTE_\$\{\{ matrix\.parte \}\}"/,
+    );
+    const matriz = yml.match(/parte:\s*\[([^\]]+)\]/)?.[1] ?? "";
+    const partes = matriz.split(",").map((s) => s.trim());
+    expect(partes, "a matriz deixou de enumerar as duas partes").toEqual(["1", "2"]);
     // E FORA_DO_CI nunca é passada a um run — ela existe para NÃO rodar.
     expect(yml).not.toMatch(/playwright test[^\n]*\$FORA_DO_CI/);
   });
