@@ -368,21 +368,21 @@ pin_caso() {  # pin_caso <descrição> <conteúdo do .env> <esperado>
   check "$d" test "$r" = "$esperado"
 }
 pin_caso "app pinado + worker/scheduler AUSENTES → acusa os dois" \
-  "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0" "worker scheduler"
+  "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0" "worker scheduler"
 pin_caso "app pinado + worker em canal móvel → acusa" \
-  "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0
-WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:stable
-SCHEDULER_IMAGE=ghcr.io/melgarafael/deskcomm-scheduler:1.3.0" "worker"
+  "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0
+WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:stable
+SCHEDULER_IMAGE=ghcr.io/jmpo/deskcomm-scheduler:1.3.0" "worker"
 pin_caso "as três na mesma versão → silêncio" \
-  "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0
-WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:1.3.0
-SCHEDULER_IMAGE=ghcr.io/melgarafael/deskcomm-scheduler:1.3.0" ""
+  "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0
+WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:1.3.0
+SCHEDULER_IMAGE=ghcr.io/jmpo/deskcomm-scheduler:1.3.0" ""
 pin_caso "app num canal deliberado (:latest) → não é 'metade', silêncio" \
-  "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:latest" ""
+  "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:latest" ""
 pin_caso "valores entre aspas, como o install grava → silêncio" \
-  "APP_IMAGE='ghcr.io/melgarafael/deskcommcrm:1.3.0'
-WORKER_IMAGE='ghcr.io/melgarafael/deskcomm-worker:1.3.0'
-SCHEDULER_IMAGE='ghcr.io/melgarafael/deskcomm-scheduler:1.3.0'" ""
+  "APP_IMAGE='ghcr.io/jmpo/deskcommcrm:1.3.0'
+WORKER_IMAGE='ghcr.io/jmpo/deskcomm-worker:1.3.0'
+SCHEDULER_IMAGE='ghcr.io/jmpo/deskcomm-scheduler:1.3.0'" ""
 rm -f "$PROJ/.env.pin"
 
 
@@ -401,7 +401,7 @@ cat > "$PIN_DIR/bin/docker" <<'STUBDOCKER'
 #!/usr/bin/env bash
 # inspect de contêiner → devolve o nome da imagem; de imagem → devolve a versão
 case "$*" in
-  *"Config.Image"*)  printf 'ghcr.io/melgarafael/deskcomm-worker:stable
+  *"Config.Image"*)  printf 'ghcr.io/jmpo/deskcomm-worker:stable
 ' ;;
   *"image.version"*) printf '%s
 ' "${DUBLE_VERSION:-1.3.0}" ;;
@@ -417,10 +417,10 @@ autopin() {  # autopin <conteúdo do .env> → ecoa o que a função corrigiu
       ". '$KIT_DIR_TESTE/_common.sh'; completar_pin_ausente .env" 2>/dev/null ) || true
 }
 
-R="$(autopin "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0")"
+R="$(autopin "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0")"
 check "chave AUSENTE → preenche os dois" test "$R" = "worker scheduler"
 check "  e grava a versão da imagem em execução, não um canal" \
-  grep -q "^WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:1.3.0$" "$PIN_DIR/.env"
+  grep -q "^WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:1.3.0$" "$PIN_DIR/.env"
 check "  com pull_policy de tag imutável" \
   grep -q "^WORKER_PULL_POLICY=missing$" "$PIN_DIR/.env"
 
@@ -432,21 +432,21 @@ check "  e não altera um byte do .env" test "$ANTES_MD5" = "$(md5sum "$PIN_DIR/
 
 # A REGRA QUE PROTEGE O OPERADOR. Se esta cair, o cron passa a sobrescrever
 # escolha explícita — e a decisão de implementar a autocorreção deixa de valer.
-R="$(autopin "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0
-WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:stable
-SCHEDULER_IMAGE=ghcr.io/melgarafael/deskcomm-scheduler:stable")"
+R="$(autopin "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0
+WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:stable
+SCHEDULER_IMAGE=ghcr.io/jmpo/deskcomm-scheduler:stable")"
 check "canal móvel EXPLÍCITO → não toca (é decisão de quem opera)" test -z "$R"
 check "  o :stable escolhido continua lá, intacto" \
-  grep -q "^WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:stable$" "$PIN_DIR/.env"
+  grep -q "^WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:stable$" "$PIN_DIR/.env"
 
-R="$(autopin "APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0
-WORKER_IMAGE=ghcr.io/melgarafael/deskcomm-worker:1.3.0
-SCHEDULER_IMAGE=ghcr.io/melgarafael/deskcomm-scheduler:1.3.0")"
+R="$(autopin "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0
+WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:1.3.0
+SCHEDULER_IMAGE=ghcr.io/jmpo/deskcomm-scheduler:1.3.0")"
 check "já pinada → silêncio" test -z "$R"
 
 # Imagem sem o label (build local): não há versão para gravar, e inventar uma
 # seria pior que não fazer nada.
-R="$( printf 'APP_IMAGE=ghcr.io/melgarafael/deskcommcrm:1.3.0\n' > "$PIN_DIR/.env"
+R="$( printf 'APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0\n' > "$PIN_DIR/.env"
       cd "$PIN_DIR" && PATH="$PIN_DIR/bin:$PATH" DUBLE_VERSION="<no value>" bash -c \
         ". '$KIT_DIR_TESTE/_common.sh'; completar_pin_ausente .env" 2>/dev/null || true )"
 check "imagem sem label de versão → não inventa pin" test -z "$R"
