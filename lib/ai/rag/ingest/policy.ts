@@ -89,7 +89,7 @@ export interface IngestPolicyResult {
  * Returns the chunk count — actual embedding is handled by the rag-indexer
  * worker that listens to knowledge_source.updated events.
  *
- * Throws `PdfExtractError` if PDF extraction fails (both strategies exhausted).
+ * Throws `PdfExtractError` if PDF extraction fails.
  */
 export async function ingestPolicyFile(args: IngestPolicyArgs): Promise<IngestPolicyResult> {
   const { organizationId, knowledgeSourceId, blobPath, ext } = args;

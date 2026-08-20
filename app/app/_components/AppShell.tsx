@@ -11,7 +11,9 @@ interface AppShellProps {
 export function AppShell({ sidebarCollapsed, children }: AppShellProps) {
   return (
     <div className="flex min-h-screen w-full bg-background">
-      <Sidebar collapsed={sidebarCollapsed} />
+      <div className="hidden md:block">
+        <Sidebar collapsed={sidebarCollapsed} />
+      </div>
       {/*
         `min-w-0` é o que permite a coluna de conteúdo ENCOLHER. Um flex item
         nasce com `min-width: auto`, ou seja, nunca fica menor que o conteúdo —
@@ -25,9 +27,9 @@ export function AppShell({ sidebarCollapsed, children }: AppShellProps) {
         estoura 236px). Isolado ancestral por ancestral: é este o que decide.
       */}
       {/*
-        Sem `ml-*`: a barra voltou a ocupar lugar na linha (ver o comentário em
-        `Sidebar.tsx`), então o que sobra para esta coluna é exatamente o que ela
-        não usou. A margem existia para compensar uma barra `fixed`, e era a
+        Sem `md:ml-*`: a barra voltou a ocupar lugar na linha (ver o comentário
+        em `Sidebar.tsx`), então o que sobra para esta coluna é exatamente o que
+        ela não usou. A margem existia para compensar uma barra `fixed`, e era a
         SEGUNDA medida da mesma coisa — a que discordava e deixava a barra por
         cima da lista.
       */}

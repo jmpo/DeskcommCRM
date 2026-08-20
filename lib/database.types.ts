@@ -5750,7 +5750,7 @@ export type Database = {
           payload_parsed: Json | null
           processed_at: string | null
           provider: string
-          raw_body: string
+          raw_body: string | null
           received_at: string
           signature_header: string | null
           status: string
@@ -5771,7 +5771,7 @@ export type Database = {
           payload_parsed?: Json | null
           processed_at?: string | null
           provider?: string
-          raw_body: string
+          raw_body?: string | null
           received_at?: string
           signature_header?: string | null
           status?: string
@@ -5792,7 +5792,7 @@ export type Database = {
           payload_parsed?: Json | null
           processed_at?: string | null
           provider?: string
-          raw_body?: string
+          raw_body?: string | null
           received_at?: string
           signature_header?: string | null
           status?: string

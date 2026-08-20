@@ -41,6 +41,7 @@ export {
   Dot,
   // actions
   ArrowBendUpLeft,
+  List,
   Bell,
   PaperPlaneTilt,
   Smiley,

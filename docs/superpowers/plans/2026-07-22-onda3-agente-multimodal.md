@@ -6,7 +6,7 @@
 
 **Architecture:** Duas camadas. (1) **Universal**: um worker de derivação gera `media_derived_text` (transcrição/OCR/visão) por mídia — texto puro que QUALQUER modelo lê, injetado no contexto do agente no lugar de `[image]`/`[audio]`. (2) **Aprimoramento**: para a mídia do turno corrente, se o modelo é capaz (capability registry), anexa-se a content part nativa da AI SDK v7 (`{type:'image'}`/`{type:'file'}`) — o seam `run-model-call.ts` já passa `ModelMessage[]` cru e a AI SDK normaliza por provider. Modelo desconhecido → só derivado, nunca quebra.
 
-**Tech Stack:** AI SDK v7 (`ai@7.0.31`, `@ai-sdk/{anthropic,openai,google}` já instalados), Supabase Storage (`whatsapp-media`), `pdf-parse`/`pdfjs-dist` (via `extractPdfText` do RAG), event_log + workers, Vitest.
+**Tech Stack:** AI SDK v7 (`ai@7.0.31`, `@ai-sdk/{anthropic,openai,google}` já instalados), Supabase Storage (`whatsapp-media`), `pdf-parse`/`pdfjs-dist` (via `extractPdfText` do RAG), event_log + workers, Vitest. **Este stack é o estado de 2026-07-22:** o `pdf-parse` foi removido do `package.json` na issue #238 — hoje `extractPdfText` roda só `pdfjs-dist`.
 
 ## Global Constraints
 

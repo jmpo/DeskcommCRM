@@ -76,6 +76,40 @@ describe("o canal volta sozinho", () => {
   });
 });
 
+describe("o token atrasado também tem retomada", () => {
+  /**
+   * O mesmo sintoma do cabeçalho ("preciso atualizar pra mensagem aparecer"),
+   * por uma porta diferente: não uma queda, um ATRASO. Medido em produção via
+   * `realtime.subscription` — canais de `messages` presos como `role: anon`
+   * porque `/api/v1/auth/realtime-token` (chama `getUser()`, ida e volta real
+   * até o Supabase Auth) demorava mais que o teto da corrida. SUBSCRIBED não é
+   * erro, então a recuperação de `CHANNEL_ERROR`/`TIMED_OUT`/`CLOSED` nunca
+   * disparava — o canal ficava anônimo pelo resto da vida do efeito.
+   */
+  it("quando o teto vence a corrida, a chegada tardia do token reconstrói o canal", () => {
+    expect(FONTE).toMatch(/if \(!noPrazo\) \{/);
+    expect(FONTE).toMatch(
+      /void authenticateRealtime\(supabase\)\.then\(\(autenticou\) => \{\s*\n\s*if \(!autenticou \|\| cancelado \|\| active !== novo\) return;/,
+    );
+  });
+
+  it("só reconstrói em SUCESSO — falha genuína não vira loop de reconexão", () => {
+    expect(FONTE).toMatch(/if \(!autenticou \|\| cancelado \|\| active !== novo\) return;/);
+  });
+
+  it("incrementa tentativas antes de remontar — dispara a entrega sintética ao voltar", () => {
+    expect(FONTE).toMatch(/tentativas\+\+;\s*\n\s*if \(active\) supabase\.removeChannel\(active\);\s*\n\s*montar\(\);\s*\n\s*\}\);\s*\n\s*\}\s*\n\s*\}\);\s*\n\s*\};/);
+  });
+
+  it("authenticateRealtime devolve se autenticou — esperarAuth some", () => {
+    // Antes: `esperarAuth` devolvia `Promise<void>` e ninguém sabia se a
+    // corrida foi vencida pelo teto ou pela autenticação real. Sem esse sinal,
+    // não dava pra saber SE precisava agendar a retomada.
+    expect(FONTE).toMatch(/export function authenticateRealtime\([^)]*\): Promise<boolean>/);
+    expect(FONTE).toMatch(/function esperarAuth\([^)]*\): Promise<boolean>/);
+  });
+});
+
 describe("a segunda rede: voltar para a aba", () => {
   it("o hilo de mensagens ressincroniza ao focar", () => {
     const fonte = readFileSync("hooks/inbox/useMessagesRealtime.ts", "utf8");

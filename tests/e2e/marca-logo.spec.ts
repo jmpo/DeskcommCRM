@@ -140,24 +140,87 @@ const SVG_DISFARCADO = Buffer.from(
 
 // ── Helpers de tela ─────────────────────────────────────────────────────────
 
+/**
+ * Entra com senha + TOTP, e só volta quando a tentativa TERMINOU.
+ *
+ * ⚠️ O LAÇO ANTERIOR DESISTIA NO RELÓGIO E REDIGITAVA EM CIMA DE UMA TELA QUE
+ * JÁ TINHA IDO EMBORA. Ele esperava a URL virar `/app/…` por 8s e, no estouro,
+ * dormia até a janela do TOTP virar e clicava em `Dígito 1` de novo. Mas 8s é um
+ * palpite sobre a MÁQUINA, não sobre o produto: numa máquina carregada o
+ * `verifyMfa` demora mais que isso e o código entra DEPOIS do estouro — aí a
+ * página já é `/app/inbox`, `input[aria-label="Dígito 1"]` não existe mais, e
+ * como `playwright.config.ts` não define `actionTimeout` (o default do
+ * Playwright é 0, ou seja SEM teto) esse clique espera até o timeout do CASO.
+ *
+ * MEDIDO neste worktree, com o mesmo laço antigo numa sonda que replica o caso
+ * (1) sob `Emulation.setCPUThrottlingRate` — 2 reprovações em 18 execuções
+ * (rate 8 e rate 4), as duas idênticas:
+ *
+ *   Error: locator.click: Test timeout of 180000ms exceeded.
+ *     - waiting for locator('input[aria-label="Dígito 1"]')
+ *   NAV http://localhost:3001/app/inbox   (+30862ms)
+ *   FIM url=http://localhost:3001/app/inbox
+ *
+ * E a captura do momento da falha é a CASCA DO TENANT (`navigation
+ * "Navegação principal"`, "Inbox" sob "Atendimento") — exatamente o
+ * `test-failed-1.png` que a issue #274 descreve como "o navegador está no inbox
+ * do tenant, não em /admin/marca". Não há desvio de modo no produto: quem larga
+ * a página lá é este helper.
+ *
+ * O conserto não é um teto maior — um relógio maior continua sendo um relógio.
+ * É esperar um ESTADO TERMINAL, e só existem dois depois de digitar os 6
+ * dígitos: ou a sessão subiu (a URL vira `/app/…`), ou o formulário disse não
+ * (`MfaForm.tsx` renderiza um `role="alert"` dentro do `<form>`; o `TOTPInput`
+ * fica `disabled` enquanto a ação está em voo, então antes disso NENHUM dos
+ * dois é verdade). Os dois são disjuntos: o sucesso redireciona sem nunca
+ * escrever o alerta, e a recusa nunca troca a URL.
+ *
+ * A única espera por relógio que fica é a da JANELA do TOTP, e ela não é aposta
+ * na máquina: dentro da mesma janela de 30s o `generateTotp` devolve o MESMO
+ * código que o servidor acabou de recusar, então o que muda o próximo código é
+ * o relógio do protocolo, e só ele.
+ */
 async function loginComTotp(page: Page, email: string, secret: string): Promise<void> {
   await page.goto("/login");
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(creds.password);
-  await page.getByRole("button", { name: /entrar/i }).click();
+  await page.getByRole("button", { name: /entrar/i }).click({ timeout: 15_000 });
   await page.waitForURL(/\/login\/mfa/);
+
+  const digito1 = page.locator('input[aria-label="Dígito 1"]');
+  // Escopado no `<form>` de propósito: o `<Toaster/>` do layout raiz também
+  // emite elementos com papel de aviso, e um toast de outra tela seria lido
+  // aqui como recusa do desafio.
+  const recusa = page.locator("form").getByRole("alert");
+
   for (let tentativa = 0; tentativa < 2; tentativa++) {
     if (msUntilNextTotpWindow() < 3_000) await page.waitForTimeout(msUntilNextTotpWindow() + 200);
-    await page.locator('input[aria-label="Dígito 1"]').click();
+    // Teto EXPLÍCITO no clique: sem `actionTimeout` no config, um controle que
+    // sumiu esperaria até o timeout do caso e a reprovação sairia como "Test
+    // timeout" apontando para o clique — sem dizer que o login já tinha entrado.
+    await digito1.click({ timeout: 15_000 });
     await page.keyboard.type(generateTotp(secret), { delay: 40 });
-    try {
-      await page.waitForURL(/\/app\//, { timeout: 8_000 });
-      return;
-    } catch {
-      await page.waitForTimeout(msUntilNextTotpWindow() + 200);
+
+    const desfecho = await Promise.race([
+      page.waitForURL(/\/app\//, { timeout: 60_000 }).then(
+        () => "entrou" as const,
+        () => "sem-desfecho" as const,
+      ),
+      recusa.waitFor({ state: "visible", timeout: 60_000 }).then(
+        () => "recusado" as const,
+        () => "sem-desfecho" as const,
+      ),
+    ]);
+    if (desfecho === "entrou") return;
+    if (desfecho === "sem-desfecho") {
+      throw new Error(
+        `o desafio de MFA de ${email} não terminou em 60s: a URL não virou /app/… ` +
+          `e o formulário não recusou. url=${page.url()}`,
+      );
     }
+    await page.waitForTimeout(msUntilNextTotpWindow() + 200);
   }
-  throw new Error(`MFA falhou depois de 2 tentativas para ${email}`);
+  throw new Error(`MFA falhou depois de 2 tentativas para ${email} (url=${page.url()})`);
 }
 
 type Escopo = "instalacao" | "organizacao";
@@ -297,6 +360,35 @@ function baixou(logo: LogoNaTela, onde: string): void {
 }
 
 /**
+ * Prova que a medição SEGUINTE acontece na tela que o caso diz medir.
+ *
+ * ⚠️ O TOAST NÃO PROVA ISSO, e é essa confusão que a issue #274 custou. O
+ * `<Toaster/>` mora no layout RAIZ (`app/layout.tsx`), irmão de `{children}` e
+ * com `duration={4000}`: ele sobrevive a qualquer troca de rota do lado do
+ * cliente. E `enviar()` (`CampoDeLogo.tsx`) chama `toast.success` de dentro de
+ * uma função async solta — o toast aparece mesmo que o campo JÁ tenha
+ * desmontado. Ou seja "Logo atualizado." verde + prévia ausente é EXATAMENTE o
+ * que se vê quando a página não é mais a de marca, e sem esta âncora a
+ * reprovação sai como `element(s) not found`, que manda quem lê procurar
+ * defeito na prévia — que foi o que aconteceu.
+ *
+ * Mesma lição de `logoDaBarra()` logo acima, aplicada ao outro lado da tela: a
+ * asserção não fica mais frouxa (a prévia continua sendo exigida), ela só passa
+ * a dizer QUAL das duas coisas aconteceu.
+ */
+async function aindaNaTelaDeMarca(page: Page, rota: RegExp, escopo: Escopo): Promise<void> {
+  await expect(
+    page,
+    `a página não é mais ${rota} — url=${page.url()}. O toast de sucesso não desmente ` +
+      `isto: ele mora no layout raiz e sobrevive à troca de rota.`,
+  ).toHaveURL(rota, { timeout: 15_000 });
+  await expect(
+    page.locator(`[data-campo-de-logo='${escopo}']`),
+    `a rota é ${rota} mas o campo de logo da camada "${escopo}" não está montado`,
+  ).toBeAttached({ timeout: 15_000 });
+}
+
+/**
  * O logo da FACHADA (as telas de antes de entrar), visto por quem não entrou.
  *
  * O seletor é o `data-testid` do `<img>` de `app/(public)/layout.tsx`, e não "a
@@ -391,6 +483,11 @@ test.describe("o logo subido pela tela chega à tela", () => {
     // foi afrouxada em nada — continua exigindo `<img>` na prévia; o que mudou é
     // que o produto passou a prometê-la de forma determinística. Os 15s ficam
     // como folga de máquina carregada, não como aposta no refresh.
+    //
+    // A ÂNCORA VEM ANTES DA MEDIÇÃO, e não é zelo: o toast acima é do layout
+    // raiz e sobrevive à troca de rota, então ele sozinho não prova que ainda
+    // estamos aqui. Ver `aindaNaTelaDeMarca` (issue #274).
+    await aindaNaTelaDeMarca(page, /\/admin\/marca(\/|$)/, "instalacao");
     await expect(page.locator("[data-previa-do-logo='claro'] img")).toBeVisible({
       timeout: 15_000,
     });

@@ -32,7 +32,8 @@
  *
  * Um `update` sem teto sobre 31 mil linhas segura a tabela que TODO webhook
  * escreve — a poda derrubaria a entrada de mensagem, que é o oposto do que ela
- * existe para proteger. O lote pequeno, chamado de minuto em minuto, chega ao
+ * existe para proteger. O lote pequeno, chamado de 5 em 5 minutos (o crontab
+ * do serviço `scheduler`), chega ao
  * mesmo lugar sem nunca ser o dono de uma trava longa.
  *
  * São dois passos porque `supabase-js` não escreve `update ... where id in
@@ -77,7 +78,7 @@ export async function podarArquivoDeWebhooks(
   //
   // `archived_at is null` é o que torna a rodada IDEMPOTENTE: linha já esvaziada
   // não volta a ser escolhida, então rodar duas vezes seguidas não custa nada e
-  // não escreve nada. É também o predicado do índice parcial da 0162.
+  // não escreve nada. É também o predicado do índice parcial da 0163.
   const { data: alvos, error: erroBusca } = await admin
     .from("webhook_events_log")
     .select("id")

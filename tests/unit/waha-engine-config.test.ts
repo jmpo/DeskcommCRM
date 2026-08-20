@@ -30,5 +30,18 @@ describe("WAHA engine config (self-host)", () => {
     it(`${file}: default da engine é NOWEB (estável, sem browser)`, () => {
       expect(content).toMatch(/WHATSAPP_DEFAULT_ENGINE:\s*(\$\{WHATSAPP_DEFAULT_ENGINE:-NOWEB\}|NOWEB)/);
     });
+
+    it(`${file}: retoma sessões STOPPED depois de restart do container`, () => {
+      // Default do WAHA é False: o volume guarda a credencial, mas a sessão
+      // não sobe. Sem esta linha o número "está conectado" no disco e mudo
+      // na prática até alguém abrir o front e clicar Reconectar.
+      // Aceita as duas formas, como a irmã da engine logo acima: o literal e a
+      // interpolação com default. Quem administra a VPS precisa conseguir
+      // desligar pelo `.env` sem editar o compose — editar arquivo do repo à
+      // mão é o que o `update.sh` desfaz no próximo `git checkout`.
+      expect(content).toMatch(
+        /WHATSAPP_RESTART_ALL_SESSIONS:\s*"(\$\{WHATSAPP_RESTART_ALL_SESSIONS:-True\}|True)"/,
+      );
+    });
   }
 });

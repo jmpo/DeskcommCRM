@@ -25,6 +25,16 @@ export interface Contact {
   created_at: string;
   updated_at: string;
   last_activity_at: string | null;
+  /**
+   * Derivado (não é coluna): a conversa mais recente deste contato — atalho para o inbox.
+   * Ausente é normal: contato criado à mão pode nunca ter conversado.
+   */
+  conversa?: {
+    id: string;
+    preview: string | null;
+    last_message_at: string | null;
+    unread: number;
+  };
 }
 
 /**
