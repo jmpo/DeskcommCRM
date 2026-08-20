@@ -48,6 +48,24 @@ const schema = z.object({
   /** Optional dedicated secret for cron endpoints (S-06.07 onwards). */
   INTERNAL_CRON_SECRET: z.string().optional().default(""),
 
+  /**
+   * Retenção do arquivo do corpo cru dos webhooks (`webhook_events_log`).
+   *
+   * O default de 7 dias não é gosto: numa instalação real esse arquivo era 86%
+   * do banco (468 MB de 545 MB) e crescia ~23 MB/dia, contra os 500 MB do plano
+   * gratuito do Supabase — onde a maioria dos clones vive. Com 7 dias o regime
+   * estável fica em ~160 MB de corpo mais ~11 MB de índice forense; com 14 já
+   * não cabe. Quem tem plano pago sobe o número e fica com mais corpo à mão.
+   */
+  WEBHOOK_LOG_BODY_RETENTION_DAYS: z.coerce.number().int().positive().default(7),
+  /**
+   * Quando a LINHA some, e não só o corpo. Horizonte longo de propósito: até
+   * aqui a linha custa ~200 B e ainda responde "quantos eventos de que tipo
+   * chegaram, quando, e a assinatura conferia?", que é a pergunta de depois do
+   * incidente.
+   */
+  WEBHOOK_LOG_ROW_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
+
   // Encryption keys (pgcrypto)
   CPF_ENCRYPTION_KEY: required("CPF_ENCRYPTION_KEY"),
   // Opcional (template genérico) — só necessária ao ligar NUVEMSHOP_ENABLED.

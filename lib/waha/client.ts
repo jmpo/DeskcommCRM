@@ -8,7 +8,51 @@
  * stored in container env). Plaintext-then-hash is NOT used in this version.
  * So WAHA_API_KEY in .env.local IS the hex hash.
  */
+import { logger } from "@/lib/logger";
 import { classificarFalhaDeAlcance, explicarFalhaDeAlcance } from "@/lib/net/alcance";
+
+/**
+ * AS CONVERSAS QUE O CRM NÃO ATENDE, E POR ISSO NÃO PRECISA RECEBER.
+ *
+ * ─── O que isto custava, medido no banco de produção ────────────────────────
+ *
+ * Todo evento que o WAHA manda é arquivado inteiro em `webhook_events_log`.
+ * Separando os eventos de mensagem por origem, em 20/08/2026:
+ *
+ *   estados / difusão ......... 23.010 eventos ... 271 MB
+ *   grupos .................... 17.970 eventos .... 89 MB
+ *   canais / newsletter ........ 1.818 eventos .... 16 MB
+ *   conversa 1-a-1 ............. 4.739 eventos .... 19 MB   ← o negócio
+ *
+ * Ou seja: 376 dos 395 MB eram conversa que o CRM RECEBE, GRAVA INTEIRA e
+ * DESCARTA. `handleInbound` já ignora tudo que não é 1-a-1 — o dinheiro era
+ * gasto antes da decisão, no transporte e no arquivo.
+ *
+ * ─── Por que no WAHA e não num `if` nosso ───────────────────────────────────
+ *
+ * A doc dele é explícita: `ignore` impede "event processing AND database
+ * storage" — ou seja, ele nem processa nem guarda. Um filtro do nosso lado
+ * chegaria tarde: a mensagem já teria atravessado a rede, ocupado CPU do
+ * contêiner e entrado no banco DELE. Cortar na fonte é a única versão que
+ * economiza as três coisas.
+ *
+ * ─── Grupos entram na lista, e isso não muda o produto ──────────────────────
+ *
+ * O CLAUDE.md manda pular o vínculo de CRM quando o chat termina em `@g.us`.
+ * Já hoje nenhuma mensagem de grupo vira conversa, contato ou lead: o
+ * comportamento visível é idêntico com ou sem esta linha. O que muda é parar
+ * de pagar por elas. Quem um dia quiser grupos inverte a chave.
+ */
+export const CONVERSAS_IGNORADAS = {
+  /** Os "estados" que os contatos publicam. Sozinhos eram 69% do arquivo. */
+  status: true,
+  /** Listas de difusão. */
+  broadcast: true,
+  /** Canais / newsletters. */
+  channels: true,
+  /** Ver o parágrafo acima: o CRM já os descarta na entrada. */
+  groups: true,
+} as const;
 
 export class WahaClient {
   constructor(
@@ -27,11 +71,19 @@ export class WahaClient {
     const createRes = await fetch(`${this.baseUrl}/api/sessions`, {
       method: "POST",
       headers: { "X-Api-Key": this.apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ name, config: {} }),
+      body: JSON.stringify({ name, config: { ignore: CONVERSAS_IGNORADAS } }),
     });
     if (!createRes.ok && createRes.status !== 422 && createRes.status !== 409) {
       const body = await createRes.text().catch(() => "");
       throw new Error(`waha_create_${createRes.status}: ${body.slice(0, 200)}`);
+    }
+
+    // Sessão que JÁ existe devolve 422 e não recebe a config da criação — foi
+    // assim que a sessão em produção ficou sem o filtro. Convergir aqui faz
+    // toda reconexão corrigir o estado, em vez de deixar o ajuste dependendo de
+    // alguém lembrar de apagar e recriar a sessão.
+    if (createRes.status === 422 || createRes.status === 409) {
+      await this.convergirConfigDaSessao(name);
     }
 
     // 2) Start session
@@ -98,6 +150,71 @@ export class WahaClient {
     if (!res.ok && ![404, 422, 409].includes(res.status)) {
       const body = await res.text().catch(() => "");
       throw new Error(`waha_logout_${res.status}: ${body.slice(0, 200)}`);
+    }
+  }
+
+  /**
+   * Põe a config de uma sessão que já existe no estado que queremos.
+   *
+   * ─── LÊ ANTES DE ESCREVER, e isto não é preciosismo ────────────────────────
+   *
+   * A doc do WAHA é literal: o PUT "updates a session with a FULL new
+   * configuration". Mandar `{config: {ignore}}` sozinho não acrescenta o filtro
+   * — SUBSTITUI a config inteira, e leva junto o bloco `webhooks`. O resultado
+   * seria uma sessão de pé, conectada, sem entregar mensagem nenhuma ao CRM:
+   * a pior forma de falhar, porque nada fica vermelho.
+   *
+   * Por isso o GET vem primeiro e o `ignore` é ENXERTADO no que já existe. Se o
+   * GET não responder, não há PUT: sem saber o que há lá, escrever é apostar o
+   * canal inteiro numa economia de bytes.
+   *
+   * ─── E ele REINICIA a sessão ───────────────────────────────────────────────
+   *
+   * "If the session is not in a STOPPED status, it will be stopped and started
+   * with the new configuration." Sem QR novo — as credenciais moram em disco —
+   * mas é uma janela de segundos sem canal. Aceitável aqui porque este caminho
+   * só roda dentro de `startSession`, que já é o momento em que a sessão está
+   * sendo (re)iniciada de propósito.
+   *
+   * NÃO lança: é melhoria de custo, não condição de envio. Uma versão do WAHA
+   * que não conheça a rota faria toda reconexão falhar por causa de uma
+   * economia — trocar mensagem por byte é o negócio errado.
+   */
+  async convergirConfigDaSessao(name: string): Promise<void> {
+    const url = `${this.baseUrl}/api/sessions/${encodeURIComponent(name)}`;
+    try {
+      const atual = await fetch(url, { headers: { "X-Api-Key": this.apiKey } });
+      if (!atual.ok) {
+        logger.warn("[waha] não li a config da sessão; não vou reescrevê-la", {
+          status: atual.status,
+        });
+        return;
+      }
+      const sessao = (await atual.json().catch(() => null)) as {
+        config?: Record<string, unknown>;
+      } | null;
+      // Sem corpo reconhecível, o mesmo raciocínio: não escrever é o seguro.
+      if (!sessao || typeof sessao.config !== "object" || sessao.config === null) {
+        logger.warn("[waha] a sessão respondeu sem config; não vou reescrevê-la", {});
+        return;
+      }
+
+      const config = { ...sessao.config, ignore: CONVERSAS_IGNORADAS };
+      // Já está como queremos: não reiniciar a sessão à toa. Este caminho roda
+      // em TODA reconexão, e um restart desnecessário por rodada seria pior que
+      // o gasto que ele evita.
+      if (JSON.stringify(sessao.config.ignore) === JSON.stringify(CONVERSAS_IGNORADAS)) return;
+
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: { "X-Api-Key": this.apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ name, config }),
+      });
+      if (!res.ok) {
+        logger.warn("[waha] não consegui convergir a config da sessão", { status: res.status });
+      }
+    } catch {
+      // Rede fora aqui não é assunto de quem só quer iniciar a sessão.
     }
   }
 
