@@ -155,8 +155,23 @@ export function baseDoStorage(): string {
   // Ler pela variável derrota a substituição: o Next só reescreve o acesso
   // estático, e é exatamente por isso que `lib/env.ts` — que faz
   // `schema.safeParse(process.env)` — sempre teve o valor certo em runtime.
-  const ambiente = process.env as Record<string, string | undefined>;
-  return (ambiente.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+  // A chave é MONTADA em tempo de execução, e isso não é firula.
+  //
+  // A primeira tentativa foi ler por uma variável (`const ambiente =
+  // process.env; ambiente.NEXT_PUBLIC_SUPABASE_URL`). Não bastou — o compilador
+  // segue o alias. Medido no bundle da imagem publicada com o conserto dentro:
+  //
+  //   function d(a,b,c=(process.env,"https://placeholder.supabase.co".trim()))
+  //
+  // Ele avaliou `process.env` pelo efeito colateral e substituiu o acesso do
+  // mesmo jeito. A substituição casa o NOME da propriedade, então a única forma
+  // de escapar é o nome não existir no código: montado assim, não há literal
+  // `NEXT_PUBLIC_SUPABASE_URL` para casar.
+  //
+  // Verificado do jeito que importa — buildando com o placeholder do Dockerfile
+  // e procurando no `.next`, que é como o defeito foi encontrado.
+  const chave = ["NEXT", "PUBLIC", "SUPABASE", "URL"].join("_");
+  return ((process.env as Record<string, string | undefined>)[chave] ?? "").trim();
 }
 
 /**
