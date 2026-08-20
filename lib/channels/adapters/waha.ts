@@ -139,7 +139,14 @@ export const wahaAdapter: ChannelAdapter = {
           envelope.to,
           wahaSendPlanFor(envelope.kind, envelope.media),
         )
-      : await client.sendMessage(envelope.sessionRef, envelope.to, envelope.body ?? "");
+      : await client.sendMessage(
+          envelope.sessionRef,
+          envelope.to,
+          envelope.body ?? "",
+          // A citação é enfeite da conversa, nunca condição de envio: quando
+          // não há, o envio segue igual. Ver `OutboundEnvelope.replyToExternalId`.
+          envelope.replyToExternalId,
+        );
 
     return { externalId: parseWahaMessageId(res) };
   },
