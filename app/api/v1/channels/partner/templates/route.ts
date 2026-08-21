@@ -162,6 +162,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       // A plataforma valida o formato do nome e devolve o motivo com código. Não
       // duplicamos a regra: regra copiada envelhece separado da fonte.
       await adapter.templates.create({
+        organizationId: r.ctx.orgId,
         sessionRef: r.ctx.sessionRef,
         draft: {
           name: corpo.name,
@@ -183,7 +184,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     // Sincroniza sempre — inclusive depois de criar: a definição nasce em
     // revisão, e o operador precisa VER que ela existe e está pendente. Sem
     // isso ele criaria a mesma de novo, achando que não salvou.
-    const remotas = await adapter.templates.list({ sessionRef: r.ctx.sessionRef });
+    const remotas = await adapter.templates.list({
+      organizationId: r.ctx.orgId,
+      sessionRef: r.ctx.sessionRef,
+    });
     const admin = createAdminClient();
     const agora = new Date().toISOString();
 

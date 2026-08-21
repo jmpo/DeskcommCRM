@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, MagnifyingGlass } from "@/lib/ui/icons";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { useContactList } from "@/hooks/contacts/useContactList";
 import { ContactsTable } from "@/components/contacts/ContactsTable";
 import { NewContactDialog } from "@/components/contacts/NewContactDialog";
 import { EmptyContacts } from "@/components/empty";
+import type { ContactOrderBy } from "@/lib/schemas/contacts";
 
 const SOURCE_OPTIONS = [
   { value: undefined, label: "Todas as origens" },
@@ -25,20 +26,27 @@ const SOURCE_OPTIONS = [
   { value: "nuvemshop", label: "Nuvemshop" },
 ];
 
+const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+
 export function ContactsListClient() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [tag, setTag] = useState<string | undefined>(undefined);
   const [source, setSource] = useState<string | undefined>(undefined);
+  const [orderBy, setOrderBy] = useState<ContactOrderBy>("last_activity_at");
+  const [orderDir, setOrderDir] = useState<"asc" | "desc">("desc");
+  const [limit, setLimit] = useState<number>(25);
   const [createOpen, setCreateOpen] = useState(false);
 
-  // Debounce search 250ms
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput), 250);
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  const filters = useMemo(() => ({ search, tag, source }), [search, tag, source]);
+  const filters = useMemo(
+    () => ({ search, tag, source, order_by: orderBy, order_dir: orderDir, limit }),
+    [search, tag, source, orderBy, orderDir, limit],
+  );
   const q = useContactList(filters);
 
   const allContacts = useMemo(
@@ -51,6 +59,18 @@ export function ContactsListClient() {
     for (const c of allContacts) for (const t of c.tags) set.add(t);
     return Array.from(set).sort();
   }, [allContacts]);
+
+  const handleSort = useCallback(
+    (column: ContactOrderBy) => {
+      if (column === orderBy) {
+        setOrderDir((d) => (d === "asc" ? "desc" : "asc"));
+      } else {
+        setOrderBy(column);
+        setOrderDir(column === "display_name" ? "asc" : "desc");
+      }
+    },
+    [orderBy],
+  );
 
   return (
     <div className="space-y-4 p-6">
@@ -116,6 +136,23 @@ export function ContactsListClient() {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              {limit} por página
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuLabel>Itens por página</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {PAGE_SIZE_OPTIONS.map((n) => (
+              <DropdownMenuItem key={n} onClick={() => setLimit(n)}>
+                {n}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         {(search || tag || source) && (
           <Button
             variant="ghost"
@@ -157,10 +194,19 @@ export function ContactsListClient() {
       ) : (
         <>
           <Card className="overflow-hidden">
-            <ContactsTable contacts={allContacts} />
+            <ContactsTable
+              contacts={allContacts}
+              orderBy={orderBy}
+              orderDir={orderDir}
+              onSort={handleSort}
+            />
           </Card>
-          {q.hasNextPage && (
-            <div className="flex justify-center">
+          <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              {allContacts.length} contato{allContacts.length === 1 ? "" : "s"}
+              {q.hasNextPage ? " carregados — há mais resultados" : ""}
+            </p>
+            {q.hasNextPage && (
               <Button
                 variant="outline"
                 size="sm"
@@ -169,8 +215,8 @@ export function ContactsListClient() {
               >
                 {q.isFetchingNextPage ? "Carregando…" : "Carregar mais"}
               </Button>
-            </div>
-          )}
+            )}
+          </div>
         </>
       )}
 

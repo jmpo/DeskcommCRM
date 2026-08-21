@@ -20,9 +20,11 @@ import { randomUUID } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { fail } from "@/lib/api/wrappers";
+import { lerEnvelopeMeta } from "@/lib/channels/meta/envelope";
 import { parseMetaWebhook, verificationChallenge, verifyMetaSignature } from "@/lib/channels/meta/webhook";
 import { ingestMetaInbound } from "@/lib/channels/meta/ingest";
 import { metaSessionByWebhookToken } from "@/lib/channels/meta/session";
+import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -63,14 +65,35 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
     return fail("unauthorized", "invalid_signature", 401, { requestId });
   }
 
-  let envelope: unknown;
-  try {
-    envelope = JSON.parse(rawBody);
-  } catch {
-    return fail("invalid_request", "invalid_json", 400, { requestId });
+  // ─── O contrato do fio, ANTES do parser ───────────────────────────────────
+  //
+  // Isto era `JSON.parse(rawBody)` seguido de um `as`: cast, que não confere
+  // nada em execução. `parseMetaWebhook` então faz `for (const entry of
+  // envelope.entry ?? [])` — e `for...of` sobre um número LANÇA. Não há
+  // try/catch em volta: a exceção subia sem ninguém tratá-la (o framework
+  // responde 5xx) e a Meta reentregava em backoff um corpo que nunca melhora.
+  //
+  // 400 e não 200: o 200 generoso desta rota existe para EVENTO QUE NÃO NOS
+  // INTERESSA (a Meta reentrega o que não recebe 2xx), e um payload fora do
+  // contrato não é isso — é o fio ter mudado, que ninguém pode descobrir tarde.
+  // O schema é loose e todo campo é opcional, então chegar aqui exige um campo
+  // que a gente LÊ vir com o tipo errado. Ver lib/channels/meta/envelope.ts.
+  const leitura = lerEnvelopeMeta(rawBody);
+  if (!leitura.ok) {
+    if (leitura.motivo === "json_invalido") {
+      return fail("invalid_request", "invalid_json", 400, { requestId });
+    }
+    logger.error("[meta.webhook] payload fora do contrato do canal", {
+      request_id: requestId,
+      campos: leitura.campos,
+    });
+    return fail("validation_failed", "payload fora do contrato do canal", 400, {
+      requestId,
+      details: { campos: leitura.campos },
+    });
   }
 
-  const eventos = parseMetaWebhook(envelope as Parameters<typeof parseMetaWebhook>[0]);
+  const eventos = parseMetaWebhook(leitura.envelope);
   const admin = createAdminClient();
   const now = new Date().toISOString();
   /**
@@ -90,7 +113,12 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
       // A metade que faltava: mensagem do contato vira linha no inbox, move lead,
       // acorda o agente — e carimba `last_inbound_at`, que é o que ABRE a janela
       // de 24h que o gate da Fase 4 calcula.
-      const r = await ingestMetaInbound(admin, e);
+      // A organização vem do TOKEN DO PATH, nunca do corpo: é a mesma fonte que
+      // decide onde os dois updates abaixo escrevem. Sem ela a ingestão
+      // resolvia a sessão só pelo `phone_number_id` do payload — e duas
+      // organizações com o mesmo número faziam a mensagem ser descartada para
+      // as duas, com 200 na resposta (issue #236).
+      const r = await ingestMetaInbound(admin, e, { organizationId: session.organizationId });
       desfechos.push(r.status);
       if (r.status === "failed" || r.status === "no_session") {
         // 2xx continua (a Meta re-entregaria em loop), mas a falha NÃO fica muda:

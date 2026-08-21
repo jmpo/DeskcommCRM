@@ -81,6 +81,16 @@ function makeSupabase(preexistentes: Row[] = []) {
         update: () => ({ eq: async () => ({ error: null }) }),
       };
     }
+    if (table === 'contacts') {
+      // Ver o comentário irmão em `messages-handler-desfechos`: encadeável sem
+      // limite, porque a consulta filtra por id E por organização.
+      const cadeiaContacts: Record<string, unknown> = {
+        eq: () => cadeiaContacts,
+        then: (resolve: (v: { error: null }) => unknown) =>
+          Promise.resolve({ error: null }).then(resolve),
+      };
+      return { update: () => cadeiaContacts } as never;
+    }
     if (table !== 'messages') throw new Error(`fake: tabela inesperada '${table}'`);
 
     return {

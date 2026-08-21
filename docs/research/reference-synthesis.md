@@ -118,7 +118,10 @@ create policy "tenant_isolation_X_all" on public.<tabela> for all
 - **Auth Plus**: `WAHA_API_KEY` no env é o hash SHA512 hex; cliente envia plaintext em `X-Api-Key`
 - **HMAC SHA512** em webhooks com `crypto.timingSafeEqual`
 - **Rate limit anti-banimento**: 1 msg/1.2s + jitter ≤800ms (campanha: 1 msg/5s); warm-up 7-14d; spinning de copy; limites 200-500/dia em número novo; janela 7h-22h, evitar domingo
-- **Detecção STOP automática**: regex `/STOP|PARAR|SAIR|UNSUBSCRIBE/i` no inbound → `is_blocked=true`
+- **Detecção STOP automática**: era regex `/STOP|PARAR|SAIR|UNSUBSCRIBE/i` no inbound → `is_blocked=true`.
+  **Superada em 2026-08-21** (PR #295): a regra em vigor é `lib/opt-out/deteccao.ts` — palavra
+  ISOLADA ou verbo de cessação com objeto de comunicação. Este documento registra o que foi
+  HERDADO do curso de referência, então a linha original fica, marcada.
 - **Mídia**: sobe pro Storage primeiro, passa URL ao WAHA (não inline base64)
 - **Cron `recover-stuck-messages`**: marca `status='sending'` há mais de 5 min como `failed`
 - **Multi-device sync**: assinar `message.any` (não só `message`), tratar `fromMe=true` sem duplicar

@@ -41,7 +41,13 @@ import { zernioTemplateOps } from "../zernio/templates";
 import { assertDestinoResolvidoSeguro } from "@/lib/automation/outbound-ip";
 import { assertSafeOutboundUrl } from "@/lib/automation/outbound-url";
 import { zernioMediaFetchInit } from "../zernio/webhook";
-import type { ChannelAdapter, ChannelHealth, OutboundEnvelope, RecipientInput } from "../types";
+import type {
+  ChannelAdapter,
+  ChannelHealth,
+  ChannelTenantScope,
+  OutboundEnvelope,
+  RecipientInput,
+} from "../types";
 
 /** Só dígitos. `+595 (99) 173-3685` → `595991733685`. */
 function toE164Digits(raw: string): string {
@@ -156,8 +162,14 @@ export const zernioAdapter: ChannelAdapter = {
   },
 
   async send(envelope: OutboundEnvelope): Promise<{ externalId: string | null }> {
+    if (envelope.kind === "contact") {
+      throw new Error("zernio_contact_not_supported: envio de cartão de contato não suportado neste canal.");
+    }
     const admin = createAdminClient();
-    const creds = await resolveZernioCreds(admin, envelope.sessionRef);
+    const creds = await resolveZernioCreds(admin, {
+      organizationId: envelope.organizationId,
+      accountId: envelope.sessionRef,
+    });
     // LANÇA, não devolve null: com `isConfigured` sempre true, quem desiste é
     // este ponto — e `{externalId: null}` faria o handler gravar `sent` sem id,
     // dizendo "enviado" para algo que nunca saiu.
@@ -238,7 +250,7 @@ export const zernioAdapter: ChannelAdapter = {
    * que a plataforma numera os valores, e mandar um mapa faria o segundo
    * parâmetro virar o primeiro na hora em que alguém renomeasse uma chave.
    */
-  async sendTemplate(input: {
+  async sendTemplate(input: ChannelTenantScope & {
     sessionRef: string;
     to: string;
     name: string;
@@ -246,7 +258,10 @@ export const zernioAdapter: ChannelAdapter = {
     values: Record<string, string>;
   }): Promise<{ externalId: string | null }> {
     const admin = createAdminClient();
-    const creds = await resolveZernioCreds(admin, input.sessionRef);
+    const creds = await resolveZernioCreds(admin, {
+      organizationId: input.organizationId,
+      accountId: input.sessionRef,
+    });
     if (!creds) {
       throw new Error(
         "zernio_not_configured: nenhuma credencial para esta conta (nem na sessão, nem no ambiente).",
@@ -300,13 +315,16 @@ export const zernioAdapter: ChannelAdapter = {
    * que o canal entrou — e ficou sem um único chamador de produção, que é
    * exatamente por que a mídia recebida aqui nunca virou bytes.
    */
-  async fetchInboundMedia(input: {
+  async fetchInboundMedia(input: ChannelTenantScope & {
     sessionRef: string;
     url: string;
     hintMime?: string | null;
   }): Promise<FetchedMedia> {
     const admin = createAdminClient();
-    const creds = await resolveZernioCreds(admin, input.sessionRef);
+    const creds = await resolveZernioCreds(admin, {
+      organizationId: input.organizationId,
+      accountId: input.sessionRef,
+    });
     if (!creds) throw new Error("zernio_not_configured: sem credencial para baixar a mídia.");
 
     // A URL do anexo vem do PAYLOAD do webhook, e este fetch leva a API key do
@@ -396,9 +414,14 @@ export const zernioAdapter: ChannelAdapter = {
    *                    campo ausente é ausência de informação, não más notícias.
    *   qualquer outro → NÃO sabemos. `reachable: false`, sem status.
    */
-  async checkHealth(input: { sessionRef: string }): Promise<ChannelHealth> {
+  async checkHealth(
+    input: ChannelTenantScope & { sessionRef: string },
+  ): Promise<ChannelHealth> {
     const admin = createAdminClient();
-    const creds = await resolveZernioCreds(admin, input.sessionRef);
+    const creds = await resolveZernioCreds(admin, {
+      organizationId: input.organizationId,
+      accountId: input.sessionRef,
+    });
     if (!creds) return { reachable: false, status: null, detail: "sem_credencial_para_a_sessao" };
 
     let res: Response;

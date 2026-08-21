@@ -7,7 +7,9 @@
  *   - redact / store_redact → alarm if received_at <= now - 10 days (D+10)
  *
  * Auth: `Authorization: Bearer <INTERNAL_CRON_SECRET|INTERNAL_SECRET>` (fail-closed).
- * Audit: emits lgpd.sla_watcher_run after processing.
+ * Audit: emite `lgpd.sla_watcher_run` quando houve alarme, dedup ou erro — tick
+ *   de instalação sem solicitação vencida NÃO audita (ver a guarda "cron que não
+ *   fez nada não audita", vigiada por `cron-audita-so-quando-ha-efeito.test.ts`).
  *
  * MVP: calendar-day approximation for SELECT is intentional and acceptable
  * (D+5 corridos ≈ D+5 úteis in short windows). Precision via computeDueAt
@@ -177,18 +179,28 @@ export async function GET(req: NextRequest): Promise<Response> {
   // ────────────────────────────────────────────────────────────────────────
   // Master audit entry (fire-and-forget)
   // ────────────────────────────────────────────────────────────────────────
-  void audit({
-    action: "lgpd.sla_watcher_run",
-    requestId,
-    bypassedRls: true,
-    metadata: {
-      scanned,
-      alarmed: alarmedCount,
-      deduped: dedupedCount,
-      errors: errorsCount,
-      duration_ms: durationMs,
-    },
-  });
+  // Varredura que não achou solicitação vencida não é mutação e não ocupa linha
+  // de auditoria (mesmo critério do snooze-watcher e do recover-stuck-messages).
+  //
+  // `deduped` ENTRA na condição, e aqui a régua é mais generosa que nos irmãos
+  // de propósito: dedup significa que existe prazo LGPD estourado sendo
+  // reencontrado, e num caminho de compliance o registro de que o alarme
+  // continua de pé vale mais que a linha economizada. O que sai é só o tick de
+  // uma instalação sem nenhuma solicitação vencida — que é o caso normal.
+  if (alarmedCount > 0 || dedupedCount > 0 || errorsCount > 0) {
+    void audit({
+      action: "lgpd.sla_watcher_run",
+      requestId,
+      bypassedRls: true,
+      metadata: {
+        scanned,
+        alarmed: alarmedCount,
+        deduped: dedupedCount,
+        errors: errorsCount,
+        duration_ms: durationMs,
+      },
+    });
+  }
 
   return ok(
     { scanned, alarmed: alarmedCount, deduped: dedupedCount, errors: errorsCount },

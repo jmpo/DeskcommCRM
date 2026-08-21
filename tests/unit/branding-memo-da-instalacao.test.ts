@@ -48,6 +48,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const banco = vi.hoisted(() => ({
   linha: null as Record<string, unknown> | null,
   leituras: 0,
+  /**
+   * Portão para segurar UMA leitura em voo. `null` = leitura resolve na hora
+   * (comportamento de todos os casos que já existiam aqui). Com o portão
+   * armado, `maybeSingle` espera — e é isso que torna a corrida do
+   * lost-update observável sem `sleep` e sem depender de timing.
+   */
+  portao: null as { liberar: () => void; esperar: Promise<void> } | null,
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({
@@ -57,7 +64,15 @@ vi.mock("@/lib/supabase/admin", () => ({
         eq: () => ({
           maybeSingle: async () => {
             banco.leituras += 1;
-            return { data: banco.linha, error: null };
+            // A linha é capturada AGORA, antes de esperar o portão — é o que um
+            // banco real faz: a consulta sai antes da escrita, e a resposta que
+            // volta é a de antes dela. Ler `banco.linha` depois do `await` faria
+            // a leitura "em voo" enxergar o valor NOVO e o caso não reproduziria
+            // corrida nenhuma (foi o primeiro jeito que escrevi, e a asserção de
+            // controle o pegou).
+            const capturada = banco.linha;
+            if (banco.portao) await banco.portao.esperar;
+            return { data: capturada, error: null };
           },
         }),
       }),
@@ -151,5 +166,78 @@ describe("o memo da marca da instalação atravessa instâncias do módulo", () 
     banco.linha = COM_LOGO;
     expect((await tela.marcaDaInstalacao())?.logo_path).toBeNull();
     expect(banco.leituras, "o memo deixou de ser memo").toBe(1);
+  });
+});
+
+/**
+ * ═══ LOST-UPDATE: a leitura EM VOO reinstalava o valor pré-escrita ═══
+ *
+ * Zerar o memo não bastava. `marcaDaInstalacao()` lia a geração do banco DEPOIS
+ * de um `await`, e gravava o resultado INCONDICIONALMENTE — então uma leitura
+ * que tinha começado ANTES da escrita voltava com a linha velha e a reinstalava
+ * por um TTL inteiro (30s), desfazendo o `invalidarMarcaDaInstalacao()` da rota.
+ *
+ * O efeito para gente real: o dono da VPS sobe o logo, recebe 200 e um toast
+ * verde, e a tela continua dizendo "Sem logo próprio" por até 30 segundos.
+ *
+ * MEDIDO no trace do CI em 2026-08-20 (run 32404132717, tentativa 2): a rajada
+ * de prefetch RSC começou 53ms ANTES do POST, e 19,6s depois do POST — num
+ * contexto NOVO, com login NOVO — a tela de marca ainda renderizava "Sem logo
+ * próprio…" e o botão Remover da camada de instalação não existia.
+ *
+ * A corrida é reproduzida pelo PORTÃO do dublê, não por `sleep`: o teste
+ * controla exatamente o instante em que a leitura volta.
+ */
+describe("uma escrita DURANTE a leitura não pode ser desfeita pela leitura", () => {
+  beforeEach(async () => {
+    banco.linha = SEM_LOGO;
+    banco.leituras = 0;
+    banco.portao = null;
+    (await instancia()).invalidarMarcaDaInstalacao();
+  });
+
+  it("a leitura que começou antes da escrita NÃO reinstala o valor velho", async () => {
+    const tela = await instancia();
+    const rota = await instancia();
+
+    // 1. A tela começa a ler e fica presa no portão, ainda vendo SEM_LOGO.
+    let liberar!: () => void;
+    banco.portao = { liberar: () => {}, esperar: new Promise<void>((r) => (liberar = r)) };
+    const emVoo = tela.marcaDaInstalacao();
+
+    // 2. A rota grava o logo e invalida — exatamente o que o upload faz.
+    banco.linha = COM_LOGO;
+    rota.invalidarMarcaDaInstalacao();
+
+    // 3. A leitura presa volta AGORA, com o valor de antes da escrita.
+    liberar();
+    const velha = await emVoo;
+    expect(velha?.logo_path, "controle: a leitura em voo tem mesmo de voltar velha").toBeNull();
+
+    // 4. A próxima leitura precisa IR AO BANCO. Se a leitura em voo tiver
+    //    reinstalado o memo, ela devolve o valor velho sem ler nada — que é o
+    //    defeito: tela negando o logo atrás de um toast de sucesso.
+    banco.portao = null;
+    const leiturasAntes = banco.leituras;
+    const depois = await tela.marcaDaInstalacao();
+    expect(
+      banco.leituras,
+      "a leitura seguinte tem de ir ao banco — o memo não pode ter sido reinstalado",
+    ).toBeGreaterThan(leiturasAntes);
+    expect(depois?.logo_path, "a tela precisa enxergar o logo recém-subido").toBe(CAMINHO_SUBIDO);
+  });
+
+  it("sem escrita no meio, a leitura memoiza normalmente — o conserto não desligou o memo", () => {
+    // Controle NEGATIVO do caso acima: se o conserto tivesse desarmado o memo em
+    // geral, este caso viraria "vai ao banco toda vez" e ninguém notaria a perda.
+    return (async () => {
+      const tela = await instancia();
+      const primeira = banco.leituras;
+      await tela.marcaDaInstalacao();
+      const depoisDaPrimeira = banco.leituras;
+      await tela.marcaDaInstalacao();
+      expect(banco.leituras, "a segunda leitura tem de vir do memo").toBe(depoisDaPrimeira);
+      expect(depoisDaPrimeira, "a primeira tem de ter ido ao banco").toBeGreaterThan(primeira);
+    })();
   });
 });

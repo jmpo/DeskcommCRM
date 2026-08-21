@@ -50,12 +50,20 @@ export async function GET(req: NextRequest): Promise<Response> {
   }
 
   const swept = data?.length ?? 0;
-  void audit({
-    action: "attendant.heartbeat_swept",
-    requestId,
-    bypassedRls: true,
-    metadata: { swept, timeout_minutes: HEARTBEAT_TIMEOUT_MINUTES, cutoff },
-  });
+  // Varredura que não derrubou ninguém não é mutação e não ocupa linha de
+  // auditoria (mesmo critério do snooze-watcher e do recover-stuck-messages).
+  // Esta rota roda 1×/5min: auditar incondicionalmente gravava 8.640 linhas/mês
+  // numa instalação sem atendente algum, numa tabela append-only com retenção de
+  // anos. O caso de erro do UPDATE já sai por `fail(...)` acima, com log — não é
+  // este `if` que o esconde.
+  if (swept > 0) {
+    void audit({
+      action: "attendant.heartbeat_swept",
+      requestId,
+      bypassedRls: true,
+      metadata: { swept, timeout_minutes: HEARTBEAT_TIMEOUT_MINUTES, cutoff },
+    });
+  }
 
   return ok({ swept, cutoff }, { requestId });
 }

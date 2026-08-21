@@ -89,6 +89,7 @@ export async function persistMessageMedia(row: EventRow): Promise<HandlerResult>
     const { data: sessao } = await admin
       .from("channel_sessions")
       .select(`provider, ${CHANNEL_SESSION_REF_COLUMNS}`)
+      .eq("organization_id", msg.organization_id)
       .eq("id", msg.channel_session_id)
       .maybeSingle();
 
@@ -104,6 +105,7 @@ export async function persistMessageMedia(row: EventRow): Promise<HandlerResult>
     }
 
     media = await adapter.fetchInboundMedia({
+      organizationId: msg.organization_id,
       sessionRef,
       url: msg.media_url,
       hintMime: msg.media_mime,

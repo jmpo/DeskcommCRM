@@ -20,8 +20,15 @@
  *    o outro canal converte por nós, este não.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
+import { metaContactsPayload } from "@/lib/channels/meta/contact-card";
 import { resolveMetaCreds } from "../meta/credentials";
-import type { ChannelAdapter, ChannelHealth, OutboundEnvelope, RecipientInput } from "../types";
+import type {
+  ChannelAdapter,
+  ChannelHealth,
+  ChannelTenantScope,
+  OutboundEnvelope,
+  RecipientInput,
+} from "../types";
 
 /** Só dígitos. `+55 (31) 99896-6398` → `5531998966398`. */
 function toE164Digits(raw: string): string {
@@ -39,6 +46,15 @@ function toE164Digits(raw: string): string {
  */
 import { metaCredsFromEnv } from "../meta/credentials";
 export { metaCredsFromEnv as getMetaCreds };
+
+/** `kind: "contact"` → objeto `contacts` da Cloud API. */
+function contactPayload(env: OutboundEnvelope): Record<string, unknown> | null {
+  if (env.kind !== "contact" || !env.contact) return null;
+  return {
+    type: "contacts",
+    contacts: metaContactsPayload(env.contact.fullName, env.contact.phoneNumber),
+  };
+}
 
 /** `kind` do envelope → objeto de mídia da Cloud API. */
 function mediaPayload(env: OutboundEnvelope): Record<string, unknown> | null {
@@ -123,8 +139,13 @@ export const metaCloudAdapter: ChannelAdapter = {
    * checagem olha os dois. Erro de rede devolve `reachable: false` sem status:
    * uma oscilação virando "canal caído" ensinaria o operador a ignorar o aviso.
    */
-  async checkHealth(input: { sessionRef: string }): Promise<ChannelHealth> {
-    const creds = await resolveMetaCreds(createAdminClient(), input.sessionRef);
+  async checkHealth(
+    input: ChannelTenantScope & { sessionRef: string },
+  ): Promise<ChannelHealth> {
+    const creds = await resolveMetaCreds(createAdminClient(), {
+      organizationId: input.organizationId,
+      phoneNumberId: input.sessionRef,
+    });
     if (!creds) return { reachable: false, status: null, detail: "sem_credencial_para_a_sessao" };
 
     const version = process.env.META_GRAPH_VERSION ?? "v22.0";
@@ -167,12 +188,18 @@ export const metaCloudAdapter: ChannelAdapter = {
   async send(envelope: OutboundEnvelope): Promise<{ externalId: string | null }> {
     // Sessão primeiro, env como fallback. O `sessionRef` do canal oficial É o
     // `phone_number_id` (ver `resolveSessionRef`), então ele é a chave da busca.
-    const creds = await resolveMetaCreds(createAdminClient(), envelope.sessionRef);
+    const creds = await resolveMetaCreds(createAdminClient(), {
+      organizationId: envelope.organizationId,
+      phoneNumberId: envelope.sessionRef,
+    });
     // Mesmo contrato do outro canal: sem credencial é NOOP, não exceção. A UI mostra
     // o banner de "canal não conectado"; transformar em erro mudaria comportamento.
     if (!creds) return { externalId: null };
 
-    const corpo = mediaPayload(envelope) ?? { type: "text", text: { body: envelope.body ?? "" } };
+    const corpo =
+      contactPayload(envelope) ??
+      mediaPayload(envelope) ??
+      { type: "text", text: { body: envelope.body ?? "" } };
 
     const res = await fetch(
       `https://graph.facebook.com/${creds.graphVersion}/${creds.phoneNumberId}/messages`,

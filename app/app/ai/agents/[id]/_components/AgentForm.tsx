@@ -86,8 +86,16 @@ interface BaseProps {
 interface EditProps extends BaseProps {
   mode: "edit";
   agent: AgentRow;
+  /** Rascunho VIGENTE (mais novo que a publicada) — `null` se não há. */
   draft: AgentVersionRow | null;
   published: AgentVersionRow | null;
+  /**
+   * A versão de onde o formulário se hidrata: rascunho vigente > publicada >
+   * última que existiu. Decidida em `lib/ai/agents/versoes-da-tela.ts`.
+   */
+  base?: AgentVersionRow | null;
+  /** Rascunho anterior à publicada — mostrado como aviso, nunca aberto. */
+  draftObsoleto?: AgentVersionRow | null;
 }
 
 interface CreateProps extends BaseProps {
@@ -239,7 +247,10 @@ export function AgentForm(props: Props) {
 
   const baseline = React.useMemo(() => {
     if (isEdit) {
-      const ref = props.draft ?? props.published;
+      // `base` já traz a regra (rascunho vigente > publicada > última versão).
+      // O fallback existe para chamadores que ainda não a passam; sem ele, um
+      // agente pausado abriria no texto padrão e o prompt "sumiria".
+      const ref = props.base ?? props.draft ?? props.published;
       return buildState({ agent: props.agent, version: ref });
     }
     return buildState({ version: null });
@@ -285,8 +296,14 @@ export function AgentForm(props: Props) {
     if (form.name.length > 120) errors.name = "O nome pode ter até 120 caracteres.";
     if (form.system_prompt.trim().length < 10)
       errors.system_prompt = "Escreva as instruções do agente (pelo menos uma frase).";
-    if (form.system_prompt.length > 20000)
-      errors.system_prompt = "As instruções passaram de 20.000 caracteres.";
+    // `.trim()` porque é o que o servidor mede: `z.string().trim().max(20000)`
+    // em lib/ai/agents/validation.ts — o trim roda ANTES do max. Duas réguas
+    // diferentes barrariam aqui um texto que o servidor aceitaria.
+    const tamanhoDoPrompt = form.system_prompt.trim().length;
+    if (tamanhoDoPrompt > 20000)
+      errors.system_prompt =
+        `As instruções têm ${tamanhoDoPrompt.toLocaleString("pt-BR")} caracteres, e o máximo é 20.000. ` +
+        `Corte ${(tamanhoDoPrompt - 20000).toLocaleString("pt-BR")} para conseguir salvar.`;
     if (!form.model) errors.model = "Escolha o modelo de inteligência artificial.";
     if (!form.credential_id)
       errors.credential_id = "Escolha a chave de acesso da empresa de inteligência artificial.";
@@ -411,8 +428,25 @@ export function AgentForm(props: Props) {
         </Badge>
       );
     }
-    if (pubN) return <Badge variant="default">Publicado v{pubN}</Badge>;
+    if (pubN) {
+      // O rascunho anterior à publicada não abre nem publica — mas some da tela
+      // sem explicação se ninguém o nomear, e aí o autor procura por um trabalho
+      // que acha ter perdido. Ele continua no Histórico.
+      const obsoleta = props.draftObsoleto?.version_number;
+      return (
+        <Badge variant="default" title={obsoleta ? `O rascunho v${obsoleta} é anterior a esta versão e foi superado por ela — ele continua no Histórico.` : undefined}>
+          Publicado v{pubN}
+          {obsoleta ? ` (rascunho v${obsoleta} superado)` : ""}
+        </Badge>
+      );
+    }
     if (draftN) return <Badge variant="outline">Rascunho v{draftN}</Badge>;
+    // Sem rascunho e sem publicada: o formulário abriu da última versão que
+    // existiu (props.base), e não do texto padrão. Dizer isso é o que impede o
+    // autor de achar que o prompt sumiu — e de salvar por cima achando que não.
+    if (props.base) {
+      return <Badge variant="outline">Pausado · editando a v{props.base.version_number}</Badge>;
+    }
     return <Badge variant="outline">Sem versão</Badge>;
   })();
 
@@ -779,18 +813,46 @@ export function AgentForm(props: Props) {
           <Card className="space-y-2 p-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">As instruções dele</h3>
-              <TokenCounter
-                text={form.system_prompt}
-                contextWindow={modelMeta?.context_window ?? null}
-                className="text-xs"
-              />
+              <div className="flex items-center gap-2">
+                {/* O contador é o aviso que chega ANTES do erro: quem cola um
+                    texto grande vê na hora que ele não vai caber, em vez de
+                    descobrir depois — ou nunca. */}
+                <span
+                  data-testid="contador-do-prompt"
+                  className={
+                    form.system_prompt.trim().length > 20000
+                      ? "text-xs text-destructive"
+                      : "text-xs text-muted-foreground"
+                  }
+                >
+                  {form.system_prompt.trim().length.toLocaleString("pt-BR")}/20.000
+                </span>
+                <TokenCounter
+                  text={form.system_prompt}
+                  contextWindow={modelMeta?.context_window ?? null}
+                  className="text-xs"
+                />
+              </div>
             </div>
             <Textarea
               value={form.system_prompt}
               onChange={(e) => patch({ system_prompt: e.target.value })}
               disabled={disabled}
               rows={12}
-              maxLength={20000}
+              /**
+               * SEM `maxLength`, e é o conserto — não um esquecimento.
+               *
+               * O navegador aplica o atributo na COLAGEM, sem evento e sem
+               * aviso: o que passa do limite não entra no campo. Cinco versões
+               * de um agente em produção foram salvas com exatamente 19.999
+               * caracteres, a última cortada no meio de uma frase, e o aviso
+               * logo acima — "passaram de 20.000" — era inalcançável, porque o
+               * estado nunca podia exceder o teto que o atributo já impunha.
+               *
+               * Sem ele o texto inteiro entra, a validação dispara e o autor lê
+               * quanto precisa cortar. Limite que recusa é honesto; limite que
+               * corta em silêncio faz o autor publicar o que não escreveu.
+               */
               spellCheck={false}
               className="font-mono text-xs"
               aria-invalid={!!validation.system_prompt}

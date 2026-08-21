@@ -366,6 +366,52 @@ export class WahaClient {
     return res.json();
   }
 
+  /**
+   * Confere se o número existe no WhatsApp e devolve o chatId canônico.
+   * Obrigatório antes de vcard em BR — o nono dígito do CRM nem sempre bate com o wa_id.
+   */
+  async checkContactExists(
+    session: string,
+    phoneDigits: string,
+  ): Promise<{ numberExists: boolean; chatId?: string | null; pn?: string | null }> {
+    const url = new URL(`${this.baseUrl}/api/contacts/check-exists`);
+    url.searchParams.set("session", session);
+    url.searchParams.set("phone", phoneDigits.replace(/\D/g, ""));
+    const res = await fetch(url, {
+      headers: { "X-Api-Key": this.apiKey, Accept: "application/json" },
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`waha_${res.status}: ${body.slice(0, 200)}`);
+    }
+    return res.json() as Promise<{ numberExists: boolean; chatId?: string | null; pn?: string | null }>;
+  }
+
+  async sendContactVcard(
+    session: string,
+    chatId: string,
+    contacts: Array<{
+      fullName: string;
+      phoneNumber: string;
+      whatsappId: string;
+      vcard: string;
+    }>,
+  ): Promise<unknown> {
+    const res = await fetch(`${this.baseUrl}/api/sendContactVcard`, {
+      method: "POST",
+      headers: {
+        "X-Api-Key": this.apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ session, chatId, contacts }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`waha_${res.status}: ${body.slice(0, 200)}`);
+    }
+    return res.json();
+  }
+
   async sendMedia(
     session: string,
     chatId: string,

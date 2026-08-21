@@ -153,6 +153,89 @@ jobs:
           # Sem build-args de segredo: a imagem é genérica (NEXT_PUBLIC_* viram
           # placeholder; valores reais entram em runtime no VPS do usuário).
 
+  # A imagem do app CONSTRÓI e MORRE ao subir? Este job existe porque isso
+  # aconteceu: `next@16.3.1` passou a resolver `@swc/helpers` por ESM, o file
+  # tracing do `output: standalone` levou 2 dos 108 arquivos do pacote, e o
+  # container entrou em crashloop com MODULE_NOT_FOUND. A imagem construiu,
+  # `imagens-ok` ficou verde, ela foi publicada — e o defeito só apareceu no
+  # `docker compose up` da VPS, com a produção fora do ar.
+  #
+  # "Constrói" nunca foi prova de "sobe". O gate mede o boot: erguer o
+  # container com env de mentira e exigir que o Next chegue a "Ready". Um 500
+  # depois disso é esperado (não há Supabase aqui) e não reprova — o que
+  # reprova é o processo não chegar a servir.
+  imagem-do-app-sobe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build local da imagem do app (sem push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: deskcomm-smoke:pr
+          build-args: |
+            APP_VERSION=smoke
+          # Mesmo escopo de cache do build-and-push: as camadas são idênticas,
+          # então na prática este job reaproveita aquele build em vez de repeti-lo.
+          cache-from: type=gha,scope=deskcommcrm
+
+      - name: O container chega a servir?
+        run: |
+          set -euo pipefail
+          docker run -d --name smoke -p 3000:3000 \
+            -e NEXT_PUBLIC_SUPABASE_URL=https://exemplo.supabase.co \
+            -e NEXT_PUBLIC_SUPABASE_ANON_KEY=chave-de-mentira \
+            -e SUPABASE_SERVICE_ROLE_KEY=chave-de-mentira \
+            -e SUPABASE_DB_URL=postgres://u:p@127.0.0.1:5432/postgres \
+            -e SENTRY_DSN=off \
+            deskcomm-smoke:pr
+
+          # Espera o boot; falha rápido se o processo morreu (crashloop).
+          pronto=nao
+          for _ in $(seq 1 40); do
+            if ! docker ps --filter name=smoke --filter status=running -q | grep -q .; then
+              echo "::error::o container do app MORREU durante o boot"
+              docker logs smoke 2>&1 | tail -40
+              exit 1
+            fi
+            if docker logs smoke 2>&1 | grep -qE "Ready in|started server on"; then
+              pronto=sim
+              break
+            fi
+            sleep 3
+          done
+
+          if [ "$pronto" != "sim" ]; then
+            echo "::error::o app não chegou a servir em 120s"
+            docker logs smoke 2>&1 | tail -40
+            exit 1
+          fi
+
+          # A assinatura exata do defeito que originou este gate — explícita,
+          # para o log dizer o que houve em vez de só "não subiu".
+          if docker logs smoke 2>&1 | grep -q "MODULE_NOT_FOUND"; then
+            echo "::error::falta módulo no standalone (o defeito do @swc/helpers)"
+            docker logs smoke 2>&1 | grep -A5 MODULE_NOT_FOUND | head -20
+            exit 1
+          fi
+
+          echo "o app chegou a servir:"
+          docker logs smoke 2>&1 | grep -E "Ready in|Next.js" | head -3
+
+      - name: Encerrar
+        if: always()
+        run: docker rm -f smoke 2>/dev/null || true
+
   # Job de fachada: dá UM nome estável para a branch protection exigir. Sem ele,
   # o required check teria que listar as três instâncias da matriz pelo nome
   # gerado, e acrescentar uma quarta imagem um dia quebraria o gate em silêncio —
@@ -170,9 +253,11 @@ jobs:
     # justificativa do teste antecipa — "um job novo nasce sem bloco e herda o
     # default de novo".
     permissions: {}
-    needs: [build-and-push]
+    needs: [build-and-push, imagem-do-app-sobe]
     steps:
-      - name: Falhar se qualquer imagem não construiu
+      - name: Falhar se qualquer imagem não construiu — ou se o app não sobe
         run: |
-          echo "resultado do build-and-push: ${{ needs.build-and-push.result }}"
+          echo "build-and-push:     ${{ needs.build-and-push.result }}"
+          echo "imagem-do-app-sobe: ${{ needs.imagem-do-app-sobe.result }}"
           [ "${{ needs.build-and-push.result }}" = "success" ]
+          [ "${{ needs.imagem-do-app-sobe.result }}" = "success" ]

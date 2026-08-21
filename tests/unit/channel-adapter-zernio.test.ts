@@ -39,6 +39,12 @@ const CREDS = {
 const WAMID = "wamid.HBgMNTk1OTkxNzMzNjg1FQIAERgSNDBFOTkzMUMxMEY4RjVERDZFAA==";
 const THREAD = "6a3580f68fcd5b3a5b946bf8";
 
+/**
+ * A organização atravessa o seam de canal desde a issue #236: `sessionRef` é
+ * identificador do PROVIDER e não identifica linha sozinho.
+ */
+const ORG = "00000000-0000-4000-8000-000000000236";
+
 function respondeOk(status = 200) {
   fetchMock.mockResolvedValueOnce({
     ok: true,
@@ -122,6 +128,7 @@ describe("send — endereça pela THREAD, não pelo telefone", () => {
   it("põe a thread na URL e o accountId no corpo", async () => {
     respondeOk(200);
     await zernioAdapter.send({
+      organizationId: ORG,
       sessionRef: CREDS.accountId,
       to: "595991733685",
       providerConversationId: THREAD,
@@ -141,6 +148,7 @@ describe("send — endereça pela THREAD, não pelo telefone", () => {
   it("autentica com Bearer", async () => {
     respondeOk();
     await zernioAdapter.send({
+      organizationId: ORG,
       sessionRef: CREDS.accountId,
       to: "595991733685",
       providerConversationId: THREAD,
@@ -153,6 +161,7 @@ describe("send — endereça pela THREAD, não pelo telefone", () => {
   it("devolve o wamid como externalId", async () => {
     respondeOk();
     const r = await zernioAdapter.send({
+      organizationId: ORG,
       sessionRef: CREDS.accountId,
       to: "5959",
       providerConversationId: THREAD,
@@ -165,6 +174,7 @@ describe("send — endereça pela THREAD, não pelo telefone", () => {
   it("aceita 201 tanto quanto 200 — abrir conversa e responder devolvem códigos diferentes", async () => {
     respondeOk(201);
     const r = await zernioAdapter.send({
+      organizationId: ORG,
       sessionRef: CREDS.accountId,
       to: "5959",
       providerConversationId: THREAD,
@@ -177,6 +187,7 @@ describe("send — endereça pela THREAD, não pelo telefone", () => {
   it("SEM thread lança com motivo nomeado, em vez de montar URL com undefined", async () => {
     await expect(
       zernioAdapter.send({
+        organizationId: ORG,
         sessionRef: CREDS.accountId,
         to: "595991733685",
         kind: "text",
@@ -190,6 +201,7 @@ describe("send — endereça pela THREAD, não pelo telefone", () => {
     credsRef.current = null;
     await expect(
       zernioAdapter.send({
+        organizationId: ORG,
         sessionRef: "x",
         to: "y",
         providerConversationId: THREAD,
@@ -217,6 +229,7 @@ describe("send — mídia", () => {
   it("imagem vira attachmentType image com a legenda em message", async () => {
     respondeOk();
     await zernioAdapter.send({
+      organizationId: ORG,
       sessionRef: CREDS.accountId,
       to: "5959",
       providerConversationId: THREAD,
@@ -234,6 +247,7 @@ describe("send — mídia", () => {
   it("áudio pede voiceNote — sem a flag chega como anexo de música", async () => {
     respondeOk();
     await zernioAdapter.send({
+      organizationId: ORG,
       sessionRef: CREDS.accountId,
       to: "5959",
       providerConversationId: THREAD,
@@ -246,6 +260,7 @@ describe("send — mídia", () => {
   it("documento cai em file, não em image", async () => {
     respondeOk();
     await zernioAdapter.send({
+      organizationId: ORG,
       sessionRef: CREDS.accountId,
       to: "5959",
       providerConversationId: THREAD,
@@ -266,6 +281,7 @@ describe("erros", () => {
     });
     await expect(
       zernioAdapter.send({
+        organizationId: ORG,
         sessionRef: CREDS.accountId,
         to: "5959",
         providerConversationId: THREAD,
@@ -283,6 +299,7 @@ describe("erros", () => {
     });
     await expect(
       zernioAdapter.send({
+        organizationId: ORG,
         sessionRef: CREDS.accountId,
         to: "5959",
         providerConversationId: THREAD,
@@ -337,7 +354,7 @@ describe("fetchInboundMedia não busca onde o payload mandar", () => {
       credsRef.current = CREDS;
       fetchMock.mockClear();
       await expect(
-        zernioAdapter.fetchInboundMedia!({ sessionRef: CREDS.accountId, url }),
+        zernioAdapter.fetchInboundMedia!({ organizationId: ORG, sessionRef: CREDS.accountId, url }),
       ).rejects.toThrow();
       expect(
         fetchMock,
@@ -358,6 +375,7 @@ describe("fetchInboundMedia não busca onde o payload mandar", () => {
       headers: new Headers({ "content-type": "image/png" }),
     });
     const r = await zernioAdapter.fetchInboundMedia!({
+      organizationId: ORG,
       sessionRef: CREDS.accountId,
       url: "https://zernio.com/api/v1/media/abc123",
     });

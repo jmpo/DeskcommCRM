@@ -42,115 +42,38 @@ import { audit } from "@/lib/audit";
 import { garantirLeadDaConversa } from "@/lib/leads/nascimento-do-lead";
 import { logger } from "@/lib/logger";
 import type { createAdminClient } from "@/lib/supabase/admin";
+import { ehPedidoDeOptOut } from "@/lib/opt-out/deteccao";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
 /**
- * As palavras que significam "não me escreva mais".
+ * Quem pediu para sair, sai — mas quem só usou a palavra, não.
  *
- * Mora aqui, e não em cada ingest, porque o vocabulário do opt-out é regra de
- * negócio (e de LGPD) do produto inteiro — não característica de um transporte.
- * Uma cópia por canal diverge na primeira vez que alguém acrescentar um termo.
+ * A regra mora em `lib/opt-out/deteccao.ts`, e não aqui, porque o vocabulário do
+ * opt-out é regra de negócio (e de LGPD) do produto inteiro — não característica
+ * de um transporte. Uma cópia por canal diverge na primeira vez que alguém
+ * acrescentar um termo, e foi exatamente o que aconteceu: o runtime tinha um
+ * detector calibrado enquanto ESTE caminho, o que grava o bloqueio, usava uma
+ * regex de palavra solta.
  *
- * ─── Por que NÃO é `\b`, que é o que estava aqui antes ─────────────────────
+ * ─── A história deste ponto, em duas correções ──────────────────────────────
  *
- * Porque em JavaScript `\b` é ASCII: a fronteira de palavra é `[A-Za-z0-9_]`, e
- * qualquer letra acentuada conta como NÃO-palavra. O efeito, na língua em que
- * os clientes escrevem:
+ * A primeira versão usava `\b`, que em JavaScript é ASCII: "amanhã ele sairá" e
+ * "pararão as obras" bloqueavam o contato, porque a letra acentuada vira
+ * fronteira. Trocou-se por lookarounds Unicode e a colagem parou de casar.
  *
- *   "amanhã ele sairá"      → `\bSAIR\b` CASA, porque o "á" vira fronteira
- *   "pararão as obras"      → `\bPARAR\b` CASA, pelo mesmo motivo
+ * Mas o falso positivo continuou, porque o alvo estava errado: a regex caçava a
+ * PALAVRA em qualquer posição da frase. Medido numa clínica em produção,
+ * "tem como parar a dor?" e "posso sair antes das 15h?" bloqueavam o paciente na
+ * ingestão — e todo envio seguinte voltava `contato_bloqueado`. Ele sumia sem
+ * ninguém saber. O mesmo erro escondia o outro lado: "não quero mais receber",
+ * que é opt-out inequívoco, passava batido.
  *
- * Ou seja, a versão anterior bloqueava em silêncio quem nunca pediu para sair —
- * e o contato deixava de receber sem que ninguém soubesse por quê. O falso
- * positivo é o pior dos dois erros possíveis aqui: quem pede para sair e não é
- * atendido reclama de novo; quem é bloqueado sem pedir simplesmente some.
- *
- * As lookarounds com `\p{L}\p{N}` fazem a fronteira ser Unicode: "PARAR" solto
- * casa, "pararão" não. Foi um teste deste arquivo que pegou isso — o defeito
- * vinha do canal por QR e ia ser copiado para o canal oficial.
+ * O que vale agora é a INTENÇÃO — verbo de cessação com objeto de comunicação,
+ * ou a palavra sozinha. O falso positivo continua sendo o pior dos dois erros
+ * possíveis aqui: quem pede para sair e não é atendido reclama de novo; quem é
+ * bloqueado sem pedir simplesmente some.
  */
-const PALAVRAS = "STOP|PARAR|SAIR|UNSUBSCRIBE|BAJA|CANCELAR";
-
-export const STOP_RX = new RegExp(
-  `(?<![\\p{L}\\p{N}])(${PALAVRAS})(?![\\p{L}\\p{N}])`,
-  "iu",
-);
-
-/**
- * ─── Por que a palavra solta NÃO basta, e o que resolve ────────────────────
- *
- * Medido na base do dono, com o canal oficial no ar:
- *
- *   "Baja"                              → era o que a plantilla PEDIA
- *   "quiero dar de baja la suscripcion" → inequívoco
- *   "Doy de baja la pauta?"             → pergunta sobre PAUSAR O ANÚNCIO dele
- *
- * Os três contêm "baja". Bloquear os três tiraria as mensagens de um cliente
- * que só fez uma pergunta — e o falso positivo é o erro caro aqui: quem pede
- * para sair e não é atendido reclama de novo; quem é bloqueado sem pedir
- * simplesmente some, e ninguém descobre.
- *
- * Então a regra tem dois níveis:
- *
- *   1. o texto É o pedido — a mensagem inteira é a palavra, com pontuação e
- *      saudação toleradas ("BAJA", "baja.", "Baja por favor");
- *   2. ou traz uma frase que não admite outra leitura ("dar de baja",
- *      "no quiero recibir", "no me escriban más").
- *
- * O resto — menção solta no meio de uma frase longa — NÃO bloqueia: vira aviso
- * para um humano decidir. É a diferença entre atender o pedido e adivinhar.
- */
-const FRASES_INEQUIVOCAS = new RegExp(
-  [
-    // espanhol
-    "dar de baja",
-    "darme de baja",
-    "no quiero recibir",
-    "no deseo recibir",
-    "no me escrib",
-    "me desuscrib",
-    "desuscribir",
-    "quiero salir de la lista",
-    // português — "parar de receber" entrou porque o teste anterior o cobria e
-    // a primeira versão desta função o rebaixou para "talvez" sem querer: é
-    // pedido inequívoco, e deixá-lo de fora seria trocar um falso positivo por
-    // um falso NEGATIVO, que é justamente o defeito que este arquivo conserta.
-    "parar de receber",
-    "quero parar de",
-    "nao quero receber",
-    "não quero receber",
-    "quero sair da lista",
-    "remover meu contato",
-    "me tira da lista",
-    "me tire da lista",
-  ].join("|"),
-  "iu",
-);
-
-/** Só o pedido, tolerando pontuação e uma cortesia curta em volta. */
-const SO_O_PEDIDO = new RegExp(
-  `^[\\s\\p{P}]*(${PALAVRAS})[\\s\\p{P}]*(por favor|pf|please|obrigad[oa]|gracias)?[\\s\\p{P}]*$`,
-  "iu",
-);
-
-export type LeituraDoOptOut = "pediu" | "talvez" | "nao";
-
-/**
- * O cliente pediu para sair?
- *
- * `"pediu"`  → bloqueia. `"talvez"` → NÃO bloqueia, mas alguém precisa olhar.
- * `"nao"`    → segue a vida.
- */
-export function lerPedidoDeSaida(texto: string | null): LeituraDoOptOut {
-  const t = (texto ?? "").trim();
-  if (!t) return "nao";
-  if (SO_O_PEDIDO.test(t)) return "pediu";
-  if (FRASES_INEQUIVOCAS.test(t)) return "pediu";
-  // A palavra aparece, mas embrulhada em outra coisa. Não dá para afirmar.
-  if (STOP_RX.test(t)) return "talvez";
-  return "nao";
-}
 
 export interface EntradaDeMensagem {
   organizationId: string;
@@ -202,16 +125,7 @@ export async function aplicarEfeitosPosEntrada(
  * é justamente o que prova, depois, que o pedido chegou e foi respeitado.
  */
 async function aplicarOptOut(admin: Admin, entrada: EntradaDeMensagem): Promise<void> {
-  const leitura = lerPedidoDeSaida(entrada.texto);
-
-  // Menção ambígua: NÃO bloqueia e não fica calado. Bloquear seria decidir por
-  // uma pessoa que talvez só tenha feito uma pergunta; calar seria perder o
-  // pedido de quem realmente quis sair. Vira item na Central, para um humano.
-  if (leitura === "talvez") {
-    await avisarPedidoAmbiguo(admin, entrada);
-    return;
-  }
-  if (leitura !== "pediu") return;
+  if (!ehPedidoDeOptOut(entrada.texto)) return;
 
   try {
     const agora = new Date().toISOString();
@@ -321,57 +235,6 @@ async function pedirDespachoDoAgente(admin: Admin, entrada: EntradaDeMensagem): 
       message_id: entrada.messageId,
       origem: entrada.origem,
       detail: error.message.slice(0, 160),
-    });
-  }
-}
-
-/**
- * "Talvez o cliente tenha pedido para sair" — e ninguém pode decidir sozinho.
- *
- * O dedup é por título: enquanto o item estiver aberto, novas menções do mesmo
- * contato não empilham. Uma Central com dez avisos do mesmo caso é uma Central
- * que ninguém lê.
- *
- * `other` como kind porque é o escape declarado do vocabulário — um kind novo
- * exigiria migration, e o valor aqui está em NÃO perder o pedido, não em
- * classificá-lo com precisão. O título diz o que é.
- */
-async function avisarPedidoAmbiguo(admin: Admin, entrada: EntradaDeMensagem): Promise<void> {
-  const titulo = "Alguém pode ter pedido para não receber mais mensagens";
-  try {
-    const { data: jaAberto } = await admin
-      .from("agent_inbox_items")
-      .select("id")
-      .eq("organization_id", entrada.organizationId)
-      .eq("kind", "other")
-      .eq("title", titulo)
-      .eq("ref_id", entrada.contactId)
-      .eq("status", "open")
-      .limit(1)
-      .maybeSingle();
-    if (jaAberto) return;
-
-    await admin.from("agent_inbox_items").insert({
-      organization_id: entrada.organizationId,
-      kind: "other",
-      severity: "warn",
-      title: titulo,
-      body:
-        `A mensagem menciona uma palavra de saída, mas dentro de uma frase que ` +
-        `admite outra leitura — pode ser uma pergunta, não um pedido. ` +
-        `Abra a conversa e decida: se for pedido, bloqueie o contato pela ficha. ` +
-        `NÃO bloqueei sozinho porque tirar as mensagens de quem não pediu é o erro ` +
-        `mais caro dos dois: quem pede e não é atendido reclama de novo, quem é ` +
-        `bloqueado sem pedir simplesmente some.\n\n` +
-        `Mensagem: "${(entrada.texto ?? "").slice(0, 200)}"`,
-      ref_kind: "contact",
-      ref_id: entrada.contactId,
-    });
-  } catch (err) {
-    logger.warn("pos-entrada: aviso de pedido ambíguo falhou", {
-      organization_id: entrada.organizationId,
-      contact_id: entrada.contactId,
-      detail: err instanceof Error ? err.message.slice(0, 160) : "desconhecido",
     });
   }
 }

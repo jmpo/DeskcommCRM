@@ -206,7 +206,8 @@ export function AntiBanSheet({ item, canWrite, onClose }: Props) {
             <div>
               <Label htmlFor="allow-sunday">Enviar aos domingos</Label>
               <p className="text-xs text-muted-foreground">
-                Desligado por padrão: envio em domingo aumenta o risco de denúncia e bloqueio.
+                Ligado por padrão: quem escreve no domingo espera resposta no domingo. Desligue
+                se você faz prospecção ativa e prefere não incomodar no fim de semana.
               </p>
             </div>
             <Switch

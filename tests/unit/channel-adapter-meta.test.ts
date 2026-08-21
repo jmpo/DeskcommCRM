@@ -9,25 +9,45 @@ import { getAdapter } from "@/lib/channels";
  * por sessão entrou, e o vermelho foi correto.
  */
 const sessaoNoBanco: { token: string | null } = { token: null };
+
+/**
+ * Cadeia ENCADEÁVEL, não de um nível só.
+ *
+ * A resolução por sessão filtra `organization_id` E o identificador E
+ * `archived_at is null` (issue #236 / migration 0165), então um stub em que
+ * `eq()` já devolve `maybeSingle` deixa de casar com o código real — e um mock
+ * que não casa com o código testa o mock. Aqui qualquer combinação de
+ * `.eq()/.is()` volta para o mesmo objeto e o terminal é `maybeSingle`.
+ */
+function cadeia(): Record<string, unknown> {
+  const alvo: Record<string, unknown> = {
+    maybeSingle: async () => ({
+      data: sessaoNoBanco.token
+        ? { meta_phone_number_id: "sessao-pn", meta_token_encrypted: "\\xdeadbeef" }
+        : null,
+      error: null,
+    }),
+  };
+  alvo.select = () => alvo;
+  alvo.eq = () => alvo;
+  alvo.is = () => alvo;
+  return alvo;
+}
+
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: async () => ({
-            data: sessaoNoBanco.token
-              ? { meta_phone_number_id: "sessao-pn", meta_token_encrypted: "\\xdeadbeef" }
-              : null,
-            error: null,
-          }),
-        }),
-      }),
-    }),
+    from: () => cadeia(),
     rpc: async () => ({ data: sessaoNoBanco.token, error: null }),
   }),
 }));
 
 const a = () => getAdapter("meta_cloud");
+
+/**
+ * A organização atravessa o seam de canal desde a issue #236: `sessionRef` é
+ * identificador do PROVIDER e não identifica linha sozinho.
+ */
+const ORG = "00000000-0000-4000-8000-000000000236";
 
 function configurar() {
   vi.stubEnv("META_PHONE_NUMBER_ID", "1103328999528818");
@@ -88,7 +108,7 @@ describe("adapter meta_cloud — configuração", () => {
     // Mesmo contrato do outro canal: a UI mostra banner, o handler grava `queued`.
     vi.stubEnv("META_PHONE_NUMBER_ID", "");
     vi.stubEnv("META_SYSTEM_USER_TOKEN", "");
-    const r = await a().send({ sessionRef: "x", to: "5531999", kind: "text", body: "oi" });
+    const r = await a().send({ organizationId: ORG, sessionRef: "x", to: "5531999", kind: "text", body: "oi" });
     expect(r).toEqual({ externalId: null });
   });
 
@@ -102,7 +122,7 @@ describe("adapter meta_cloud — envio", () => {
   it("texto vai como type:text e o phone_number_id entra na URL, não no corpo", async () => {
     configurar();
     const spy = stubFetch({ messages: [{ id: "wamid.T" }] });
-    const r = await a().send({ sessionRef: "ignorado", to: "5531998966398", kind: "text", body: "oi" });
+    const r = await a().send({ organizationId: ORG, sessionRef: "ignorado", to: "5531998966398", kind: "text", body: "oi" });
 
     expect(r).toEqual({ externalId: "wamid.T" });
     const [url, init] = spy.mock.calls[0]!;
@@ -116,7 +136,7 @@ describe("adapter meta_cloud — envio", () => {
     configurar();
     const spy = stubFetch({ messages: [{ id: "wamid.A" }] });
     await a().send({
-      sessionRef: "x", to: "5531998966398", kind: "audio",
+      organizationId: ORG, sessionRef: "x", to: "5531998966398", kind: "audio",
       media: { url: "https://x/a.ogg", mime: "audio/ogg" },
     });
     const corpo = JSON.parse(spy.mock.calls[0]![1].body as string) as {
@@ -130,7 +150,7 @@ describe("adapter meta_cloud — envio", () => {
     configurar();
     const spy = stubFetch({ messages: [{ id: "wamid.I" }] });
     await a().send({
-      sessionRef: "x", to: "5531", kind: "image",
+      organizationId: ORG, sessionRef: "x", to: "5531", kind: "image",
       media: { url: "https://x/a.jpg", mime: "image/jpeg", caption: "olha" },
     });
     expect(JSON.parse(spy.mock.calls[0]![1].body as string).image).toEqual({
@@ -139,7 +159,7 @@ describe("adapter meta_cloud — envio", () => {
 
     const spy2 = stubFetch({ messages: [{ id: "wamid.D" }] });
     await a().send({
-      sessionRef: "x", to: "5531", kind: "document",
+      organizationId: ORG, sessionRef: "x", to: "5531", kind: "document",
       media: { url: "https://x/a.pdf", mime: "application/pdf", filename: "contrato.pdf" },
     });
     expect(JSON.parse(spy2.mock.calls[0]![1].body as string).document).toMatchObject({
@@ -160,14 +180,40 @@ describe("adapter meta_cloud — envio", () => {
       false,
     );
     await expect(
-      a().send({ sessionRef: "x", to: "+5531", kind: "text", body: "oi" }),
+      a().send({ organizationId: ORG, sessionRef: "x", to: "+5531", kind: "text", body: "oi" }),
     ).rejects.toThrow(/131009.*formato inválido/);
+  });
+
+  it("contato vai como type:contacts com formatted_name e wa_id", async () => {
+    configurar();
+    const spy = stubFetch({ messages: [{ id: "wamid.C" }] });
+    const r = await a().send({
+      organizationId: "org-1",
+      sessionRef: "ignorado",
+      to: "5531998966398",
+      kind: "contact",
+      contact: {
+        fullName: "Maria Silva",
+        phoneNumber: "+5511999887766",
+        whatsappId: "5511999887766",
+        vcard: "BEGIN:VCARD…",
+      },
+    });
+
+    expect(r).toEqual({ externalId: "wamid.C" });
+    const corpo = JSON.parse(spy.mock.calls[0]![1].body as string) as {
+      type: string;
+      contacts: Array<{ name: { formatted_name: string }; phones: Array<{ wa_id: string }> }>;
+    };
+    expect(corpo.type).toBe("contacts");
+    expect(corpo.contacts[0]?.name.formatted_name).toBe("Maria Silva");
+    expect(corpo.contacts[0]?.phones[0]?.wa_id).toBe("5511999887766");
   });
 
   it("resposta sem id devolve externalId null, sem estourar", async () => {
     configurar();
     stubFetch({ messages: [] });
-    const r = await a().send({ sessionRef: "x", to: "5531", kind: "text", body: "oi" });
+    const r = await a().send({ organizationId: ORG, sessionRef: "x", to: "5531", kind: "text", body: "oi" });
     expect(r).toEqual({ externalId: null });
   });
 });
@@ -180,7 +226,7 @@ describe("credencial por sessão — o que destrava multi-tenant", () => {
     sessaoNoBanco.token = "token-da-sessao";
     const spy = stubFetch({ messages: [{ id: "wamid.S" }] });
 
-    await a().send({ sessionRef: "sessao-pn", to: "5531", kind: "text", body: "oi" });
+    await a().send({ organizationId: ORG, sessionRef: "sessao-pn", to: "5531", kind: "text", body: "oi" });
 
     const [, init] = spy.mock.calls[0]!;
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer token-da-sessao");
@@ -191,7 +237,7 @@ describe("credencial por sessão — o que destrava multi-tenant", () => {
     sessaoNoBanco.token = null;
     const spy = stubFetch({ messages: [{ id: "wamid.E" }] });
 
-    await a().send({ sessionRef: "qualquer", to: "5531", kind: "text", body: "oi" });
+    await a().send({ organizationId: ORG, sessionRef: "qualquer", to: "5531", kind: "text", body: "oi" });
 
     const [, init] = spy.mock.calls[0]!;
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");

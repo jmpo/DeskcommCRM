@@ -68,9 +68,19 @@ vi.mock("@/lib/supabase/admin", () => ({
         }),
       }),
     },
-    from: () => ({
-      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
-    }),
+    // Cadeia ENCADEÁVEL: a resolução por sessão filtra `organization_id`, o
+    // identificador do provider E `archived_at is null` (issue #236 /
+    // migration 0165). Um stub em que `eq()` já entrega `maybeSingle` deixa de
+    // casar com o código real — e mock que não casa testa o mock.
+    from: () => {
+      const alvo: Record<string, unknown> = {
+        maybeSingle: async () => ({ data: null, error: null }),
+      };
+      alvo.select = () => alvo;
+      alvo.eq = () => alvo;
+      alvo.is = () => alvo;
+      return alvo;
+    },
   }),
 }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => {}) }));
@@ -154,7 +164,12 @@ function conversaCompleta(forma: Forma = {}): Row {
  * rede morder a perda de uma coluna.
  */
 function makeSupabase(linhaCompleta: Row) {
-  const estado: { message: Row | null; selects: string[] } = { message: null, selects: [] };
+  const estado: {
+    message: Row | null;
+    selects: string[];
+    contactPatch: Row | null;
+    contactFilters: Record<string, unknown>;
+  } = { message: null, selects: [], contactPatch: null, contactFilters: {} };
   const client = {
     from(tabela: string) {
       if (tabela === "conversations") {
@@ -207,6 +222,31 @@ function makeSupabase(linhaCompleta: Row) {
                 select: () => ({ maybeSingle: async () => ({ data: { ...estado.message }, error: null }) }),
               }),
             };
+          },
+        };
+      }
+      if (tabela === "contacts") {
+        // O envio carimba `contacts.last_activity_at` (migration 0162), com
+        // filtro por id E por organização — este handler também roda com o
+        // client de service role, que bypassa RLS.
+        //
+        // Encadeável sem limite, pelo mesmo motivo escrito no dublê de
+        // `meta_templates` logo acima: um dublê que fixa a quantidade de
+        // filtros quebra quando a consulta ganha um `eq` novo, com um erro que
+        // não fala do comportamento sob teste. Foi exatamente o que aconteceu
+        // aqui quando o filtro de tenant entrou.
+        const cadeia: Record<string, unknown> = {
+          eq: (col: string, val: unknown) => {
+            estado.contactFilters[col] = val;
+            return cadeia;
+          },
+          then: (resolve: (v: { error: null }) => unknown) =>
+            Promise.resolve({ error: null }).then(resolve),
+        };
+        return {
+          update: (patch: Row) => {
+            estado.contactPatch = patch;
+            return cadeia;
           },
         };
       }

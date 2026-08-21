@@ -238,6 +238,23 @@ const schema = z.object({
   // function. Min 32 chars when present is enforced at use site.
   IMPERSONATE_COOKIE_SECRET: z.string().optional().default(""),
 
+  /**
+   * Retenção do histórico que o cron `data-retention` poda (issue #261).
+   *
+   * As DUAS entram como `z.string()` e nunca como `z.coerce.number()`, pelo
+   * mesmo motivo de `AI_BUDGET_ENFORCEMENT` algumas linhas acima: o `safeParse`
+   * deste arquivo LANÇA quando o schema recusa, e no Next isso derruba toda
+   * requisição com 500 num contêiner que segue `healthy` (o healthcheck é probe
+   * TCP). Quem digita `noventa` às 2h da manhã tentando liberar espaço não pode
+   * derrubar o produto. A interpretação — com padrão, piso e AVISO quando o
+   * valor não vale como escrito — mora em `lib/retencao/politica.ts`.
+   *
+   * Ausentes = o comportamento default (90 dias de fila, 5 anos de auditoria).
+   * Nenhuma instalação precisa editar `.env` para a poda funcionar.
+   */
+  JOB_QUEUE_RETENTION_DAYS: z.string().optional().default(""),
+  AUDIT_LOG_RETENTION_DAYS: z.string().optional().default(""),
+
   // LGPD export (S-08.04)
   LGPD_SIGNING_KEY: z.string().optional().default(""),
   LGPD_EXPORT_EXPIRES_HOURS: z.string().optional().default("72"),

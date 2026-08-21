@@ -22,6 +22,7 @@ import { z } from 'zod';
 import type pg from 'pg';
 
 import { expectativaDeAtendimento } from '@/lib/escalacao/disponibilidade';
+import { ehOptOutProvavel } from '@/lib/opt-out/deteccao';
 import { emitAgentActivityForContact } from '@/lib/leads/agent-activity';
 
 import type { Logger } from '../obs/logger';
@@ -62,57 +63,19 @@ export function detectHumanHandoffRequest(message: string): boolean {
   return HUMAN_HANDOFF_PATTERNS.some((re) => re.test(normalized));
 }
 
-/**
- * Palavra-chave de opt-out enviada SOZINHA (mensagem inteira = a palavra) — a convenção
- * universal de descadastro em canais de mensagem. Comparação sobre o texto normalizado
- * e trimado (sem acento/pontuação de borda) para não vetar frases que só CONTÊM a palavra
- * ("vou parar por aqui, valeu" não casa; "PARAR" sozinho casa).
- */
-const OPTOUT_KEYWORDS: ReadonlySet<string> = new Set([
-  'stop',
-  'parar',
-  'pare',
-  'sair',
-  'cancelar',
-  'descadastrar',
-  'remover',
-  'unsubscribe',
-]);
 
 /**
- * Frases PT-BR de opt-out AMBÍGUO ("para de me mandar isso", "não quero mais receber",
- * "me tira da lista"): não são bloqueio formal no CRM, mas na dúvida tratamos como STOP
- * (F4-07). CONSERVADORAS o bastante para não silenciar um lead vivo por engano, mas a
- * política é "na dúvida, PARA e escala" — o humano confirma o is_blocked real no CRM.
- * Rodam sobre o texto normalizado (sem acento).
- */
-const AMBIGUOUS_OPTOUT_PATTERNS: readonly RegExp[] = [
-  /\bpar(?:a|e|em)\s+de\s+me\s+(?:mandar|manda|mande|enviar|envia|envie|perturbar|encher)\b/,
-  // "receber" seguido de um CANAL (ligação/chamada/telefonema) é troca-de-canal, não opt-out:
-  // "não quero receber ligação, só whatsapp" QUER continuar no WhatsApp — não silenciar.
-  /\bnao\s+(?:quero|desejo|gostaria)\s+(?:de\s+)?(?:mais\s+)?receber\b(?!\s+(?:ligacao|ligacoes|chamada|chamadas|telefonema|telefonemas|telefone)\b)/,
-  /\bnao\s+quero\s+receber\s+mais\b/,
-  /\bnao\s+me\s+(?:mande|manda|mandem|envie|envia|enviem)\s+mais\b/,
-  /\bme\s+(?:tira|tire|tirem|remove|remova|removam|retira|retire|exclui|exclua)\s+(?:da|dessa|desta|de\s+sua|da\s+sua)\s+lista\b/,
-  /\bsair\s+da\s+lista\b/,
-  /\bcancelar?\s+(?:a\s+)?inscricao\b/,
-  /\bme\s+descadastr\w*\b/,
-];
-
-/**
- * True se a última mensagem do lead SUGERE opt-out (palavra-chave sozinha OU frase
- * ambígua). Sinal CONSERVADOR: na dúvida vira STOP + escala à inbox (F4-07). NÃO é a
- * fonte da verdade (o CRM/is_blocked é); serve para PARAR de responder já e alertar o
- * humano, que confirma o bloqueio real.
+ * True se a última mensagem do lead SUGERE opt-out. A regra mora em
+ * `lib/opt-out/deteccao.ts` — a MESMA que a ingestão usa para gravar o bloqueio,
+ * e é o ponto: enquanto eram duas, o runtime era o lado calibrado e a ingestão
+ * bloqueava paciente que só perguntou como parar a dor.
+ *
+ * Aqui vale o nível PROVÁVEL (inequívoco + ambíguo), e não o inequívoco: este
+ * sinal só para de responder e escala à inbox — não silencia ninguém para
+ * sempre. Quem tem esse poder é a pessoa que confirma o bloqueio no CRM.
  */
 export function detectAmbiguousOptOut(message: string): boolean {
-  const trimmed = message.trim();
-  if (trimmed === '') return false;
-  const normalized = normalize(trimmed);
-  // palavra-chave isolada: só letras (remove pontuação de borda como "STOP." / "SAIR!")
-  const bareWord = normalized.replace(/[^a-z]/gu, '');
-  if (OPTOUT_KEYWORDS.has(bareWord)) return true;
-  return AMBIGUOUS_OPTOUT_PATTERNS.some((re) => re.test(normalized));
+  return ehOptOutProvavel(message);
 }
 
 /**

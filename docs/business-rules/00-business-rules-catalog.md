@@ -148,11 +148,12 @@ owner: Rafael Melgaço
 - **Enforcement**: DB.
 - **Exceção**: Nenhuma.
 
-### L-10 — Audit log é append-only e retém 5 anos
+### L-10 — Audit log é append-only e retém 5 anos por padrão
 - **Origem**: Sub-PRD 01 §3.5
 - **Tipo**: Hard constraint
-- **Regra**: GIVEN tabela `api_audit_log`; WHEN qualquer operação UPDATE/DELETE é tentada via API ou ORM; THEN retorna 405. Retenção em hot storage 90 dias; cold storage S3 com lifecycle policy de 5 anos.
-- **Enforcement**: DB (sem RLS de UPDATE/DELETE; permission revogada do role da app) + worker de archive.
+- **Regra**: GIVEN tabela `api_audit_log`; WHEN qualquer operação UPDATE/DELETE é tentada via API ou ORM; THEN é recusada — nenhum papel tem o GRANT (nem `service_role`). Retenção **default de 5 anos**, expurgada na fronteira; o operador da instalação pode encurtá-la por `AUDIT_LOG_RETENTION_DAYS`, **nunca abaixo de 90 dias** (piso dentro da função do banco).
+- **Enforcement**: DB (sem GRANT de UPDATE/DELETE; RLS só com policy de INSERT/SELECT) + `public.fn_expurgar_auditoria_vencida` (`security definer`, sem seletor de linha, revogada de anon/authenticated, concedida só a `service_role`) chamada em lotes pelo cron `app/api/v1/cron/data-retention`. Cada rodada que apaga algo grava `retention.sweep_run` com a contagem — a trilha registra a própria erosão.
+- **Não existe camada cold/S3.** Esta linha prometia "hot 90 dias + cold storage S3 com lifecycle" e **nada disso jamais foi construído** (auditoria de 2026-08-14: zero ocorrência de arquivamento ligada ao audit log; o único vestígio era um `COMMENT ON TABLE`). Num produto self-host não há para onde arquivar: o Storage do cliente é a mesma cota de 1 GB, já dividida com `whatsapp-media`.
 - **Exceção**: DBA pode deletar manualmente apenas com double-confirmation e audit duplo (raro: erro de coleta de PII que precisa ser purgado).
 
 ---
@@ -166,11 +167,15 @@ owner: Rafael Melgaço
 - **Enforcement**: Worker de envio (acquireSendLock).
 - **Exceção**: Nenhuma. Vale inclusive pra envio "manual" do atendente.
 
-### W-02 — Detecção STOP automática bloqueia contact
+### W-02 — Pedido de descadastro bloqueia o contato (era: "detecção STOP por regex")
 - **Origem**: Sub-PRD 03 §3.7
 - **Tipo**: Hard constraint
-- **Regra**: GIVEN mensagem inbound text; WHEN body matches regex `/STOP|PARAR|SAIR|UNSUBSCRIBE|CANCELAR/i`; THEN `contacts.is_blocked=true` + emitir activity `system.contact_blocked_by_stop`.
-- **Enforcement**: Worker de webhook (após persist da message).
+- **Regra**: GIVEN mensagem inbound text; WHEN `ehPedidoDeOptOut(body)` — **palavra ISOLADA** (mensagem inteira = a palavra) **ou** verbo de cessação com **objeto de comunicação** ("parar de me mandar", "sair da lista", "cancelar inscrição"); THEN `contacts.is_blocked=true` + emitir activity `system.contact_blocked_by_stop`.
+- **Por que deixou de ser regex de palavra solta** (2026-08-21): caçar a PALAVRA em qualquer posição bloqueava frase inocente na INGESTÃO, antes do modelo — e o bloqueio some a pessoa da conversa sem ninguém saber, com `blocked_reason='stop_keyword'` parecendo legítimo. Medido num corpus de 79 frases: a regra antiga produzia **12 falsos positivos** de nicho ("tem como parar a dor?", "posso sair antes das 15h?", "preciso sair mais cedo da consulta") e deixava passar **21 de 33 pedidos reais** ("não quero mais receber nada", "me tira da lista", "cancelar inscrição"). A regra nova: 0 falsos positivos, 33 de 33 pedidos.
+- **Onde ela mora, para não envelhecer aqui**: `lib/opt-out/deteccao.ts`. O vocabulário em vigor sai de `grep -n 'PALAVRAS_DE_OPT_OUT' -A20 lib/opt-out/deteccao.ts`; as frases de controle, de `tests/unit/opt-out-deteccao.test.ts`.
+- **Dois níveis, e a diferença importa**: `ehPedidoDeOptOut` (inequívoco) autoriza gravar `is_blocked`, que só uma pessoa desfaz. `ehOptOutProvavel` soma os ambíguos ("me deixa em paz") e é o sinal do runtime — para de responder e escala à Central, **sem** bloquear.
+- **Lacuna conhecida**: espanhol não é coberto (`baja`, `salir`, `no quiero recibir`). Medido: 0 de 9. Ver PR #275.
+- **Enforcement**: Worker de webhook (após persist da message), via `lib/channels/pos-entrada.ts`.
 - **Override**: Tenant admin pode desbloquear manualmente; ação auditada.
 
 ### W-03 — Contact bloqueado nunca recebe outbound automatizado
@@ -201,11 +206,13 @@ owner: Rafael Melgaço
 - **Enforcement**: Worker de envio + counter Redis por sessão.
 - **Override**: Tenant admin com aprovação de super-admin pode aumentar limite — ação auditada com justificativa.
 
-### W-07 — Janela horária default 7h-22h, sem domingo
-- **Origem**: Sub-PRD 03 §3.7
+### W-07 — Janela horária default 7h-22h, domingo LIBERADO
+- **Origem**: Sub-PRD 03 §3.7; domingo revisto pelo dono do produto em 2026-08-20
 - **Tipo**: Default com override
-- **Regra**: GIVEN automação tentando envio outbound; WHEN hora local do tenant está fora de 7h-22h OU dia é domingo; THEN o envio é enfileirado pra próximo horário válido.
-- **Enforcement**: Worker de envio.
+- **Regra**: GIVEN automação tentando envio outbound; WHEN hora local do tenant está fora de 7h-22h; THEN o envio é enfileirado pra próximo horário válido. **Domingo não veta** por default (`allowSunday: true`).
+- **Por que o domingo saiu do veto**: a janela horária é CORTESIA, não anti-banimento — a distinção está em `lib/agent-engine/pacing/engine.ts` (o `banRisk` desarma warm-up, cap e throttle; a janela vale em todo canal). Calar o domingo INTEIRO num CRM de atendimento significa que quem escreve no domingo só é respondido na segunda: o custo cai sobre o cliente final, não sobre o risco de bloqueio. Quem faz prospecção ativa e prefere não incomodar no fim de semana desliga o knob.
+- **Enforcement**: Worker de envio (`decidePacing`).
+- **Configuração**: por canal, em Conexões → anti-banimento (`components/connections/AntiBanSheet.tsx` → `POST /api/v1/ai/pacing`), coluna `channel_knobs.allow_sunday`. `null` = default.
 - **Override**: Atendente humano envia manualmente sem restrição (a regra é pra automações em massa).
 
 ### W-08 — Mídia outbound vai pra Storage, NUNCA inline base64

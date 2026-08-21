@@ -1114,9 +1114,26 @@ async function executarTurnoDoAgente(
   const argsAux = (configuredModel: string | undefined): AuxModelArgs =>
     auxModelArgs(configuredModel, agentConfig);
 
+  /**
+   * Os DOIS limites do histórico vêm da versão publicada — e o segundo vinha da
+   * env, que é o defeito.
+   *
+   * A tela oferece "Tamanho máximo desse histórico" por agente e grava
+   * `history_token_window` (default 8.000). O turno lia `historyMessageWindow`
+   * dali e `maxTokens` de `LEAD_CONTEXT_MAX_TOKENS`, uma env com default 1.000
+   * que sequer aparece no `.env.example`: quem configurava 8.000 na tela recebia
+   * 1.000, sem nada dizer que o número não valia. Metade da versão publicada era
+   * lida, metade não.
+   *
+   * O corte não morde na conversa curta de WhatsApp — ali quem limita é a janela
+   * de mensagens (20 por padrão). Ele morde exatamente onde dói: mensagem longa
+   * e áudio transcrito, quando o histórico é a única coisa que sustenta o fio da
+   * conversa. O ramo sem versão publicada segue com os knobs da instalação, que
+   * é o único caso em que ela é a fonte legítima.
+   */
   const turnContextKnobs =
     agentConfig !== null
-      ? { historyLimit: agentConfig.historyMessageWindow, maxTokens: deps.knobs.maxContextTokens }
+      ? { historyLimit: agentConfig.historyMessageWindow, maxTokens: agentConfig.historyTokenWindow }
       : contextKnobs;
 
   // Ritual de abertura: playbook por ponteiro + checkpoint + contexto curado.

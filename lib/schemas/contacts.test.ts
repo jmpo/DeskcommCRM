@@ -107,6 +107,18 @@ describe("contactListQuerySchema", () => {
     const r = contactListQuerySchema.safeParse({ limit: "500" });
     expect(r.success).toBe(false);
   });
+
+  it("defaults order_by and order_dir", () => {
+    const r = contactListQuerySchema.parse({});
+    expect(r.order_by).toBe("last_activity_at");
+    expect(r.order_dir).toBe("desc");
+  });
+
+  it("accepts valid order_by", () => {
+    const r = contactListQuerySchema.parse({ order_by: "display_name", order_dir: "asc" });
+    expect(r.order_by).toBe("display_name");
+    expect(r.order_dir).toBe("asc");
+  });
 });
 
 describe("lgpdAnonymizeSchema", () => {

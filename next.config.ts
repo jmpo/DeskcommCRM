@@ -11,6 +11,29 @@ const nextConfig: NextConfig = {
   // Self-host (HostGator): gera .next/standalone pro container Docker (node server.js).
   // Aditivo — não afeta o deploy Vercel.
   output: "standalone",
+  /**
+   * O `standalone` copia SÓ o que o file tracing detecta — e ele não detecta
+   * tudo de `@swc/helpers`.
+   *
+   * Medido no build da `main`: o pacote real tem 108 arquivos em `esm/`, e o
+   * standalone levava **2**. Em runtime o Node pedia
+   * `@swc/helpers/esm/_interop_require_default`, não achava, e o container
+   * subia em crashloop com `MODULE_NOT_FOUND` — a imagem construía, publicava e
+   * só morria ao dar `docker compose up` na VPS.
+   *
+   * Não aparecia no `next@16.3.0`: aquela versão resolvia o helper pelo CJS. O
+   * bump para `16.3.1` passou a resolvê-lo por `exports`/ESM, e o buraco do
+   * trace virou falha dura. Como o helper é injetado pelo COMPILADOR (nenhum
+   * arquivo nosso o importa), não há import para o trace seguir — a inclusão
+   * precisa ser declarada.
+   *
+   * O glob passa pelo layout do pnpm (`.pnpm/@swc+helpers@<versão>/…`) porque é
+   * onde o pacote realmente mora aqui; o `*` cobre o bump de versão seguinte
+   * sem exigir que alguém lembre de editar esta linha.
+   */
+  outputFileTracingIncludes: {
+    "/**": ["./node_modules/.pnpm/@swc+helpers@*/node_modules/@swc/helpers/**"],
+  },
   reactStrictMode: true,
   poweredByHeader: false,
   // typedRoutes moved out of experimental in Next 15.5+

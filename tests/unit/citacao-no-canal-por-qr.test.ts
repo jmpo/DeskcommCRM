@@ -101,6 +101,9 @@ describe("o adapter repassa o que o envelope traz", () => {
     vi.resetModules();
     const { wahaAdapter } = await import("@/lib/channels/adapters/waha");
     await wahaAdapter.send({
+      // `organizationId` entrou no envelope na sincronia de 21/08 — o adapter
+      // não o usa aqui, mas o tipo o exige.
+      organizationId: "org-1",
       sessionRef: "s1",
       to: "595@c.us",
       kind: "text",

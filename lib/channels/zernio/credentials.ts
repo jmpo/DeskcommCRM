@@ -17,9 +17,19 @@
  * A cifra usa as MESMAS RPCs do resto do repo (`fn_encrypt_oauth` /
  * `fn_decrypt_oauth`, ver `lib/webhooks/secrets.ts`). Escrever um terceiro
  * caminho de cifra seria mais um lugar por onde a chave vaza.
+ *
+ * ─── Por que a busca leva a ORGANIZAÇÃO junto (issue #236) ──────────────────
+ * Mesma razão do canal oficial, e o mesmo desfecho medido: `zernio_account_id`
+ * é identificador do PROVIDER, duas organizações podiam ter o mesmo por
+ * configuração legítima (agência, migração entre organizações), e
+ * `maybeSingle()` com duas linhas devolve `data: null` + `PGRST116`. Com o
+ * `error` descartado, as duas organizações passavam a enviar pela conta do
+ * `.env`. Filtro aqui, índice único parcial na migration 0165, invariante em
+ * `tests/unit/canal-consulta-por-organizacao.test.ts`.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { ARCHIVED_AT, queryTolerantToMissingArchived } from "../archived";
 import { decryptWebhookSecret } from "@/lib/webhooks/secrets";
 
 export interface ZernioCredentials {
@@ -28,6 +38,14 @@ export interface ZernioCredentials {
   baseUrl: string;
   /** De onde veio — aparece no log de diagnóstico, nunca no payload. */
   source: "session" | "env";
+}
+
+/** A chave da busca. `organizationId` NÃO é decoração: ver o cabeçalho. */
+export interface ZernioCredsLookup {
+  /** Resolvido de fonte confiável (sessão, linha já escopada, token do webhook). */
+  organizationId: string;
+  /** `channel_sessions.zernio_account_id` — o `sessionRef` deste canal. */
+  accountId: string;
 }
 
 /**
@@ -51,22 +69,41 @@ export function zernioCredsFromEnv(): ZernioCredentials | null {
 }
 
 /**
- * Credencial gravada na sessão que atende esta conta.
+ * Credencial gravada na sessão DESTA ORGANIZAÇÃO que atende esta conta.
  *
  * `null` significa "esta sessão não tem chave gravada" — o chamador cai no env.
  * NÃO significa erro.
+ *
+ * **LANÇA quando a consulta falha.** Ver o cabeçalho: descartar o `error` era
+ * metade do defeito da issue #236 — a colisão devolvia `data: null` com
+ * `PGRST116`, e o `null` mandava as duas organizações para a conta do `.env`.
  */
 export async function zernioCredsForAccountId(
   admin: SupabaseClient,
-  accountId: string,
+  lookup: ZernioCredsLookup,
 ): Promise<ZernioCredentials | null> {
-  if (!accountId) return null;
+  const { organizationId, accountId } = lookup;
+  if (!organizationId || !accountId) return null;
 
-  const { data } = await admin
-    .from("channel_sessions")
-    .select("zernio_account_id, zernio_token_encrypted")
-    .eq("zernio_account_id", accountId)
-    .maybeSingle();
+  // `organization_id` À MÃO (service role bypassa RLS) e `archived_at is null`
+  // pelo MESMO recorte do índice único `channel_sessions_zernio_account_id_ativo_unique`
+  // (migration 0165): fora do recorte a trava do banco não alcança, e a busca
+  // deixaria de ser exata exatamente onde ninguém a garante.
+  const base = () =>
+    admin
+      .from("channel_sessions")
+      .select("zernio_account_id, zernio_token_encrypted")
+      .eq("organization_id", organizationId)
+      .eq("zernio_account_id", accountId);
+  const { data, error } = await queryTolerantToMissingArchived(
+    () => base().is(ARCHIVED_AT, null).maybeSingle(),
+    () => base().maybeSingle(),
+  );
+  if (error) {
+    throw new Error(
+      `zernio_creds_lookup_failed: ${error.code ?? "sem_codigo"} ${error.message ?? ""}`.trim(),
+    );
+  }
 
   const cifrado = data?.zernio_token_encrypted;
   if (!data || !cifrado) return null;
@@ -94,7 +131,7 @@ export async function zernioCredsForAccountId(
  */
 export async function resolveZernioCreds(
   admin: SupabaseClient,
-  accountId: string,
+  lookup: ZernioCredsLookup,
 ): Promise<ZernioCredentials | null> {
-  return (await zernioCredsForAccountId(admin, accountId)) ?? zernioCredsFromEnv();
+  return (await zernioCredsForAccountId(admin, lookup)) ?? zernioCredsFromEnv();
 }

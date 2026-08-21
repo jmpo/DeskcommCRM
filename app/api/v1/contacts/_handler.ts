@@ -17,7 +17,9 @@ import type {
   ContactCreate,
   ContactPatch,
   ContactListQuery,
+  ContactListQueryParams,
 } from "@/lib/schemas";
+import { contactListQuerySchema } from "@/lib/schemas";
 
 type SB = SupabaseClient;
 
@@ -32,8 +34,7 @@ const ROLE_RANK: Record<string, number> = {
 };
 
 interface CursorPayload {
-  last_activity_at: string | null;
-  created_at: string;
+  sort: string | null;
   id: string;
 }
 
@@ -43,9 +44,14 @@ function encodeCursor(p: CursorPayload): string {
 function decodeCursor(raw: string): CursorPayload | null {
   try {
     const json = Buffer.from(raw, "base64url").toString("utf8");
-    const parsed = JSON.parse(json) as CursorPayload;
-    if (typeof parsed.id !== "string" || typeof parsed.created_at !== "string") return null;
-    return parsed;
+    const parsed = JSON.parse(json) as CursorPayload & {
+      last_activity_at?: string | null;
+      created_at?: string | null;
+    };
+    if (typeof parsed.id !== "string") return null;
+    // Cursores legados (só created_at) ou do formato anterior (last_activity_at).
+    const sort = parsed.sort ?? parsed.last_activity_at ?? parsed.created_at ?? null;
+    return { sort, id: parsed.id };
   } catch {
     return null;
   }
@@ -83,15 +89,18 @@ export interface ListContactsResult {
 export async function listContactsHandler(
   supabase: SB,
   ctx: HandlerCtx,
-  q: ContactListQuery,
+  raw: ContactListQueryParams,
 ): Promise<ListContactsResult> {
+  const q: ContactListQuery = contactListQuerySchema.parse(raw);
+  const sortCol = q.order_by;
+  const asc = q.order_dir === "asc";
+
   let query = supabase
     .from("contacts")
     .select(SELECT_COLS)
     .eq("organization_id", ctx.organization_id)
-    .order("last_activity_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
+    .order(sortCol, { ascending: asc, nullsFirst: false })
+    .order("id", { ascending: asc })
     .limit(q.limit + 1);
 
   if (q.search) {
@@ -134,9 +143,16 @@ export async function listContactsHandler(
     if (!c) {
       throw new ApiError(400, "invalid_cursor", undefined, ctx.requestId, "Cursor inválido.");
     }
-    query = query.or(
-      `created_at.lt.${c.created_at},and(created_at.eq.${c.created_at},id.lt.${c.id})`,
-    );
+    const op = asc ? "gt" : "lt";
+    if (c.sort) {
+      query = query.or(
+        `${sortCol}.${op}.${c.sort},and(${sortCol}.eq.${c.sort},id.${op}.${c.id})`,
+      );
+    } else {
+      // Página na região de sort NULL (nulls last): pagina só por id.
+      query = query.is(sortCol, null);
+      query = asc ? query.gt("id", c.id) : query.lt("id", c.id);
+    }
   }
 
   const { data, error } = await query;
@@ -151,8 +167,7 @@ export async function listContactsHandler(
   const nextCursor =
     hasMore && last
       ? encodeCursor({
-          last_activity_at: last.last_activity_at,
-          created_at: last.created_at,
+          sort: (last[sortCol] as string | null) ?? null,
           id: last.id,
         })
       : null;

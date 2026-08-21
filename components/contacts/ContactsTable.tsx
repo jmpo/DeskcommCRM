@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
-import { formatRelative } from "date-fns";
+import { format, formatRelative, isToday, isYesterday } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ChatCircle } from "@/lib/ui/icons";
+import { CaretDown, CaretUp, ChatCircle } from "@/lib/ui/icons";
 import {
   Table,
   TableBody,
@@ -13,29 +13,109 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import type { ContactOrderBy } from "@/lib/schemas/contacts";
 import type { Contact } from "@/lib/types/contacts";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 
 interface Props {
   contacts: Contact[];
+  orderBy: ContactOrderBy;
+  orderDir: "asc" | "desc";
+  onSort: (column: ContactOrderBy) => void;
 }
 
 function displayName(c: Contact): string {
-  // Era a outra tela sem telefone no fallback — e a única com "—" numa lista
-  // onde a coluna ao lado já mostra o número.
   return rotuloDoContato(c);
 }
 
-export function ContactsTable({ contacts }: Props) {
+/** Hoje/ontem: relativo ("há 2 horas", "ontem"). Mais antigo: data, não dia da semana. */
+function formatUltimaAtividade(iso: string, now = new Date()): string {
+  const d = new Date(iso);
+  if (isToday(d) || isYesterday(d)) {
+    return formatRelative(d, now, { locale: ptBR });
+  }
+  return format(d, "dd/MM/yyyy", { locale: ptBR });
+}
+
+function SortableHead({
+  label,
+  column,
+  orderBy,
+  orderDir,
+  onSort,
+  className,
+}: {
+  label: string;
+  column: ContactOrderBy;
+  orderBy: ContactOrderBy;
+  orderDir: "asc" | "desc";
+  onSort: (column: ContactOrderBy) => void;
+  className?: string;
+}) {
+  const active = orderBy === column;
+  const muted = "text-muted-foreground/35";
+  const emphasis = "text-foreground";
+
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className="inline-flex items-center gap-1 font-medium hover:text-foreground"
+        aria-sort={active ? (orderDir === "asc" ? "ascending" : "descending") : "none"}
+      >
+        {label}
+        <span className="inline-flex flex-col -space-y-1" aria-hidden>
+          <CaretUp
+            size={12}
+            weight="bold"
+            className={active && orderDir === "asc" ? emphasis : muted}
+          />
+          <CaretDown
+            size={12}
+            weight="bold"
+            className={active && orderDir === "desc" ? emphasis : muted}
+          />
+        </span>
+      </button>
+    </TableHead>
+  );
+}
+
+export function ContactsTable({ contacts, orderBy, orderDir, onSort }: Props) {
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Nome</TableHead>
-          <TableHead>Email</TableHead>
-          <TableHead>Telefone</TableHead>
+          <SortableHead
+            label="Nome"
+            column="display_name"
+            orderBy={orderBy}
+            orderDir={orderDir}
+            onSort={onSort}
+          />
+          <SortableHead
+            label="Email"
+            column="email"
+            orderBy={orderBy}
+            orderDir={orderDir}
+            onSort={onSort}
+          />
+          <SortableHead
+            label="Telefone"
+            column="phone_number"
+            orderBy={orderBy}
+            orderDir={orderDir}
+            onSort={onSort}
+          />
           <TableHead>Tags</TableHead>
-          <TableHead>Última atividade</TableHead>
+          <SortableHead
+            label="Última atividade"
+            column="last_activity_at"
+            orderBy={orderBy}
+            orderDir={orderDir}
+            onSort={onSort}
+          />
           <TableHead>Status</TableHead>
           <TableHead className="w-[52px]">
             <span className="sr-only">Conversa</span>
@@ -67,7 +147,7 @@ export function ContactsTable({ contacts }: Props) {
             </TableCell>
             <TableCell className="text-muted-foreground text-sm">
               {c.last_activity_at
-                ? formatRelative(new Date(c.last_activity_at), new Date(), { locale: ptBR })
+                ? formatUltimaAtividade(c.last_activity_at)
                 : "—"}
             </TableCell>
             <TableCell>

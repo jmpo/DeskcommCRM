@@ -6,6 +6,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getAdapter } from '@/lib/channels';
 
+/** A organização atravessa o seam desde a issue #236. */
+const ORG = "00000000-0000-4000-8000-000000000236";
+
 const WAHA_BASE = 'http://localhost:3030';
 
 /** Sobe o WAHA "configurado" e devolve o fetch espionado. */
@@ -88,7 +91,13 @@ describe('adapter WAHA', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
-      getAdapter('waha').send({ sessionRef: 's', to: '5531999998888@c.us', kind: 'text', body: 'oi' }),
+      getAdapter('waha').send({
+        organizationId: ORG,
+        sessionRef: 's',
+        to: '5531999998888@c.us',
+        kind: 'text',
+        body: 'oi',
+      }),
     ).resolves.toEqual({ externalId: null });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -97,6 +106,7 @@ describe('adapter WAHA', () => {
     const fetchMock = stubWaha({ id: { _serialized: 'ABC123' } });
 
     const res = await getAdapter('waha').send({
+      organizationId: ORG,
       sessionRef: 'default',
       to: '5531999998888@c.us',
       kind: 'text',
@@ -118,6 +128,7 @@ describe('adapter WAHA', () => {
     const fetchMock = stubWaha({ key: { id: 'VOICE1' } });
 
     const res = await getAdapter('waha').send({
+      organizationId: ORG,
       sessionRef: 'default',
       to: '5531999998888@c.us',
       kind: 'audio',

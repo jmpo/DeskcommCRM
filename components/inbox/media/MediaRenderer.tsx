@@ -23,6 +23,8 @@ export function MediaRenderer({ message }: { message: Message }) {
       return <AudioPlayer messageId={message.id} isOutbound={isOutbound} />;
     case "video":
       return <VideoMedia messageId={message.id} />;
+    case "contact":
+      return null;
     default:
       return (
         <DocumentCard

@@ -56,6 +56,14 @@ export const contactPatchSchema = contactCreateSchema.partial().extend({
 });
 export type ContactPatch = z.infer<typeof contactPatchSchema>;
 
+export const CONTACT_ORDER_BY = [
+  "last_activity_at",
+  "created_at",
+  "display_name",
+  "email",
+  "phone_number",
+] as const;
+
 export const contactListQuerySchema = z.object({
   search: z.string().optional(),
   tag: z.string().optional(),
@@ -71,8 +79,12 @@ export const contactListQuerySchema = z.object({
   blocked: z.enum(["yes", "no"]).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+  order_by: z.enum(CONTACT_ORDER_BY).default("last_activity_at"),
+  order_dir: z.enum(["asc", "desc"]).default("desc"),
 });
-export type ContactListQuery = z.infer<typeof contactListQuerySchema>;
+export type ContactListQuery = z.output<typeof contactListQuerySchema>;
+export type ContactListQueryParams = z.input<typeof contactListQuerySchema>;
+export type ContactOrderBy = (typeof CONTACT_ORDER_BY)[number];
 
 export const lgpdAnonymizeSchema = z.object({
   contact_id: z.string().uuid(),
