@@ -67,8 +67,19 @@ function listaDoWorkflow(yml: string, chave: string): string[] {
 }
 
 const yml = readFileSync(WORKFLOW, "utf8");
-const parte1 = listaDoWorkflow(yml, "SPECS_PARTE_1");
-const parte2 = listaDoWorkflow(yml, "SPECS_PARTE_2");
+/**
+ * As partes são DESCOBERTAS, não nomeadas uma a uma.
+ *
+ * Enquanto este arquivo citava `SPECS_PARTE_1` e `_2` à mão, acrescentar uma
+ * terceira lista ao workflow deixava as specs dela invisíveis aqui: o gate
+ * acusaria "spec no disco que não está em lista nenhuma" para onze arquivos que
+ * RODAM. Um gate que precisa ser editado junto com o que ele vigia é um gate
+ * que envelhece — e a contagem deste job já apodreceu quatro vezes por isso.
+ */
+const NOMES_DAS_PARTES = [...yml.matchAll(/SPECS_PARTE_(\d+):/g)].map((m) => `SPECS_PARTE_${m[1]}`);
+const partes = NOMES_DAS_PARTES.map((nome) => listaDoWorkflow(yml, nome));
+const declaradasNoCi = partes.flat();
+const parte1 = partes[0] ?? [];
 const foraDoCi = listaDoWorkflow(yml, "FORA_DO_CI");
 const noDisco = readdirSync(DIR_SPECS)
   .filter((f) => f.endsWith(".spec.ts"))
@@ -80,18 +91,20 @@ describe("cobertura do e2e no CI", () => {
     // asserção de vigência passaria por vacuidade, enquanto a de completude
     // acusaria as 39 specs de uma vez. Verde e vermelho errados pelo mesmo motivo.
     expect(noDisco.length, "nenhuma spec no disco — o diretório mudou de lugar?").toBeGreaterThan(30);
-    expect(parte1.length, "SPECS_PARTE_1 não foi lida do workflow").toBeGreaterThan(10);
-    expect(parte2.length, "SPECS_PARTE_2 não foi lida do workflow").toBeGreaterThan(10);
+    expect(NOMES_DAS_PARTES.length, "nenhuma SPECS_PARTE_* no workflow").toBeGreaterThanOrEqual(2);
+    for (const [i, lista] of partes.entries()) {
+      expect(lista.length, `${NOMES_DAS_PARTES[i]} veio vazia`).toBeGreaterThan(5);
+    }
     expect(foraDoCi.length, "FORA_DO_CI não foi lida do workflow").toBeGreaterThan(0);
   });
 
   it("toda spec do disco está em exatamente uma lista", () => {
-    const declaradas = [...parte1, ...parte2, ...foraDoCi];
+    const declaradas = [...declaradasNoCi, ...foraDoCi];
     const semLista = noDisco.filter((f) => !declaradas.includes(f));
     expect(
       semLista,
       "Spec no disco que não roda no CI nem está declarada como fora. Ponha em " +
-        "SPECS_PARTE_1/2 (se rodar sem WAHA/Redis/Resend) ou em FORA_DO_CI com o " +
+        "qualquer SPECS_PARTE_* (se rodar sem WAHA/Redis/Resend) ou em FORA_DO_CI com o " +
         "motivo escrito. Cobertura parcial silenciosa se lê como cobertura total.\n",
     ).toEqual([]);
 
@@ -105,7 +118,7 @@ describe("cobertura do e2e no CI", () => {
     // O sentido inverso, e ele é pior: `playwright test naoexiste.spec.ts` não
     // acha nada e o job termina VERDE. Uma renomeação silenciosamente desliga a
     // cobertura daquele arquivo.
-    const fantasmas = [...parte1, ...parte2, ...foraDoCi].filter((f) => !noDisco.includes(f));
+    const fantasmas = [...declaradasNoCi, ...foraDoCi].filter((f) => !noDisco.includes(f));
     expect(fantasmas, "lista do CI aponta para spec inexistente — renomeada ou apagada").toEqual([]);
   });
 
@@ -129,9 +142,15 @@ describe("cobertura do e2e no CI", () => {
     expect(yml, "o nome da variável não é montado a partir da matriz").toMatch(
       /VAR="SPECS_PARTE_\$\{\{ matrix\.parte \}\}"/,
     );
+    // A matriz e as listas têm de concordar EM NÚMERO. Tirar o `3` da matriz
+    // desligaria onze specs sem tocar em nenhuma lista; acrescentar uma
+    // `SPECS_PARTE_4` sem pôr o `4` na matriz declararia cobertura que não roda.
+    // Derivar uma da outra é o que fecha os dois buracos de uma vez.
     const matriz = yml.match(/parte:\s*\[([^\]]+)\]/)?.[1] ?? "";
     const partes = matriz.split(",").map((s) => s.trim());
-    expect(partes, "a matriz deixou de enumerar as duas partes").toEqual(["1", "2"]);
+    const listas = [...yml.matchAll(/SPECS_PARTE_(\d+):/g)].map((m) => m[1]!);
+    expect(partes, "a matriz não enumera exatamente as listas que existem").toEqual(listas);
+    expect(partes.length, "sumiram as partes do e2e").toBeGreaterThanOrEqual(2);
     // E FORA_DO_CI nunca é passada a um run — ela existe para NÃO rodar.
     expect(yml).not.toMatch(/playwright test[^\n]*\$FORA_DO_CI/);
   });

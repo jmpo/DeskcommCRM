@@ -90,7 +90,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        parte: [1, 2]
+        parte: [1, 2, 3]
     # ─────────────────────────────────────────────────────────────────────────
     # A COBERTURA DEIXA DE SER PROSA DIGITADA À MÃO.
     #
@@ -226,54 +226,19 @@ jobs:
         navegacao.spec.ts olhar-telas-do-epico.spec.ts pipelines-gestao.spec.ts
         qa-agente-usa-as-maos.spec.ts qa-selo-no-funil-usado.spec.ts
         qa-telas-descobertas-w4.spec.ts retorno-anti-morte.spec.ts
-        followup-builder.spec.ts followup-queue.spec.ts
-        distribuicao-atendimento.spec.ts followup-journey.spec.ts
-        webhooks.spec.ts
         capacidades-do-agente.spec.ts
-        escopo-de-funil-do-agente.spec.ts
-        followup-dossie.spec.ts followup-tempo-adaptativo.spec.ts
+      # A família `followup-*` fica JUNTA nesta parte, e não espalhada: elas
+      # compartilham o mesmo fluxo e semeiam umas para as outras. Separá-las
+      # entre jobs — que agora têm bancos DIFERENTES — quebraria a que dependesse
+      # da vizinha, e o sintoma apareceria como "spec instável", não como
+      # "reparti mal".
+      SPECS_PARTE_3: >-
+        followup-builder.spec.ts followup-queue.spec.ts
+        followup-journey.spec.ts followup-dossie.spec.ts
+        followup-tempo-adaptativo.spec.ts distribuicao-atendimento.spec.ts
+        webhooks.spec.ts escopo-de-funil-do-agente.spec.ts
         gatilho-de-etapa.spec.ts gatilho-de-caso.spec.ts
         marca-logo.spec.ts
-      # Cada item aqui tem o motivo MEDIDO, não presumido — e o gate cobra que a
-      # lista exista e some com as outras duas.
-      #
-      # `vps-fresh-onboarding` fica fora por DUAS razões, e só a primeira estava
-      # escrita — com o número errado, contradito 8 linhas abaixo neste mesmo
-      # arquivo, que já usava 17 como controle positivo:
-      #
-      #   (1) 17 linhas dependem de WAHA/Resend/Nuvemshop/Redis
-      #       (`grep -ciE "waha|resend|nuvemshop|redis"` → 17 linhas, 22 ocorrências).
-      #
-      #   (2) `orgRow()` (`:41-43`) faz `.limit(1).single()` em `organizations` —
-      #       pressupõe banco de UMA organização só. O banco do CI é compartilhado
-      #       entre as duas partes do job, e `signup-journey.spec.ts:32` cria uma
-      #       segunda org sem cleanup: quando a parte 2 começa há ≥2, e o `.single()`
-      #       falha. Esta razão NÃO se resolve com variável de ambiente — é o desenho
-      #       do rig, e é por isso que "basta dar as credenciais" não destrava.
-      #
-      # Continua sendo a P0 da doutrina de QA Visual: `e2e` verde NÃO prova a
-      # jornada de instalação fresca, que é o produto que se vende.
-      #
-# As CINCO specs da missão "Follow-up Vivo" (`followup-linguagem`,
-      # `followup-ramos`, `followup-dossie`, `followup-tempo-adaptativo`,
-      # `gatilho-de-etapa`) entraram nas listas de execução, e não aqui, porque a
-      # medição não dá motivo para excluí-las: grep de waha/resend/nuvemshop/redis
-      # devolve **0 em todas as cinco** (controle positivo: `vps-fresh-onboarding`
-      # devolve 17). Usam o endpoint de cron, como a `followup-journey` que já roda.
-      #
-      # ⚠️ O QUE NÃO ESTÁ MEDIDO: elas passam LOCALMENTE, e verde local não é verde
-      # de CI. Nenhuma delas rodou num job ainda — foram escritas nesta missão e
-      # ficaram fora de todas as listas, isto é, existiam e nenhum job as invocava.
-      # A primeira execução do `e2e` neste PR é que decide; se alguma reprovar por
-      # ambiente, o lugar dela é aqui embaixo COM o motivo medido, nunca uma
-      # exclusão preventiva "por garantia" — que é exatamente a dívida entrando
-      # pela porta de serviço que este bloco existe para barrar.
-      #
-      # `prova-painel-provedores` esteve aqui e SAIU: em 2026-08-08 o caso F3 exigia
-      # mais de 50 modelos da OpenRouter e o catálogo chegava ao CI com 2 linhas — a
-      # spec media a sorte do ambiente. `scripts/seed-e2e-catalogo-openrouter.ts`
-      # (main, 2026-08-09) semeia o catálogo no job, então a condição que a excluía
-      # deixou de existir e ela voltou para a lista de execução.
       FORA_DO_CI: >-
         vps-fresh-onboarding.spec.ts
     steps:
@@ -477,7 +442,7 @@ jobs:
       # workers, dois specs gerando o mesmo código no mesmo intervalo de 30s
       # fazem o segundo ser recusado como replay. Foi o que derrubava a
       # `reset-password-mfa` (issue #80): ela passa sozinha e falha em paralelo.
-      - name: E2E — parte ${{ matrix.parte }} de 2
+      - name: E2E — parte ${{ matrix.parte }} de 3
         # Teto POR PASSO, e não só o do job.
         #
         # O job tem o dele, mas ele também cobre o preparo e o build: uma
@@ -489,7 +454,7 @@ jobs:
         # 16 minutos é ~1,5× a parte mais longa medida (10m28). Folga para
         # runner carregado, apertado o bastante para que pendurar seja rápido de
         # descobrir — e a falha passa a NOMEAR o passo.
-        timeout-minutes: 16
+        timeout-minutes: 12
         # Expansão indireta: as duas listas vivem no `env` do job (para o passo
         # de cobertura poder contá-las juntas), e a matriz escolhe qual delas
         # roda. Um `if` por parte duplicaria o comando e o teto.
