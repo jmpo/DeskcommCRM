@@ -72,8 +72,24 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
 
 ### Audit log
 - Toda mutação POST/PATCH/DELETE bem-sucedida → 1 entrada em `api_audit_log` (fire-and-forget, p99 ≤500ms)
-- Audit é append-only. Sem RLS de UPDATE/DELETE. Edição apenas via DBA manual
-- Retenção 5 anos. Hot 90 dias, cold (S3) o resto
+- **Rodada de cron que não fez nada NÃO é mutação e não audita** — e a que fez, audita. `routing-worker` (1×/min) e `attendant-heartbeat` (1×/5min) auditavam incondicionalmente: ~51.840 linhas/mês numa instalação que não atende ninguém, e numa VPS real **95% do audit log** era batida de cron vazia (`docs/testing/user-journey-map.md`, achado 17). A guarda certa é *auditar quando houve efeito*, nunca *parar de auditar* — as duas direções são medidas por `tests/unit/cron-audita-so-quando-ha-efeito.test.ts`, que varre o AST de **toda** rota de `app/api/v1/cron/`
+- Audit é append-only, e isso é do SCHEMA e não da prosa: nenhum papel tem GRANT de UPDATE/DELETE em `api_audit_log` — **nem `service_role`**. Para conferir na fonte em vez de acreditar nesta linha:
+
+  ```bash
+  psql "$SUPABASE_DB_URL" -c "select grantee, privilege_type from information_schema.role_table_grants
+    where table_name='api_audit_log' and privilege_type in ('DELETE','UPDATE','TRUNCATE');"
+  ```
+
+  **`TRUNCATE` entra na consulta de propósito, e o resultado não é vazio.** Ele
+  está concedido a `anon`, `authenticated` e `service_role` — resíduo de o dump
+  enumerar os privilégios desta tabela (as demais recebem `GRANT ALL`, e quem as
+  protege é a RLS). Uma sonda que pergunte só por `DELETE`/`UPDATE` devolve zero
+  linhas e deixa quem leu concluindo que a tabela não pode ser esvaziada, quando
+  o privilégio que a esvazia INTEIRA está lá. Não é alcançável pela REST (o
+  PostgREST não emite `TRUNCATE`), então não é buraco de superfície — mas a
+  frase "append-only é do schema" só é inteira com esta ressalva escrita.
+- **Retenção default de 5 anos, configurável, e agora EXECUTADA.** O expurgo é `public.fn_expurgar_auditoria_vencida` (`security definer`, **piso de 90 dias dentro do corpo**, revogada de anon/authenticated), chamada em lotes pelo cron `app/api/v1/cron/data-retention` (diário). O knob é `AUDIT_LOG_RETENTION_DAYS`. **Não há camada cold/S3** — o "hot 90 dias, cold (S3) o resto" que este arquivo afirmava por meses nunca existiu em código (auditoria de 2026-08-14: zero ocorrência de arquivamento), e um self-host não tem para onde arquivar: o Storage do cliente é a MESMA cota de 1 GB, já dividida com `whatsapp-media`. Para ver o que está em vigor: `grep -n "RETENCAO_AUDITORIA_DIAS" lib/retencao/politica.ts`
+- Por que uma `security definer` de expurgo não é porta de adulteração (o argumento inteiro está no cabeçalho da migration 0167): ela **não tem seletor de linha** — nenhum parâmetro de org, ator, ação ou id, e o único predicado é `created_at < now() - N dias`; o piso mora **no corpo**, não em quem chama; não é alcançável pela REST; não amplia o raio de quem já tem a service key; e **registra a própria erosão** (`retention.sweep_run`, com a contagem, numa linha nova demais para a chamada seguinte alcançar)
 - Falha de write em audit gera alerta Sentry, não bloqueia mutação principal
 
 ### LGPD
@@ -88,8 +104,22 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
 - Engine NOWEB default; WEBJS apenas se precisar stickers animados / botões
 - Auth: env do WAHA recebe **hash SHA512 hex** da api key; cliente envia plaintext em `X-Api-Key`
 - Webhooks: HMAC SHA512 com `crypto.timingSafeEqual`
-- Anti-banimento: throttle 1 msg/1.2s + jitter ≤800ms. Campanha 1 msg/5s. Warm-up 7-14d. Spinning de copy. Janela 7h-22h, evitar domingo
-- **Opt-out**: `lerPedidoDeSaida` (`lib/channels/pos-entrada.ts`), chamado pelos DOIS ingests. Três respostas, não duas: `pediu` bloqueia, `talvez` abre aviso na Central e **não** bloqueia, `nao` segue. O vocabulário inclui espanhol (`BAJA`, `CANCELAR`) — medido: a plantilla do dono dizia "Respondé BAJA" e três clientes pediram sem serem atendidos, porque a lista só tinha português e inglês. A fronteira é **Unicode**, nunca `\b` (que é ASCII e fazia "sairá" e "pararão" bloquearem em silêncio). O falso positivo é o erro caro: quem pede e não é atendido reclama de novo; quem é bloqueado sem pedir some.
+- Anti-banimento: throttle 1 msg/1.2s + jitter ≤800ms. Campanha 1 msg/5s. Warm-up 7-14d. Spinning de copy. Janela 7h-22h (domingo LIBERADO por default desde 2026-08-20; a janela é knob por canal)
+- STOP detection: a regra mora em `lib/opt-out/deteccao.ts` e é a MESMA nos dois lados —
+  a ingestão (que grava `is_blocked=true`) e o runtime do agente. **Não é mais a palavra
+  solta:** só bloqueia palavra ISOLADA (mensagem inteira = a palavra) ou verbo de cessação
+  com OBJETO DE COMUNICAÇÃO ("parar de me mandar", "sair da lista"). Enquanto eram duas
+  regras, a ingestão bloqueava paciente que perguntou "tem como parar a dor?" — medido em
+  clínica, 12 falsos positivos num corpus de 32 frases de nicho.
+  Para ver o vocabulário em vigor sem confiar nesta linha:
+  `grep -n 'PALAVRAS_DE_OPT_OUT' -A20 lib/opt-out/deteccao.ts`, e as frases de controle em
+  `tests/unit/opt-out-deteccao.test.ts`.
+  **Espanhol É coberto neste fork** (`baja`, `desuscribir`, `no quiero recibir`, `sacame de
+  la lista`), com a mesma âncora: verbo de comunicação, nunca palavra solta em frase longa.
+  Medido — 6 das 9 definições aprovadas do dono terminam com "Respondé BAJA para no recibir
+  más", e três clientes pediram sem serem atendidos. As exclusões são o que impede o falso
+  positivo NOVO: "no quiero recibir la factura" e "sacame de la lista de espera" NÃO
+  bloqueiam. Upstream ainda não tem — é o que o PR #275 passa a oferecer.
 - Mídia: subir pro Supabase Storage primeiro, passar URL ao WAHA (não inline base64)
 - Multi-device: assinar `message.any` (não só `message`); tratar `fromMe=true` sem duplicar
 - Grupos: SKIP CRM binding se `chatId.endsWith('@g.us')`. Sender é `p.author`, não `p.from`

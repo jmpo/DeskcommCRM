@@ -172,7 +172,11 @@ async function handle(req: NextRequest): Promise<Response> {
 
     let phone: string | null = null;
     try {
-      phone = await adapter.resolvePhoneForIdentity({ sessionRef, identity: c.wa_identity });
+      phone = await adapter.resolvePhoneForIdentity({
+        organizationId: c.organization_id,
+        sessionRef,
+        identity: c.wa_identity,
+      });
     } catch (err) {
       // Falha de rede não é "não existe": carimba e tenta de novo no ciclo
       // seguinte, sem derrubar o lote inteiro por um contato.

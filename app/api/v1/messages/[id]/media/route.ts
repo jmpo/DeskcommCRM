@@ -94,6 +94,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
       const { data: sessao } = await admin
         .from("channel_sessions")
         .select(`provider, ${CHANNEL_SESSION_REF_COLUMNS}`)
+        .eq("organization_id", activeOrg.orgId)
         .eq("id", msg.channel_session_id)
         .maybeSingle();
 
@@ -108,6 +109,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
       }
 
       const media = await adapter.fetchInboundMedia({
+        organizationId: activeOrg.orgId,
         sessionRef,
         url: msg.media_url,
         hintMime: msg.media_mime,

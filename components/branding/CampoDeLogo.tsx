@@ -31,7 +31,7 @@
  * alguém clicar em Salvar, e perder o arquivo em toda navegação acidental.
  */
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -104,6 +104,29 @@ export function CampoDeLogo({
   const router = useRouter();
   const entrada = useRef<HTMLInputElement>(null);
   const [enviando, setEnviando] = useState(false);
+  /**
+   * Marcador de HIDRATAÇÃO, lido pelo e2e antes de `setInputFiles`.
+   *
+   * `setInputFiles` só espera o elemento estar ANEXADO — e o input existe no
+   * HTML do SSR antes de o React atar o `onChange`. Um arquivo posto nessa
+   * janela não dispara requisição nenhuma, e o teste espera 15s por um toast
+   * que nunca teve emissor. Medido no run 32404132717 do CI: `load` às
+   * 472156ms, `setInputFiles` 46ms depois, e ZERO POST para
+   * `/api/v1/marca/logo` no trace inteiro (controle positivo: os POSTs de
+   * `/login` e `/login/mfa` estão lá).
+   *
+   * Esperar o input "visível" NÃO resolve — visível é propriedade do SSR.
+   *
+   * `useSyncExternalStore` e não `useState`+`useEffect`: é o padrão canônico
+   * para "estou no cliente?" e não dispara o aviso `react-hooks/set-state-in-effect`.
+   * O `subscribe` devolve um no-op de propósito — o valor nunca muda depois de
+   * hidratar.
+   */
+  const hidratado = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
   const [, startTransition] = useTransition();
 
   /**
@@ -230,7 +253,7 @@ export function CampoDeLogo({
   }
 
   return (
-    <div className="space-y-4" data-campo-de-logo={escopo}>
+    <div className="space-y-4" data-campo-de-logo={escopo} data-hidratado={hidratado ? "" : undefined}>
       <div className="space-y-2">
         <Label htmlFor={`logo-${escopo}`}>Logo</Label>
         <div className="flex flex-wrap items-center gap-3">

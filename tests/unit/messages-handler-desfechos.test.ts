@@ -154,6 +154,20 @@ function makeSupabase(
           },
         };
       }
+      if (table === "contacts") {
+        // O envio carimba `contacts.last_activity_at` (migration 0162). O dublê
+        // é encadeável SEM LIMITE de propósito: a consulta filtra por id E por
+        // organização (este handler também roda com o client de service role,
+        // que bypassa RLS), e um dublê que fixa a quantidade de `eq` quebra
+        // quando a consulta ganha um filtro novo — com um erro que não fala do
+        // comportamento sob teste.
+        const cadeiaContacts: Record<string, unknown> = {
+          eq: () => cadeiaContacts,
+          then: (resolve: (v: { error: null }) => unknown) =>
+            Promise.resolve({ error: null }).then(resolve),
+        };
+        return { update: () => cadeiaContacts };
+      }
       throw new Error(`fake_supabase: tabela inesperada '${table}'`);
     },
     rpc: async () => ({ error: null }),

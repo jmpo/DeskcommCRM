@@ -13057,6 +13057,58 @@ where unread_count_for_assignee <> coalesce((
 
 notify pgrst, 'reload schema';
 
+-- ---- contato: última atividade carimbada por mensagem (migration 0162) ----
+-- ============================================================================
+-- 0162 — Mensagem de conversa carimba `contacts.last_activity_at`.
+--
+-- A lista /app/contacts mostra "Última atividade" de `contacts.last_activity_at`,
+-- denormalizado hoje só pelo trigger de `crm_lead_activities`. Mensagens de
+-- WhatsApp/Meta/Zernio passam por `fn_mark_conversation_message` e atualizam
+-- `conversations.last_message_at` — mas o contato ficava parado (— ou data velha).
+--
+-- O relógio do LEAD continua na lista positiva da 0079; aqui só o contato.
+-- ============================================================================
+
+create or replace function public.fn_mark_conversation_message(
+  p_conv uuid, p_direction text, p_preview text, p_at timestamptz
+) returns void language plpgsql security definer set search_path = public as $$
+begin
+  update public.conversations set
+    last_message_at = p_at, last_message_preview = p_preview,
+    last_inbound_at  = case when p_direction = 'inbound'  then p_at else last_inbound_at  end,
+    last_outbound_at = case when p_direction = 'outbound' then p_at else last_outbound_at end,
+    unread_count_for_assignee = case
+      when p_direction = 'inbound'  then unread_count_for_assignee + 1
+      when p_direction = 'outbound' then 0
+      else unread_count_for_assignee
+    end,
+    updated_at = now()
+  where id = p_conv;
+
+  update public.contacts c
+     set last_activity_at = greatest(coalesce(c.last_activity_at, '-infinity'::timestamptz), p_at)
+    from public.conversations v
+   where v.id = p_conv
+     and c.id = v.contact_id;
+end; $$;
+
+comment on function public.fn_mark_conversation_message is
+  'Atualiza agregados da conversa (inbound incrementa unread; outbound zera) e carimba contacts.last_activity_at.';
+
+-- Contatos que já conversaram mas nunca tiveram atividade de lead.
+update public.contacts c
+   set last_activity_at = sub.max_at
+  from (
+    select contact_id, max(last_message_at) as max_at
+      from public.conversations
+     where last_message_at is not null
+     group by contact_id
+  ) sub
+ where c.id = sub.contact_id
+   and coalesce(c.last_activity_at, '-infinity'::timestamptz) < sub.max_at;
+
+notify pgrst, 'reload schema';
+
 -- ---- atribuição de anúncio: de qual campanha um contato do WhatsApp veio (migration 0164) ----
 --
 -- ⚠️ ENTRA ANTES DO BLOCO DA VARREDURA anon, pelo mesmo motivo das funções
@@ -13087,6 +13139,149 @@ comment on function public.fn_estampar_atribuicao_de_anuncio(uuid, text, jsonb) 
 
 revoke execute on function public.fn_estampar_atribuicao_de_anuncio(uuid, text, jsonb) from public, anon, authenticated;
 grant  execute on function public.fn_estampar_atribuicao_de_anuncio(uuid, text, jsonb) to service_role;
+
+notify pgrst, 'reload schema';
+
+
+-- ---- poda da fila e expurgo do audit (migration 0167) ----
+--
+-- Nada no produto apagava job terminal (`grep -rn "from job_queue" … | grep -i
+-- delete` devolvia zero linhas), e a retenção de 5 anos do `api_audit_log`
+-- existia só no COMMENT e na documentação — sem expurgo e sem o "cold storage
+-- S3" que seis documentos prometiam. As duas tabelas cresciam desde a
+-- instalação, e são as candidatas naturais a estourar os 500 MB do plano free
+-- do Supabase antes de qualquer tabela de negócio.
+--
+-- O QUE TEM DONO NÃO SAI. `pending` (trabalho que ainda vai sair) e `running`
+-- (com worker agora; o reaper o devolve se o worker morrer) NUNCA são tocados —
+-- terminais são só `done`, `failed` e `dead`. E `dead` com AVISO ABERTO na
+-- Central também tem dono: um humano que ainda não olhou. O `not exists` fica
+-- ANTES do `limit` de propósito — filtrar depois faria um lote inteiro de jobs
+-- protegidos devolver 0, o laço do cron pararia achando que acabou, e a poda
+-- morreria de fome com backlog na frente.
+--
+-- CASCATA DECLARADA: apagar um job leva junto `send_ledger` e
+-- `before_send_traces` daquele run (FK `on delete cascade`) — as duas também
+-- crescem sem poda, então isso é parte do conserto. `llm_calls`,
+-- `lead_checkpoints` e `lead_state_transitions` são `set null`: o histórico
+-- fica, só perde o ponteiro. Os dois consumidores de `send_ledger` sem janela
+-- (`countPriorAcceptedSends` → disclosure de IA e gate LGPD de 1º toque) falham
+-- FECHADO quando a linha some: disclosure a mais e veto a mais, nunca a menos.
+--
+-- POR QUE `security definer` NO EXPURGO DO AUDIT, E POR QUE NÃO É UMA PORTA: a
+-- tabela é append-only NO SCHEMA (o baseline não concede DELETE/UPDATE a
+-- ninguém, nem a service_role), então o expurgo não sai pelo admin client. A
+-- função (a) não tem seletor de linha — nenhum parâmetro de org, ator, ação ou
+-- id, e o único predicado é `created_at < now() - N dias`, ou seja ela só sabe
+-- apagar pela ponta mais velha; (b) carrega o PISO de 90 dias dentro do corpo,
+-- então nem quem tem a service key remove rastro recente; (c) é revogada das
+-- duas origens de EXECUTE e concedida só a service_role; (d) não amplia o raio
+-- de quem já tem a chave (service_role já tem TRUNCATE nesta tabela) — dá forma
+-- estreita e auditável a um poder que já existia; (e) registra a própria erosão,
+-- porque o cron grava `retention.sweep_run` com a contagem, e essa linha é nova
+-- demais para a chamada seguinte alcançar.
+--
+-- Idempotente e auto-curativo: `create or replace`, `create index if not
+-- exists`, `revoke` (no-op quando o privilégio já não existe). Sem constraint
+-- nova ⇒ sem dado a deduplicar antes.
+
+create index if not exists idx_job_queue_poda
+  on public.job_queue (created_at)
+  where status in ('done', 'failed', 'dead');
+
+-- Nome próprio da poda de propósito: `create index if not exists` casa por NOME,
+-- e um nome genérico (`idx_audit_created_at`) poderia já existir num clone com
+-- outra definição e virar no-op silencioso. Nenhum dos cinco índices que a
+-- tabela já tem começa por `created_at`.
+create index if not exists idx_audit_expurgo_created_at
+  on public.api_audit_log (created_at);
+
+create index if not exists idx_agent_inbox_items_ref_aberto
+  on public.agent_inbox_items (ref_kind, ref_id)
+  where status = 'open';
+
+create or replace function public.fn_podar_fila_de_jobs(
+  p_retencao_dias int default null,
+  p_limite int default null
+) returns int
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  -- Piso de 7 dias: abaixo disso a cascata em `send_ledger` mexeria no horizonte
+  -- em que "1º outbound" ainda diz algo sobre um lead vivo.
+  v_dias int := greatest(coalesce(p_retencao_dias, 90), 7);
+  v_limite int := least(greatest(coalesce(p_limite, 1000), 1), 10000);
+  v_apagados int;
+begin
+  with candidatos as (
+    select j.id
+      from public.job_queue j
+     where j.status in ('done', 'failed', 'dead')
+       and j.created_at < now() - make_interval(days => v_dias)
+       and not exists (
+         select 1
+           from public.agent_inbox_items i
+          where i.ref_kind = 'job_queue'
+            and i.ref_id = j.id
+            and i.status = 'open'
+       )
+     order by j.created_at
+     limit v_limite
+  )
+  delete from public.job_queue j
+   using candidatos c
+   where j.id = c.id;
+  get diagnostics v_apagados = row_count;
+  return v_apagados;
+end;
+$$;
+
+create or replace function public.fn_expurgar_auditoria_vencida(
+  p_retencao_dias int default null,
+  p_limite int default null
+) returns int
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  -- 1825 dias = os 5 anos da regra L-10; o piso de 90 impede que o knob vire
+  -- apagador de rastro recente.
+  v_dias int := greatest(coalesce(p_retencao_dias, 1825), 90);
+  v_limite int := least(greatest(coalesce(p_limite, 1000), 1), 10000);
+  v_apagadas int;
+begin
+  with vencidas as (
+    select a.id
+      from public.api_audit_log a
+     where a.created_at < now() - make_interval(days => v_dias)
+     order by a.created_at
+     limit v_limite
+  )
+  delete from public.api_audit_log a
+   using vencidas v
+   where a.id = v.id;
+  get diagnostics v_apagadas = row_count;
+  return v_apagadas;
+end;
+$$;
+
+revoke execute on function public.fn_podar_fila_de_jobs(int, int)
+  from public, anon, authenticated;
+grant  execute on function public.fn_podar_fila_de_jobs(int, int)
+  to service_role;
+
+revoke execute on function public.fn_expurgar_auditoria_vencida(int, int)
+  from public, anon, authenticated;
+grant  execute on function public.fn_expurgar_auditoria_vencida(int, int)
+  to service_role;
+
+comment on table public.api_audit_log is
+  'L-10: append-only (sem GRANT de UPDATE/DELETE a ninguém). Retenção default 5 anos, '
+  'expurgada por public.fn_expurgar_auditoria_vencida (piso de 90 dias) a partir do cron '
+  'app/api/v1/cron/data-retention. Não há camada cold/S3.';
 
 notify pgrst, 'reload schema';
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
@@ -13210,7 +13405,7 @@ alter table public.webhook_events_log
     'waha', 'nuvemshop', 'generic', 'meta_cloud', 'zernio'
   ));
 
--- ---- a mensagem que responde outra (migration 0165) ----
+-- ---- a mensagem que responde outra (migration 0168) ----
 -- O canal intermediado aceita citação (`replyTo` no envio, com o `wamid` da
 -- citada) e o WhatsApp mostra a resposta pendurada na original. Sem guardar
 -- QUEM foi citado, o CRM manda a citação para o cliente e não a mostra de volta
@@ -13625,3 +13820,160 @@ create index if not exists webhook_events_log_a_esvaziar_idx
 
 notify pgrst, 'reload schema';
 
+
+-- ---- índice do cap global do claim da fila (migration 0166) ----
+--
+-- O QUÊ: um índice parcial em `job_queue (status) where status = 'running'`.
+--
+-- POR QUÊ: `claimJobs` (lib/agent-engine/queue/queue.ts) abre TODA rodada com
+-- `select count(*) from job_queue where status = 'running'` — o cap global de
+-- concorrência — e nenhum dos quatro índices da tabela serve esse predicado. O
+-- parcial das lanes (`uniq_job_queue_one_running_per_contact`) chega perto e não
+-- vale: o predicado dele é mais ESTREITO (exclui `contact_id is null`, que é
+-- todo `watchdog`/`flywheel`), então o planejador não pode responder por ele.
+-- Medido em pg17 com este baseline, 50.000 linhas `done` + 4 `running`:
+-- Seq Scan / 715 buffers → Index Only Scan / 3 buffers. E o custo NÃO depende de
+-- linha viva: com as 50.004 apagadas na mesma transação o Seq Scan ainda lê os
+-- mesmos 715 buffers, porque ele visita página e não tupla. Fila é escrita o
+-- tempo todo e nada no produto a poda.
+--
+-- O bloco `do $$` existe porque `create index if not exists` casa por NOME e não
+-- por definição — medido em pg17, um homônimo com outra definição vira `NOTICE:
+-- ... already exists, skipping`, que nem chega ao filtro `ERROR|FATAL` do
+-- `update.sh`. Homônimo NOSSO em `job_queue` é derrubado e recriado; homônimo em
+-- outro objeto NÃO é apagado (não é nosso) — a atualização grita com a razão, o
+-- que é o comportamento certo num script que roda sem `ON_ERROR_STOP`.
+--
+-- O `comment on index` é o DELATOR: índice ausente levanta `relation ... does
+-- not exist`, texto que NÃO casa com nenhum termo da lista benigna do
+-- `update.sh` e portanto aparece ao operador — enquanto `already exists` seria
+-- engolido. Aditivo e idempotente: sem constraint, sem backfill, sem dado tocado.
+do $$
+declare
+  v_relkind "char";
+  v_def     text;
+  v_tabela  text;
+begin
+  select c.relkind,
+         case when c.relkind in ('i', 'I') then pg_get_indexdef(c.oid) end,
+         t.relname
+    into v_relkind, v_def, v_tabela
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    left join pg_index i on i.indexrelid = c.oid
+    left join pg_class t on t.oid = i.indrelid
+   where n.nspname = 'public'
+     and c.relname = 'idx_job_queue_running';
+
+  if v_relkind is null then
+    return;
+  end if;
+
+  if v_relkind not in ('i', 'I') or v_tabela is distinct from 'job_queue' then
+    raise exception
+      'o nome idx_job_queue_running já está tomado em public (relkind=%, tabela=%). '
+      'Nome de índice é único por SCHEMA, então o create index if not exists desta '
+      'atualização vira no-op silencioso e o claim da fila continua varrendo a tabela '
+      'inteira a cada rodada. Não apago o objeto porque ele não é nosso: renomeie-o e '
+      'rode a atualização de novo.', v_relkind, coalesce(v_tabela, '(nenhuma)');
+  end if;
+
+  if v_def !~ 'USING btree \(status\)' or v_def !~ 'WHERE \(status = ''running''' then
+    execute 'drop index public.idx_job_queue_running';
+  end if;
+end
+$$;
+
+create index if not exists idx_job_queue_running
+  on job_queue (status) where status = 'running';
+
+comment on index idx_job_queue_running is
+  'Cap global do claim: select count(*) from job_queue where status = ''running'' '
+  '(lib/agent-engine/queue/queue.ts). Sem ele o claim faz Seq Scan a cada rodada — '
+  '715 buffers com 50 mil linhas, e o mesmo custo com zero linha viva, porque Seq '
+  'Scan visita página e não tupla. Este COMMENT é o delator do bloco: índice ausente '
+  'vira "relation does not exist", que NÃO casa com o filtro benigno do update.sh e '
+  'chega ao operador; "already exists" seria engolido.';
+
+-- ---- identificador de canal único entre os ATIVOS (migration 0165) ----
+--
+-- O QUÊ: dois índices únicos PARCIAIS — um em `meta_phone_number_id`, outro em
+-- `zernio_account_id` —, ambos com `where archived_at is null`, precedidos da
+-- deduplicação dos dados que os violariam.
+--
+-- POR QUÊ: `waha_session_name` e `webhook_path_token` são UNIQUE desde o
+-- snapshot; os dois identificadores que chegaram depois (0087 e 0131) nasceram
+-- sem trava, e é por eles que o código resolve credencial de envio e a
+-- ORGANIZAÇÃO dona de uma mensagem que acabou de entrar. Com duas linhas
+-- casando, o PostgREST devolve `data: null` com `PGRST116` (não "a primeira
+-- linha"), e o `error` era descartado nos três sítios: os dois resolvedores
+-- caíam no fallback do `.env` — a mensagem saía pela conta de OUTRA instalação
+-- — e a ingestão do canal oficial descartava a mensagem recebida para as DUAS
+-- organizações, respondendo 200 (issue #236). A colisão é atingível por
+-- CONFIGURAÇÃO LEGÍTIMA (agência, migração de conta entre organizações), não só
+-- por abuso.
+--
+-- PARCIAL, e não total, pelo precedente da 0107: canal arquivado é canal
+-- excluído pelo usuário e a linha só sobrevive como âncora das FKs RESTRICT.
+-- Trava total impediria reconectar o mesmo número depois de excluí-lo. O recorte
+-- é o MESMO que as consultas de `lib/channels/` passam a usar.
+--
+-- AUTO-CURATIVO: o `update.sh` de um clone roda SEM `ON_ERROR_STOP` e engoliria
+-- o 23505 da criação do índice, deixando o clone sem trava e sem aviso. Por isso
+-- a deduplicação vem ANTES. Ela NÃO apaga nem arquiva a linha perdedora — apagar
+-- sessão de canal de um cliente é destrutivo, arquivar faria o canal sumir da
+-- tela sem ninguém pedir: ela RENOMEIA o identificador da perdedora para
+-- `<original>-conflito-<id da sessão>`. A linha continua visível, e como o
+-- identificador novo não existe no provider, a varredura de saúde
+-- (`app/api/v1/cron/channel-health`) grava `FAILED`/`STOPPED` na próxima passada
+-- e ABRE aviso na Central (os três estados estão em `STATUS_QUE_AVISAM`), que é
+-- o operador sendo avisado em vez de descobrir pelo cliente que não recebeu.
+-- Fica com o identificador a sessão ativa MAIS RECENTE: criá-la exigiu provar
+-- posse da conta na tela de conexão, então é a intenção mais recente.
+--
+-- IDEMPOTENTE: o sufixo carrega o `id` da sessão (único), então depois da
+-- primeira passada não sobra duplicata e a segunda casa zero linhas — não há
+-- como sufixar duas vezes. Os nomes dos índices são novos neste arquivo, então
+-- o `if not exists` (que casa por NOME) não vira no-op em cima de um homônimo.
+
+with ativos as (
+  select id,
+         row_number() over (
+           partition by meta_phone_number_id
+           order by created_at desc nulls last, id desc
+         ) as posicao
+    from public.channel_sessions
+   where archived_at is null
+     and meta_phone_number_id is not null
+)
+update public.channel_sessions s
+   set meta_phone_number_id = s.meta_phone_number_id || '-conflito-' || s.id::text
+  from ativos a
+ where a.id = s.id
+   and a.posicao > 1;
+
+create unique index if not exists channel_sessions_meta_phone_number_id_ativo_unique
+  on public.channel_sessions (meta_phone_number_id)
+  where archived_at is null and meta_phone_number_id is not null;
+
+with ativos as (
+  select id,
+         row_number() over (
+           partition by zernio_account_id
+           order by created_at desc nulls last, id desc
+         ) as posicao
+    from public.channel_sessions
+   where archived_at is null
+     and zernio_account_id is not null
+)
+update public.channel_sessions s
+   set zernio_account_id = s.zernio_account_id || '-conflito-' || s.id::text
+  from ativos a
+ where a.id = s.id
+   and a.posicao > 1;
+
+create unique index if not exists channel_sessions_zernio_account_id_ativo_unique
+  on public.channel_sessions (zernio_account_id)
+  where archived_at is null and zernio_account_id is not null;
+
+notify pgrst, 'reload schema';

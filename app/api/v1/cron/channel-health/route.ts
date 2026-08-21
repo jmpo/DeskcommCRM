@@ -113,7 +113,10 @@ async function handle(req: NextRequest): Promise<Response> {
     if (!adapter.checkHealth || !sessionRef) continue;
 
     try {
-      const saude = await adapter.checkHealth({ sessionRef });
+      const saude = await adapter.checkHealth({
+        organizationId: s.organization_id,
+        sessionRef,
+      });
       verificadas++;
 
       // ─── UMA pergunta que falha não é uma conexão caída ──────────────────

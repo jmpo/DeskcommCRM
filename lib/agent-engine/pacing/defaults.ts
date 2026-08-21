@@ -24,7 +24,14 @@ export interface PacingKnobs {
   /** Janela horária de envio [start, end) na hora local do tenant. */
   windowStartHour: number;
   windowEndHour: number;
-  /** Domingo é evitado por default. */
+  /**
+   * Enviar aos domingos. **Ligado por default** — a janela horária cala à noite,
+   * e o domingo inteiro mudo era cortesia demais: num CRM de atendimento, quem
+   * escreve no domingo espera resposta no domingo.
+   *
+   * Continua sendo knob por canal (`AntiBanSheet` → `POST /api/v1/ai/pacing`):
+   * quem faz prospecção ativa e prefere não incomodar no fim de semana desliga.
+   */
   allowSunday: boolean;
   /** IANA timezone do tenant — a janela é avaliada NELA. */
   timezone: string;
@@ -52,7 +59,7 @@ export const PACING_DEFAULTS: PacingKnobs = {
   jitterMaxMs: 800,
   windowStartHour: 7, // janela 7h-22h
   windowEndHour: 22,
-  allowSunday: false,
+  allowSunday: true,
   timezone: 'America/Sao_Paulo',
   // Número sem linha em channel_knobs é tratado como idade 0 (o degrau mais
   // conservador) até alguém registrar number_activated_at.

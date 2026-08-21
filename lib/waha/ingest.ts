@@ -18,6 +18,7 @@ import { estamparAtribuicaoDoContato } from "@/lib/leads/atribuicao-de-anuncio";
 import { extrairAtribuicaoWaha } from "@/lib/waha/atribuicao-de-anuncio";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { ackToStatus } from "@/lib/types/messaging";
+import type { WahaEnvelope, WahaPayload } from "@/lib/waha/envelope";
 import { bareWaMessageId, chatIdFromWaMessageId } from "@/lib/waha/message-id";
 import { logger } from "@/lib/logger";
 
@@ -28,55 +29,12 @@ interface Session {
   organization_id: string;
 }
 
-export interface WahaPayload {
-  id?: string;
-  from?: string;
-  to?: string;
-  fromMe?: boolean;
-  body?: string;
-  type?: string;
-  hasMedia?: boolean;
-  ack?: number;
-  ackName?: string;
-  participant?: string;
-  author?: string;
-  status?: string;
-  timestamp?: number;
-  mediaUrl?: string;
-  mimetype?: string;
-  /** WAHA >= 2026.x (NOWEB): mídia vem aninhada em payload.media. */
-  media?: { url?: string | null; mimetype?: string | null; filename?: string | null } | null;
-  _data?: {
-    notifyName?: string;
-    pushName?: string;
-    /** NOWEB: o conteúdo real (imageMessage, stickerMessage, …) — fonte do tipo. */
-    message?: Record<string, unknown>;
-    /**
-     * A chave do Baileys — e o achado que o passo 2 da spec 17 mediu.
-     *
-     * Quando o chat é `@lid`, o WhatsApp NÃO esconde o telefone: ele o manda em
-     * `remoteJidAlt` (chat 1:1) ou `participantAlt` (grupo). Medido em
-     * `webhook_events_log` da produção: **76 de 76** payloads @lid com `key`
-     * trazem o número. A leitura de que "@lid é opaco por privacidade" valia
-     * para o `from`, não para o payload inteiro.
-     */
-    key?: {
-      remoteJid?: string;
-      remoteJidAlt?: string;
-      participant?: string;
-      participantAlt?: string;
-      addressingMode?: string;
-      fromMe?: boolean;
-      id?: string;
-    };
-  } & Record<string, unknown>;
-}
-
-export interface WahaEnvelope {
-  event?: string;
-  session?: string;
-  payload?: WahaPayload;
-}
+/**
+ * O formato do fio mora em `lib/waha/envelope.ts`, onde é um schema Zod — e o
+ * tipo NASCE dele (`z.infer`). Re-exportado aqui porque este módulo era o dono
+ * do tipo e quem já o importava não precisa saber que ele mudou de casa.
+ */
+export type { WahaEnvelope, WahaPayload } from "@/lib/waha/envelope";
 
 export type ChatIdentity =
   | { kind: "phone"; phone: string; lid: null }
@@ -108,9 +66,14 @@ export type ChatIdentity =
  * NÃO protege: `"@".repeat(n) + "\n@lid"` passa por ele. Medido nesta função,
  * `String.replace` sendo síncrono (trava o event loop do processo inteiro, todos
  * os tenants): 64 KB de `from` custam ~2,9 s; 256 KB, ~48 s. A entrada é externa —
- * `payload.from` chega por `JSON.parse(rawBody) as WahaEnvelope` (cast, sem Zod) e
- * `WAHA_WEBHOOK_REQUIRE_SIGNATURE` é `false` por padrão. Esta varredura é linear:
- * 1 MB em 0,7 ms.
+ * `payload.from` vem do corpo do webhook, e `WAHA_WEBHOOK_REQUIRE_SIGNATURE` é
+ * `false` por padrão. Esta varredura é linear: 1 MB em 0,7 ms.
+ *
+ * O que MUDOU desde que isto foi escrito: o corpo chegava por
+ * `JSON.parse(rawBody) as WahaEnvelope` — cast, sem validação —, então `from`
+ * podia nem ser string e o `.endsWith` acima lançava. Hoje o contrato é um
+ * schema (`lib/waha/envelope.ts`) e a rota recusa antes de chegar aqui. O
+ * TAMANHO continua livre, que é por isso que esta função segue linear.
  */
 function semSufixoDeChat(chatId: string): string {
   const aposQuebra =
@@ -277,6 +240,7 @@ const NOWEB_MESSAGE_KEY_TYPE: Record<string, string> = {
   audioMessage: "audio",
   documentMessage: "document",
   documentWithCaptionMessage: "document",
+  contactMessage: "contact",
 };
 
 export function resolveMessageType(p: WahaPayload): string {
@@ -300,6 +264,24 @@ export function resolveMessageType(p: WahaPayload): string {
 
 function notifyNameOf(p: WahaPayload): string | null {
   return p._data?.notifyName ?? p._data?.pushName ?? null;
+}
+
+/** Corpo textual: WAHA nem sempre preenche `body` em cartões de contato NOWEB. */
+function bodyOf(p: WahaPayload): string | null {
+  if (p.body) return p.body;
+  const msg = p._data?.message;
+  if (!msg || typeof msg !== "object") return null;
+  // `_data.message` é `unknown` no schema Zod (`lib/waha/envelope.ts`), de
+  // propósito: a forma NOWEB varia por tipo de mensagem e exigi-la aqui só
+  // criaria uma porta nova de descartar a mensagem inteira. O estreitamento é
+  // explícito, no mesmo estilo do `cm as {…}` logo abaixo.
+  const cm = (msg as { contactMessage?: unknown }).contactMessage;
+  if (cm && typeof cm === "object") {
+    const o = cm as { vcard?: string; displayName?: string };
+    if (o.vcard) return o.vcard;
+    if (o.displayName) return o.displayName;
+  }
+  return null;
 }
 
 /**
@@ -483,7 +465,8 @@ async function handleInbound(
   if (parsed.kind === "group") return; // grupos não fazem binding CRM
   if (!p.id) return;
   // WAHA emite eventos vazios p/ status/read-receipt/presence — não viram mensagem.
-  if (!p.body && !mediaUrlOf(p) && !p.hasMedia) return;
+  const texto = bodyOf(p);
+  if (!texto && !mediaUrlOf(p) && !p.hasMedia) return;
   // Daqui para baixo era para ser uma mensagem de verdade: se o chat não é
   // endereçável, PERDEMOS uma — e isso precisa ser contável. O aviso fica depois
   // das guardas acima de propósito; antes delas, todo evento de presença viraria
@@ -529,7 +512,7 @@ async function handleInbound(
       direction: "inbound",
       status: "delivered",
       ack: p.ack ?? null,
-      body: p.body ?? null,
+      body: texto,
       media_url: mediaUrlOf(p),
       media_mime: mediaMimeOf(p),
       sent_via: "external_device",
@@ -590,7 +573,7 @@ async function handleInbound(
     conversationId,
     messageId: insertedMessage?.id ?? null,
     channelSessionId: session.id,
-    texto: p.body ?? null,
+    texto,
     nomeDoContato: notifyNameOf(p),
     requestId,
     origem: "waha_webhook",
@@ -737,7 +720,7 @@ async function handleOutboundFromUserPhone(
       direction: "outbound",
       status: "sent",
       ack: p.ack ?? null,
-      body: p.body ?? null,
+      body: bodyOf(p),
       media_url: mediaUrlOf(p),
       media_mime: mediaMimeOf(p),
       sent_via: "external_device",
@@ -879,7 +862,7 @@ async function handleSessionStatus(
 async function handleMessageEdited(
   admin: Admin,
   session: Session,
-  p: WahaPayload & { editedMessageId?: string },
+  p: WahaPayload,
 ): Promise<void> {
   const alvo = bareWaMessageId(p.editedMessageId ?? "");
   const corpo = typeof p.body === "string" ? p.body : null;
@@ -904,7 +887,7 @@ async function handleMessageEdited(
 async function handleMessageRevoked(
   admin: Admin,
   session: Session,
-  p: WahaPayload & { revokedMessageId?: string },
+  p: WahaPayload,
 ): Promise<void> {
   const alvo = bareWaMessageId(p.revokedMessageId ?? "");
   if (!alvo) return;
@@ -927,7 +910,7 @@ export async function dispatchWahaEvent(
   requestId: string,
 ): Promise<void> {
   const eventType = envelope.event ?? "unknown";
-  const payload = envelope.payload ?? {};
+  const payload: WahaPayload = envelope.payload ?? {};
 
   if (eventType === "message" || eventType === "message.any") {
     if (payload.fromMe) {

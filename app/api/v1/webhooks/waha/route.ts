@@ -16,8 +16,10 @@ import type { NextRequest, NextResponse } from "next/server";
 import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { ARCHIVED_AT, queryTolerantToMissingArchived } from "@/lib/channels/archived";
+import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { dispatchWahaEvent, type WahaEnvelope } from "@/lib/waha/ingest";
+import { conferirContratoWaha, lerRoteamentoWaha } from "@/lib/waha/envelope";
+import { dispatchWahaEvent } from "@/lib/waha/ingest";
 import { authenticateWahaWebhook } from "@/lib/waha/webhook-auth";
 
 export const dynamic = "force-dynamic";
@@ -27,14 +29,47 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const requestId = randomUUID();
 
   const rawBody = await req.text();
-  let envelope: WahaEnvelope;
-  try {
-    envelope = JSON.parse(rawBody) as WahaEnvelope;
-  } catch {
-    return fail("invalid_request", "invalid_json", 400, { requestId });
+  // ─── O contrato do fio, em DOIS momentos ─────────────────────────────────
+  //
+  // Isto era `JSON.parse(rawBody) as WahaEnvelope`: um cast, que não checa nada
+  // em tempo de execução. Um `payload.from` não-string fazia `parseChatId`
+  // lançar lá dentro, o `catch` do dispatch engolia, e a rota devolvia **200** —
+  // o provider riscava o evento da fila achando que entregou.
+  //
+  // O estágio 1 confere só o que é preciso para RESOLVER O TENANT e ARQUIVAR o
+  // corpo. O contrato completo vem depois do INSERT, porque o AC do
+  // `docs/prd/03-prd-whatsapp-waha.md` §3.3 manda gravar o raw "mesmo se o
+  // parse falhar depois" — e o corpo cru de um payload cujo formato mudou é
+  // justamente o artefato que responde o que mudou.
+  //
+  // Desfecho da recusa: 400 com os CAMPOS (nunca os valores: são dado de
+  // cliente e podem ter megabytes) e uma linha no log estruturado. Não 200,
+  // porque payload fora do contrato não é "evento que não interessa" — é o fio
+  // ter mudado, e isso precisa ser barulhento. Não 500, porque o corpo é do
+  // chamador, e 5xx mandaria o provider reentregar o que nunca vai passar.
+  //
+  // O schema é LOOSE: campo desconhecido passa intacto. Ver lib/waha/envelope.ts.
+  const roteamento = lerRoteamentoWaha(rawBody);
+  if (!roteamento.ok) {
+    if (roteamento.motivo === "json_invalido") {
+      return fail("invalid_request", "invalid_json", 400, { requestId });
+    }
+    logger.error("[waha.webhook] payload fora do contrato do canal", {
+      request_id: requestId,
+      estagio: "roteamento",
+      campos: roteamento.campos,
+    });
+    return fail("validation_failed", "payload fora do contrato do canal", 400, {
+      requestId,
+      details: { campos: roteamento.campos },
+    });
   }
+  // Nome deliberado: isto ainda NÃO é o envelope conferido. É o que o estágio
+  // 1 garante — sessão e id —, e só. Chamá-lo de `envelope` convidaria a ler
+  // `payload.from` daqui, que é justamente o campo ainda não conferido.
+  const roteado = roteamento.envelope;
 
-  const sessionName = envelope.session;
+  const sessionName = roteado.session;
   if (!sessionName) {
     return fail("invalid_request", "missing session field", 400, { requestId });
   }
@@ -90,7 +125,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       metadata: {
         provider: "waha",
         session: session.waha_session_name,
-        event: envelope.event,
+        event: roteado.event,
         reason: auth.reason,
         had_signature: Boolean(sigHeader),
       },
@@ -99,8 +134,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const validSignature = auth.signatureVerified;
 
-  const eventType = envelope.event ?? "unknown";
-  const externalId = envelope.payload?.id ?? null;
+  const eventType = roteado.event ?? "unknown";
+  const externalId = roteado.payload?.id ?? null;
 
   const headersJson: Record<string, string> = {};
   req.headers.forEach((value, key) => {
@@ -116,7 +151,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     http_method: "POST",
     headers: headersJson,
     raw_body: rawBody,
-    payload_parsed: envelope as unknown as Record<string, unknown>,
+    payload_parsed: roteado as unknown as Record<string, unknown>,
     signature_header: sigHeader ?? null,
     valid_signature: validSignature,
     event_type: eventType,
@@ -125,8 +160,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     attempts: 0,
   });
 
+  // Estágio 2: o resto do contrato, agora que o corpo cru já está arquivado.
+  const contrato = conferirContratoWaha(roteado);
+  if (!contrato.ok) {
+    logger.error("[waha.webhook] payload fora do contrato do canal", {
+      request_id: requestId,
+      estagio: "conteudo",
+      campos: contrato.campos,
+    });
+    return fail("validation_failed", "payload fora do contrato do canal", 400, {
+      requestId,
+      details: { campos: contrato.campos },
+    });
+  }
+
   try {
-    await dispatchWahaEvent(admin, session, envelope, requestId);
+    await dispatchWahaEvent(admin, session, contrato.envelope, requestId);
   } catch (err) {
     console.error("[waha.webhook] handler failed", err);
   }

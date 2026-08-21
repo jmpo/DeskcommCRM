@@ -153,6 +153,8 @@ ver, tela para mudar, e caminho visível de falha.**
 | Invariante | matriz capability × provider em `tests/unit/` | capability sem cobertura reprova |
 | Invariante | suíte de canal congelada rodando com o provider legado | regressão silenciosa reprova |
 | Trace | `before_send_traces` com `skipped` explícito | não-aplicação é auditável, não invisível |
+| Invariante | varredura de `lib/channels/` em `tests/unit/canal-consulta-por-organizacao.test.ts` | consulta a `channel_sessions` por identificador de provider sem `organization_id` reprova |
+| Trava no banco | índices únicos parciais da migration 0165 | dois canais ativos com o mesmo identificador de provider são recusados pelo Postgres |
 | Gate de sessão | item no Living System Checklist (`sistema-vivo.md`) | nenhuma task de canal fecha sem responder |
 
 ---

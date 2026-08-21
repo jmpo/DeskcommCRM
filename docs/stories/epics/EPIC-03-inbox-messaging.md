@@ -1569,7 +1569,19 @@ exposes:
 - **ADR-EPIC03-04**: Workers via pgmq (não BullMQ/Redis) — alinhamento com Spec 07.
 - **ADR-EPIC03-05**: Storage path convention `{org_id}/{conversation_id}/{uuid}-{filename}` em bucket `tenant-{org_id}`.
 - **ADR-EPIC03-06**: Atalhos `j/k/r/e/a/?/Esc` canônicos pra inbox; outras telas podem reusar mas devem documentar.
-- **ADR-EPIC03-07**: STOP detection é match exato regex (palavra isolada). Frases livres NÃO bloqueiam.
+- **ADR-EPIC03-07**: ~~STOP detection é match exato regex (palavra isolada). Frases livres NÃO bloqueiam.~~
+  **SUPERSEDIDA em 2026-08-21 pela ADR-EPIC03-07b.** A decisão original protegia contra falso
+  positivo, e a intenção estava certa — mas a implementação não era match exato: a regex caçava
+  a palavra em QUALQUER posição, então ela produzia o falso positivo que a ADR queria evitar
+  (12 num corpus de 32 frases de clínica) E deixava passar 21 de 33 pedidos reais. Ou seja: a
+  decisão escrita e o código nunca coincidiram.
+- **ADR-EPIC03-07b** (2026-08-21): opt-out é **palavra ISOLADA** (mensagem inteira = a palavra)
+  **ou** verbo de cessação com **objeto de comunicação**. Frases livres bloqueiam SIM quando o
+  objeto é a comunicação ("não quero mais receber", "me tira da lista") — o que a 07 proibia —,
+  e NÃO bloqueiam quando o objeto é outra coisa ("parar a dor", "sair mais cedo"). Regra em
+  `lib/opt-out/deteccao.ts`, medição em `tests/unit/opt-out-deteccao.test.ts`, contexto no PR #295.
+  **Motivo de a reversão ser a coisa certa:** deixar 21 de 33 pedidos reais sem efeito é a metade
+  cara num produto que se vende como LGPD-nativa — opt-out é direito, não preferência de UX.
 - **ADR-EPIC03-08**: Realtime canais nomeados `{resource}-{scope_id}` (`inbox-{org}`, `messages-{conv}`, `typing-{conv}`).
 
 ## 9. Anexos

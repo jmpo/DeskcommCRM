@@ -25,6 +25,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { ARCHIVED_AT, queryTolerantToMissingArchived } from "../archived";
 import { phoneLookupVariants } from "../phone-variants";
+import type { ChannelTenantScope } from "../types";
 import type { InboundMessageEvent } from "./webhook";
 
 type Admin = SupabaseClient;
@@ -36,23 +37,50 @@ export type IngestOutcome =
   | { status: "failed"; reason: string };
 
 /**
- * Sessão dona do número que RECEBEU. Amarra a mensagem ao tenant certo — nunca
- * confiamos no corpo para escolher organização (regra dura de tenancy).
+ * Sessão dona do número que RECEBEU, **dentro da organização do token**.
+ *
+ * O cabeçalho anterior já dizia "nunca confiamos no corpo para escolher
+ * organização" — e a consulta fazia exatamente isso: `phoneNumberId` sai do
+ * corpo do webhook e era o ÚNICO filtro. Duas organizações com o mesmo número
+ * (configuração legítima: agência, migração entre organizações) faziam
+ * `maybeSingle()` casar duas linhas, devolver `data: null` com `PGRST116` — e,
+ * com o `error` descartado, a mensagem que acabou de chegar era descartada para
+ * as DUAS, com a rota respondendo 200 (issue #236).
+ *
+ * A organização vem de `dono`, resolvido pela rota a partir do TOKEN DO PATH
+ * (`metaSessionByWebhookToken`) — a mesma fonte confiável que já decide onde o
+ * status de template e o status de mensagem são gravados nesse handler. O
+ * número continua no filtro porque uma organização pode ter mais de um número
+ * oficial, e é ele que diz QUAL sessão recebeu.
  *
  * Sessão ARQUIVADA não é dona de nada: o usuário excluiu o canal. Sem este
  * filtro, o desfecho `no_session` (que o chamador loga e devolve no corpo) vira
  * uma mensagem gravada num canal que já não existe para o operador.
+ *
+ * **LANÇA quando a consulta falha**, para o chamador gravar `failed` com o
+ * motivo em vez de `no_session`. "Não achei" e "não consegui perguntar" pedem
+ * ações diferentes do operador, e colapsá-los foi metade do defeito.
  */
-async function sessionByPhoneNumberId(admin: Admin, phoneNumberId: string) {
+async function sessionByPhoneNumberId(
+  admin: Admin,
+  organizationId: string,
+  phoneNumberId: string,
+) {
   const base = () =>
     admin
       .from("channel_sessions")
       .select("id, organization_id")
+      .eq("organization_id", organizationId)
       .eq("meta_phone_number_id", phoneNumberId);
-  const { data } = await queryTolerantToMissingArchived(
+  const { data, error } = await queryTolerantToMissingArchived(
     () => base().is(ARCHIVED_AT, null).maybeSingle(),
     () => base().maybeSingle(),
   );
+  if (error) {
+    throw new Error(
+      `sessao_do_numero: ${error.code ?? "sem_codigo"} ${error.message ?? ""}`.trim(),
+    );
+  }
   return data;
 }
 
@@ -81,6 +109,7 @@ async function findContactByVariants(
 /** Prévia curta para a lista de conversas. Mídia vira rótulo, nunca URL. */
 function previewOf(e: InboundMessageEvent): string {
   if (e.type === "text") return (e.text ?? "").slice(0, 120);
+  if (e.type === "contact") return e.sharedContact?.name ? `👤 ${e.sharedContact.name}` : "[contato]";
   if (e.type === "audio") return e.media?.voice ? "🎤 Mensagem de voz" : "🎵 Áudio";
   if (e.type === "image") return "📷 Imagem";
   if (e.type === "video") return "🎬 Vídeo";
@@ -91,8 +120,16 @@ function previewOf(e: InboundMessageEvent): string {
 export async function ingestMetaInbound(
   admin: Admin,
   e: InboundMessageEvent,
+  dono: ChannelTenantScope,
 ): Promise<IngestOutcome> {
-  const sessao = await sessionByPhoneNumberId(admin, e.phoneNumberId);
+  let sessao: { id: string; organization_id: string } | null;
+  try {
+    sessao = await sessionByPhoneNumberId(admin, dono.organizationId, e.phoneNumberId);
+  } catch (err) {
+    // Falhar FECHADO na ação (nada é gravado) e ABERTO na informação: o motivo
+    // sobe como `failed` e o chamador o escreve no log e no corpo.
+    return { status: "failed", reason: err instanceof Error ? err.message : "sessao_do_numero" };
+  }
   // Sem sessão: a mensagem é de um número que não administramos. Devolver 200 (o
   // chamador faz isso) evita a Meta re-entregar em loop algo que nunca vamos aceitar.
   if (!sessao) return { status: "no_session" };
@@ -138,12 +175,16 @@ export async function ingestMetaInbound(
       contact_id: contactId as string,
       direction: "inbound",
       status: "delivered",
+      // A Meta manda `contacts` (plural); o CHECK do banco espera `contact`.
       type: e.type === "text" ? "text" : e.type,
-      body: e.text,
+      body: e.type === "contact" ? (e.sharedContact?.name ?? e.text) : e.text,
       external_id: e.externalId,
       media_mime: e.media?.mime ?? null,
       sent_at: e.sentAt.toISOString(),
-      metadata: e.media ? { meta_media_id: e.media.id, voice: e.media.voice } : {},
+      metadata: {
+        ...(e.media ? { meta_media_id: e.media.id, voice: e.media.voice } : {}),
+        ...(e.sharedContact ? { shared_contact: e.sharedContact } : {}),
+      },
     })
     .select("id")
     .maybeSingle();

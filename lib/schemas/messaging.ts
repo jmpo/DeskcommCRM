@@ -71,10 +71,26 @@ export const sendMessageSchema = z
      */
     reply_to_message_id: z.string().uuid().optional(),
   })
-  .refine((d) => !!d.body || !!d.media_url || !!d.media_storage_path, {
-    message: "body, media_url or media_storage_path required",
-    path: ["body"],
-  });
+  .refine(
+    (d) => {
+      if (d.type === "contact") {
+        const id = d.metadata?.shared_contact_id;
+        if (typeof id === "string" && id.length > 0) return true;
+        const sc = d.metadata?.shared_contact;
+        if (sc && typeof sc === "object" && !Array.isArray(sc)) {
+          const phone = (sc as Record<string, unknown>).phone_number;
+          return typeof phone === "string" && phone.trim().length >= 8;
+        }
+        return false;
+      }
+      return !!d.body || !!d.media_url || !!d.media_storage_path;
+    },
+    {
+      message:
+        "body, media_url, media_storage_path, metadata.shared_contact_id or metadata.shared_contact.phone_number required",
+      path: ["body"],
+    },
+  );
 
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 
@@ -123,6 +139,20 @@ export const patchConversationSchema = z
   });
 
 export type PatchConversationInput = z.infer<typeof patchConversationSchema>;
+
+/** POST /conversations/open-with-contact — abrir inbox a partir de cartão de contato. */
+export const openConversationWithContactSchema = z
+  .object({
+    channel_session_id: z.string().uuid(),
+    contact_id: z.string().uuid().optional(),
+    phone_number: z.string().min(8).max(32).optional(),
+    name: z.string().trim().min(1).max(200).optional(),
+  })
+  .refine((d) => !!d.contact_id || !!d.phone_number?.trim(), {
+    message: "Informe contact_id ou phone_number.",
+  });
+
+export type OpenConversationWithContactInput = z.infer<typeof openConversationWithContactSchema>;
 
 /**
  * Estados TERMINAIS: a conversa acabou e não volta sozinha.

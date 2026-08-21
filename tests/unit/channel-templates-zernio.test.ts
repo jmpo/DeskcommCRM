@@ -37,6 +37,12 @@ const CREDS = {
   source: "session" as const,
 };
 
+/**
+ * A organização atravessa o seam de canal desde a issue #236: `sessionRef` é
+ * identificador do PROVIDER e não identifica linha sozinho.
+ */
+const ORG = "00000000-0000-4000-8000-000000000236";
+
 const responde = (payload: unknown, ok = true, status = 200) =>
   fetchMock.mockResolvedValueOnce({ ok, status, statusText: "x", json: async () => payload });
 
@@ -78,20 +84,20 @@ describe("list", () => {
         { name: "cuenta_activa", language: "es", status: "APPROVED", category: "UTILITY", components: [{ type: "BODY" }] },
       ],
     });
-    const t = await zernioTemplateOps.list({ sessionRef: "acc_1" });
+    const t = await zernioTemplateOps.list({ organizationId: ORG, sessionRef: "acc_1" });
     expect(t).toHaveLength(1);
     expect(t[0]).toMatchObject({ name: "cuenta_activa", language: "es", status: "APPROVED" });
   });
 
   it("status desconhecido NÃO explode — o vocabulário da plataforma é aberto", async () => {
     responde({ templates: [{ name: "x", language: "es", status: "ALGO_NOVO", components: [] }] });
-    const t = await zernioTemplateOps.list({ sessionRef: "acc_1" });
+    const t = await zernioTemplateOps.list({ organizationId: ORG, sessionRef: "acc_1" });
     expect(t[0]!.status).toBe("ALGO_NOVO");
   });
 
   it("resposta sem templates devolve lista vazia, não undefined", async () => {
     responde({});
-    await expect(zernioTemplateOps.list({ sessionRef: "acc_1" })).resolves.toEqual([]);
+    await expect(zernioTemplateOps.list({ organizationId: ORG, sessionRef: "acc_1" })).resolves.toEqual([]);
   });
 });
 
@@ -99,6 +105,7 @@ describe("create — a assimetria maiúscula/minúscula", () => {
   it("normaliza o `type` dos components para minúscula na ESCRITA", async () => {
     responde({ template: { name: "t", language: "es", status: "PENDING", components: [] } });
     await zernioTemplateOps.create({
+      organizationId: ORG,
       sessionRef: "acc_1",
       draft: {
         name: "t",
@@ -114,6 +121,7 @@ describe("create — a assimetria maiúscula/minúscula", () => {
   it("preserva TODO o resto do component — só a chave `type` é tocada", async () => {
     responde({ template: {} });
     await zernioTemplateOps.create({
+      organizationId: ORG,
       sessionRef: "acc_1",
       draft: {
         name: "t",
@@ -132,6 +140,7 @@ describe("create — a assimetria maiúscula/minúscula", () => {
   it("component sem `type` passa intacto em vez de quebrar", async () => {
     responde({ template: {} });
     await zernioTemplateOps.create({
+      organizationId: ORG,
       sessionRef: "acc_1",
       draft: { name: "t", language: "es", category: "UTILITY", components: [{ texto: "x" }, null] },
     });
@@ -141,6 +150,7 @@ describe("create — a assimetria maiúscula/minúscula", () => {
   it("manda accountId, nome, categoria e idioma", async () => {
     responde({ template: {} });
     await zernioTemplateOps.create({
+      organizationId: ORG,
       sessionRef: "acc_1",
       draft: { name: "t", language: "es", category: "MARKETING", components: [] },
     });
@@ -158,6 +168,7 @@ describe("update e remove", () => {
   it("update normaliza o `type` igual ao create — senão o round-trip quebra", async () => {
     responde({ template: {} });
     await zernioTemplateOps.update({
+      organizationId: ORG,
       sessionRef: "acc_1",
       name: "t",
       patch: { components: [{ type: "BODY", text: "novo" }] },
@@ -168,7 +179,7 @@ describe("update e remove", () => {
 
   it("remove usa DELETE e escapa o nome na URL", async () => {
     responde({ success: true });
-    await zernioTemplateOps.remove({ sessionRef: "acc_1", name: "a/b" });
+    await zernioTemplateOps.remove({ organizationId: ORG, sessionRef: "acc_1", name: "a/b" });
     expect(ultima().init.method).toBe("DELETE");
     expect(ultima().url).toContain("a%2Fb");
   });
@@ -182,7 +193,7 @@ describe("erros da plataforma", () => {
       400,
     );
     await expect(
-      zernioTemplateOps.update({ sessionRef: "acc_1", name: "t", patch: { category: "UTILITY" } }),
+      zernioTemplateOps.update({ organizationId: ORG, sessionRef: "acc_1", name: "t", patch: { category: "UTILITY" } }),
     ).rejects.toThrow(/can only be edited/);
   });
 
@@ -190,6 +201,7 @@ describe("erros da plataforma", () => {
     responde({ error: "nome já usado", code: "TEMPLATE_EXISTS" }, false, 400);
     await expect(
       zernioTemplateOps.create({
+        organizationId: ORG,
         sessionRef: "acc_1",
         draft: { name: "t", language: "es", category: "UTILITY", components: [] },
       }),
@@ -198,7 +210,7 @@ describe("erros da plataforma", () => {
 
   it("sem credencial falha nomeando o motivo, sem tocar a rede", async () => {
     credsRef.current = null;
-    await expect(zernioTemplateOps.list({ sessionRef: "acc_1" })).rejects.toThrow(
+    await expect(zernioTemplateOps.list({ organizationId: ORG, sessionRef: "acc_1" })).rejects.toThrow(
       /zernio_not_configured/,
     );
     expect(fetchMock).not.toHaveBeenCalled();

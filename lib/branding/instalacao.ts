@@ -277,6 +277,17 @@ type Memoria = { readonly linha: LinhaDaMarca | null; readonly expiraEm: number 
  */
 declare global {
   var __memoDaMarcaDaInstalacao: Memoria | null | undefined;
+  /**
+   * Contador de escritas. Mora em `globalThis` pelo MESMO motivo que o memo — e
+   * o motivo está escrito acima: a rota que grava e a tela que renderiza são
+   * duas instâncias do módulo, e um `let` de arquivo falharia calado.
+   *
+   * Ele existe porque zerar o memo não basta: uma leitura que já estava em voo
+   * quando a escrita aconteceu volta com a linha PRÉ-ESCRITA e a reinstala por
+   * um TTL inteiro, desfazendo a invalidação. Ver o comentário de
+   * `marcaDaInstalacao`.
+   */
+  var __geracaoDaMarcaDaInstalacao: number | undefined;
 }
 
 function memoEmVigor(): Memoria | null {
@@ -289,6 +300,9 @@ function guardarMemo(valor: Memoria | null): void {
 
 /** Chamada por quem ESCREVE a marca — server action ou rota. */
 export function invalidarMarcaDaInstalacao(): void {
+  // A geração sobe ANTES de zerar: quem estiver lendo agora fica marcado como
+  // anterior a esta escrita e não poderá reinstalar o que leu.
+  globalThis.__geracaoDaMarcaDaInstalacao = (globalThis.__geracaoDaMarcaDaInstalacao ?? 0) + 1;
   guardarMemo(null);
 }
 
@@ -317,12 +331,29 @@ function avisarUmaVez(chave: string, mensagem: string, contexto: Record<string, 
  * ninguém aplicar migration. Ele degrada para o `.env` igual, com um aviso.
  */
 export async function marcaDaInstalacao(): Promise<LinhaDaMarca | null> {
-  const agora = Date.now();
   const memoria = memoEmVigor();
-  if (memoria && memoria.expiraEm > agora) return memoria.linha;
+  if (memoria && memoria.expiraEm > Date.now()) return memoria.linha;
 
+  // A geração é lida ANTES do await, e conferida depois. Sem isso o memo sofre
+  // lost-update: uma leitura que entrou em voo antes de `invalidarMarcaDaInstalacao()`
+  // volta com a linha PRÉ-ESCRITA e a grava com TTL novo, desfazendo a
+  // invalidação da rota — e a tela passa a negar o logo por até TTL_MS inteiros,
+  // ATRÁS DE UM TOAST VERDE.
+  //
+  // Não é hipótese: medido no trace do CI em 2026-08-20. Um POST 200 em
+  // `/api/v1/marca/logo` às 462851ms; 19,6s depois, num contexto NOVO com login
+  // NOVO, a tela de marca ainda renderizava "Sem logo próprio, o sistema usa o
+  // logo do arquivo de instalação do servidor" e o botão Remover da camada de
+  // instalação não existia. A rajada de prefetch RSC que envenenou o memo tinha
+  // começado 53ms ANTES do POST.
+  //
+  // O `Date.now()` do TTL também passa a ser lido DEPOIS da ida ao banco: antes
+  // ele era capturado antes, e a espera do banco descontava do próprio TTL.
+  const geracao = globalThis.__geracaoDaMarcaDaInstalacao ?? 0;
   const linha = await lerOuSemear();
-  guardarMemo({ linha, expiraEm: agora + TTL_MS });
+  if ((globalThis.__geracaoDaMarcaDaInstalacao ?? 0) === geracao) {
+    guardarMemo({ linha, expiraEm: Date.now() + TTL_MS });
+  }
   return linha;
 }
 

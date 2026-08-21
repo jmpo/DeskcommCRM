@@ -33,6 +33,9 @@ const zernioCreds = vi.fn(async () => ({
 }));
 const metaCreds = vi.fn(async () => ({ phoneNumberId: "555", token: "tok" }));
 
+/** A organização atravessa o seam desde a issue #236. */
+const ORG = "00000000-0000-4000-8000-000000000236";
+
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({}) as never }));
 vi.mock("@/lib/channels/zernio/credentials", async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
@@ -66,7 +69,7 @@ afterEach(() => {
 describe("canal intermediado", () => {
   async function saude() {
     const { zernioAdapter } = await import("@/lib/channels/adapters/zernio");
-    return zernioAdapter.checkHealth!({ sessionRef: "conta-1" });
+    return zernioAdapter.checkHealth!({ organizationId: ORG, sessionRef: "conta-1" });
   }
 
   /**
@@ -201,7 +204,7 @@ describe("canal intermediado", () => {
 describe("canal oficial direto", () => {
   async function saude() {
     const { metaCloudAdapter } = await import("@/lib/channels/adapters/meta-cloud");
-    return metaCloudAdapter.checkHealth!({ sessionRef: "555" });
+    return metaCloudAdapter.checkHealth!({ organizationId: ORG, sessionRef: "555" });
   }
 
   it("número responde → está de pé", async () => {

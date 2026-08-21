@@ -158,6 +158,38 @@ describe("opt-out", () => {
     );
   });
 
+  it.each([
+    "tem como parar a dor?",
+    "posso sair antes das 15h?",
+    "preciso sair mais cedo da consulta",
+    "quero parar o tratamento por enquanto",
+    "dá pra parar o sangramento em casa?",
+  ])("NÃO bloqueia quem usa a palavra falando de outra coisa: %s", async (texto) => {
+    // A palavra ISOLADA não é o sinal — a INTENÇÃO de parar de receber mensagem é.
+    // Medido numa clínica: "tem como parar a dor?" bloqueava o paciente na ingestão,
+    // antes do modelo, e todo envio seguinte era vetado. Ele sumia sem ninguém ver.
+    await rodar({ texto });
+    expect(sequencia, `bloqueou "${texto}", que não é pedido de descadastro`).not.toContain(
+      "update:contacts",
+    );
+  });
+
+  it.each([
+    "pode parar de mandar mensagem",
+    "para de me mandar isso",
+    "não quero mais receber nada de vocês",
+    "me tira dessa lista",
+    "quero cancelar a inscrição",
+  ])("bloqueia o pedido de descadastro escrito por extenso: %s", async (texto) => {
+    // O outro lado do mesmo defeito: a regex antiga só via a palavra solta, então
+    // "não quero mais receber" — opt-out inequívoco — passava batido.
+    await rodar({ texto });
+    expect(ultimoUpdate, `não bloqueou "${texto}"`).toMatchObject({
+      is_blocked: true,
+      blocked_reason: "stop_keyword",
+    });
+  });
+
   it("mensagem sem texto não bloqueia ninguém", async () => {
     await rodar({ texto: null });
     expect(sequencia).not.toContain("update:contacts");
@@ -264,7 +296,14 @@ describe("os dois canais usam o mesmo passo", () => {
   });
 
   it("o vocabulário do opt-out vive num lugar só", () => {
-    const compartilhado = readFileSync("lib/channels/pos-entrada.ts", "utf8");
-    expect(compartilhado).toMatch(/export const STOP_RX/);
+    // O lugar mudou — de uma regex exportada daqui para o módulo de decisão
+    // `lib/opt-out/deteccao.ts` — porque o runtime tinha a própria regra e a
+    // divergência entre as duas era o defeito: a daqui, que grava o bloqueio,
+    // era a mais grosseira das duas.
+    const ingestao = readFileSync("lib/channels/pos-entrada.ts", "utf8");
+    expect(ingestao).toMatch(/from "@\/lib\/opt-out\/deteccao"/);
+    expect(ingestao, "a ingestão voltou a ter regra própria de opt-out").not.toMatch(
+      /STOP\|PARAR\|SAIR\|UNSUBSCRIBE/,
+    );
   });
 });

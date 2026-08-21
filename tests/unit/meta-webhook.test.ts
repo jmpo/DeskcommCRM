@@ -116,6 +116,46 @@ describe("parseMetaWebhook", () => {
     ]);
   });
 
+  it("cartão de contato inbound vira type contact + sharedContact", () => {
+    const [e] = parseMetaWebhook({
+      object: "whatsapp_business_account",
+      entry: [
+        {
+          id: "waba1",
+          changes: [
+            {
+              field: "messages",
+              value: {
+                metadata: { phone_number_id: "1103328999528818" },
+                contacts: [{ wa_id: "5531998966398", profile: { name: "Cliente" } }],
+                messages: [
+                  {
+                    id: "wamid.C",
+                    from: "5531998966398",
+                    timestamp: "1700000000",
+                    type: "contacts",
+                    contacts: [
+                      {
+                        name: { formatted_name: "Maria Silva", first_name: "Maria", last_name: "Silva" },
+                        phones: [{ phone: "+5511999887766", wa_id: "5511999887766", type: "CELL" }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(e).toMatchObject({
+      kind: "inbound_message",
+      type: "contact",
+      text: "Maria Silva",
+      sharedContact: { name: "Maria Silva", phone_number: "+5511999887766" },
+    });
+  });
+
   it("extrai status de entrega, inclusive o erro quando falha", () => {
     const eventos = parseMetaWebhook({
       object: "whatsapp_business_account",

@@ -228,7 +228,12 @@ A janela de 24h da Meta (envio proativo só com template aprovado fora da janela
    - Atendente humano pode enviar fora da janela (com warning)
 
 6. **Detecção STOP automática**:
-   - Inbound matchando regex `/STOP|PARAR|SAIR|UNSUBSCRIBE|CANCELAR/i` (palavra isolada) → marca `contacts.is_blocked=true` automaticamente + bloqueia envios automáticos (campanhas, IA) pra esse contato
+   - Inbound reconhecido por `ehPedidoDeOptOut` (`lib/opt-out/deteccao.ts`) → marca
+     `contacts.is_blocked=true` automaticamente + bloqueia envios automáticos (campanhas, IA)
+     pra esse contato. **A regra não é mais a palavra solta na frase** (2026-08-21, PR #295):
+     é palavra ISOLADA ou verbo de cessação com objeto de COMUNICAÇÃO. A regex antiga bloqueava
+     "tem como parar a dor?" e deixava passar "não quero mais receber nada". Ver W-02 em
+     `docs/business-rules/00-business-rules-catalog.md`.
    - Atendente humano ainda pode responder (decisão consciente de tirar do block é manual)
    - Atividade `whatsapp_stop_detected` na timeline
 
@@ -238,7 +243,7 @@ A janela de 24h da Meta (envio proativo só com template aprovado fora da janela
 - Envio em lote de 100 mensagens leva no mínimo `100 × (1.2s + jitter médio 0.4s)` ≈ 160s, não menos
 - Tentativa de criar campanha com 3 variações de copy retorna 422 `min_5_variations_required`
 - Inbound "PARAR" marca contato como bloqueado em <2s e bloqueia próximas tentativas de envio automático
-- Envio automático fora de janela (ex: domingo 23h) é enfileirado pra próxima janela válida, não enviado
+- Envio automático fora de janela (ex: 23h de qualquer dia) é enfileirado pra próxima janela válida, não enviado. **Domingo não veta por default** desde 2026-08-20 — ver W-07 em `docs/business-rules/00-business-rules-catalog.md`
 - Número novo bloqueado de campanha durante 7 dias após conexão (configurável até 14)
 
 ### 3.8 Multi-número por tenant

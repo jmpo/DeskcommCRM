@@ -154,6 +154,7 @@ async function handle(req: NextRequest): Promise<Response> {
         continue;
       }
       const profilePictureURL = await adapter.fetchProfilePictureUrl({
+        organizationId: c.organization_id,
         sessionRef: ref,
         recipient: chatId,
       });

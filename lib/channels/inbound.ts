@@ -27,6 +27,7 @@ import {
   saudeDoEvento,
 } from "./zernio/avisos";
 import { aplicarEdicaoZernio, ingestZernioInbound } from "./zernio/ingest";
+import { lerEnvelopeZernio } from "./zernio/envelope";
 import { parseZernioEdicao, verifyZernioSignature } from "./zernio/webhook";
 import type { ChannelProvider } from "./types";
 
@@ -52,7 +53,17 @@ export interface InboundWebhookInput {
 
 export type InboundWebhookOutcome =
   | { ok: true; body: Record<string, unknown> }
-  | { ok: false; code: "unauthorized" | "provider_mismatch" | "invalid_json"; message: string };
+  | {
+      ok: false;
+      /**
+       * `contrato_violado` é distinto de `invalid_json` de propósito: um diz
+       * que o corpo não é JSON, o outro que é JSON com um campo do tipo errado.
+       * Quem investiga procura em lugares diferentes, e o segundo significa que
+       * o fio mudou — a única causa possível num payload que passou pelo HMAC.
+       */
+      code: "unauthorized" | "provider_mismatch" | "invalid_json" | "contrato_violado";
+      message: string;
+    };
 
 /**
  * Este canal sabe receber webhook? Perguntado pela rota ANTES de qualquer
@@ -95,12 +106,29 @@ async function zernioInbound(
     return { ok: false, code: "unauthorized", message: "bad_signature" };
   }
 
-  let payload: unknown;
-  try {
-    payload = JSON.parse(input.rawBody);
-  } catch {
-    return { ok: false, code: "invalid_json", message: "invalid_json" };
+  // ─── O contrato do fio, ANTES de qualquer leitura ─────────────────────────
+  //
+  // Aqui o payload era `unknown` e cada leitor se defendia sozinho com `str()`,
+  // que devolve `null` para o que não é string. Nunca estourava — e era esse o
+  // problema: um `conversationId` numérico virava `null`, o parser devolvia
+  // `null`, e a rota respondia 200 `evento_sem_interesse`, exatamente como
+  // responde a um evento que de fato não interessa. A mensagem do cliente sumia
+  // com carimbo de normalidade.
+  //
+  // A recusa nomeia os CAMPOS e nunca os valores (dado de cliente), e a rota a
+  // fecha no arquivo do webhook com `status: "error"` — onde alguém procura.
+  const leitura = lerEnvelopeZernio(input.rawBody);
+  if (!leitura.ok) {
+    if (leitura.motivo === "json_invalido") {
+      return { ok: false, code: "invalid_json", message: "invalid_json" };
+    }
+    return {
+      ok: false,
+      code: "contrato_violado",
+      message: `payload fora do contrato do canal: ${leitura.campos.join(", ")}`,
+    };
   }
+  const payload = leitura.envelope;
 
   // ─── O que a plataforma decide sozinha ───────────────────────────────────
   //

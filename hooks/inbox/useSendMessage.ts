@@ -22,6 +22,7 @@ interface SendArgs {
   template_values?: Record<string, string>;
   /** A mensagem citada — id da NOSSA linha; o handler traduz para o do canal. */
   reply_to_message_id?: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface MessagesPage {
@@ -36,7 +37,7 @@ export function useSendMessage() {
     mutationFn: async (input: SendArgs) =>
       apiClient.post<{ data: Message }>("/api/v1/messages", input),
     onMutate: async (args) => {
-      if (args.media_storage_path || args.media_url) return {};
+      if (args.media_storage_path || args.media_url || args.type === "contact") return {};
 
       const queryKey = ["messages", args.conversation_id];
       await qc.cancelQueries({ queryKey });

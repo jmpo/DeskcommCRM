@@ -155,13 +155,25 @@ export async function archiveAgentAction(id: string): Promise<ActionResult> {
   if (!existing) return { ok: false, error: "not_found" };
   if (existing.is_default) return { ok: false, error: "cannot_archive_default" };
 
-  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (existing.kind === "mcp_agent") {
-    updates.archived_at = new Date().toISOString();
-    updates.published_version_id = null;
-  } else {
-    updates.is_active = false;
-  }
+  /**
+   * Arquivar carimba a data e tira do ar — nos DOIS kinds.
+   *
+   * O legado recebia só `is_active = false`, e as três consequências eram
+   * visíveis: `archived_at` nulo mantinha o agente na lista (a rota filtra por
+   * ele), `deriveAgentStatus` o rotulava "Pausado" em vez de "Arquivado", e o
+   * dispatcher — que seleciona por `archived_at is null` + `published_version_id
+   * not null`, sem olhar `is_active` nem `kind` — continuava entregando
+   * conversas a ele. A auditoria, enquanto isso, gravava `ai_agent.archived`.
+   *
+   * `is_active = false` continua para o legado, e não é redundante: é o filtro
+   * que o worker antigo consulta (`workers/ai-response-worker.ts`).
+   */
+  const updates: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+    archived_at: new Date().toISOString(),
+    published_version_id: null,
+  };
+  if (existing.kind !== "mcp_agent") updates.is_active = false;
 
   const { error } = await admin
     .from("ai_agents")

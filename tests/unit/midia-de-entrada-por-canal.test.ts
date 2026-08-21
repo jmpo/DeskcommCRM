@@ -78,8 +78,11 @@ describe("elo 2 — alguém acorda o worker", () => {
 });
 
 describe("elo 3 — quem baixa é o CANAL, não uma função fixa", () => {
-  it("o seam declara `fetchInboundMedia`", () => {
-    expect(TYPES).toMatch(/fetchInboundMedia\?\(input: \{/);
+  it("o seam declara `fetchInboundMedia`, COM o escopo de tenant", () => {
+    // O `ChannelTenantScope &` não é enfeite: sem a organização, quem baixa a
+    // mídia resolve a credencial por um identificador de provider que não é
+    // único, e a issue #236 mediu esse caminho terminando na conta do `.env`.
+    expect(TYPES).toMatch(/fetchInboundMedia\?\(input: ChannelTenantScope & \{/);
   });
 
   it("o worker despacha pelo adapter", () => {

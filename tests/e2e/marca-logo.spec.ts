@@ -230,6 +230,16 @@ async function subir(page: Page, escopo: Escopo, arquivo: {
   mime: string;
   bytes: Buffer;
 }): Promise<void> {
+  // A hidratação, e não a visibilidade. `setInputFiles` espera o elemento estar
+  // ANEXADO, e o input existe no HTML do SSR antes de o React atar o `onChange`
+  // — arquivo posto nessa janela não dispara requisição nenhuma, e o caso morre
+  // esperando 15s por um toast sem emissor. Foi o vermelho medido no run
+  // 32404132717 (att.1): `load` às 472156ms, `setInputFiles` 46ms depois, e ZERO
+  // POST para /api/v1/marca/logo no trace inteiro.
+  await expect(
+    page.locator(`[data-campo-de-logo='${escopo}'][data-hidratado]`),
+    `o campo de logo da camada "${escopo}" não hidratou — pôr o arquivo agora não dispara nada`,
+  ).toBeVisible({ timeout: 15_000 });
   await page.locator(`#logo-${escopo}`).setInputFiles({
     name: arquivo.nome,
     mimeType: arquivo.mime,
@@ -347,7 +357,20 @@ async function logoDaBarra(page: Page): Promise<LogoNaTela | null> {
   ).toBeAttached({ timeout: 15_000 });
 
   const img = casca.locator("img").first();
-  if ((await img.count()) === 0) return null;
+  // `count()` é a ÚNICA leitura sem auto-espera do helper, e por isso era ela
+  // que media durante a troca de documento: `goto("/app")` cai num
+  // `redirect("/app/inbox")` (app/app/page.tsx tem 3 linhas), o Next serve /app
+  // com 200 e HTML completo, e emite a redireção depois — o `count()` corria no
+  // documento novo ainda vazio e devolvia 0 com a barra CERTA a caminho.
+  // Medido no run 32403198687: `queryCount` levou 541ms e voltou 0; 44ms depois
+  // o bitmap do logo baixou, e o `test-failed-1.png` mostra a barra com o logo.
+  // `toBeAttached` com teto preserva a ausência como resposta legítima — só que
+  // agora ela significa "5s sem <img>", não "não havia <img> naquele milissegundo".
+  try {
+    await expect(img).toBeAttached({ timeout: 5_000 });
+  } catch {
+    return null;
+  }
   return medirImagem(img);
 }
 
@@ -404,8 +427,14 @@ async function logoDoLogin(browser: Browser): Promise<LogoNaTela | null> {
     await pagina.goto("/login");
     const img = pagina.getByTestId("logo-da-fachada");
     // Ausência é resposta legítima: sem logo em nenhuma camada, o layout não
-    // renderiza `<img>` nenhum e a fachada aparece com o nome em texto.
-    if ((await img.count()) === 0) return null;
+    // renderiza `<img>` nenhum e a fachada aparece com o nome em texto. Mas
+    // `count()` puro tornava "ausente" indistinguível de "ainda não montou" —
+    // é a mesma classe do helper da barra, consertada junto por isso.
+    try {
+      await expect(img).toBeAttached({ timeout: 5_000 });
+    } catch {
+      return null;
+    }
     return await medirImagem(img);
   } finally {
     await contexto.close();
@@ -496,7 +525,7 @@ test.describe("o logo subido pela tela chega à tela", () => {
     });
     await page.screenshot({ path: evidencia("1-admin-marca-previa.png"), fullPage: true });
 
-    await page.goto("/app");
+    await page.goto("/app/inbox");
     const barra = await logoDaBarra(page);
     expect(barra, "nenhuma <img> na barra lateral depois do upload").not.toBeNull();
     expect(barra!.src).toContain(`${PREFIXO_PUBLICO}platform/`);
@@ -536,7 +565,7 @@ test.describe("o logo subido pela tela chega à tela", () => {
     });
     await expect(page.getByText(/logo atualizado/i)).toBeVisible({ timeout: 15_000 });
 
-    await page.goto("/app");
+    await page.goto("/app/inbox");
     const barra = await logoDaBarra(page);
     expect(barra, "nenhuma <img> na barra lateral depois do upload da empresa").not.toBeNull();
     expect(barra!.src).toContain(`${PREFIXO_PUBLICO}${creds.org_id}/`);
@@ -555,7 +584,7 @@ test.describe("o logo subido pela tela chega à tela", () => {
   test("(4) SVG renomeado para .png é recusado pelos BYTES, com a razão dita", async ({ page }) => {
     await loginComTotp(page, creds.users.admin!.email, creds.admin_totp!.secret);
 
-    await page.goto("/app");
+    await page.goto("/app/inbox");
     const antes = await logoDaBarra(page);
     // O estado de partida é o logo que o caso (3) subiu. A asserção é explícita
     // porque `antes!.src` lá embaixo, com `antes` nulo, reprova como
@@ -598,7 +627,7 @@ test.describe("o logo subido pela tela chega à tela", () => {
     await expect(recusa).toBeVisible({ timeout: 15_000 });
     await page.screenshot({ path: evidencia("5-svg-recusado.png"), fullPage: true });
 
-    await page.goto("/app");
+    await page.goto("/app/inbox");
     const depois = await logoDaBarra(page);
     // ⚠️ As mensagens NÃO acusam mais a gravação. A versão anterior dizia "a
     // recusa apagou o logo — a gravação não foi atômica", e isso é impossível
@@ -629,7 +658,7 @@ test.describe("o logo subido pela tela chega à tela", () => {
     await remover.click();
     await expect(page.getByText(/logo removido/i)).toBeVisible({ timeout: 15_000 });
 
-    await page.goto("/app");
+    await page.goto("/app/inbox");
     const barra = await logoDaBarra(page);
     expect(barra, "a barra ficou sem logo — a camada de baixo não assumiu").not.toBeNull();
     expect(barra!.src).toContain(`${PREFIXO_PUBLICO}platform/`);

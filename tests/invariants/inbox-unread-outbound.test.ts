@@ -55,4 +55,18 @@ describe("fn_mark_conversation_message — unread reflete pendência real", () =
     );
     expect(unreadOf(CONV)).toBe(1);
   });
+
+  it("inbound carimba contacts.last_activity_at", () => {
+    const antes = sql(
+      `select last_activity_at from public.contacts where id = '${CONTACT}';`,
+    );
+    sql(
+      `select public.fn_mark_conversation_message('${CONV}', 'inbound', 'ping', now());`,
+    );
+    const depois = sql(
+      `select last_activity_at from public.contacts where id = '${CONTACT}';`,
+    );
+    expect(depois).not.toBe("");
+    expect(depois).not.toBe(antes);
+  });
 });

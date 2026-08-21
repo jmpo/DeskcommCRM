@@ -26,7 +26,12 @@
  * para eliminar. Na ESCRITA há uma única exceção, medida contra a API e
  * documentada em `paraEscrita`: a chave `type`.
  */
-import type { ChannelTemplate, ChannelTemplateDraft, ChannelTemplateOps } from "../types";
+import type {
+  ChannelTemplate,
+  ChannelTemplateDraft,
+  ChannelTemplateOps,
+  ChannelTenantScope,
+} from "../types";
 
 import { resolveZernioCreds } from "./credentials";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -82,8 +87,19 @@ function paraEscrita(components: unknown[]): unknown[] {
   });
 }
 
-async function creds(sessionRef: string) {
-  const c = await resolveZernioCreds(createAdminClient(), sessionRef);
+/** Organização + conta: as DUAS pontas que identificam uma sessão (issue #236). */
+type EscopoDaConta = ChannelTenantScope & { sessionRef: string };
+
+/**
+ * A conta é buscada DENTRO da organização: `zernio_account_id` é identificador
+ * do provider e não é único por si só — ver o cabeçalho de `./credentials`
+ * (issue #236).
+ */
+async function creds(escopo: EscopoDaConta) {
+  const c = await resolveZernioCreds(createAdminClient(), {
+    organizationId: escopo.organizationId,
+    accountId: escopo.sessionRef,
+  });
   if (!c) throw new Error("zernio_not_configured: sem credencial para esta conta.");
   return c;
 }
@@ -96,11 +112,11 @@ async function creds(sessionRef: string) {
  * tela mostra "falhou ao criar" e o operador não tem o que corrigir.
  */
 async function call<T>(
-  sessionRef: string,
+  escopo: EscopoDaConta,
   path: string,
   init: { method: string; body?: unknown; query?: Record<string, string> },
 ): Promise<T> {
-  const c = await creds(sessionRef);
+  const c = await creds(escopo);
   const qs = new URLSearchParams({ accountId: c.accountId, ...(init.query ?? {}) });
   const res = await fetch(`${c.baseUrl}${path}?${qs}`, {
     method: init.method,
@@ -123,20 +139,22 @@ async function call<T>(
 }
 
 export const zernioTemplateOps: ChannelTemplateOps = {
-  async list({ sessionRef }): Promise<ChannelTemplate[]> {
-    const j = await call<{ templates?: RawTemplate[] }>(sessionRef, "/v1/whatsapp/templates", {
-      method: "GET",
-    });
+  async list({ organizationId, sessionRef }): Promise<ChannelTemplate[]> {
+    const j = await call<{ templates?: RawTemplate[] }>(
+      { organizationId, sessionRef },
+      "/v1/whatsapp/templates",
+      { method: "GET" },
+    );
     return (j.templates ?? []).map(toNeutral);
   },
 
-  async create({ sessionRef, draft }): Promise<ChannelTemplate> {
+  async create({ organizationId, sessionRef, draft }): Promise<ChannelTemplate> {
     // O nome é validado pela plataforma (`^[a-z][a-z0-9_]*$`) e a recusa vem
     // com código. Não duplicamos a regra aqui: regra copiada é regra que
     // envelhece separado da fonte, e o custo de descobrir tarde é um erro
     // claro em vez de um erro nosso, inventado.
     const j = await call<{ template?: RawTemplate; data?: RawTemplate }>(
-      sessionRef,
+      { organizationId, sessionRef },
       "/v1/whatsapp/templates",
       {
         method: "POST",
@@ -163,9 +181,9 @@ export const zernioTemplateOps: ChannelTemplateOps = {
    * sem avisar, e negar uma edição que a plataforma teria aceito. O erro sobe
    * com o texto dela, que é o que diz ao operador o que fazer.
    */
-  async update({ sessionRef, name, patch }): Promise<ChannelTemplate> {
+  async update({ organizationId, sessionRef, name, patch }): Promise<ChannelTemplate> {
     const j = await call<{ template?: RawTemplate; data?: RawTemplate }>(
-      sessionRef,
+      { organizationId, sessionRef },
       `/v1/whatsapp/templates/${encodeURIComponent(name)}`,
       {
         method: "PATCH",
@@ -178,11 +196,12 @@ export const zernioTemplateOps: ChannelTemplateOps = {
     return toNeutral(j.template ?? j.data ?? (j as RawTemplate));
   },
 
-  async remove({ sessionRef, name, language }): Promise<void> {
-    await call<unknown>(sessionRef, `/v1/whatsapp/templates/${encodeURIComponent(name)}`, {
-      method: "DELETE",
-      ...(language ? { query: { language } } : {}),
-    });
+  async remove({ organizationId, sessionRef, name, language }): Promise<void> {
+    await call<unknown>(
+      { organizationId, sessionRef },
+      `/v1/whatsapp/templates/${encodeURIComponent(name)}`,
+      { method: "DELETE", ...(language ? { query: { language } } : {}) },
+    );
   },
 };
 

@@ -223,7 +223,12 @@ describe("os elos que somem sem barulho", () => {
     // A CHAMADA, não a menção: a primeira versão deste caso aceitava o arquivo
     // que só testava `if (!adapter.checkHealth)` e nunca perguntava nada —
     // sobreviveu ao sabote de trocar a pergunta por um literal.
-    expect(cron).toMatch(/await adapter\.checkHealth\(\{\s*sessionRef\s*\}\)/);
+    expect(cron).toMatch(
+      /await adapter\.checkHealth\(\{[\s\S]{0,120}?\bsessionRef\b[\s\S]{0,40}?\}\)/,
+    );
+    // E COM a organização: desde a issue #236 o seam de canal exige o escopo de
+    // tenant, e o vigia é quem tem a linha na mão (`s.organization_id`).
+    expect(cron).toMatch(/checkHealth\(\{[\s\S]{0,120}?organizationId: s\.organization_id/);
     expect(cron).toMatch(/await sincronizarSaudeDaConexao\(/);
   });
 

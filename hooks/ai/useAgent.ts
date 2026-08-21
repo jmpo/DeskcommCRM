@@ -20,6 +20,13 @@ export interface AgentRow {
   kind?: "rag_bot" | "mcp_agent" | null;
   priority?: number | null;
   published_version_id?: string | null;
+  /**
+   * Provedor e modelo da versão PUBLICADA — o que de fato responde. Vem por join
+   * na lista, e é opcional porque nem todo chamador precisa dele. Sem isto, a
+   * tela só tinha `ai_agents.model`, que para `mcp_agent` é o valor do cadastro
+   * e nunca é atualizado ao publicar.
+   */
+  versao_publicada?: { provider: string; model: string } | null;
   archived_at?: string | null;
   created_at: string;
   updated_at: string;

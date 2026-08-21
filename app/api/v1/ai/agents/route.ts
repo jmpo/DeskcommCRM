@@ -26,6 +26,22 @@ export const dynamic = "force-dynamic";
 const AGENT_COLUMNS =
   "id, organization_id, name, description, model, system_prompt, is_active, is_default, kind, priority, published_version_id, archived_at, config, guardrails, active_kb_version_id, created_at, updated_at";
 
+/**
+ * As mesmas colunas MAIS o join da versão publicada — só para a LISTAGEM.
+ *
+ * Existe porque `useAgentsList` refaz a busca por esta rota depois da primeira
+ * pintura: sem o join aqui, o "modelo em vigor" do cartão voltava a ser o id do
+ * CADASTRO no primeiro refetch, e o conserto durava um instante. Duas fontes para
+ * a mesma lista têm de pedir as mesmas colunas.
+ *
+ * NÃO entra no POST de propósito: agente recém-criado tem
+ * `published_version_id = null` por construção, o embed seria sempre nulo, e
+ * pedi-lo ali faz o tipo gerado da linha inserida deixar de resolver (`GenericStringError`).
+ */
+const AGENT_COLUMNS_COM_VERSAO =
+  AGENT_COLUMNS +
+  ", versao_publicada:ai_agent_versions!ai_agents_published_version_id_fkey(provider, model)";
+
 const VERSION_COLUMNS =
   "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids";
 
@@ -45,7 +61,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const supabase = await createClient();
   let query = supabase
     .from("ai_agents")
-    .select(AGENT_COLUMNS)
+    .select(AGENT_COLUMNS_COM_VERSAO)
     .eq("organization_id", activeOrg.orgId);
 
   if (!includeArchived) {

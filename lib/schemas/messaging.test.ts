@@ -4,6 +4,7 @@ import {
   claimConversationSchema,
   conversationTagsSchema,
   listConversationsQuerySchema,
+  openConversationWithContactSchema,
   patchConversationSchema,
   sendMessageSchema,
   updateConversationStatusSchema,
@@ -31,7 +32,35 @@ describe("sendMessageSchema", () => {
     expect(r.success).toBe(false);
   });
 
-  it("aceita payload só com media_url", () => {
+  it("aceita payload type contact com shared_contact_id", () => {
+    const r = sendMessageSchema.safeParse({
+      conversation_id: "11111111-1111-4111-8111-111111111111",
+      type: "contact",
+      metadata: { shared_contact_id: "22222222-2222-4222-8222-222222222222" },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("aceita contact com shared_contact inline (telefone avulso)", () => {
+    const r = sendMessageSchema.safeParse({
+      conversation_id: "11111111-1111-4111-8111-111111111111",
+      type: "contact",
+      metadata: {
+        shared_contact: { name: "Maria", phone_number: "+5532984793302" },
+      },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejeita contact sem shared_contact_id nem telefone inline", () => {
+    const r = sendMessageSchema.safeParse({
+      conversation_id: "11111111-1111-4111-8111-111111111111",
+      type: "contact",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejeita payload só com media_url", () => {
     const r = sendMessageSchema.safeParse({
       conversation_id: "11111111-1111-4111-8111-111111111111",
       type: "image",
@@ -140,5 +169,33 @@ describe("patchConversationSchema (G3-05)", () => {
   });
   it("rejeita corpo vazio (nem status nem tags)", () => {
     expect(patchConversationSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("openConversationWithContactSchema", () => {
+  const session = "11111111-1111-4111-8111-111111111111";
+
+  it("aceita contact_id", () => {
+    expect(
+      openConversationWithContactSchema.safeParse({
+        channel_session_id: session,
+        contact_id: "22222222-2222-4222-8222-222222222222",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("aceita phone_number", () => {
+    expect(
+      openConversationWithContactSchema.safeParse({
+        channel_session_id: session,
+        phone_number: "+5511999998888",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejeita sem contact_id nem phone_number", () => {
+    expect(
+      openConversationWithContactSchema.safeParse({ channel_session_id: session }).success,
+    ).toBe(false);
   });
 });

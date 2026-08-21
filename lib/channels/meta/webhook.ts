@@ -17,6 +17,10 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { parseMetaInboundContact } from "@/lib/channels/meta/contact-card";
+import type { SharedContact } from "@/lib/messaging/contact-card";
+import type { MetaWebhookEnvelope } from "./envelope";
+
 /** Assinatura da Meta: `sha256=<hex>` no header `X-Hub-Signature-256`. */
 export function verifyMetaSignature(
   rawBody: string,
@@ -75,9 +79,11 @@ export interface InboundMessageEvent {
   from: string;
   profileName: string | null;
   sentAt: Date;
-  /** `text` | `audio` | `image` | `video` | `document` | `sticker` | … */
+  /** `text` | `audio` | `image` | `video` | `document` | `sticker` | `contact` | … */
   type: string;
   text: string | null;
+  /** Preenchido quando `type === "contact"` (cartão compartilhado). */
+  sharedContact?: SharedContact | null;
   media: {
     id: string;
     /** A Meta manda URL pronta, com `ext=` de expiração — baixe na hora, não guarde. */
@@ -101,18 +107,12 @@ export interface MessageStatusEvent {
 
 export type MetaWebhookEvent = TemplateStatusEvent | MessageStatusEvent | InboundMessageEvent;
 
-interface MetaChange {
-  field?: string;
-  value?: Record<string, unknown>;
-}
-interface MetaEntry {
-  id?: string;
-  changes?: MetaChange[];
-}
-export interface MetaWebhookEnvelope {
-  object?: string;
-  entry?: MetaEntry[];
-}
+/**
+ * O formato do fio mora em `./envelope.ts`, onde é um schema Zod — e o tipo
+ * NASCE dele (`z.infer`). Aqui era um `interface` escrita à mão, que o
+ * `JSON.parse ... as` da rota prometia sem nunca conferir.
+ */
+export type { MetaWebhookEnvelope } from "./envelope";
 
 /**
  * A Meta manda `rejected_reason: "NONE"` em template APROVADO (medido contra a WABA
@@ -174,7 +174,9 @@ export function parseMetaWebhook(envelope: MetaWebhookEnvelope): MetaWebhookEven
 
           const perfil = contatos.find((c) => str(c.wa_id) === from);
           const tipo = str(raw.type) ?? "unknown";
-          const corpoMidia = raw[tipo] as Record<string, unknown> | undefined;
+          const corpoMidia = tipo !== "contacts" ? (raw[tipo] as Record<string, unknown> | undefined) : undefined;
+          const sharedContact = tipo === "contacts" ? parseMetaInboundContact(raw) : null;
+          const tipoCrm = tipo === "contacts" ? "contact" : tipo;
 
           out.push({
             kind: "inbound_message",
@@ -185,8 +187,12 @@ export function parseMetaWebhook(envelope: MetaWebhookEnvelope): MetaWebhookEven
             profileName: str((perfil?.profile as Record<string, unknown> | undefined)?.name),
             // A Meta manda epoch em SEGUNDOS, string. Passar direto ao Date daria 1970.
             sentAt: new Date(Number(str(raw.timestamp) ?? "0") * 1000),
-            type: tipo,
-            text: tipo === "text" ? str((raw.text as Record<string, unknown>)?.body) : null,
+            type: tipoCrm,
+            text:
+              tipoCrm === "text"
+                ? str((raw.text as Record<string, unknown>)?.body)
+                : sharedContact?.name ?? null,
+            ...(sharedContact ? { sharedContact } : {}),
             media:
               corpoMidia && str(corpoMidia.id)
                 ? {
