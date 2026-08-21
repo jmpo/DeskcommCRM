@@ -507,7 +507,12 @@ jobs:
             for (const [f, ms] of linhas) {
               console.log("| `" + f + "` | " + (ms / 1000).toFixed(0) + "s |");
             }
-          ' "$ARQ" "${{ matrix.parte }}" >> "$GITHUB_STEP_SUMMARY"
+          ' "$ARQ" "${{ matrix.parte }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          # `tee`, e não só o redirect: o resumo é para QUEM OLHA a página do
+          # run, e o log é para quem lê o run por API — inclusive uma sessão de
+          # agente decidindo como repartir as partes. Escrito só no resumo, o
+          # número existe e é inalcançável para quem mais precisa dele; foi
+          # exatamente o que aconteceu na primeira execução deste passo.
 
       - name: Declarar o que este job ainda NÃO cobre
         # Só na parte 1: ele conta as DUAS listas e o resultado é o mesmo nas
