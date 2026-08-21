@@ -113,22 +113,64 @@ jobs:
                 "- **Conserto dele em cima de código nosso.** Já aconteceu duas vezes, e nos dois casos a versão dele era melhor.")"
           fi
 
-      - name: Abrir issue quando houver conflito
+      - name: Relatar o conflito
         if: steps.contar.outputs.n != '0' && steps.merge.outputs.conflito == 'sim'
         env:
           GH_TOKEN: ${{ github.token }}
           N: ${{ steps.contar.outputs.n }}
         run: |
           LISTA=$(sed 's/^/- `/; s/$/`/' /tmp/conflitos.txt)
-          gh issue create \
+
+          # ⚠️ O RESUMO É O CANAL PRINCIPAL, e a issue é o extra — não o
+          # contrário.
+          #
+          # A primeira versão só abria issue, e a primeira execução real falhou:
+          # `has_issues: false`. É o DEFAULT do GitHub para fork, e ninguém
+          # tinha ligado. O job ficou vermelho sem dizer o motivo, e o conflito
+          # — que era a informação — se perdeu junto.
+          #
+          # `$GITHUB_STEP_SUMMARY` não depende de configuração nenhuma: aparece
+          # na página do run, sempre. A issue continua sendo tentada porque ela
+          # NOTIFICA (o resumo, não), mas com `|| true`: um canal opcional não
+          # pode derrubar o relato.
+          {
+            echo "## ⚠️ O merge da upstream parou em conflito"
+            echo ""
+            echo "**${N} commits** à frente. **Nenhuma branch foi empurrada** —"
+            echo "merge pela metade é pior que nenhum, porque ninguém revisa isso."
+            echo ""
+            echo "### Arquivos em conflito"
+            echo ""
+            printf '%s\n' "${LISTA}"
+            echo ""
+            echo "### Como resolver"
+            echo ""
+            echo '```bash'
+            echo "git fetch upstream && git checkout -b sync/upstream-manual origin/main"
+            echo "git merge upstream/main"
+            echo '```'
+            echo ""
+            echo "Quanto mais commits acumulam, mais caro fica."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if gh issue create \
             --title "Sync da upstream parou em conflito (${N} commits)" \
             --body "$(printf '%s\n' \
-              "O vigia tentou mesclar \`upstream/main\` e parou em conflito. **Nenhuma branch foi empurrada**: merge pela metade é pior que nenhum, porque ninguém revisa isso." \
-              "" \
-              "## Arquivos em conflito" "" "${LISTA}" "" \
+              "O vigia tentou mesclar \`upstream/main\` e parou em conflito. **Nenhuma branch foi empurrada.**" \
+              "" "## Arquivos em conflito" "" "${LISTA}" "" \
               "## Como resolver" "" \
               '```bash' \
               "git fetch upstream && git checkout -b sync/upstream-manual origin/main" \
               "git merge upstream/main" \
-              '```' "" \
-              "Quanto mais commits acumulam, mais caro fica — resolver hoje custa menos que na semana que vem.")"
+              '```')" 2>/dev/null; then
+            echo "Issue aberta." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "> Não consegui abrir issue — provavelmente \`has_issues: false\` (default de fork)." >> "$GITHUB_STEP_SUMMARY"
+            echo "> Ligue em **Settings → General → Features → Issues** para receber notificação." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Vermelho de propósito: conflito EXIGE alguém. Verde com aviso no
+          # resumo seria um alarme que ninguém abre.
+          echo "::error::O merge da upstream parou em conflito (${N} commits). Ver o resumo do run."
+          exit 1
