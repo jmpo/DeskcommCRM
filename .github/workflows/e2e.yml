@@ -462,6 +462,9 @@ jobs:
           VAR="SPECS_PARTE_${{ matrix.parte }}"
           pnpm exec playwright test --workers=1 ${!VAR}
         env:
+          # Liga o relatório JSON (ver `playwright.config.ts`): é dele que sai a
+          # tabela de tempo por spec do passo seguinte.
+          PLAYWRIGHT_JSON_OUTPUT_NAME: /tmp/pw-parte-${{ matrix.parte }}.json
           # Só o que NÃO vem do `.env.e2e`: isto é ajuste de CI, não config do
           # produto. CI = 1 IP para todos os specs, e o teto de produção
           # (60/5min) é irreal aqui. O teto por CONTA (5 falhas) NÃO muda — é
@@ -469,6 +472,42 @@ jobs:
           AUTH_RATE_LIMIT_LOGIN_IP: "1000"
           # ver o comentário do passo de build: vazio NÃO desliga.
           SENTRY_DSN: "off"
+
+      - name: Tempo por spec (para repartir as partes com dado)
+        # `always()` porque o tempo interessa MAIS quando algo falhou: é aí que
+        # se quer saber se a parte estourou o teto por lentidão ou por defeito.
+        if: always()
+        run: |
+          ARQ="/tmp/pw-parte-${{ matrix.parte }}.json"
+          [ -f "$ARQ" ] || { echo "sem relatório JSON nesta parte" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          node -e '
+            const r = require(process.argv[1]);
+            const porArquivo = new Map();
+            // O JSON do Playwright aninha suites; cada spec tem `results[].duration`
+            // em ms. Somar por ARQUIVO é o que importa — a unidade que o CI reparte
+            // é o arquivo, não o caso.
+            const anda = (s, arquivo) => {
+              const f = s.file ?? arquivo;
+              for (const esp of s.specs ?? []) {
+                const ms = (esp.tests ?? []).flatMap((t) => t.results ?? [])
+                  .reduce((a, x) => a + (x.duration ?? 0), 0);
+                porArquivo.set(f, (porArquivo.get(f) ?? 0) + ms);
+              }
+              for (const filho of s.suites ?? []) anda(filho, f);
+            };
+            for (const s of r.suites ?? []) anda(s, s.file);
+            const linhas = [...porArquivo.entries()].sort((a, b) => b[1] - a[1]);
+            const total = linhas.reduce((a, [, ms]) => a + ms, 0);
+            console.log("## Tempo por spec — parte " + process.argv[2]);
+            console.log("");
+            console.log("Total de teste: **" + (total / 60000).toFixed(1) + " min**");
+            console.log("");
+            console.log("| spec | tempo |");
+            console.log("|---|---:|");
+            for (const [f, ms] of linhas) {
+              console.log("| `" + f + "` | " + (ms / 1000).toFixed(0) + "s |");
+            }
+          ' "$ARQ" "${{ matrix.parte }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Declarar o que este job ainda NÃO cobre
         # Só na parte 1: ele conta as DUAS listas e o resultado é o mesmo nas
