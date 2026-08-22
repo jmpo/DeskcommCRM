@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# O VIGIA DO DOMÍNIO — quem avisa quando o site cai às 3 da manhã.
+#
+# Por que ele mora AQUI e não na VPS: um vigia dentro da VPS morre junto com
+# ela — é o defeito clássico de auto-monitoramento. O runner do GitHub é
+# infraestrutura de OUTRO provedor, e quando este job falha o GitHub manda
+# e-mail ao dono do repositório sozinho, sem conta nova em serviço nenhum.
+#
+# O que conta como "no ar": HTTP 307 (o redirect ao login — a assinatura de
+# saúde documentada no runbook de deploy) ou 200. Qualquer outra coisa, ou
+# timeout, é queda. 404 com contêiner saudável é exatamente o modo de falha
+# do Traefik sem labels que o CLAUDE.md descreve — e este vigia o pega.
+#
+# A cada 15 minutos: o suficiente para dormir tranquilo, dentro do que o
+# GitHub tolera de cron em repositório público sem custo.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Vigia do domínio
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sondar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: O domínio responde?
+        run: |
+          # Duas tentativas com 20s de intervalo: um soluço de rede do RUNNER
+          # não pode virar alarme de madrugada. Queda de verdade falha nas duas.
+          for tentativa in 1 2; do
+            CODIGO=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 https://crm.srv1872573.hstgr.cloud/ || echo 000)
+            if [ "$CODIGO" = "307" ] || [ "$CODIGO" = "200" ]; then
+              echo "no ar (HTTP $CODIGO, tentativa $tentativa)"
+              exit 0
+            fi
+            echo "tentativa $tentativa: HTTP $CODIGO"
+            [ "$tentativa" = "1" ] && sleep 20
+          done
+          echo "::error::O domínio não responde (último código: $CODIGO). Ver a VPS: docker ps, docker logs crm-app-1, e o runbook de deploy."
+          exit 1
