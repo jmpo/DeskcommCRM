@@ -192,7 +192,10 @@ export function SidebarContent({
             )}
           >
             <Gear size={18} aria-hidden />
-            {!collapsed && <span className="truncate">{rodape.label}</span>}
+            {/* `t(...)` também aqui, e não só no title do modo recolhido: a
+                linha de baixo era a ÚNICA etiqueta da barra fora do tradutor, e
+                "Configurações" ficava em português numa tela inteira em espanhol. */}
+            {!collapsed && <span className="truncate">{t(rodape.label)}</span>}
           </Link>
         )}
         <VersionFooter collapsed={collapsed} onNavigate={onNavigate} />
