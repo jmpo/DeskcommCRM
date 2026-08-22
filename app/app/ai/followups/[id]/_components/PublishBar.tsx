@@ -1,6 +1,7 @@
 "use client";
 
 import { toast } from "sonner";
+import { useT } from "@/hooks/i18n/useT";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ const HANDOFF_LABEL: Record<FollowupFlowDetailRow["handoff_policy"], string> = {
 };
 
 export function PublishBar({ flowId, flow, graph, dirty, onSaved, onPublishErrors, onPublishSuccess }: Props) {
+  const t = useT();
   const save = useSaveFollowupFlowDraft(flowId);
   const publish = usePublishFollowupFlow(flowId);
   const disable = useDisableFollowupFlow(flowId);
@@ -122,10 +124,10 @@ export function PublishBar({ flowId, flow, graph, dirty, onSaved, onPublishError
         </Select>
 
         <Button type="button" variant="secondary" size="sm" disabled={!dirty || busy} onClick={onSave}>
-          {save.isPending ? "Salvando…" : "Salvar"}
+          {save.isPending ? t("Salvando…") : t("Salvar")}
         </Button>
         <Button type="button" size="sm" disabled={busy} onClick={onPublish} data-testid="publish-button">
-          {publish.isPending ? "Publicando…" : "Publicar"}
+          {publish.isPending ? t("Publicando…") : t("Publicar")}
         </Button>
         <Button
           type="button"
@@ -134,7 +136,7 @@ export function PublishBar({ flowId, flow, graph, dirty, onSaved, onPublishError
           disabled={busy || flow.status === "disabled"}
           onClick={onDisable}
         >
-          Desativar
+          {t("Desativar")}
         </Button>
         <Button
           type="button"
@@ -144,7 +146,7 @@ export function PublishBar({ flowId, flow, graph, dirty, onSaved, onPublishError
           onClick={onRollback}
           data-testid="rollback-button"
         >
-          Rollback
+          {t("Rollback")}
         </Button>
       </div>
     </div>
