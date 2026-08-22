@@ -105,7 +105,7 @@ async function precoDoCatalogo(
 }
 
 /**
- * Returns cost in **cents**, rounded up. Zero when pricing missing.
+ * Returns cost in **cents**, FRACTIONAL (4 casas). Zero when pricing missing.
  */
 export async function computeCost(input: ComputeCostInput): Promise<number> {
   const pricing = await loadPricing();
@@ -119,7 +119,7 @@ export async function computeCost(input: ComputeCostInput): Promise<number> {
     const cents =
       ((input.promptTokens ?? 0) * doCatalogo.prompt) / 1_000_000 +
       ((input.completionTokens ?? 0) * doCatalogo.completion) / 1_000_000;
-    return Math.ceil(cents);
+    return Math.round(cents * 10_000) / 10_000;
   }
 
   const promptRate = toNumber(row.prompt_cents_per_million_tokens);
@@ -135,7 +135,21 @@ export async function computeCost(input: ComputeCostInput): Promise<number> {
     (completionTokens * completionRate) / 1_000_000 +
     (embeddingTokens * embeddingRate) / 1_000_000;
 
-  return Math.ceil(cents);
+  // ⚠️ FRACIONÁRIO, nunca `Math.ceil` por chamada.
+  //
+  // O ceil existia "para errar para o lado de cobrar" — e numa chamada grande
+  // ele arredonda centavos. Mas o classificador de sentimento custa 0,08¢ por
+  // chamada, e `Math.ceil(0.08)` cobra 1¢: 12× o real, EM CADA mensagem.
+  //
+  // Medido em produção (14 dias): 1.284 chamadas somaram 1.122¢ registrados
+  // contra ~103¢ de custo real — o painel do provedor cobrou $3,03 no mês
+  // inteiro enquanto o registro interno dizia $11 só de sentimento. E o teto
+  // de gasto lê ESTA coluna: cortaria a IA do cliente ~11× cedo demais.
+  //
+  // A coluna é `numeric` e o caminho do agent-engine já grava fração (medido:
+  // linhas com 16.2489¢). Duas casas de microcentavo bastam; "nunca de graça"
+  // continua valendo — fração pequena não é zero.
+  return Math.round(cents * 10_000) / 10_000;
 }
 
 /** Test-only: drop the in-memory pricing cache. */
