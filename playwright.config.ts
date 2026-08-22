@@ -91,6 +91,26 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  /**
+   * ─── O RELATÓRIO JSON EXISTE PARA REPARTIR AS PARTES COM DADO ──────────────
+   *
+   * O CI divide a suíte em partes que rodam em paralelo, e o relógio é sempre a
+   * parte MAIS LONGA. Repartir bem vale minutos — e as duas primeiras vezes que
+   * reparti foram a olho, pelo NÚMERO de specs. Errado as duas: 26 specs leves
+   * levavam 8m30 e 23 pesadas levavam 15min, e depois 12 pesadas ainda levavam
+   * 15min contra 7m57 de outras 11.
+   *
+   * O default do Playwright não deixa o tempo POR ARQUIVO em lugar nenhum que
+   * sobreviva ao run. Sem isso, cada rebalanceamento é um palpite novo.
+   *
+   * `list` continua no console (é o que se lê quando algo falha) e o `json` vai
+   * para um arquivo que o workflow transforma numa tabela no resumo. Custa
+   * milissegundos e só é escrito quando `PLAYWRIGHT_JSON_OUTPUT_NAME` existe —
+   * ou seja, no CI e em quem pedir.
+   */
+  reporter: process.env.PLAYWRIGHT_JSON_OUTPUT_NAME
+    ? [["list"], ["json", { outputFile: process.env.PLAYWRIGHT_JSON_OUTPUT_NAME }]]
+    : "list",
   timeout: 30_000,
   fullyParallel: false,
   /**

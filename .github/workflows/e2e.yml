@@ -166,79 +166,52 @@ jobs:
     # O rebalanceamento das duas partes FICA, por outro motivo e sem alegar mais do que
     # faz: 6,5 + 8,1 min em vez de 2,7 + 12,2.
     env:
+      # ⚠️ ESTA DIVISÃO SAIU DE MEDIÇÃO, NÃO DE PALPITE — e as duas anteriores
+      # saíram de palpite, pelo NÚMERO de specs. Erraram as duas.
+      #
+      # Medido na execução de 21/08 (a tabela de tempo por spec sai no resumo de
+      # cada parte, e no log): 22,4 min de teste no total, e QUATRO specs comem
+      # metade disso:
+      #
+      #   navegacao ................. 282s
+      #   prova-painel-provedores ... 205s
+      #   capacidades-do-agente ..... 116s
+      #   agente-novo-e-uso ......... 109s
+      #
+      # Nenhuma parte pode ter duas delas. O resto foi distribuído por
+      # bin-packing (maior primeiro, sempre na parte mais leve), que fecha as
+      # três em 7,5 min cada — 15, 14 e 20 specs, porque a CONTA de arquivos não
+      # significa nada.
+      #
+      # A família `followup-*` foi tratada como bloco único: elas semeiam umas
+      # para as outras e cada parte tem banco próprio, então separá-las quebraria
+      # a que dependesse da vizinha — e o sintoma apareceria como "spec
+      # instável", que foi o que a `marca-logo` nos custou meia dúzia de vezes.
+      #
+      # Ao mexer aqui, repita a medição: `SPECS_PARTE_*` reordenada a olho
+      # desfaz o equilíbrio sem que nada fique vermelho.
       SPECS_PARTE_1: >-
-        smoke.spec.ts auth.spec.ts error-pages.spec.ts
-        icone-da-marca.spec.ts
-        password-recovery.spec.ts signup-journey.spec.ts
-        rbac-roles.spec.ts inbox-scope.spec.ts reset-password-mfa.spec.ts
-        degradacao-silenciosa.spec.ts vps-webhook-outbound-ssrf.spec.ts
-        kanban-owner-filter.spec.ts queue-assign.spec.ts
-        conversa-vira-lead.spec.ts contato-salva-email.spec.ts
-        confirmar-dado-do-contato.spec.ts
-        risk-radar.spec.ts invite-lifecycle.spec.ts system-update.spec.ts
-        agente-papeis-operador.spec.ts prova-painel-provedores.spec.ts
-        followup-linguagem.spec.ts followup-ramos.spec.ts
-        inbox-responder-citando.spec.ts
-        wizard-do-funcionario.spec.ts mfa-opcional.spec.ts
-      # ⚠️ A ORDEM DESTA LISTA NÃO DECIDE A ORDEM DE EXECUÇÃO. O Playwright
-      # ordena os arquivos por CAMINHO, não pela ordem em que são passados na
-      # linha de comando. Medido no run 31838253496: `marca-logo.spec.ts` estava
-      # escrita por último aqui e executou em 15º de 23 — a linha de progresso
-      # `···F°°··············` mostra 14 testes completando DEPOIS dela.
-      #
-      # Este comentário afirmava, por três commits, que ela era "a ÚLTIMA de
-      # propósito" e que isso limitava contaminação a zero specs. Era falso, e
-      # a consequência foi pior que o comentário errado: creditei a esse
-      # reposicionamento o desaparecimento do React #418 entre dois ciclos.
-      # Não foi ele — a ordem nunca mudou. Foi o `test.afterAll` da própria
-      # spec, que passou a limpar as DUAS camadas de marca e por isso as specs
-      # seguintes deixaram de ver logo gravado.
-      #
-      # O que continua verdade: as duas partes rodam como passos do MESMO job,
-      # contra o MESMO banco, sem reset entre elas — o que uma spec deixa
-      # gravado, as seguintes enxergam. Quem protege contra isso é a limpeza da
-      # spec, não a posição dela nesta lista.
-      #
-      # ⚠️ Ela esteve no TOPO desta lista por três commits, pela razão errada.
-      # Eu media "carga de login por parte" com um regex que contava a PALAVRA
-      # login — e casava comentário, nome de helper e string. O proxy não só era
-      # impreciso: ele INVERTEU o sinal (dizia 162 vs 145; o real, contando
-      # chamadas, é 63 vs 82), então mover a spec "para a parte mais leve" a
-      # mudou para a mais carregada. E o critério era irrelevante desde o
-      # começo — o `AUTH_RATE_LIMIT_LOGIN_IP: "1000"` mais abaixo desliga o
-      # teto no CI, e esta spec faz 6 logins (eram 3 até a revisão que descobriu
-      # que dois casos rodavam DESLOGADOS: `page` é fixture de escopo de teste,
-      # não de worker — cada caso precisa do seu login).
-      #
-      # E o desfecho: a movida não teve efeito NENHUM, porque a ordem é por
-      # caminho (ver o bloco acima). Duas medições erradas em sequência levaram
-      # a uma mudança inócua — que eu ainda por cima creditei por um resultado
-      # que veio de outra coisa. Fica escrito porque o erro instrutivo não é o
-      # proxy ruim: é ter medido de novo, com outro instrumento ruim, em vez de
-      # perguntar se o mecanismo suposto existia.
-      #
-      # (Este comentário mora FORA do bloco `>-` porque dentro dele `#` não é
-      # comentário: é conteúdo, e cada palavra viraria argumento do playwright.
-      # Medido: com o texto dentro, a variável ia de 23 para 205 tokens.)
+        auth.spec.ts confirmar-dado-do-contato.spec.ts contato-salva-email.spec.ts
+        escalacao-ciclo.spec.ts gatilho-de-caso.spec.ts icone-da-marca.spec.ts
+        inbox-scope.spec.ts marca-logo.spec.ts mfa-opcional.spec.ts
+        navegacao.spec.ts password-recovery.spec.ts qa-agente-usa-as-maos.spec.ts
+        smoke.spec.ts webhooks.spec.ts wizard-do-funcionario.spec.ts
       SPECS_PARTE_2: >-
-        agente-novo-e-uso.spec.ts agente-organiza-operacao.spec.ts
-        central-de-avisos-capacidades.spec.ts escalacao-ciclo.spec.ts
-        navegacao.spec.ts olhar-telas-do-epico.spec.ts pipelines-gestao.spec.ts
-        qa-agente-usa-as-maos.spec.ts qa-selo-no-funil-usado.spec.ts
-        qa-telas-descobertas-w4.spec.ts retorno-anti-morte.spec.ts
-        capacidades-do-agente.spec.ts
-      # A família `followup-*` fica JUNTA nesta parte, e não espalhada: elas
-      # compartilham o mesmo fluxo e semeiam umas para as outras. Separá-las
-      # entre jobs — que agora têm bancos DIFERENTES — quebraria a que dependesse
-      # da vizinha, e o sintoma apareceria como "spec instável", não como
-      # "reparti mal".
+        agente-novo-e-uso.spec.ts agente-papeis-operador.spec.ts error-pages.spec.ts
+        gatilho-de-etapa.spec.ts inbox-responder-citando.spec.ts kanban-owner-filter.spec.ts
+        pipelines-gestao.spec.ts prova-painel-provedores.spec.ts qa-telas-descobertas-w4.spec.ts
+        reset-password-mfa.spec.ts retorno-anti-morte.spec.ts risk-radar.spec.ts
+        signup-journey.spec.ts system-update.spec.ts
       SPECS_PARTE_3: >-
-        followup-builder.spec.ts followup-queue.spec.ts
-        followup-journey.spec.ts followup-dossie.spec.ts
-        followup-tempo-adaptativo.spec.ts distribuicao-atendimento.spec.ts
-        webhooks.spec.ts escopo-de-funil-do-agente.spec.ts
-        gatilho-de-etapa.spec.ts gatilho-de-caso.spec.ts
-        marca-logo.spec.ts
+        agente-organiza-operacao.spec.ts capacidades-do-agente.spec.ts
+        central-de-avisos-capacidades.spec.ts conversa-vira-lead.spec.ts
+        degradacao-silenciosa.spec.ts distribuicao-atendimento.spec.ts
+        escopo-de-funil-do-agente.spec.ts followup-builder.spec.ts
+        followup-dossie.spec.ts followup-journey.spec.ts followup-linguagem.spec.ts
+        followup-queue.spec.ts followup-ramos.spec.ts followup-tempo-adaptativo.spec.ts
+        invite-lifecycle.spec.ts olhar-telas-do-epico.spec.ts
+        qa-selo-no-funil-usado.spec.ts queue-assign.spec.ts rbac-roles.spec.ts
+        vps-webhook-outbound-ssrf.spec.ts
       FORA_DO_CI: >-
         vps-fresh-onboarding.spec.ts
     steps:
@@ -454,7 +427,7 @@ jobs:
         # 16 minutos é ~1,5× a parte mais longa medida (10m28). Folga para
         # runner carregado, apertado o bastante para que pendurar seja rápido de
         # descobrir — e a falha passa a NOMEAR o passo.
-        timeout-minutes: 12
+        timeout-minutes: 11
         # Expansão indireta: as duas listas vivem no `env` do job (para o passo
         # de cobertura poder contá-las juntas), e a matriz escolhe qual delas
         # roda. Um `if` por parte duplicaria o comando e o teto.
@@ -462,6 +435,9 @@ jobs:
           VAR="SPECS_PARTE_${{ matrix.parte }}"
           pnpm exec playwright test --workers=1 ${!VAR}
         env:
+          # Liga o relatório JSON (ver `playwright.config.ts`): é dele que sai a
+          # tabela de tempo por spec do passo seguinte.
+          PLAYWRIGHT_JSON_OUTPUT_NAME: /tmp/pw-parte-${{ matrix.parte }}.json
           # Só o que NÃO vem do `.env.e2e`: isto é ajuste de CI, não config do
           # produto. CI = 1 IP para todos os specs, e o teto de produção
           # (60/5min) é irreal aqui. O teto por CONTA (5 falhas) NÃO muda — é
@@ -469,6 +445,47 @@ jobs:
           AUTH_RATE_LIMIT_LOGIN_IP: "1000"
           # ver o comentário do passo de build: vazio NÃO desliga.
           SENTRY_DSN: "off"
+
+      - name: Tempo por spec (para repartir as partes com dado)
+        # `always()` porque o tempo interessa MAIS quando algo falhou: é aí que
+        # se quer saber se a parte estourou o teto por lentidão ou por defeito.
+        if: always()
+        run: |
+          ARQ="/tmp/pw-parte-${{ matrix.parte }}.json"
+          [ -f "$ARQ" ] || { echo "sem relatório JSON nesta parte" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          node -e '
+            const r = require(process.argv[1]);
+            const porArquivo = new Map();
+            // O JSON do Playwright aninha suites; cada spec tem `results[].duration`
+            // em ms. Somar por ARQUIVO é o que importa — a unidade que o CI reparte
+            // é o arquivo, não o caso.
+            const anda = (s, arquivo) => {
+              const f = s.file ?? arquivo;
+              for (const esp of s.specs ?? []) {
+                const ms = (esp.tests ?? []).flatMap((t) => t.results ?? [])
+                  .reduce((a, x) => a + (x.duration ?? 0), 0);
+                porArquivo.set(f, (porArquivo.get(f) ?? 0) + ms);
+              }
+              for (const filho of s.suites ?? []) anda(filho, f);
+            };
+            for (const s of r.suites ?? []) anda(s, s.file);
+            const linhas = [...porArquivo.entries()].sort((a, b) => b[1] - a[1]);
+            const total = linhas.reduce((a, [, ms]) => a + ms, 0);
+            console.log("## Tempo por spec — parte " + process.argv[2]);
+            console.log("");
+            console.log("Total de teste: **" + (total / 60000).toFixed(1) + " min**");
+            console.log("");
+            console.log("| spec | tempo |");
+            console.log("|---|---:|");
+            for (const [f, ms] of linhas) {
+              console.log("| `" + f + "` | " + (ms / 1000).toFixed(0) + "s |");
+            }
+          ' "$ARQ" "${{ matrix.parte }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          # `tee`, e não só o redirect: o resumo é para QUEM OLHA a página do
+          # run, e o log é para quem lê o run por API — inclusive uma sessão de
+          # agente decidindo como repartir as partes. Escrito só no resumo, o
+          # número existe e é inalcançável para quem mais precisa dele; foi
+          # exatamente o que aconteceu na primeira execução deste passo.
 
       - name: Declarar o que este job ainda NÃO cobre
         # Só na parte 1: ele conta as DUAS listas e o resultado é o mesmo nas
