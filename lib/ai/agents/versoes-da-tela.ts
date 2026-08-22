@@ -65,8 +65,25 @@ function maisNova<T extends VersaoParaEscolha>(versoes: readonly T[]): T | null 
 
 export function escolherVersoesDaTela<T extends VersaoParaEscolha>(
   versoes: readonly T[],
+  /**
+   * `ai_agents.published_version_id` — o ponteiro, que é a fonte da verdade do
+   * RUNTIME (`agent-config.ts` faz `join … on v.id = a.published_version_id`).
+   *
+   * Sem ele, a escolha caía em `status === "published"`, e os dois divergem: há
+   * agente em produção com uma versão marcada `published` e o ponteiro NULO. A
+   * tela dizia "Publicado v1" para um agente que o runtime não atende — e o
+   * badge de status ao lado, que já lia o ponteiro, dizia "Rascunho". Duas
+   * respostas contraditórias na mesma tela, e a errada era a otimista.
+   *
+   * Opcional para o chamador que ainda não o passa; nesse caso vale o
+   * comportamento antigo, que é melhor que não ter versão nenhuma.
+   */
+  publishedVersionId?: string | null,
 ): VersoesDaTela<T> {
-  const published = versoes.find((v) => v.status === "published") ?? null;
+  const published =
+    publishedVersionId !== undefined
+      ? (versoes.find((v) => v.id === publishedVersionId) ?? null)
+      : (versoes.find((v) => v.status === "published") ?? null);
   const rascunho = maisNova(versoes.filter((v) => v.status === "draft"));
 
   // Rascunho anterior à publicada foi superado por ela: não abre, não publica.

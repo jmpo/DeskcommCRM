@@ -141,7 +141,7 @@ export default async function AgentEditorPage({
   // sempre — inclusive quando era mais antigo que a publicada — e um agente
   // pausado (sem rascunho e sem publicada) abria no texto padrão, que é como o
   // prompt "sumia".
-  const { draft, published, base, draftObsoleto } = escolherVersoesDaTela(versions);
+  const { draft, published, base, draftObsoleto } = escolherVersoesDaTela(versions, agent.published_version_id ?? null);
 
   return (
     <div className="flex h-full flex-col gap-6 p-6">
