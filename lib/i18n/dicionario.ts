@@ -63,6 +63,12 @@ export const DICIONARIO: Traducoes = {
   "Evolução da IA": { es: "Evolución de la IA" },
   "Audit Log": { es: "Registro de auditoría" },
   Configurações: { es: "Configuración" },
+  // ── citação (responder "em cima") ─────────────────────────────────────────
+  "Cancelar resposta": { es: "Cancelar respuesta" },
+  // A faixa da citação: quem escreveu a mensagem citada.
+  Cliente: { es: "Cliente" },
+  Você: { es: "Tú" },
+  "(sem texto)": { es: "(sin texto)" },
   Recolher: { es: "Contraer" },
   Buscar: { es: "Buscar" },
 

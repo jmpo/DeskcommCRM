@@ -1,5 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
+import { FUSOS_OFERECIDOS } from "@/lib/tempo/fusos";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -16,14 +17,10 @@ import {
 import { updateProfile } from "@/app/actions/settings/updateProfile";
 import { profileSchema, type Locale } from "@/lib/schemas/settings";
 
-const TIMEZONES = [
-  "America/Sao_Paulo",
-  "America/Manaus",
-  "America/Belem",
-  "America/Recife",
-  "America/Fortaleza",
-  "UTC",
-];
+// A lista canônica vive em lib/tempo/fusos.ts — e JÁ tinha Assunção e toda a
+// América Latina. Esta cópia local era só Brasil: a segunda fonte da mesma
+// verdade, atrasada. Quem usa o produto no Paraguai não achava o próprio fuso.
+const TIMEZONES = FUSOS_OFERECIDOS.map((f) => f.codigo);
 
 interface Props {
   email: string;
