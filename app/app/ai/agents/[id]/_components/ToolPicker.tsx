@@ -16,6 +16,7 @@
  * renderiza. Regra dentro de `onChange` é regra que nunca é exercitada.
  */
 import * as React from "react";
+import { useT } from "@/hooks/i18n/useT";
 import { useQuery } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
@@ -73,10 +74,11 @@ const CLASSE_RISCO: Record<ToolRisk, string> = {
 };
 
 function BadgeRisco({ risco }: { risco: ToolRisk }) {
+  const t = useT();
   const meta = riscoMeta(risco);
   return (
     <Badge variant="outline" className={`text-[11px] ${CLASSE_RISCO[risco]}`} title={meta.explicacao}>
-      {meta.rotulo}
+      {t(meta.rotulo)}
     </Badge>
   );
 }
@@ -97,6 +99,7 @@ function FichaCapacidade({
   disabled?: boolean;
   mostrarNomeTecnico?: boolean;
 }) {
+  const t = useT();
   return (
     <label
       data-testid={`capacidade-${capacidade.name}`}
@@ -112,11 +115,11 @@ function FichaCapacidade({
         checked={marcada}
         onChange={onToggle}
         disabled={disabled || bloqueada}
-        aria-label={capacidade.rotulo}
+        aria-label={t(capacidade.rotulo)}
       />
       <span className="flex-1 space-y-1">
         <span className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{capacidade.rotulo}</span>
+          <span className="text-sm font-medium">{t(capacidade.rotulo)}</span>
           <BadgeRisco risco={capacidade.risco} />
           <span className="text-xs text-muted-foreground">· {capacidade.o_que_toca}</span>
         </span>
@@ -132,6 +135,7 @@ function FichaCapacidade({
 }
 
 export function ToolPicker({ value, onChange, disabled }: Props) {
+  const t = useT();
   const [avancado, setAvancado] = React.useState(false);
   const [recusa, setRecusa] = React.useState<string | null>(null);
 
@@ -277,7 +281,7 @@ export function ToolPicker({ value, onChange, disabled }: Props) {
                   checked={estado === "ligado"}
                   onCheckedChange={(v) => alternarPacote(pacote.id, v)}
                   disabled={disabled || vazio}
-                  aria-label={pacote.rotulo}
+                  aria-label={t(pacote.rotulo)}
                 />
                 <div className="flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -285,7 +289,7 @@ export function ToolPicker({ value, onChange, disabled }: Props) {
                       htmlFor={`pacote-${pacote.id}`}
                       className="cursor-pointer text-sm font-medium"
                     >
-                      {pacote.rotulo}
+                      {t(pacote.rotulo)}
                     </label>
                     {estado === "parcial" ? (
                       <Badge variant="outline" className="text-[11px]">

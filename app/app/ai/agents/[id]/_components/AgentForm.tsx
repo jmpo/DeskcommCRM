@@ -13,6 +13,7 @@
  *   - "Publicado vN + Rascunho vM" (formulário mostra a draft)
  */
 import * as React from "react";
+import { useT } from "@/hooks/i18n/useT";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -240,6 +241,7 @@ function toVersionPayload(s: FormState) {
 }
 
 export function AgentForm(props: Props) {
+  const t = useT();
   const funis = props.funis ?? [];
   const router = useRouter();
   const isEdit = props.mode === "edit";
@@ -510,12 +512,12 @@ export function AgentForm(props: Props) {
       <div className="flex flex-wrap gap-1 border-b" role="tablist" aria-label="Papéis do agente">
         {(
           [
-            ["conversa", "Conversa com o cliente"],
-            ["operacao", "Organiza o sistema"],
+            ["conversa", t("Conversa com o cliente")],
+            ["operacao", t("Organiza o sistema")],
             // O TERCEIRO PAPEL. O rótulo diz o que ele FAZ, como os outros dois:
             // "Segurança" é o nosso nome; quem configura quer saber o que é
             // conferido antes de a mensagem chegar ao cliente dele.
-            ["seguranca", "Confere antes de enviar"],
+            ["seguranca", t("Confere antes de enviar")],
           ] as const
         ).map(([id, rotulo]) => (
           <button
@@ -571,7 +573,7 @@ export function AgentForm(props: Props) {
         <div className="space-y-4">
           {/* Identification */}
           <Card className="space-y-3 p-4">
-            <h3 className="text-sm font-medium">Quem é este agente</h3>
+            <h3 className="text-sm font-medium">{t("Quem é este agente")}</h3>
             <div className="space-y-1">
               <Label htmlFor="name">Nome</Label>
               <Input
@@ -587,7 +589,7 @@ export function AgentForm(props: Props) {
               ) : null}
             </div>
             <div className="space-y-1">
-              <Label htmlFor="description">Descrição</Label>
+              <Label htmlFor="description">{t("Descrição")}</Label>
               <Textarea
                 id="description"
                 value={form.description}
@@ -618,9 +620,9 @@ export function AgentForm(props: Props) {
 
           {/* Provider + credential + model */}
           <Card className="space-y-3 p-4">
-            <h3 className="text-sm font-medium">A inteligência que ele usa</h3>
+            <h3 className="text-sm font-medium">{t("A inteligência que ele usa")}</h3>
             <div className="space-y-1">
-              <Label htmlFor="provider">Empresa de inteligência artificial</Label>
+              <Label htmlFor="provider">{t("Empresa de inteligência artificial")}</Label>
               <Select
                 value={form.provider}
                 onValueChange={(v) => changeProvider(v as Provider)}
@@ -679,7 +681,7 @@ export function AgentForm(props: Props) {
 
           {/* WhatsApp session */}
           <Card className="space-y-3 p-4">
-            <h3 className="text-sm font-medium">Por qual número ele atende</h3>
+            <h3 className="text-sm font-medium">{t("Por qual número ele atende")}</h3>
             {props.routerMembership && (
               <div className="flex items-start gap-2 rounded-md bg-accent-soft p-3 text-xs text-text-muted">
                 <Info className="mt-0.5 shrink-0" aria-hidden />
@@ -696,7 +698,7 @@ export function AgentForm(props: Props) {
               </div>
             )}
             <div className="space-y-1">
-              <Label htmlFor="channel_session_id">Número conectado</Label>
+              <Label htmlFor="channel_session_id">{t("Número conectado")}</Label>
               <Select
                 value={form.channel_session_id || undefined}
                 onValueChange={(v) => patch({ channel_session_id: v })}
@@ -735,7 +737,7 @@ export function AgentForm(props: Props) {
 
           {/* Limits */}
           <Card className="space-y-3 p-4">
-            <h3 className="text-sm font-medium">Freios de segurança</h3>
+            <h3 className="text-sm font-medium">{t("Freios de segurança")}</h3>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="max_steps">Ações por atendimento (1 a 25)</Label>
@@ -812,7 +814,7 @@ export function AgentForm(props: Props) {
           {/* Prompt */}
           <Card className="space-y-2 p-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium">As instruções dele</h3>
+              <h3 className="text-sm font-medium">{t("As instruções dele")}</h3>
               <div className="flex items-center gap-2">
                 {/* O contador é o aviso que chega ANTES do erro: quem cola um
                     texto grande vê na hora que ele não vai caber, em vez de
@@ -864,7 +866,7 @@ export function AgentForm(props: Props) {
 
           {/* Estilo de resposta (split de mensagens — Onda 4) */}
           <Card className="space-y-3 p-4">
-            <h3 className="text-sm font-medium">Estilo de resposta</h3>
+            <h3 className="text-sm font-medium">{t("Estilo de resposta")}</h3>
             <div className="flex items-center gap-2">
               <Switch
                 id="split_messages"
@@ -904,7 +906,7 @@ export function AgentForm(props: Props) {
 
           {/* Capacidades */}
           <Card className="space-y-2 p-4">
-            <h3 className="text-sm font-medium">O que o agente pode fazer</h3>
+            <h3 className="text-sm font-medium">{t("O que o agente pode fazer")}</h3>
             <p className="text-xs text-muted-foreground">
               Ligue por jornada de trabalho. O agente só consegue fazer o que estiver
               ligado aqui — e o que estiver ligado, ele fará sozinho durante o atendimento.
@@ -921,7 +923,7 @@ export function AgentForm(props: Props) {
 
           {/* Triggers */}
           <Card className="space-y-2 p-4">
-            <h3 className="text-sm font-medium">Quando ele entra em ação</h3>
+            <h3 className="text-sm font-medium">{t("Quando ele entra em ação")}</h3>
             <TriggerEditor
               value={form.trigger_config}
               onChange={(v) => patch({ trigger_config: v })}
@@ -931,7 +933,7 @@ export function AgentForm(props: Props) {
 
           {/* Handoff */}
           <Card className="space-y-3 p-4">
-            <h3 className="text-sm font-medium">Passar para uma pessoa</h3>
+            <h3 className="text-sm font-medium">{t("Passar para uma pessoa")}</h3>
             <div className="flex items-center gap-2">
               <Switch
                 id="handoff_tool_enabled"
@@ -952,7 +954,7 @@ export function AgentForm(props: Props) {
 
           {/* Casos humanos */}
           <Card className="space-y-3 p-4">
-            <h3 className="text-sm font-medium">Pedir ajuda sem sair da conversa</h3>
+            <h3 className="text-sm font-medium">{t("Pedir ajuda sem sair da conversa")}</h3>
             <div className="flex items-center gap-2">
               <Switch
                 id="cases_enabled"
@@ -973,7 +975,7 @@ export function AgentForm(props: Props) {
 
           {/* Follow-up */}
           <Card className="space-y-3 p-4">
-            <h3 className="text-sm font-medium">Follow-up</h3>
+            <h3 className="text-sm font-medium">{t("Follow-up")}</h3>
             <p className="text-xs text-muted-foreground">
               Retomar sozinho quem parou de responder, para o interessado não sumir
               sem ninguém perceber.
