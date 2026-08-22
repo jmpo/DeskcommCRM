@@ -64,3 +64,27 @@ describe("qual versão o editor do agente abre", () => {
     expect(r.draft?.id).toBe("v10");
   });
 });
+
+describe("quem é a versão publicada: o PONTEIRO, não o rótulo", () => {
+  // Medido em produção: um agente com `ai_agent_versions.status = 'published'` e
+  // `ai_agents.published_version_id` NULO. O runtime não o atende (o join é pelo
+  // ponteiro), mas a tela dizia "Publicado v1" — e o badge ao lado, que já lia o
+  // ponteiro, dizia "Rascunho". Duas respostas contraditórias, e a errada era a
+  // que tranquilizava.
+  it("ignora o rótulo quando o ponteiro está vazio", () => {
+    const r = escolherVersoesDaTela([v(1, "published")], null);
+    expect(r.published, "a tela diria 'no ar' um agente que o runtime não atende").toBeNull();
+    expect(r.base?.id, "mesmo assim o editor abre a última versão").toBe("v1");
+  });
+
+  it("segue o ponteiro mesmo que o rótulo aponte para outra", () => {
+    const r = escolherVersoesDaTela([v(2, "superseded"), v(3, "published")], "v2");
+    expect(r.published?.id).toBe("v2");
+  });
+
+  it("sem o ponteiro informado, mantém o comportamento antigo", () => {
+    // Chamador que ainda não passa o argumento não perde a versão publicada.
+    const r = escolherVersoesDaTela([v(4, "published")]);
+    expect(r.published?.id).toBe("v4");
+  });
+});
