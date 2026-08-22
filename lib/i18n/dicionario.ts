@@ -155,6 +155,25 @@ export const DICIONARIO: Traducoes = {
     { es: "Es la verificación que bajó la fuga medida del 30% a cero. Apagarla reabre exactamente el defecto que cerró." },
   "Esconder que é um assistente é enganar o cliente.":
     { es: "Ocultar que es un asistente es engañar al cliente." },
+
+  // ── Seguimentos (construtor de fluxos) ────────────────────────────────────
+  "Adicionar nó": { es: "Agregar nodo" },
+  Gatilho: { es: "Disparador" },
+  Aguardar: { es: "Esperar" },
+  Condição: { es: "Condición" },
+  "Classificar (IA)": { es: "Clasificar (IA)" },
+  Ação: { es: "Acción" },
+  Fim: { es: "Fin" },
+  Rascunho: { es: "Borrador" },
+  Ativo: { es: "Activo" },
+  Desativado: { es: "Desactivado" },
+  Salvar: { es: "Guardar" },
+  "Salvando…": { es: "Guardando…" },
+  Publicar: { es: "Publicar" },
+  "Publicando…": { es: "Publicando…" },
+  Desativar: { es: "Desactivar" },
+  Rollback: { es: "Revertir" },
+  "Pausar durante handoff": { es: "Pausar durante el traspaso" },
   Recolher: { es: "Contraer" },
   Buscar: { es: "Buscar" },
 
@@ -223,7 +242,6 @@ export const DICIONARIO: Traducoes = {
   Descrição: { es: "Descripción" },
   "Fechamento previsto": { es: "Cierre previsto" },
   "Tags (separadas por vírgula)": { es: "Etiquetas (separadas por coma)" },
-  Salvar: { es: "Guardar" },
   vazio: { es: "vacío" },
   "Abrir conversa no Inbox": { es: "Abrir conversación en el Inbox" },
 
