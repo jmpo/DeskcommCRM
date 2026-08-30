@@ -186,6 +186,114 @@ describe("a chamada de ferramenta", () => {
     if (v.permitido) return;
     expect(v.motivo).toBe("ferramenta_nao_classificada");
   });
+
+  it("`funil_vem_do_lead` SEM `lead_id` PASSA — decisão, não esquecimento", async () => {
+    // Este ramo decidia permissão e não tinha teste nenhum. Ele devolve
+    // `permitido: true`, e isso é deliberado: a ferramenta aceita alvo por
+    // CONTATO (`crm_schedule_followup` pede lead_id OU contact_id), e recusar
+    // aqui bloquearia um caminho legítimo.
+    //
+    // ⚠️ A CONSEQUÊNCIA, dita em voz alta porque o nome do alvo a esconde:
+    // quando `lead_id` é opcional, o escopo de funil vira OPCIONAL na prática —
+    // basta omitir o campo. Um agente restrito ao funil A pode operar sobre um
+    // contato do funil B informando só `contact_id`.
+    //
+    // Isso não é buraco a fechar aqui: fechar recusaria o follow-up por contato,
+    // que é caminho legítimo e vivo. É buraco a CONHECER — quem lê
+    // `funil_vem_do_lead` na tabela conclui "escopado por funil" e erra. Quem
+    // limita de verdade é o RBAC da tabela e o risco/pacote da capacidade.
+    //
+    // Vale em dobro para as ferramentas de agenda que estão sendo desenhadas:
+    // elas têm `contact_id` obrigatório e `lead_id` opcional (o vínculo com o
+    // lead é polimórfico, via `crm_lead_links`), então caem exatamente aqui.
+    const v = await podeChamarFerramenta({
+      ...base,
+      ferramenta: "crm_schedule_followup",
+      argumentos: { contact_id: "c0a7aaaa-0000-4000-8000-000000000001" },
+    });
+    expect(v.permitido).toBe(true);
+  });
+
+  it("`funil_vem_do_contato` COM negócio aberto escopa de verdade", async () => {
+    // O alvo existe para `crm_book_appointment`, que tem `contact_id` obrigatório e
+    // nenhum `lead_id`. Sem ele, ela só poderia ser `sem_funil` — e o escopo não
+    // valeria para ela em caso nenhum.
+    const v = await podeChamarFerramenta({
+      ...base,
+      ferramenta: "crm_book_appointment",
+      argumentos: { contact_id: "c0a7aaaa-0000-4000-8000-000000000001" },
+      resolveLeadDoContato: async () => ({ tipo: "lead", leadId: "1ead-x" }),
+      resolvePipelineDoLead: resolveFixo(FUNIL_B),
+    });
+    expect(v.permitido).toBe(false);
+    if (v.permitido) return;
+    expect(v.motivo).toBe("funil_fora_do_escopo");
+  });
+
+  it("contato SEM negócio aberto LIBERA — e é decisão, não fall-through", async () => {
+    // O gate responde "pode operar NESTE funil?". Contato sem negócio não está em
+    // funil nenhum, e marcar consulta não move card. Recusar mudaria a PERGUNTA do
+    // gate, de escopo para triagem — e o caso é o mais comum de uma clínica: contato
+    // sem lead É O PACIENTE NOVO.
+    const v = await podeChamarFerramenta({
+      ...base,
+      ferramenta: "crm_book_appointment",
+      argumentos: { contact_id: "c0a7aaaa-0000-4000-8000-000000000002" },
+      resolveLeadDoContato: async () => ({ tipo: "sem_lead" }),
+    });
+    expect(v.permitido).toBe(true);
+  });
+
+  it("contato com VÁRIOS negócios abertos recusa — e o motivo diz quantos", async () => {
+    // O terceiro desfecho, que quase passou batido. Não dá para dizer em qual funil o
+    // compromisso conta, e um deles pode estar fora do escopo. O precedente do repo é
+    // não adivinhar: `resolveActiveLeadForContact` devolve `ambiguous_open_leads` em
+    // vez de escolher o primeiro, porque "mover o card errado do cliente errado é o
+    // único bug visível para o cliente final".
+    const v = await podeChamarFerramenta({
+      ...base,
+      ferramenta: "crm_book_appointment",
+      argumentos: { contact_id: "c0a7aaaa-0000-4000-8000-000000000003" },
+      resolveLeadDoContato: async () => ({ tipo: "ambiguo", quantos: 2 }),
+    });
+    expect(v.permitido).toBe(false);
+    if (v.permitido) return;
+    expect(v.motivo).toBe("indisponivel");
+    if (v.motivo !== "indisponivel") return;
+    expect(v.detalhe).toMatch(/2 negócios abertos/);
+  });
+
+  it("⚠️ SEM o resolvedor, RECUSA — dependência que falta não vira liberação", async () => {
+    // O caso que separa guarda de teatro. Se esquecer de passar o resolvedor
+    // liberasse, bastaria não passá-lo para o escopo sumir — e ninguém notaria,
+    // porque o caminho feliz continuaria funcionando.
+    const v = await podeChamarFerramenta({
+      ...base,
+      ferramenta: "crm_book_appointment",
+      argumentos: { contact_id: "c0a7aaaa-0000-4000-8000-000000000004" },
+    });
+    expect(v.permitido).toBe(false);
+    if (v.permitido) return;
+    expect(v.motivo).toBe("indisponivel");
+    if (v.motivo !== "indisponivel") return;
+    expect(v.detalhe).toMatch(/resolvedor de contato ausente/);
+  });
+
+  it("...e COM `lead_id` fora do escopo ela recusa — o gate não passa tudo", async () => {
+    // Controle positivo do caso acima. Sem ele, aquele teste continuaria verde
+    // se `podeChamarFerramenta` passasse a liberar TODA escrita: a asserção
+    // `permitido === true` não distingue "passou por ser sem lead" de "passou
+    // porque o gate morreu". A MESMA ferramenta, mudando só o argumento.
+    const v = await podeChamarFerramenta({
+      ...base,
+      ferramenta: "crm_schedule_followup",
+      argumentos: { lead_id: "1eadaaaa-0000-4000-8000-000000000003" },
+      resolvePipelineDoLead: resolveFixo(FUNIL_B),
+    });
+    expect(v.permitido).toBe(false);
+    if (v.permitido) return;
+    expect(v.motivo).toBe("funil_fora_do_escopo");
+  });
 });
 
 describe("o que o modelo lê", () => {

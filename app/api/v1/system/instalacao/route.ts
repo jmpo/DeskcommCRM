@@ -17,8 +17,7 @@
 import type { NextRequest } from "next/server";
 
 import { fail, ok } from "@/lib/api/wrappers";
-import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
-import { ROLE_RANK } from "@/lib/auth/types";
+import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { listSelectableChannels } from "@/lib/channels/selectable";
@@ -47,12 +46,9 @@ export async function contarCanaisDaOrg(orgId: string) {
 }
 
 export async function GET(req: NextRequest) {
-  const user = await requireAuth();
-  const org = await resolveActiveOrg(user);
-  if (!org) return fail("no_active_org", "nenhuma organização ativa", 400);
-  if (ROLE_RANK[org.role] < ROLE_RANK.manager) {
-    return fail("forbidden", "requer papel de gerente ou superior", 403);
-  }
+  const authz = await requireRole("manager", { resource: "system_instalacao" });
+  if (!authz.ok) return authz.response;
+  const { org } = authz;
 
   const supabase = await createClient();
   const retrato = await lerRetratoDaInstalacao({
@@ -65,10 +61,11 @@ export async function GET(req: NextRequest) {
   if (!querProvar) return ok(retrato);
 
   // A partir daqui custa dinheiro: uma geração real de um token. Nunca sai de
-  // graça num GET que a tela chama sozinha.
-  if (ROLE_RANK[org.role] < ROLE_RANK.admin) {
-    return fail("forbidden", "provar a chave requer papel de administrador", 403);
-  }
+  // graça num GET que a tela chama sozinha. 2ª chamada a requireRole de
+  // propósito: é o mesmo mecanismo, com o mínimo mais alto — inclui o gate de
+  // MFA para quem só tinha rank de manager mas está prestes a exercer admin.
+  const authzProva = await requireRole("admin", { resource: "system_instalacao_provar" });
+  if (!authzProva.ok) return authzProva.response;
 
   const { origemDaChave, modeloCurado, provedor, chaveEmVerificacao } = retrato.inteligencia;
   if (origemDaChave === "nenhuma" || !modeloCurado) {

@@ -157,33 +157,46 @@ export function vetosPorExecucao(e: AtritoRaw["empresa"]): number | null {
 
 const ESCOPO_PARCIAL = "Sobre as demandas encerradas no período.";
 
-export function montarPares(raw: AtritoRaw): Par[] {
+/**
+ * `t` é opcional (identidade por padrão) porque `montarPares` roda no servidor
+ * — dentro de uma API route (`app/api/v1/metrics/atrito/route.ts`), não de um
+ * componente React — e é chamado também pelos testes unitários sem tradução
+ * nenhuma. O idioma vem de `user.locale`, resolvido pela própria rota, e é a
+ * PRIMEIRA vez que este sistema de tradução atravessa a fronteira da API: até
+ * aqui só telas liam `traduzir()`. O rótulo interpola números (regra `${...}`),
+ * então cada `t()` cobre só a parte fixa da frase — o número nunca passa por
+ * tradução.
+ */
+export function montarPares(
+  raw: AtritoRaw,
+  t: (texto: string) => string = (texto) => texto,
+): Par[] {
   const { cliente, empresa, eficiencia, escopo } = raw;
 
   return [
     {
       chave: "conversao",
-      titulo: "Conversão",
+      titulo: t("Conversão"),
       eficiencia: {
         chave: "ganhos",
-        rotulo: "Negócios ganhos",
+        rotulo: t("Negócios ganhos"),
         valor: eficiencia.ganhos,
         unidade: "contagem",
       },
       danos: [
         {
           chave: "turnos_p50",
-          rotulo: "Turnos até o desfecho (mediana)",
+          rotulo: t("Turnos até o desfecho (mediana)"),
           valor: cliente.turnos_p50,
           unidade: "media",
-          nota: ESCOPO_PARCIAL,
+          nota: t(ESCOPO_PARCIAL),
         },
         {
           chave: "insistencia_media",
-          rotulo: "Insistência do agente (média de retornos)",
+          rotulo: t("Insistência do agente (média de retornos)"),
           valor: cliente.insistencia_media,
           unidade: "media",
-          nota: `Quantas vezes o agente voltou ao cliente por conta própria. Medido sobre as ${escopo.demandas_com_caso} demandas que passaram por atendimento humano.`,
+          nota: `${t("Quantas vezes o agente voltou ao cliente por conta própria. Medido sobre as")} ${escopo.demandas_com_caso} ${t("demandas que passaram por atendimento humano.")}`,
         },
         // O MÁXIMO ao lado da média, e não no lugar dela. A spec 17 nasceu do
         // agente que insiste seis vezes: numa base de 40 demandas, seis retornos
@@ -192,17 +205,17 @@ export function montarPares(raw: AtritoRaw): Par[] {
         // exibição — o sistema mediria o dano e a tela o esconderia.
         {
           chave: "insistencia_max",
-          rotulo: "Insistência no pior caso",
+          rotulo: t("Insistência no pior caso"),
           valor: cliente.insistencia_max,
           unidade: "contagem",
-          nota: "O cliente que mais recebeu retornos. A média esconde o exagero pontual.",
+          nota: t("O cliente que mais recebeu retornos. A média esconde o exagero pontual."),
         },
         {
           chave: "descadastros",
-          rotulo: "Descadastros no período",
+          rotulo: t("Descadastros no período"),
           valor: cliente.descadastros,
           unidade: "contagem",
-          nota: "Atrito máximo: a pessoa pediu para sair.",
+          nota: t("Atrito máximo: a pessoa pediu para sair."),
         },
         // ABANDONO é irmão do descadastro e muito mais comum: em vez de pedir
         // para sair, a pessoa simplesmente para de responder. Não gera ticket,
@@ -210,74 +223,74 @@ export function montarPares(raw: AtritoRaw): Par[] {
         // mais acontece. A régua vem do payload para o rótulo não mentir.
         {
           chave: "taxa_de_abandono",
-          rotulo: `Conversas que morreram no silêncio (após ${escopo.abandono_horas}h)`,
+          rotulo: `${t("Conversas que morreram no silêncio (após")} ${escopo.abandono_horas}h)`,
           valor: taxaDeAbandono(cliente),
           unidade: "razao",
-          nota: `${cliente.abandonos} de ${cliente.conversas_com_fala_nossa} conversas em que falamos: a pessoa não respondeu e ninguém encerrou.`,
+          nota: `${cliente.abandonos} ${t("de")} ${cliente.conversas_com_fala_nossa} ${t("conversas em que falamos: a pessoa não respondeu e ninguém encerrou.")}`,
         },
       ],
     },
     {
       chave: "automacao",
-      titulo: "Automação",
+      titulo: t("Automação"),
       eficiencia: {
         chave: "taxa_automacao",
-        rotulo: "Respostas dadas pelo agente",
+        rotulo: t("Respostas dadas pelo agente"),
         valor: taxaDeAutomacao(empresa),
         unidade: "razao",
       },
       danos: [
         {
           chave: "pedidos_de_humano",
-          rotulo: "Passagens para humano",
+          rotulo: t("Passagens para humano"),
           valor: cliente.pedidos_de_humano,
           unidade: "contagem",
-          nota: "Confiança perdida na automação.",
+          nota: t("Confiança perdida na automação."),
         },
         {
           chave: "taxa_de_contorno",
-          rotulo: "Respostas humanas fora do sistema",
+          rotulo: t("Respostas humanas fora do sistema"),
           valor: taxaDeContorno(empresa),
           unidade: "razao",
-          nota: "O time respondeu pelo celular, contornando a ferramenta.",
+          nota: t("O time respondeu pelo celular, contornando a ferramenta."),
         },
         // O agente respondeu — e a pessoa teve de perguntar de novo. É o dano
         // direto da automação: responder não é resolver.
         {
           chave: "taxa_de_repergunta",
-          rotulo: "Perguntas que a pessoa teve de repetir",
+          rotulo: t("Perguntas que a pessoa teve de repetir"),
           valor: taxaDeRepergunta(cliente),
           unidade: "razao",
-          nota: `Piso: ${cliente.reperguntas} de ${cliente.perguntas_com_resposta}. Conta só a repergunta quase literal — reformulada com outras palavras escapa desta medida.`,
+          nota: `${t("Piso:")} ${cliente.reperguntas} ${t("de")} ${cliente.perguntas_com_resposta}. ${t("Conta só a repergunta quase literal — reformulada com outras palavras escapa desta medida.")}`,
         },
       ],
     },
     {
       chave: "custo_humano",
-      titulo: "Custo humano",
+      titulo: t("Custo humano"),
       eficiencia: {
         chave: "demandas",
-        rotulo: "Demandas encerradas",
+        rotulo: t("Demandas encerradas"),
         valor: escopo.demandas,
         unidade: "contagem",
-        nota: ESCOPO_PARCIAL,
+        nota: t(ESCOPO_PARCIAL),
       },
       danos: [
         {
           chave: "intervencoes_por_demanda",
-          rotulo: "Intervenções humanas por demanda",
+          rotulo: t("Intervenções humanas por demanda"),
           valor: empresa.intervencoes_por_demanda,
           unidade: "media",
         },
         {
           chave: "espera_humana_p50_s",
-          rotulo: "Espera na fila humana (mediana)",
+          rotulo: t("Espera na fila humana (mediana)"),
           valor: empresa.espera_humana_p50_s,
           unidade: "segundos",
         },
         {
           chave: "espera_humana_p90_s",
-          rotulo: "Espera na fila humana (p90)",
+          rotulo: t("Espera na fila humana (p90)"),
           valor: empresa.espera_humana_p90_s,
           unidade: "segundos",
           // Mediana e p90 iguais denunciam base pequena, não uma fila homogênea.
@@ -285,22 +298,22 @@ export function montarPares(raw: AtritoRaw): Par[] {
           nota:
             empresa.espera_humana_p50_s !== null &&
             empresa.espera_humana_p50_s === empresa.espera_humana_p90_s
-              ? "Igual à mediana: há poucas esperas medidas no período para os dois se separarem."
-              : "O p90 é a experiência de quem espera mais — a mediana a esconde.",
+              ? t("Igual à mediana: há poucas esperas medidas no período para os dois se separarem.")
+              : t("O p90 é a experiência de quem espera mais — a mediana a esconde."),
         },
         // O INVARIANTE 4 como número: demanda aberta sem próximo passo é o
         // vazamento que a doutrina inteira combate — e vazamento que ninguém vê
         // é o pior tipo. Antes da entidade de demanda isto não era enumerável.
         {
           chave: "demandas_sem_proximo_passo",
-          rotulo: "Demandas abertas sem próximo passo",
+          rotulo: t("Demandas abertas sem próximo passo"),
           valor: empresa.demandas_sem_proximo_passo,
           unidade: "contagem",
-          nota: `De ${escopo.demandas_abertas} abertas agora. Cada uma é alguém esperando sem que nada esteja marcado para acontecer.`,
+          nota: `${t("De")} ${escopo.demandas_abertas} ${t("abertas agora. Cada uma é alguém esperando sem que nada esteja marcado para acontecer.")}`,
         },
         {
           chave: "retrabalho",
-          rotulo: "Demandas que precisaram subir de nível",
+          rotulo: t("Demandas que precisaram subir de nível"),
           valor: empresa.retrabalho,
           unidade: "contagem",
         },
@@ -308,29 +321,29 @@ export function montarPares(raw: AtritoRaw): Par[] {
         // calada: a pessoa falou e ficou sem nenhuma palavra nossa.
         {
           chave: "taxa_de_espera_calada",
-          rotulo: `Esperas sem nenhuma resposta por mais de ${escopo.espera_horas}h`,
+          rotulo: `${t("Esperas sem nenhuma resposta por mais de")} ${escopo.espera_horas}h`,
           valor: taxaDeEsperaCalada(cliente),
           unidade: "razao",
-          nota: `${cliente.esperas_caladas} de ${cliente.esperas_medidas} falas do cliente. Quem sabe que vai esperar, espera; quem não sabe, desiste.`,
+          nota: `${cliente.esperas_caladas} ${t("de")} ${cliente.esperas_medidas} ${t("falas do cliente. Quem sabe que vai esperar, espera; quem não sabe, desiste.")}`,
         },
       ],
     },
     {
       chave: "contencao",
-      titulo: "Contenção",
+      titulo: t("Contenção"),
       eficiencia: {
         chave: "envios_por_ia",
-        rotulo: "Mensagens enviadas pelo agente",
+        rotulo: t("Mensagens enviadas pelo agente"),
         valor: empresa.envios_por_ia,
         unidade: "contagem",
       },
       danos: [
         {
           chave: "vetos_por_execucao",
-          rotulo: "Vetos por execução",
+          rotulo: t("Vetos por execução"),
           valor: vetosPorExecucao(empresa),
           unidade: "media",
-          nota: "Quanto o sistema precisou ser contido de si mesmo antes de falar.",
+          nota: t("Quanto o sistema precisou ser contido de si mesmo antes de falar."),
         },
       ],
     },

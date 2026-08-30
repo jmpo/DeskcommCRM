@@ -33,6 +33,7 @@ import {
   credentialsListQueryKey,
   type CredentialRow,
 } from "@/hooks/ai/useCredentials";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   credential: CredentialRow;
@@ -55,6 +56,7 @@ const STATUS_VARIANT: Record<ReturnType<typeof credentialStatus>, "default" | "s
 };
 
 export function CredentialCard({ credential, canWrite, usageCount }: Props) {
+  const t = useT();
   const router = useRouter();
   const qc = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -68,7 +70,7 @@ export function CredentialCard({ credential, canWrite, usageCount }: Props) {
     startTransition(async () => {
       try {
         await apiClient.post(`/api/v1/ai/credentials/${credential.id}/revalidate`, {});
-        toast.success("Revalidando…");
+        toast.success(t("Revalidando…"));
         await qc.invalidateQueries({ queryKey: credentialsListQueryKey });
       } catch (err) {
         showApiError(err);
@@ -80,7 +82,7 @@ export function CredentialCard({ credential, canWrite, usageCount }: Props) {
     startTransition(async () => {
       try {
         await apiClient.delete(`/api/v1/ai/credentials/${credential.id}`);
-        toast.success("Credencial removida.");
+        toast.success(t("Credencial removida."));
         setDeleteOpen(false);
         await qc.invalidateQueries({ queryKey: credentialsListQueryKey });
         await refreshCredentialsView();
@@ -95,7 +97,7 @@ export function CredentialCard({ credential, canWrite, usageCount }: Props) {
     <Button
       variant="ghost"
       size="icon"
-      aria-label="Excluir credencial"
+      aria-label={t("Excluir credencial")}
       disabled={!canWrite || inUse || isPending}
       onClick={() => setDeleteOpen(true)}
     >
@@ -116,7 +118,7 @@ export function CredentialCard({ credential, canWrite, usageCount }: Props) {
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Badge variant={STATUS_VARIANT[status]} className="text-xs">
-            {STATUS_LABEL[status]}
+            {t(STATUS_LABEL[status])}
           </Badge>
         </div>
       </div>
@@ -129,11 +131,11 @@ export function CredentialCard({ credential, canWrite, usageCount }: Props) {
 
       <dl className="grid grid-cols-2 gap-2 text-xs">
         <div>
-          <dt className="text-muted-foreground">Modelos</dt>
+          <dt className="text-muted-foreground">{t("Modelos")}</dt>
           <dd className="font-mono">{credential.models_available ?? "—"}</dd>
         </div>
         <div>
-          <dt className="text-muted-foreground">Em uso por</dt>
+          <dt className="text-muted-foreground">{t("Em uso por")}</dt>
           <dd className="font-mono">{usageCount}</dd>
         </div>
       </dl>
@@ -143,7 +145,7 @@ export function CredentialCard({ credential, canWrite, usageCount }: Props) {
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Revalidar credencial"
+            aria-label={t("Revalidar credencial")}
             disabled={isPending}
             onClick={onRevalidate}
           >
@@ -156,7 +158,9 @@ export function CredentialCard({ credential, canWrite, usageCount }: Props) {
                   <span tabIndex={0}>{deleteButton}</span>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Em uso por {usageCount} agent{usageCount === 1 ? "" : "s"} publicado{usageCount === 1 ? "" : "s"}.
+                  {t("Em uso por")} {usageCount} {t("agente")}
+                  {usageCount === 1 ? "" : "s"} {t("publicado")}
+                  {usageCount === 1 ? "" : "s"}.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -170,17 +174,16 @@ export function CredentialCard({ credential, canWrite, usageCount }: Props) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Remover credencial &ldquo;{credential.label}&rdquo;?
+              {t("Remover credencial")} &ldquo;{credential.label}&rdquo;?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Agents que usam esta credencial vão falhar ao executar.
-              Esta ação não pode ser desfeita.
+              {t("Agents que usam esta credencial vão falhar ao executar. Esta ação não pode ser desfeita.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel disabled={isPending}>{t("Cancelar")}</AlertDialogCancel>
             <AlertDialogAction onClick={onDelete} disabled={isPending}>
-              Remover
+              {t("Remover")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

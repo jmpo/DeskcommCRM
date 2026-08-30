@@ -109,6 +109,14 @@ const envSchema = z.object({
   CRM_DRAIN_IDLE_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
   // Evento 'processing' órfão (crash do worker) volta a 'pending' após isto.
   CRM_EVENT_REAP_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  // Drain dos HANDLERS do event_log (mídia, branding, follow-up…), à parte do
+  // CRM_DRAIN_* acima: aquele é o dispatch do agente e fala Postgres direto;
+  // este roda os handlers de `register-handlers.ts` pelo admin client.
+  // Até 2026-08-25 este laço não existia e os handlers só rodavam pelo cron
+  // `event-log-drain` (1×/min) — ver o cabeçalho de lib/event-log/drain-loop.ts.
+  EVENT_LOG_DRAIN_INTERVAL_MS: z.coerce.number().int().positive().default(2_000),
+  EVENT_LOG_DRAIN_IDLE_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
+  EVENT_LOG_DRAIN_BATCH_SIZE: z.coerce.number().int().positive().default(50),
   // Coalescência de rajada inbound: mensagens do MESMO contato dentro desta
   // janela viram UM job (responder em rajada é gatilho de ban). 0 = sem debounce.
   INBOUND_DEBOUNCE_MS: z.coerce.number().int().min(0).default(8_000),
@@ -162,6 +170,9 @@ const envSchema = z.object({
   FOLLOWUP_AI_MODEL: z.string().min(1).optional(),
   // Loop do agente — teto de steps de tool-calls por run.
   AGENT_MAX_STEPS: z.coerce.number().int().positive().default(8),
+  // Teto de mensagens FÍSICAS enviadas ao lead por turno (send_message + send_template
+  // somados, bolhas incluídas) — nenhum gate de before-send limita CONTAGEM, só ritmo.
+  MAX_SENDS_PER_TURN: z.coerce.number().int().positive().default(3),
   // Circuit breaker de tools por run.
   TOOL_BREAKER_EXACT_WARN: z.coerce.number().int().positive().default(2),
   TOOL_BREAKER_EXACT_BLOCK: z.coerce.number().int().positive().default(5),

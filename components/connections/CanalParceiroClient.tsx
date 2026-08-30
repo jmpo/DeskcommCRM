@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiClient } from "@/lib/api/client";
 import { copyToClipboard } from "@/lib/clipboard";
+import { useT } from "@/hooks/i18n/useT";
 
 /**
  * Conectar um número por um PROVEDOR PARCEIRO.
@@ -52,6 +53,7 @@ interface Conectado {
 
 /** Campo somente-leitura com botão de copiar — o que o operador cola do outro lado. */
 function ParaColar({ rotulo, valor }: { rotulo: string; valor: string }) {
+  const t = useT();
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -64,10 +66,10 @@ function ParaColar({ rotulo, valor }: { rotulo: string; valor: string }) {
           variant="outline"
           onClick={async () => {
             await copyToClipboard(valor);
-            toast.success("Copiado.");
+            toast.success(t("Copiado."));
           }}
         >
-          Copiar
+          {t("Copiar")}
         </Button>
       </div>
     </div>
@@ -75,6 +77,7 @@ function ParaColar({ rotulo, valor }: { rotulo: string; valor: string }) {
 }
 
 export function CanalParceiroClient() {
+  const t = useT();
   const [estado, setEstado] = useState<Estado | null>(null);
   const [accountId, setAccountId] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -107,16 +110,16 @@ export function CanalParceiroClient() {
       // A chave sai da memória da tela assim que é gravada: ela não volta num
       // GET, e deixá-la no input só cria uma cópia a mais de um segredo.
       setApiKey("");
-      toast.success("Canal conectado.");
+      toast.success(t("Canal conectado."));
       await carregar();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Não foi possível conectar.");
+      toast.error(e instanceof Error ? t(e.message) : t("Não foi possível conectar."));
     } finally {
       setSalvando(false);
     }
   };
 
-  const rotulo = estado?.label ?? "provedor parceiro";
+  const rotulo = estado?.label ?? t("provedor parceiro");
   const conectado = estado?.connected ?? false;
 
   return (
@@ -124,65 +127,71 @@ export function CanalParceiroClient() {
       <Card className="flex flex-col gap-4 p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold">Conectar por {rotulo}</h3>
+            <h3 className="text-sm font-semibold">
+              {t("Conectar por")} {rotulo}
+            </h3>
             <p className="text-xs text-muted-foreground">
-              Um número oficial (WhatsApp Business) conectado através do seu provedor. As mensagens
-              entram e saem pelo CRM, e os modelos aprovados são os mesmos da sua conta.
+              {t(
+                "Um número oficial (WhatsApp Business) conectado através do seu provedor. As mensagens entram e saem pelo CRM, e os modelos aprovados são os mesmos da sua conta.",
+              )}
             </p>
           </div>
           {conectado ? (
-            <Badge variant="secondary">Conectado</Badge>
+            <Badge variant="secondary">{t("Conectado")}</Badge>
           ) : (
-            <Badge variant="outline">Não conectado</Badge>
+            <Badge variant="outline">{t("Não conectado")}</Badge>
           )}
         </div>
 
         {conectado && (
           <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
-            <p className="font-medium">{estado?.display_name ?? "Número conectado"}</p>
+            <p className="font-medium">{estado?.display_name ?? t("Número conectado")}</p>
             <p className="text-xs text-muted-foreground">
-              {estado?.phone_number ?? "sem número informado"} · {estado?.status ?? "—"}
+              {estado?.phone_number ?? t("sem número informado")} · {estado?.status ?? "—"}
             </p>
           </div>
         )}
 
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="parceiro-conta">Conta</Label>
+            <Label htmlFor="parceiro-conta">{t("Conta")}</Label>
             <Input
               id="parceiro-conta"
               value={accountId}
               onChange={(e) => setAccountId(e.target.value)}
-              placeholder="id da conta conectada no provedor"
+              placeholder={t("id da conta conectada no provedor")}
               autoComplete="off"
             />
             <p className="text-xs text-muted-foreground">
-              É o identificador do número no painel do provedor — não o da Meta.
+              {t("É o identificador do número no painel do provedor — não o da Meta.")}
             </p>
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="parceiro-chave">Chave de API</Label>
+            <Label htmlFor="parceiro-chave">{t("Chave de API")}</Label>
             <Input
               id="parceiro-chave"
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder={estado?.has_api_key ? "gravada — preencha para trocar" : "cole a chave"}
+              placeholder={
+                estado?.has_api_key ? t("gravada — preencha para trocar") : t("cole a chave")
+              }
               autoComplete="off"
             />
             <p className="text-xs text-muted-foreground">
-              Guardada cifrada. Depois de gravar ela não é mostrada de novo — para trocar, cole a
-              nova.
+              {t(
+                "Guardada cifrada. Depois de gravar ela não é mostrada de novo — para trocar, cole a nova.",
+              )}
             </p>
           </div>
 
           <div>
             <Button onClick={conectar} disabled={salvando || !accountId || !apiKey}>
-              {salvando ? "Verificando…" : conectado ? "Reconectar" : "Conectar"}
+              {salvando ? t("Verificando…") : conectado ? t("Reconectar") : t("Conectar")}
             </Button>
             <p className="mt-1.5 text-xs text-muted-foreground">
-              A credencial é testada contra o provedor antes de ser gravada.
+              {t("A credencial é testada contra o provedor antes de ser gravada.")}
             </p>
           </div>
         </div>
@@ -193,19 +202,22 @@ export function CanalParceiroClient() {
       {recemConectado && (
         <Card className="flex flex-col gap-4 border-warning/40 bg-warning-bg p-4">
           <div>
-            <h3 className="text-sm font-semibold">Falta ligar a volta</h3>
+            <h3 className="text-sm font-semibold">{t("Falta ligar a volta")}</h3>
             <p className="text-xs text-muted-foreground">
-              Cole os dois valores abaixo no webhook do seu provedor. Sem isso o CRM{" "}
-              <strong>envia mas não recebe</strong>: a resposta do cliente não chega, e nada na tela
-              avisa. O segredo aparece <strong>uma única vez</strong> — se sair desta tela sem
-              copiá-lo, reconecte para gerar outro.
+              {t("Cole os dois valores abaixo no webhook do seu provedor. Sem isso o CRM")}{" "}
+              <strong>{t("envia mas não recebe")}</strong>
+              {t(
+                ": a resposta do cliente não chega, e nada na tela avisa. O segredo aparece",
+              )}{" "}
+              <strong>{t("uma única vez")}</strong>
+              {t(" — se sair desta tela sem copiá-lo, reconecte para gerar outro.")}
             </p>
           </div>
-          <ParaColar rotulo="URL do webhook" valor={recemConectado.webhook_url} />
-          <ParaColar rotulo="Segredo (assinatura)" valor={recemConectado.webhook_secret} />
+          <ParaColar rotulo={t("URL do webhook")} valor={recemConectado.webhook_url} />
+          <ParaColar rotulo={t("Segredo (assinatura)")} valor={recemConectado.webhook_secret} />
           {recemConectado.quality_rating && (
             <p className="text-xs text-muted-foreground">
-              Qualidade do número segundo a plataforma: {recemConectado.quality_rating}
+              {t("Qualidade do número segundo a plataforma:")} {recemConectado.quality_rating}
             </p>
           )}
         </Card>
@@ -216,11 +228,12 @@ export function CanalParceiroClient() {
           <div>
             <h3 className="text-sm font-semibold">Webhook</h3>
             <p className="text-xs text-muted-foreground">
-              O endereço que o provedor usa para entregar as mensagens. O segredo não é mostrado de
-              novo — para obter um novo, reconecte.
+              {t(
+                "O endereço que o provedor usa para entregar as mensagens. O segredo não é mostrado de novo — para obter um novo, reconecte.",
+              )}
             </p>
           </div>
-          <ParaColar rotulo="URL do webhook" valor={estado.webhook_url} />
+          <ParaColar rotulo={t("URL do webhook")} valor={estado.webhook_url} />
         </Card>
       )}
     </div>

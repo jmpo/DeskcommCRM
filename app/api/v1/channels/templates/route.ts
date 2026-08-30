@@ -13,8 +13,7 @@ import { randomUUID } from "node:crypto";
 import type { NextRequest, NextResponse } from "next/server";
 
 import { fail, ok } from "@/lib/api/wrappers";
-import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
-import { ROLE_RANK } from "@/lib/auth/types";
+import { requireRole } from "@/lib/auth/require-role";
 import { metaSessionForOrg } from "@/lib/channels/meta/session";
 import { normalizeRejectedReason } from "@/lib/channels/meta/webhook";
 import { deriveTemplateContract, describeAddress } from "@/lib/channels/meta/template-contract";
@@ -77,15 +76,9 @@ type OrgGate =
   | { autorizado: false; resposta: NextResponse };
 
 async function orgOrFail(requestId: string): Promise<OrgGate> {
-  const user = await requireAuth();
-  const activeOrg = await resolveActiveOrg(user);
-  if (!activeOrg || ROLE_RANK[activeOrg.role] < ROLE_RANK.admin) {
-    return {
-      autorizado: false,
-      resposta: fail("forbidden", "admin_required", 403, { requestId }),
-    };
-  }
-  return { autorizado: true, orgId: activeOrg.orgId };
+  const authz = await requireRole("admin", { requestId, resource: "channels_templates" });
+  if (!authz.ok) return { autorizado: false, resposta: authz.response };
+  return { autorizado: true, orgId: authz.org.orgId };
 }
 
 export async function GET(): Promise<NextResponse> {

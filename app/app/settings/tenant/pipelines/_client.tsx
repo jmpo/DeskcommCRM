@@ -1,4 +1,6 @@
 "use client";
+
+import { useT } from "@/hooks/i18n/useT";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -6,8 +8,18 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { updatePipelineConfig } from "@/app/actions/settings/updatePipelineConfig";
 import type { PipelineConfigPatch } from "@/lib/schemas/settings";
+import { camposDoFunil } from "@/lib/leads/campos-do-funil";
+import { customFieldSchema, type CustomFieldDef } from "@/lib/schemas/settings";
+import { Plus, Trash } from "@/lib/ui/icons";
 import { AgentMappingSection, ancoraDoMapeamento } from "./_mapping";
 import { StagesSection, ancoraDasEtapas } from "./_stages";
 
@@ -17,19 +29,6 @@ export interface PipelineRow {
   slug: string;
   vocabulary: Record<string, string> | null;
   settings: Record<string, unknown> | null;
-}
-
-interface CustomFieldDef {
-  key: string;
-  label: string;
-  type: string;
-  required?: boolean;
-}
-
-function readFields(settings: Record<string, unknown> | null): CustomFieldDef[] {
-  if (!settings) return [];
-  const f = (settings as { fields?: unknown }).fields;
-  return Array.isArray(f) ? (f as CustomFieldDef[]) : [];
 }
 
 function readLostReasons(settings: Record<string, unknown> | null): string[] {
@@ -46,6 +45,7 @@ export function PipelinesClient({
   /** Vocabulário/custom fields são admin (a server action recusa o resto). */
   podeEditarConfig: boolean;
 }) {
+  const t = useT();
   if (pipelines.length === 0) {
     // ⚠️ NÃO PROMETA UM CAMINHO QUE NÃO EXISTE. Criar funil não é feito por
     // nenhuma tela, rota ou action deste produto — só por script de instalação;
@@ -55,10 +55,7 @@ export function PipelinesClient({
     // procurando um botão que não existe em lugar nenhum.
     return (
       <Card className="p-6 text-sm leading-relaxed text-muted-foreground">
-        Você ainda não tem nenhum funil. Enquanto for assim, o agente atende normalmente, mas não
-        tem para onde levar o card de ninguém — não há etapas para onde mover. Criar o funil é
-        feito por quem instalou o sistema, direto no banco; depois ele aparece aqui para você
-        escolher a etapa de cada passo.
+        {t("Você ainda não tem nenhum funil. Enquanto for assim, o agente atende normalmente, mas não tem para onde levar o card de ninguém — não há etapas para onde mover. Criar o funil é feito por quem instalou o sistema, direto no banco; depois ele aparece aqui para você escolher a etapa de cada passo.")}
       </Card>
     );
   }
@@ -87,26 +84,25 @@ export function PipelinesClient({
 }
 
 function PipelineEditor({ pipeline }: { pipeline: PipelineRow }) {
+  const t = useT();
   const v = pipeline.vocabulary ?? {};
   const [lead, setLead] = useState(v.lead ?? "Lead");
   const [deal, setDeal] = useState(v.deal ?? "Deal");
   const [won, setWon] = useState(v.won ?? "Ganho");
   const [lost, setLost] = useState(v.lost ?? "Perdido");
   const [reasonsText, setReasonsText] = useState(readLostReasons(pipeline.settings).join(", "));
-  const [fieldsJson, setFieldsJson] = useState(
-    JSON.stringify(readFields(pipeline.settings), null, 2),
-  );
+  const [fields, setFields] = useState<CustomFieldDef[]>(camposDoFunil(pipeline.settings));
   const [isPending, startTransition] = useTransition();
 
   function handleSave() {
-    let fields: CustomFieldDef[] | undefined;
-    try {
-      const parsed = JSON.parse(fieldsJson);
-      if (!Array.isArray(parsed)) throw new Error("not_array");
-      fields = parsed as CustomFieldDef[];
-    } catch {
-      toast.error("Custom fields: JSON inválido. Esperado um array.");
-      return;
+    const ok: CustomFieldDef[] = [];
+    for (const f of fields) {
+      const parsed = customFieldSchema.safeParse(f);
+      if (!parsed.success) {
+        toast.error(parsed.error.issues[0]?.message ?? t("Campo inválido."));
+        return;
+      }
+      ok.push(parsed.data);
     }
     const reasons = reasonsText
       .split(",")
@@ -115,7 +111,7 @@ function PipelineEditor({ pipeline }: { pipeline: PipelineRow }) {
 
     const patch: PipelineConfigPatch = {
       vocabulary: { lead, deal, won, lost },
-      fields: fields as PipelineConfigPatch["fields"],
+      fields: ok,
       lost_reasons: reasons,
     };
     startTransition(async () => {
@@ -125,9 +121,21 @@ function PipelineEditor({ pipeline }: { pipeline: PipelineRow }) {
     });
   }
 
+  const TIPOS: CustomFieldDef["type"][] = [
+    "text",
+    "textarea",
+    "number",
+    "date",
+    "boolean",
+    "email",
+    "phone",
+    "url",
+    "select",
+  ];
+
   return (
     <div className="space-y-4 border-t border-border pt-6">
-      <h3 className="text-sm font-semibold">Vocabulário e campos</h3>
+      <h3 className="text-sm font-semibold">{t("Vocabulário e campos")}</h3>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="space-y-1">
@@ -149,26 +157,105 @@ function PipelineEditor({ pipeline }: { pipeline: PipelineRow }) {
       </div>
 
       <div className="space-y-1">
-        <Label className="text-xs">Motivos de perda (separados por vírgula)</Label>
+        <Label className="text-xs">{t("Motivos de perda (separados por vírgula)")}</Label>
         <Input value={reasonsText} onChange={(e) => setReasonsText(e.target.value)} />
       </div>
 
-      <div className="space-y-1">
-        <Label className="text-xs">Custom fields (JSON array)</Label>
-        <textarea
-          value={fieldsJson}
-          onChange={(e) => setFieldsJson(e.target.value)}
-          className="min-h-32 w-full rounded-md border border-border bg-background p-2 font-mono text-xs"
-          spellCheck={false}
-        />
+      <div className="space-y-2">
+        <Label className="text-xs">{t("Campos do lead neste funil")}</Label>
         <p className="text-xs text-muted-foreground">
-          Ex: <code>{`[{ "key": "size", "label": "Tamanho", "type": "text" }]`}</code>
+          {t("Aparecem no dossiê do negócio. No follow-up, você escolhe em qual campo gravar a resposta.")}
         </p>
+        {fields.map((f, i) => (
+          <div key={`${f.key}-${i}`} className="grid gap-2 rounded-md border border-border p-2 md:grid-cols-[1fr_1fr_8rem_auto]">
+            <Input
+              aria-label={`${t("Chave do campo")} ${i + 1}`}
+              placeholder={t("chave (endereco)")}
+              value={f.key}
+              onChange={(e) => {
+                const next = [...fields];
+                next[i] = { ...f, key: e.target.value };
+                setFields(next);
+              }}
+            />
+            <Input
+              aria-label={`${t("Rótulo do campo")} ${i + 1}`}
+              placeholder={t("Rótulo (Endereço)")}
+              value={f.label}
+              onChange={(e) => {
+                const next = [...fields];
+                next[i] = { ...f, label: e.target.value };
+                setFields(next);
+              }}
+            />
+            <Select
+              value={f.type}
+              onValueChange={(type) => {
+                const next = [...fields];
+                next[i] = { ...f, type: type as CustomFieldDef["type"] };
+                setFields(next);
+              }}
+            >
+              <SelectTrigger aria-label={`${t("Tipo do campo")} ${i + 1}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TIPOS.map((tipo) => (
+                  <SelectItem key={tipo} value={tipo}>
+                    {tipo}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={`${t("Remover campo")} ${f.label || i + 1}`}
+              onClick={() => setFields(fields.filter((_, j) => j !== i))}
+            >
+              <Trash size={14} aria-hidden />
+            </Button>
+            {f.type === "select" && (
+              <Input
+                className="md:col-span-3"
+                aria-label={`${t("Opções do campo")} ${i + 1}`}
+                placeholder={t("Opções, separadas por vírgula")}
+                value={(f.options ?? []).map((o) => o.label).join(", ")}
+                onChange={(e) => {
+                  const options = e.target.value
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                    .map((label) => ({ value: label, label }));
+                  const next = [...fields];
+                  next[i] = { ...f, options };
+                  setFields(next);
+                }}
+              />
+            )}
+          </div>
+        ))}
+        {fields.length < 50 && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              setFields([
+                ...fields,
+                { key: `campo_${fields.length + 1}`, label: t("Novo campo"), type: "text" },
+              ])
+            }
+          >
+            <Plus size={14} aria-hidden className="mr-1" /> {t("Adicionar campo")}
+          </Button>
+        )}
       </div>
 
-      <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={isPending}>
-          {isPending ? "Salvando…" : "Salvar vocabulário e campos"}
+      <div className="flex sm:justify-end">
+        <Button onClick={handleSave} disabled={isPending} className="w-full sm:w-auto">
+          {isPending ? t("Salvando…") : t("Salvar vocabulário e campos")}
         </Button>
       </div>
     </div>

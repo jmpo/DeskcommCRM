@@ -5,6 +5,7 @@ import { ROLE_RANK } from "@/lib/auth/types";
 import { createClient } from "@/lib/supabase/server";
 import { BudgetCard } from "@/components/ai/BudgetCard";
 import { getBudgetStatus } from "@/lib/ai/budget/check";
+import { traduzir } from "@/lib/i18n/dicionario";
 import { UsageDashboardClient } from "./_client";
 
 export const dynamic = "force-dynamic";
@@ -51,15 +52,17 @@ export default async function AiUsagePage({ searchParams }: PageProps) {
 
   const budget = await getBudgetStatus(activeOrg.orgId);
   const isAdmin = ROLE_RANK[activeOrg.role] >= ROLE_RANK.admin;
+  const idioma = user.idioma;
 
   return (
     <div className="flex h-full flex-col gap-6 p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Uso de IA</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{traduzir("Uso de IA", idioma)}</h1>
         <p className="text-sm text-muted-foreground">
-          Quanto a inteligência artificial custou, quantos atendimentos ela fez, quanto
-          demorou para responder e quantas vezes precisou chamar uma pessoa — nos
-          últimos 30 dias.
+          {traduzir(
+            "Quanto a inteligência artificial custou, quantos atendimentos ela fez, quanto demorou para responder e quantas vezes precisou chamar uma pessoa — nos últimos 30 dias.",
+            idioma,
+          )}
         </p>
       </header>
       <BudgetCard initialData={budget} isAdmin={isAdmin} />

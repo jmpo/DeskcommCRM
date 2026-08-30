@@ -1,4 +1,6 @@
 "use client";
+
+import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 /**
  * O card de orçamento de IA — a peça que, até a 0159, mentia POR DEFAULT.
  *
@@ -47,6 +49,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PISO_DE_TETO_CENTS } from "@/lib/agent-engine/edge/llm/orcamento";
 import { useAiBudget, useUpdateBudget, type BudgetStatus } from "@/hooks/ai/useAiBudget";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   initialData?: BudgetStatus;
@@ -66,8 +69,8 @@ function fmtCents(cents: number): string {
   return usd.format((cents ?? 0) / 100);
 }
 
-function fmtData(iso: string): string {
-  return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+function fmtData(iso: string, idioma: string): string {
+  return new Date(iso).toLocaleString(idioma, { dateStyle: "short", timeStyle: "short" });
 }
 
 /**
@@ -82,10 +85,10 @@ function fmtData(iso: string): string {
  * ele rotula. Derivar da mesma janela da régua é o conserto; ressuscitar um
  * escritor da coluna seria manter dado morto vivo.
  */
-function mesCorrente(): string {
+function mesCorrente(idioma: string): string {
   const agora = new Date();
   const nome = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), 1)).toLocaleDateString(
-    "pt-BR",
+    idioma,
     { month: "long", year: "numeric", timeZone: "UTC" },
   );
   return nome;
@@ -96,21 +99,28 @@ function clamp(n: number, min: number, max: number): number {
 }
 
 /** A frase de estado. Uma por modo, e todas verdadeiras — essa é a regra. */
-function frameDoEstado(status: BudgetStatus): string {
+function frameDoEstado(
+  status: BudgetStatus,
+  t: (texto: string) => string = (texto) => texto,
+  // Mesmo tratamento do `t`: esta função é auxiliar e não pode chamar hook.
+  // Default no padrão do produto, para nenhum chamador quebrar.
+  tagDoIdioma = "pt-BR",
+): string {
   const efetivoEm = status.enforcement_effective_at;
   if (status.enforcement_mode === "off") {
-    return "Isto é só acompanhamento. A IA não vai parar sozinha por gasto.";
+    return t("Isto é só acompanhamento. A IA não vai parar sozinha por gasto.");
   }
   if (status.enforcement_mode === "avisar") {
-    return `Avisamos ao passar de ${status.alarm_threshold_pct}% do limite. A IA não para.`;
+    return `${t("Avisamos ao passar de")} ${status.alarm_threshold_pct}% ${t("do limite. A IA não para.")}`;
   }
   if (efetivoEm && new Date(efetivoEm).getTime() > Date.now()) {
-    return `A parada começa a valer em ${fmtData(efetivoEm)}. Até lá, só avisamos.`;
+    return `${t("A parada começa a valer em")} ${fmtData(efetivoEm, tagDoIdioma)}. ${t("Até lá, só avisamos.")}`;
   }
   return (
-    `A IA para de responder ao chegar em ${fmtCents(status.monthly_limit_cents)}. ` +
-    "Quando isso acontecer, as conversas em andamento vão para a fila de atendimento " +
-    "humano e voltam ao automático uma a uma, pelo cabeçalho de cada conversa."
+    `${t("A IA para de responder ao chegar em")} ${fmtCents(status.monthly_limit_cents)}. ` +
+    t(
+      "Quando isso acontecer, as conversas em andamento vão para a fila de atendimento humano e voltam ao automático uma a uma, pelo cabeçalho de cada conversa.",
+    )
   );
 }
 
@@ -119,17 +129,15 @@ function frameDoEstado(status: BudgetStatus): string {
  * VPS com a chave afrouxada estaria mexendo num controle que o processo ignora —
  * que é o defeito que este trabalho inteiro existe para consertar.
  */
-function avisoDaChave(status: BudgetStatus): string | null {
+function avisoDaChave(status: BudgetStatus, t: (texto: string) => string = (texto) => texto): string | null {
   if (status.enforcement_env === "off") {
-    return (
-      "A proteção de gasto está desligada nesta instalação (AI_BUDGET_ENFORCEMENT=off). " +
-      "O que estiver escolhido aqui não vale enquanto quem cuida do servidor não religar."
+    return t(
+      "A proteção de gasto está desligada nesta instalação (AI_BUDGET_ENFORCEMENT=off). O que estiver escolhido aqui não vale enquanto quem cuida do servidor não religar.",
     );
   }
   if (status.enforcement_env === "avisar") {
-    return (
-      "Nesta instalação a proteção só avisa (AI_BUDGET_ENFORCEMENT=avisar): mesmo com " +
-      '"Parar a IA" escolhido, ela vai continuar respondendo.'
+    return t(
+      'Nesta instalação a proteção só avisa (AI_BUDGET_ENFORCEMENT=avisar): mesmo com "Parar a IA" escolhido, ela vai continuar respondendo.',
     );
   }
   return null;
@@ -151,13 +159,15 @@ const AVISO_DE_MEDICAO =
   "painel do seu provedor de IA.";
 
 export function BudgetCard({ initialData, isAdmin }: Props) {
+  const tagDoIdioma = useTagDeIdioma();
+  const t = useT();
   const q = useAiBudget({ initialData });
   const status = q.data;
 
   if (!status) {
     return (
       <Card className="p-4">
-        <p className="text-sm text-muted-foreground">Carregando orçamento...</p>
+        <p className="text-sm text-muted-foreground">{t("Carregando orçamento...")}</p>
       </Card>
     );
   }
@@ -166,24 +176,24 @@ export function BudgetCard({ initialData, isAdmin }: Props) {
   const consumed = status.current_month_consumed_cents;
   const pct = clamp(status.pct, 0, 100);
   const overLimit = status.pct >= 100;
-  const chave = avisoDaChave(status);
+  const chave = avisoDaChave(status, t);
 
   return (
     <Card className="p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold tracking-tight">Orçamento mensal de IA</h2>
+          <h2 className="text-base font-semibold tracking-tight">{t("Orçamento mensal de IA")}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Gasto de {mesCorrente()} · valores em dólar (é a moeda em que o provedor de
-            IA cobra)
+            {t("Gasto de")} {mesCorrente(tagDoIdioma)} ·{" "}
+            {t("valores em dólar (é a moeda em que o provedor de IA cobra)")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* Um badge só de parada, e ele vem do ÚNICO produtor real: um
               `budget_exceeded` aberto na Central. */}
-          {status.blocked_now && <Badge variant="destructive">IA parada por gasto</Badge>}
+          {status.blocked_now && <Badge variant="destructive">{t("IA parada por gasto")}</Badge>}
           {!status.blocked_now && overLimit && limit > 0 && (
-            <Badge variant="secondary">Passou do limite</Badge>
+            <Badge variant="secondary">{t("Passou do limite")}</Badge>
           )}
           {isAdmin && <EditBudgetDialog status={status} />}
         </div>
@@ -200,7 +210,7 @@ export function BudgetCard({ initialData, isAdmin }: Props) {
           data-testid="aviso-medicao-incompleta"
           className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-900 dark:text-amber-200"
         >
-          {AVISO_DE_MEDICAO}
+          {t(AVISO_DE_MEDICAO)}
         </p>
       )}
 
@@ -224,15 +234,22 @@ export function BudgetCard({ initialData, isAdmin }: Props) {
         <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
           <span>
             <strong>{fmtCents(consumed)}</strong>
-            {limit > 0 ? <> gastos de {fmtCents(limit)}</> : <> gastos este mês</>}
+            {limit > 0 ? (
+              <>
+                {" "}
+                {t("gastos de")} {fmtCents(limit)}
+              </>
+            ) : (
+              <> {t("gastos este mês")}</>
+            )}
           </span>
           <span className="text-muted-foreground">
             {limit > 0 ? (
               <>
-                {status.pct.toFixed(0)}% do limite · {frameDoEstado(status)}
+                {status.pct.toFixed(0)}% {t("do limite")} · {frameDoEstado(status, t, tagDoIdioma)}
               </>
             ) : (
-              "Sem limite definido — a IA não vai parar sozinha por gasto."
+              t("Sem limite definido — a IA não vai parar sozinha por gasto.")
             )}
           </span>
         </div>
@@ -295,6 +312,7 @@ function OpcaoDeModo({
 }
 
 function EditBudgetDialog({ status }: { status: BudgetStatus }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const update = useUpdateBudget();
   const [limitUsd, setLimitUsd] = useState<string>(
@@ -362,15 +380,16 @@ function EditBudgetDialog({ status }: { status: BudgetStatus }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
-          Editar limite
+          {t("Editar limite")}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Orçamento de IA</DialogTitle>
+          <DialogTitle>{t("Orçamento de IA")}</DialogTitle>
           <DialogDescription>
-            Escolha o que acontece quando o gasto do mês chega no limite. Os valores
-            são em dólar — é a moeda em que o provedor de IA cobra.
+            {t(
+              "Escolha o que acontece quando o gasto do mês chega no limite. Os valores são em dólar — é a moeda em que o provedor de IA cobra.",
+            )}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
@@ -380,30 +399,32 @@ function EditBudgetDialog({ status }: { status: BudgetStatus }) {
               atual={modo}
               onPick={setModo}
               disabled={update.isPending}
-              titulo="Só acompanhar"
-              corpo="A IA nunca para por gasto. Você vê o número nesta tela e decide o que fazer."
+              titulo={t("Só acompanhar")}
+              corpo={t("A IA nunca para por gasto. Você vê o número nesta tela e decide o que fazer.")}
             />
             <OpcaoDeModo
               valor="avisar"
               atual={modo}
               onPick={setModo}
               disabled={update.isPending}
-              titulo={`Me avisar ao passar de ${limiarEfetivo}% de ${fmtCents(tetoParaCopy)}`}
-              corpo="Abrimos um aviso na Central de avisos. A IA continua respondendo normalmente."
+              titulo={`${t("Me avisar ao passar de")} ${limiarEfetivo}% ${t("de")} ${fmtCents(tetoParaCopy)}`}
+              corpo={t("Abrimos um aviso na Central de avisos. A IA continua respondendo normalmente.")}
             />
             <OpcaoDeModo
               valor="bloquear"
               atual={modo}
               onPick={setModo}
               disabled={update.isPending || pularDegrau}
-              titulo={`Parar a IA ao chegar em ${fmtCents(tetoParaCopy)}`}
+              titulo={`${t("Parar a IA ao chegar em")} ${fmtCents(tetoParaCopy)}`}
               corpo={
-                "As conversas em andamento vão para a fila de atendimento humano — ninguém " +
-                "fica sem resposta, mas alguém precisa responder. Cada uma volta ao " +
-                'automático pelo botão "Devolver ao automático" no cabeçalho dela.' +
+                t(
+                  'As conversas em andamento vão para a fila de atendimento humano — ninguém fica sem resposta, mas alguém precisa responder. Cada uma volta ao automático pelo botão "Devolver ao automático" no cabeçalho dela.',
+                ) +
                 (status.gasto_incompleto
-                  ? " ⚠️ Atenção: o produto ainda não sabe o preço do modelo em uso, então " +
-                    "o gasto medido é menor que o real e esta parada pode não disparar."
+                  ? " " +
+                    t(
+                      "⚠️ Atenção: o produto ainda não sabe o preço do modelo em uso, então o gasto medido é menor que o real e esta parada pode não disparar.",
+                    )
                   : "")
               }
               {...(pularDegrau
@@ -414,16 +435,16 @@ function EditBudgetDialog({ status }: { status: BudgetStatus }) {
                     // para salvar "Me avisar", reabrir e armar a parada em segundos.
                     // Quem garante tempo é a carência de 72h — e é dela que a frase
                     // fala agora.
-                    motivoBloqueado:
-                      'Disponível depois de salvar "Me avisar" — e, quando você armar a parada, ' +
-                      "ela só começa a valer 72 horas depois.",
+                    motivoBloqueado: t(
+                      'Disponível depois de salvar "Me avisar" — e, quando você armar a parada, ela só começa a valer 72 horas depois.',
+                    ),
                   }
                 : {})}
             />
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="limit-usd">Limite mensal (US$)</Label>
+            <Label htmlFor="limit-usd">{t("Limite mensal (US$)")}</Label>
             <Input
               id="limit-usd"
               type="number"
@@ -435,17 +456,18 @@ function EditBudgetDialog({ status }: { status: BudgetStatus }) {
             />
             {tetoInsuficiente && (
               <p className="text-xs text-destructive">
-                Para avisar ou parar no limite, ele precisa ser de pelo menos{" "}
-                {fmtCents(PISO_DE_TETO_CENTS)} por mês. Abaixo disso não é orçamento de
-                um atendimento — é erro de digitação. Se você só quer acompanhar o gasto
-                sem limite, escolha &quot;Só acompanhar&quot;.
+                {t("Para avisar ou parar no limite, ele precisa ser de pelo menos")}{" "}
+                {fmtCents(PISO_DE_TETO_CENTS)} {t("por mês. Abaixo disso não é orçamento de")}{" "}
+                {t(
+                  'um atendimento — é erro de digitação. Se você só quer acompanhar o gasto sem limite, escolha "Só acompanhar".',
+                )}
               </p>
             )}
           </div>
 
           {modo !== "off" && (
             <div className="space-y-1.5">
-              <Label htmlFor="threshold-pct">Avisar ao chegar em (% do limite)</Label>
+              <Label htmlFor="threshold-pct">{t("Avisar ao chegar em (% do limite)")}</Label>
               <Input
                 id="threshold-pct"
                 type="number"
@@ -461,8 +483,7 @@ function EditBudgetDialog({ status }: { status: BudgetStatus }) {
           {armando && (
             <div className="space-y-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
               <p className="text-xs">
-                A parada começa a valer <strong>72 horas</strong> depois de salvar. É o
-                tempo de você ver o aviso chegar antes que alguma conversa pare.
+                {t("A parada começa a valer")} <strong>72 {t("horas")}</strong> {t("depois de salvar. É o tempo de você ver o aviso chegar antes que alguma conversa pare.")}
               </p>
               <label className="flex cursor-pointer items-center gap-2 text-xs">
                 <input
@@ -471,7 +492,7 @@ function EditBudgetDialog({ status }: { status: BudgetStatus }) {
                   onChange={(e) => setImediato(e.target.checked)}
                   className="h-4 w-4 accent-primary"
                 />
-                Começar a valer agora, sem esperar as 72 horas
+                {t("Começar a valer agora, sem esperar as 72 horas")}
               </label>
             </div>
           )}
@@ -483,10 +504,10 @@ function EditBudgetDialog({ status }: { status: BudgetStatus }) {
               onClick={() => setOpen(false)}
               disabled={update.isPending}
             >
-              Cancelar
+              {t("Cancelar")}
             </Button>
             <Button type="submit" disabled={update.isPending || !centsValidos || tetoInsuficiente}>
-              {update.isPending ? "Salvando..." : "Salvar"}
+              {update.isPending ? t("Salvando...") : t("Salvar")}
             </Button>
           </DialogFooter>
         </form>

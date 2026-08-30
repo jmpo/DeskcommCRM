@@ -1,6 +1,7 @@
 /**
  * GET  /api/v1/ai/agents  — list agents da org ativa (manager+).
- *                            Inclui kind, priority, published_version_id, archived_at.
+ *                            Inclui kind, priority, published_version_id, archived_at,
+ *                            e o provider/model da VERSÃO PUBLICADA (ver abaixo).
  *                            Filtro `?include_archived=true` opcional.
  * POST /api/v1/ai/agents  — create agent (admin).
  *                            Mode A (legacy rag_bot): body sem `version` → cria agent
@@ -18,6 +19,7 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/ai/agents/escopo";
 import { agentCreateSchema } from "@/lib/ai/guardrails-schema";
 import { agentMcpCreateSchema } from "@/lib/ai/agents/validation";
 
@@ -43,7 +45,7 @@ const AGENT_COLUMNS_COM_VERSAO =
   ", versao_publicada:ai_agent_versions!ai_agents_published_version_id_fkey(provider, model)";
 
 const VERSION_COLUMNS =
-  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids";
+  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids";
 
 // ---------------------------------------------------------------------------
 // GET — list
@@ -70,6 +72,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const { data, error } = await query.order("created_at", { ascending: false });
   if (error) return fail("internal_error", "Erro ao listar agents.", 500, { requestId });
+
   return ok(data ?? [], { requestId });
 }
 
@@ -131,6 +134,18 @@ export async function POST(req: NextRequest): Promise<Response> {
       return fail("internal_error", "Erro ao criar agent.", 500, { requestId });
     }
 
+
+  // O escopo aponta para coisas que EXISTEM nesta organização. Sem esta
+  // conferência, um id de outra organização (ou de um material apagado) entra no
+  // array, a versão é publicada, e o assistente não acha nada — sem erro, com a
+  // tela mostrando a marcação como se estivesse valendo.
+  const escopo = await validarEscopoDaVersao(admin, activeOrg.orgId, {
+    pipeline_ids: v.pipeline_ids,
+    knowledge_source_ids: v.knowledge_source_ids,
+  });
+  if (!escopo.ok) {
+    return fail("validation_failed", mensagemDoEscopo(escopo), 422, { requestId });
+  }
     const { data: versionRow, error: versionErr } = await admin
       .from("ai_agent_versions")
       .insert({
@@ -155,6 +170,15 @@ export async function POST(req: NextRequest): Promise<Response> {
         split_messages: v.split_messages,
         split_max_chars: v.split_max_chars,
         followup: v.followup,
+        // O corpo ACEITAVA estes quatro e o INSERT os descartava: criar um
+        // agente pela API com papel Operador ligado, escopo de funil e acervo
+        // marcado produzia uma versão com todos eles no default do banco —
+        // desligado e vazio. O 201 dizia que tinha dado certo.
+        operator_enabled: v.operator_enabled,
+        operator_model: v.operator_model,
+        operator_tool_ids: v.operator_tool_ids,
+        pipeline_ids: v.pipeline_ids,
+        knowledge_source_ids: v.knowledge_source_ids,
         status: "draft",
         created_by: authUser.id,
       })

@@ -43,6 +43,7 @@ import {
 } from "@/hooks/ai/useRouters";
 import type { ClassifierModelOption } from "@/lib/ai/classifier-models";
 import type { ChannelSessionLite } from "../../agents/[id]/_components/AgentForm";
+import { useT } from "@/hooks/i18n/useT";
 
 interface AgentLite {
   id: string;
@@ -88,6 +89,7 @@ export function RouterEditorClient({
   channelSessions,
   classifierModels,
 }: Props) {
+  const t = useT();
   const nextRouter = useNextRouter();
   const canManage = usePermission("ai.routers.manage");
   const canTest = usePermission("ai.routers.view");
@@ -145,10 +147,10 @@ export function RouterEditorClient({
     JSON.stringify(currentMembers) !== JSON.stringify(baseline.members);
 
   const memberErrors = draftMembers.map((m) => {
-    if (!m.agent_id) return "Escolha o agente que atende esta intenção.";
-    if (m.intent_name.trim().length === 0) return "Dê um nome curto para a intenção.";
+    if (!m.agent_id) return t("Escolha o agente que atende esta intenção.");
+    if (m.intent_name.trim().length === 0) return t("Dê um nome curto para a intenção.");
     if (m.intent_description.trim().length === 0)
-      return "Descreva quando a IA deve escolher esta intenção.";
+      return t("Descreva quando a IA deve escolher esta intenção.");
     return null;
   });
   const duplicateNames = new Set(
@@ -186,7 +188,7 @@ export function RouterEditorClient({
 
   async function handleSave() {
     if (!isValid) {
-      toast.error("Resolva os campos destacados antes de salvar.");
+      toast.error(t("Resolva os campos destacados antes de salvar."));
       return;
     }
     try {
@@ -212,7 +214,7 @@ export function RouterEditorClient({
       if (JSON.stringify(currentMembers) !== JSON.stringify(baseline.members)) {
         await saveMembers.mutateAsync(currentMembers);
       }
-      toast.success("Roteador salvo.");
+      toast.success(t("Roteador salvo."));
     } catch (err) {
       showApiError(err);
     }
@@ -221,7 +223,7 @@ export function RouterEditorClient({
   function handleDelete() {
     deleteRouter.mutate(routerId, {
       onSuccess: () => {
-        toast.success("Roteador removido.");
+        toast.success(t("Roteador removido."));
         nextRouter.push("/app/ai/routers");
       },
       onError: showApiError,
@@ -235,21 +237,21 @@ export function RouterEditorClient({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <Link
             href="/app/ai/routers"
             className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
           >
-            <CaretLeft size={14} aria-hidden /> Roteadores
+            <CaretLeft size={14} aria-hidden /> {t("Roteadores")}
           </Link>
           <Badge variant={router.is_active ? "success" : "neutral"} className="text-xs">
-            {router.is_active ? "ativo" : "inativo"}
+            {router.is_active ? t("ativo") : t("inativo")}
           </Badge>
         </div>
         {canManage && (
           <Button variant="ghost" size="sm" onClick={() => setDeleteOpen(true)} className="text-destructive">
-            <Trash /> Excluir roteador
+            <Trash /> {t("Excluir roteador")}
           </Button>
         )}
       </div>
@@ -257,9 +259,9 @@ export function RouterEditorClient({
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="space-y-4">
           <Card className="space-y-3 p-4">
-            <h3 className="text-sm font-medium">Identificação</h3>
+            <h3 className="text-sm font-medium">{t("Identificação")}</h3>
             <div className="space-y-1">
-              <Label htmlFor="router-name">Nome</Label>
+              <Label htmlFor="router-name">{t("Nome")}</Label>
               <Input
                 id="router-name"
                 value={name}
@@ -269,15 +271,16 @@ export function RouterEditorClient({
               />
             </div>
             <div className="space-y-1">
-              <Label>Número de WhatsApp</Label>
+              <Label>{t("Número de WhatsApp")}</Label>
               <p className="rounded-md border border-border/60 px-3 py-2 text-sm text-muted-foreground">
                 {channel
                   ? `${channel.display_name}${channel.phone_number ? ` · ${channel.phone_number}` : ""}`
-                  : "Número removido"}
+                  : t("Número removido")}
               </p>
               <p className="text-xs text-muted-foreground">
-                O número não pode ser trocado depois de criado — crie outro roteador para um
-                número diferente.
+                {t(
+                  "O número não pode ser trocado depois de criado — crie outro roteador para um número diferente.",
+                )}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -288,15 +291,17 @@ export function RouterEditorClient({
                 disabled={!canManage}
               />
               <Label htmlFor="router-active">
-                {isActive ? "Ativo — está roteando as conversas deste número" : "Inativo — não roteia nada"}
+                {isActive
+                  ? t("Ativo — está roteando as conversas deste número")
+                  : t("Inativo — não roteia nada")}
               </Label>
             </div>
           </Card>
 
           <Card className="space-y-3 p-4">
-            <h3 className="text-sm font-medium">Modelo que identifica a intenção</h3>
+            <h3 className="text-sm font-medium">{t("Modelo que identifica a intenção")}</h3>
             <div className="space-y-1">
-              <Label htmlFor="router-classifier">Modelo do classificador</Label>
+              <Label htmlFor="router-classifier">{t("Modelo do classificador")}</Label>
               <Select
                 value={classifier}
                 onValueChange={setClassifier}
@@ -306,27 +311,31 @@ export function RouterEditorClient({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={AUTO}>Automático — usa o provedor da organização</SelectItem>
+                  <SelectItem value={AUTO}>{t("Automático — usa o provedor da organização")}</SelectItem>
                   {classifierModels.map((m) => (
                     <SelectItem key={`${m.provider}::${m.model_id}`} value={`${m.provider}::${m.model_id}`}>
                       {m.display_name} · {m.provider}
-                      {m.origem === "plataforma" ? " (chave desta instalação)" : ""}
+                      {m.origem === "plataforma" ? ` (${t("chave desta instalação")})` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
                 {classifierModels.length === 0
-                  ? "Nenhuma chave de IA utilizável nesta organização — cadastre uma em Agentes IA › Credenciais para poder escolher o modelo."
-                  : "Só aparecem modelos de provedores com chave cadastrada aqui. Se a conta do provedor estiver sem crédito, a identificação falha e tudo cai no fallback."}
+                  ? t(
+                      "Nenhuma chave de IA utilizável nesta organização — cadastre uma em Agentes IA › Credenciais para poder escolher o modelo.",
+                    )
+                  : t(
+                      "Só aparecem modelos de provedores com chave cadastrada aqui. Se a conta do provedor estiver sem crédito, a identificação falha e tudo cai no fallback.",
+                    )}
               </p>
             </div>
           </Card>
 
           <Card className="space-y-3 p-4">
-            <h3 className="text-sm font-medium">Se nenhuma intenção casar</h3>
+            <h3 className="text-sm font-medium">{t("Se nenhuma intenção casar")}</h3>
             <div className="space-y-1">
-              <Label htmlFor="router-fallback">Agente de fallback</Label>
+              <Label htmlFor="router-fallback">{t("Agente de fallback")}</Label>
               <Select
                 value={fallbackAgentId || NONE}
                 onValueChange={(v) => setFallbackAgentId(v === NONE ? "" : v)}
@@ -336,7 +345,7 @@ export function RouterEditorClient({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE}>Nenhum — responde com o atendimento padrão</SelectItem>
+                  <SelectItem value={NONE}>{t("Nenhum — responde com o atendimento padrão")}</SelectItem>
                   {agents.map((a) => (
                     <SelectItem key={a.id} value={a.id}>
                       {a.name}
@@ -345,8 +354,9 @@ export function RouterEditorClient({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Quando a IA não tem certeza do que o cliente quer, ela chama este agente em vez de
-                travar a conversa.
+                {t(
+                  "Quando a IA não tem certeza do que o cliente quer, ela chama este agente em vez de travar a conversa.",
+                )}
               </p>
             </div>
           </Card>
@@ -364,25 +374,27 @@ export function RouterEditorClient({
 
         <div className="space-y-4">
           <Card className="space-y-3 p-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-medium">Intenções</h3>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h3 className="text-sm font-medium">{t("Intenções")}</h3>
                 <p className="text-xs text-muted-foreground">
-                  Cada intenção descreve uma situação e diz qual agente deve assumir a conversa
-                  quando o cliente quer aquilo.
+                  {t(
+                    "Cada intenção descreve uma situação e diz qual agente deve assumir a conversa quando o cliente quer aquilo.",
+                  )}
                 </p>
               </div>
               {canManage && (
-                <Button variant="outline" size="sm" onClick={addMember}>
-                  <Plus /> Intenção
+                <Button variant="outline" size="sm" onClick={addMember} className="shrink-0">
+                  <Plus /> {t("Intenção")}
                 </Button>
               )}
             </div>
 
             {draftMembers.length === 0 ? (
               <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-                Nenhuma intenção ainda. Sem intenções, toda conversa cai direto no agente de
-                fallback (ou fica sem resposta automática, se você não escolher um).
+                {t(
+                  "Nenhuma intenção ainda. Sem intenções, toda conversa cai direto no agente de fallback (ou fica sem resposta automática, se você não escolher um).",
+                )}
               </p>
             ) : (
               <ul className="flex flex-col gap-3">
@@ -404,9 +416,9 @@ export function RouterEditorClient({
           </Card>
 
           {canManage && (
-            <div className="flex justify-end">
-              <Button onClick={handleSave} disabled={!dirty || !isValid || saving}>
-                {saving ? "Salvando…" : "Salvar"}
+            <div className="flex sm:justify-end">
+              <Button onClick={handleSave} disabled={!dirty || !isValid || saving} className="w-full sm:w-auto">
+                {saving ? t("Salvando…") : t("Salvar")}
               </Button>
             </div>
           )}
@@ -416,16 +428,18 @@ export function RouterEditorClient({
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir &ldquo;{router.name}&rdquo;?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("Excluir")} &ldquo;{router.name}&rdquo;?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              O número volta a ser atendido pelos gatilhos normais dos agentes (sem roteamento
-              por intenção). As intenções deste roteador são apagadas junto. Não é possível
-              desfazer.
+              {t(
+                "O número volta a ser atendido pelos gatilhos normais dos agentes (sem roteamento por intenção). As intenções deste roteador são apagadas junto. Não é possível desfazer.",
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>Excluir</AlertDialogAction>
+            <AlertDialogCancel>{t("Cancelar")}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete}>{t("Excluir")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -450,25 +464,26 @@ function IntentRow({
   onChange: (patch: Partial<DraftMember>) => void;
   onRemove: () => void;
 }) {
+  const t = useT();
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <div className="flex-1 space-y-1">
-          <Label>Nome da intenção</Label>
+          <Label>{t("Nome da intenção")}</Label>
           <Input
             value={member.intent_name}
             onChange={(e) => onChange({ intent_name: e.target.value })}
-            placeholder="Ex.: quer comprar"
+            placeholder={t("Ex.: quer comprar")}
             disabled={disabled}
             maxLength={120}
             aria-invalid={duplicate}
           />
         </div>
         <div className="flex-1 space-y-1">
-          <Label>Agente que atende</Label>
+          <Label>{t("Agente que atende")}</Label>
           <Select value={member.agent_id || undefined} onValueChange={(v) => onChange({ agent_id: v })} disabled={disabled}>
             <SelectTrigger>
-              <SelectValue placeholder="Selecione o agente" />
+              <SelectValue placeholder={t("Selecione o agente")} />
             </SelectTrigger>
             <SelectContent>
               {agents.map((a) => (
@@ -485,18 +500,20 @@ function IntentRow({
             size="icon"
             className="mt-5 shrink-0"
             onClick={onRemove}
-            aria-label="Remover intenção"
+            aria-label={t("Remover intenção")}
           >
             <Trash />
           </Button>
         )}
       </div>
       <div className="space-y-1">
-        <Label>Quando escolher esta intenção</Label>
+        <Label>{t("Quando escolher esta intenção")}</Label>
         <Textarea
           value={member.intent_description}
           onChange={(e) => onChange({ intent_description: e.target.value })}
-          placeholder="Escreva como explicaria para um atendente novo: em que situação o cliente cai aqui."
+          placeholder={t(
+            "Escreva como explicaria para um atendente novo: em que situação o cliente cai aqui.",
+          )}
           disabled={disabled}
           rows={2}
           maxLength={2000}
@@ -508,7 +525,7 @@ function IntentRow({
         disabled={disabled}
       />
       {duplicate ? (
-        <p className="text-xs text-destructive">Já existe outra intenção com este nome.</p>
+        <p className="text-xs text-destructive">{t("Já existe outra intenção com este nome.")}</p>
       ) : error ? (
         <p className="text-xs text-destructive">{error}</p>
       ) : null}
@@ -525,6 +542,7 @@ function ExamplesInput({
   onChange: (next: string[]) => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   const [draft, setDraft] = React.useState("");
 
   function add(ex: string) {
@@ -540,7 +558,7 @@ function ExamplesInput({
 
   return (
     <div className="space-y-1">
-      <Label>Frases de exemplo (opcional)</Label>
+      <Label>{t("Frases de exemplo (opcional)")}</Label>
       <div className="flex flex-wrap gap-1 rounded border border-border/60 p-2">
         {value.map((ex) => (
           <button
@@ -549,14 +567,14 @@ function ExamplesInput({
             onClick={() => !disabled && remove(ex)}
             className="group flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs hover:bg-destructive/15"
             disabled={disabled}
-            aria-label={`Remover exemplo ${ex}`}
+            aria-label={`${t("Remover exemplo")} ${ex}`}
           >
             {ex}
             <span className="text-muted-foreground group-hover:text-destructive">×</span>
           </button>
         ))}
         {value.length === 0 ? (
-          <span className="text-xs text-muted-foreground">Sem frases de exemplo.</span>
+          <span className="text-xs text-muted-foreground">{t("Sem frases de exemplo.")}</span>
         ) : null}
       </div>
       {!disabled && (
@@ -570,7 +588,7 @@ function ExamplesInput({
                 add(draft);
               }
             }}
-            placeholder="Ex.: quanto custa? (Enter)"
+            placeholder={t("Ex.: quanto custa? (Enter)")}
             disabled={value.length >= 10}
             maxLength={200}
           />
@@ -580,7 +598,7 @@ function ExamplesInput({
             onClick={() => add(draft)}
             disabled={draft.trim() === ""}
           >
-            Adicionar
+            {t("Adicionar")}
           </button>
         </div>
       )}
@@ -613,27 +631,29 @@ function TestPanel({
     | undefined;
   pending: boolean;
 }) {
+  const t = useT();
   const belowThreshold = result?.intent_name != null && result.confidence < result.min_confidence;
   return (
     <Card className="space-y-3 p-4">
       <CardHeader className="p-0">
-        <CardTitle className="text-sm">Testar classificação</CardTitle>
+        <CardTitle className="text-sm">{t("Testar classificação")}</CardTitle>
         <CardDescription>
-          Escreva uma frase como um cliente escreveria e veja qual intenção e qual agente o
-          roteador escolheria — sem afetar nenhuma conversa real.
+          {t(
+            "Escreva uma frase como um cliente escreveria e veja qual intenção e qual agente o roteador escolheria — sem afetar nenhuma conversa real.",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 p-0">
         {!isActive && (
           <div className="flex items-start gap-2 rounded-md bg-accent-soft p-3 text-xs text-text-muted">
             <Info className="mt-0.5 shrink-0" aria-hidden />
-            <p>Ative o roteador para poder testar a classificação.</p>
+            <p>{t("Ative o roteador para poder testar a classificação.")}</p>
           </div>
         )}
         <Textarea
           value={message}
           onChange={(e) => onMessageChange(e.target.value)}
-          placeholder="Ex.: oi, quero saber o preço do plano premium"
+          placeholder={t("Ex.: oi, quero saber o preço do plano premium")}
           rows={2}
           maxLength={4000}
           disabled={!canTest || !isActive}
@@ -644,28 +664,28 @@ function TestPanel({
           onClick={onTest}
           disabled={!canTest || !isActive || pending || !message.trim()}
         >
-          {pending ? "Testando…" : "Testar classificação"}
+          {pending ? t("Testando…") : t("Testar classificação")}
           {!pending && <ArrowRight />}
         </Button>
         {result && (
           <div className="rounded-md border border-border/60 p-3 text-sm">
             <p>
-              Intenção: <span className="font-medium">{result.intent_name ?? "nenhuma casou"}</span>
+              {t("Intenção")}: <span className="font-medium">{result.intent_name ?? t("nenhuma casou")}</span>
               {result.intent_name && (
                 <span className="ml-2 text-xs text-muted-foreground">
-                  confiança {(result.confidence * 100).toFixed(0)}%
+                  {t("confiança")} {(result.confidence * 100).toFixed(0)}%
                 </span>
               )}
             </p>
             {belowThreshold && (
               <p className="text-xs text-amber-600">
-                Confiança {(result.confidence * 100).toFixed(0)}% — abaixo do mínimo de{" "}
-                {(result.min_confidence * 100).toFixed(0)}%, cairia no atendimento padrão em produção.
+                {t("Confiança")} {(result.confidence * 100).toFixed(0)}% — {t("abaixo do mínimo de")}{" "}
+                {(result.min_confidence * 100).toFixed(0)}%, {t("cairia no atendimento padrão em produção.")}
               </p>
             )}
             <p>
-              Agente que atenderia:{" "}
-              <span className="font-medium">{result.agent_name ?? "nenhum (sem fallback)"}</span>
+              {t("Agente que atenderia")}:{" "}
+              <span className="font-medium">{result.agent_name ?? t("nenhum (sem fallback)")}</span>
             </p>
           </div>
         )}

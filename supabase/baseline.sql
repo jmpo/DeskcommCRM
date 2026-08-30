@@ -918,38 +918,17 @@ ALTER FUNCTION "public"."retrieve_top_k_chunks"("p_organization_id" "uuid", "p_k
 
 COMMENT ON FUNCTION "public"."retrieve_top_k_chunks"("p_organization_id" "uuid", "p_kb_version_id" "uuid", "p_embedding" "public"."vector", "p_k" integer, "p_threshold" real) IS 'Top-K cosine similarity over ai_chunks. SECURITY DEFINER + programmatic org_id filter. Caller must validate p_organization_id matches authenticated tenant.';
 
-
-
-CREATE OR REPLACE FUNCTION "public"."rls_auto_enable"() RETURNS "event_trigger"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'pg_catalog'
-    AS $$
-DECLARE
-  cmd record;
-BEGIN
-  FOR cmd IN
-    SELECT *
-    FROM pg_event_trigger_ddl_commands()
-    WHERE command_tag IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
-      AND object_type IN ('table','partitioned table')
-  LOOP
-     IF cmd.schema_name IS NOT NULL AND cmd.schema_name IN ('public') AND cmd.schema_name NOT IN ('pg_catalog','information_schema') AND cmd.schema_name NOT LIKE 'pg_toast%' AND cmd.schema_name NOT LIKE 'pg_temp%' THEN
-      BEGIN
-        EXECUTE format('alter table if exists %s enable row level security', cmd.object_identity);
-        RAISE LOG 'rls_auto_enable: enabled RLS on %', cmd.object_identity;
-      EXCEPTION
-        WHEN OTHERS THEN
-          RAISE LOG 'rls_auto_enable: failed to enable RLS on %', cmd.object_identity;
-      END;
-     ELSE
-        RAISE LOG 'rls_auto_enable: skip % (either system schema or not in enforced list: %.)', cmd.object_identity, cmd.schema_name;
-     END IF;
-  END LOOP;
-END;
-$$;
-
-
-ALTER FUNCTION "public"."rls_auto_enable"() OWNER TO "postgres";
+-- `rls_auto_enable()` (event trigger candidato para ligar RLS automaticamente em
+-- toda CREATE TABLE) foi removida em 2026-08-27: nunca existiu um `CREATE EVENT
+-- TRIGGER ... EXECUTE FUNCTION rls_auto_enable()` em lugar nenhum do baseline ou
+-- das migrations, então a função nunca foi de fato invocada pelo Postgres — e,
+-- sendo do tipo `event_trigger`, também não pode ser chamada manualmente via
+-- SQL. Era uma promessa de proteção automática que o código nunca cumpriu; quem
+-- lesse o baseline podia concluir, errado, que tabela nova nascia com RLS
+-- ligada sozinha. A garantia real de isolamento por tabela é comportamental
+-- (tests/invariants/rls-isolation.test.ts + rls-completude-varredura.test.ts),
+-- não um event trigger. Ligar o event trigger de verdade é mudança de
+-- comportamento de runtime do banco e mereceria revisão própria — não esta.
 
 SET default_tablespace = '';
 
@@ -4659,12 +4638,6 @@ GRANT ALL ON FUNCTION "public"."retrieve_top_k_chunks"("p_organization_id" "uuid
 
 
 
-GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "anon";
-GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "authenticated";
-GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "service_role";
-
-
-
 GRANT ALL ON TABLE "public"."ai_agent_runs" TO "authenticated";
 GRANT ALL ON TABLE "public"."ai_agent_runs" TO "service_role";
 
@@ -6753,7 +6726,7 @@ create table if not exists channel_knobs (
   jitter_max_ms integer,              -- teto do jitter randômico somado ao throttle
   window_start_hour smallint,         -- janela [start, end) na hora local da org
   window_end_hour smallint,
-  allow_sunday boolean,               -- domingo evitado por default
+  allow_sunday boolean,               -- NULL = default do código (hoje: enviar)
   timezone text,                      -- IANA tz da org (a janela é avaliada nela)
   -- degraus [{"minAgeDays":N,"cap":M|null}, ...]; CHECK (array NÃO-VAZIO) +
   -- validação de shape no load — NULL cai no default; `[]` é rejeitado.
@@ -10115,6 +10088,12 @@ alter table public.agent_inbox_items
     -- janela e reprova um teste que não tem nada a ver com o kind novo (medido:
     -- offset 1532 -> 2275). Kind novo entra no fim da lista.
     'budget_warning',
+    -- (migration 0181) O material que a pessoa enviou não entrou na base: falta
+    -- chave de embedding, a extração do arquivo falhou, ou nenhum trecho foi
+    -- gravado. Antes disto o worker devolvia `skipped` para o próprio log, o drain
+    -- tratava `skipped` como sucesso, e a linha da fonte seguia dizendo `ready`.
+    -- Irmão direto de `midia_nao_lida`: mesma chave, mesmo silêncio.
+    'conhecimento_nao_indexado',
     'other'
   ));
 
@@ -10196,7 +10175,6 @@ revoke execute on function public.fn_user_role_in(uuid) from public, anon;
 revoke execute on function public.fn_role_at_least(uuid, text) from public, anon;
 revoke execute on function public.fn_publish_ai_agent_version(uuid, uuid, uuid) from public, anon;
 revoke execute on function public.fn_emit_conversation_routing() from public, anon;
-revoke execute on function public.rls_auto_enable() from public, anon;
 
 -- ---- authenticated: definer volátil sem call site de sessão de usuário ----
 revoke execute on function public.fn_upsert_wa_contact(uuid, text, text, text, text, text) from authenticated;
@@ -10207,7 +10185,6 @@ revoke execute on function public.activate_kb_version(uuid, uuid) from authentic
 -- Funções de TRIGGER: ninguém as chama por RPC, e o disparo do trigger não
 -- consulta EXECUTE. O grant só existia por herança dos padrões do Postgres.
 revoke execute on function public.fn_emit_conversation_routing() from authenticated;
-revoke execute on function public.rls_auto_enable() from authenticated;
 
 -- ---- re-grant explícito: quem precisa continua podendo (probe positivo) ----
 grant execute on function public.fn_upsert_wa_contact(uuid, text, text, text, text, text) to service_role;
@@ -10216,7 +10193,6 @@ grant execute on function public.fn_mark_conversation_message(uuid, text, text, 
 grant execute on function public.fn_publish_ai_agent_version(uuid, uuid, uuid) to service_role;
 grant execute on function public.activate_kb_version(uuid, uuid) to service_role;
 grant execute on function public.fn_emit_conversation_routing() to service_role;
-grant execute on function public.rls_auto_enable() to service_role;
 -- Helpers de RLS: as policies são avaliadas com o papel de quem consulta, então
 -- `authenticated` PRECISA de EXECUTE — sem isto toda leitura logada quebra.
 grant execute on function public.fn_is_platform_admin() to authenticated, service_role;
@@ -13284,79 +13260,955 @@ comment on table public.api_audit_log is
   'app/api/v1/cron/data-retention. Não há camada cold/S3.';
 
 notify pgrst, 'reload schema';
--- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
+-- ---- quem manda na conversa: "Assumir" cala o automático (migration 0173) ----
 --
--- ⚠️ ESTE BLOCO É, DE PROPÓSITO, O ÚLTIMO DO ARQUIVO. Apêndice novo entra ANTES
--- dele — quem o empurrar para o meio desarma a cura para tudo que vier depois.
--- Vigiado por `tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts`.
+-- ⚠️ ENTRA ANTES DO BLOCO DA VARREDURA anon, que é de propósito o último do
+-- arquivo: `fn_conversation_assign` é recriada aqui e função criada depois da
+-- varredura nasce com EXECUTE para anon sem ninguém curar. Os revokes explícitos
+-- no fim deste bloco já fecham as duas origens, mas a ordem é a rede que pega o
+-- próximo que esquecer. Vigiado por `tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts`.
 --
--- A 0108 revogou anon numa LISTA de 8 funções, medida num banco instalado do
--- ZERO. Quem ATUALIZA tem outro estado: o `ALTER DEFAULT PRIVILEGES ... GRANT
--- ALL ON FUNCTIONS TO anon` do corpo deste arquivo grava uma entrada em
--- `pg_default_acl` que fica no catálogo PARA SEMPRE, e a partir daí toda função
--- criada em `public` nasce com EXECUTE para anon — inclusive as deste apêndice.
+-- Medido no HEAD 927dfa51: `lib/agent-engine/` NUNCA lê `assignee_kind` nem
+-- `assigned_to_user_id` (grep → rc=1), e `fn_conversation_assign` nunca tocou
+-- `bot_silenced_until`. Um atendente clicava "Assumir" e o automático continuava
+-- respondendo o MESMO cliente; ele só calava 5 minutos deslizantes quando a pessoa
+-- ENVIAVA (`extendBotSilence`). Dois atores atendendo a mesma pessoa é o defeito, e
+-- qualquer selo de "você está no comando" em cima disso seria mentira.
 --
--- Medido numa VPS real (2026-08-07), comparando com o que um install fresco
--- produz: 6 definer expostas a anon e 5 a authenticated, entre elas
--- `fn_decrypt_oauth` — alcançável pela anon key, que vai para o browser.
+-- O conserto entra na função de atribuição e não no motor porque
+-- `bot_silenced_until` é o gate que o motor JÁ lê — nenhuma linha do motor muda. A
+-- alternativa (ensinar o motor a ler `assignee_kind`) foi medida e REPROVADA:
+-- `Fechar` não solta o dono, de propósito, então o fim NORMAL de um atendimento
+-- deixaria `assignee_kind='user'` pendurado e o automático mudo para sempre naquele
+-- contato — e aquele gate é por CONTATO, então calaria conversa NOVA de outro número.
 --
--- Lista conserta o estoque e reabre no próximo `create function`. Esta varredura
--- é auto-curativa e roda DEPOIS de tudo que cria função, então cura no mesmo run
--- em que o defeito nasceria. Desfazer o ALTER DEFAULT PRIVILEGES não serve: ele
--- vem do `pg_dump` do Supabase e é reescrito a cada re-aplicação.
+-- O braço do rodízio é o que impede a regressão silenciosa:
+--   * `p_reason='routing'` → NÃO MEXE. Distribuir não é assumir.
+--     `trg_conversation_routing_requested` dispara em TODA conversa nova e o worker
+--     roda 1×/min: sem a ressalva, uma org em `round_robin` ficaria com o automático
+--     calado na primeira mensagem da vida de cada cliente.
+--   * destino humano (claim/transfer) → 'infinity'.  * destino nulo (release) → null.
 --
--- As duas origens de EXECUTE (a mesma lição da 0108): grant DIRETO a anon, que
--- `revoke from public` não remove; e grant a PUBLIC, do qual anon HERDA, que
--- `revoke from anon` não remove. O privilégio EFETIVO de authenticated e
--- service_role é medido ANTES e devolvido depois — tira anon sem tirar leitura.
-do $$
+-- Assinatura IDÊNTICA de 6 args de propósito: parâmetro novo criaria OVERLOAD (o
+-- `create or replace` não substitui assinatura diferente) e as cinco chamadas por
+-- nome passariam a falhar com `is not unique`. Idempotente; sem dados a corrigir.
+--
+-- A limpeza do silêncio ao FECHAR mora na rota (`close/route.ts`): fechar não passa
+-- por aqui, e sem ela o silêncio vazaria para o próximo episódio — a ingestão reusa
+-- a MESMA linha de conversa (`on conflict do update`).
+
+create or replace function public.fn_conversation_assign(
+  p_organization_id uuid,
+  p_conversation_id uuid,
+  p_to_user_id uuid,
+  p_reason text,
+  p_expected_assignee uuid default null,
+  p_enforce_expected boolean default false
+) returns setof public.conversations
+language plpgsql security definer
+set search_path = public
+as $$
 declare
-  f record;
-  tinha_auth boolean;
-  tinha_service boolean;
+  v_from uuid;
+  v_conv public.conversations%rowtype;
 begin
-  if to_regrole('anon') is null then
+  if auth.uid() is not null
+     and not public.fn_role_at_least(p_organization_id, 'agent') then
+    raise exception 'caller_not_authorized_for_org'
+      using hint = 'caller must be an active agent+ member of the organization';
+  end if;
+
+  if p_to_user_id is not null then
+    if coalesce(public.fn_member_role_in_org(p_to_user_id, p_organization_id), 'none')
+         not in ('agent','manager','admin') then
+      raise exception 'assignee_not_eligible_member'
+        using hint = 'target must be an active agent+ member of the organization';
+    end if;
+  end if;
+
+  select assigned_to_user_id into v_from
+    from public.conversations
+   where id = p_conversation_id
+     and organization_id = p_organization_id
+   for update;
+
+  if not found then
     return;
   end if;
 
-  for f in
-    select p.oid, p.oid::regprocedure as assinatura
-      from pg_proc p
-      join pg_namespace n on n.oid = p.pronamespace
-     where n.nspname = 'public'
-       and p.prosecdef
-  loop
-    tinha_auth := to_regrole('authenticated') is not null
-                  and has_function_privilege('authenticated', f.oid, 'EXECUTE');
-    tinha_service := to_regrole('service_role') is not null
-                     and has_function_privilege('service_role', f.oid, 'EXECUTE');
+  if p_enforce_expected and v_from is distinct from p_expected_assignee then
+    return;
+  end if;
 
-    execute format('revoke execute on function %s from public, anon', f.assinatura);
+  update public.conversations
+     set assigned_to_user_id = p_to_user_id,
+         assigned_at = case when p_to_user_id is null then null else now() end,
+         assignee_kind = case when p_to_user_id is null then null else 'user' end,
+         status = case when p_to_user_id is null then 'open' else 'claimed' end,
+         status_changed_at = now(),
+         unread_count_for_assignee = 0,
+         -- A trava só é solta por quem a pôs. `last_handoff_at` é o discriminador
+         -- que já existe: uma ESCALAÇÃO o carimba (`performHumanHandoff` e
+         -- `triggerHandoff`), um humano ASSUMINDO não. Sem esta condição, o
+         -- release apagaria o silêncio de uma conversa que a IA escalou — e o
+         -- caminho legado (`triggerHandoff`, usado pelo MCP, pelo handler de
+         -- sentimento, pelo worker e pelo teto de gasto) NÃO grava
+         -- `contacts.force_human`, então ali o silêncio é a ÚNICA trava. Medido:
+         -- `grep -n force_human lib/ai/handoff/orchestrator.ts` → rc=1.
+         -- Soltar de propósito é o botão "Devolver ao automático"
+         -- (`devolverAtendimentoAoAgente`), que limpa as três travas de uma vez.
+         bot_silenced_until = case
+           when p_reason = 'routing'  then bot_silenced_until
+           when p_to_user_id is null  then (case when last_handoff_at is null
+                                                 then null
+                                                 else bot_silenced_until end)
+           else 'infinity'::timestamptz
+         end,
+         updated_at = now()
+   where id = p_conversation_id
+   returning * into v_conv;
 
-    if tinha_auth then
-      execute format('grant execute on function %s to authenticated', f.assinatura);
+  insert into public.conversation_assignment_events
+    (organization_id, conversation_id, from_user_id, to_user_id, changed_by, reason)
+  values
+    (p_organization_id, p_conversation_id, v_from, p_to_user_id, auth.uid(), p_reason);
+
+  return next v_conv;
+end;
+$$;
+
+-- As DUAS origens de EXECUTE (doutrina, item 9): `revoke from public` não remove o
+-- grant direto que `anon` carrega via ALTER DEFAULT PRIVILEGES, e `revoke from anon`
+-- não remove o grant a PUBLIC dado na criação. Re-asseridas: é SECURITY DEFINER que
+-- reatribui conversa.
+revoke all     on function public.fn_conversation_assign(uuid, uuid, uuid, text, uuid, boolean) from public;
+revoke execute on function public.fn_conversation_assign(uuid, uuid, uuid, text, uuid, boolean) from anon;
+grant  execute on function public.fn_conversation_assign(uuid, uuid, uuid, text, uuid, boolean)
+  to authenticated, service_role;
+
+-- ---- o histórico de atribuição herda o escopo da conversa (migration 0173) ----
+-- Medido: org em `visibility_mode='own'`, agent que não é dono → `select` em
+-- `conversations` devolve 0 linhas e `select` em `conversation_assignment_events` da
+-- MESMA conversa devolve 1. A policy era membership de org pura enquanto
+-- `conversations_select` passa por `fn_can_view_conversation`. A tabela vive no
+-- schema `public`, então isso é alcançável pelo PostgREST com a anon key + o JWT do
+-- usuário — não depende de existir rota nossa.
+--
+-- Molde do `messages_select`: o `exists` sobre `conversations` já aplica a RLS de
+-- `conversations`, então o escopo é HERDADO em vez de reescrito — duas cópias da
+-- mesma regra divergem na primeira mudança de uma delas.
+drop policy if exists cae_select on public.conversation_assignment_events;
+create policy cae_select on public.conversation_assignment_events
+  for select using (
+    public.fn_is_platform_admin()
+    or (
+      -- O filtro de org fica, mesmo com o `exists` ao lado. Os dois predicados
+      -- respondem perguntas DIFERENTES: o `exists` diz "você enxerga esta
+      -- conversa?", e este diz "esta LINHA é da sua organização?". A policy de
+      -- INSERT (intocada) permite gravar uma linha com o `organization_id` de um
+      -- tenant e o `conversation_id` de outro; sem esta metade, quem enxerga a
+      -- conversa apontada leria a linha do tenant vizinho.
+      organization_id in (select public.fn_user_org_ids())
+      and exists (
+        select 1
+          from public.conversations c
+         where c.id = conversation_assignment_events.conversation_id
+      )
+    )
+  );
+
+-- ---- LGPD alcança o histórico de captação: função + trigger (migration 0174) ----
+--
+-- A PRIMEIRA metade da 0174. Está aqui, e não no fim do arquivo, porque cria
+-- FUNÇÃO — e o bloco da VARREDURA anon (logo abaixo) proíbe qualquer
+-- `create function` depois dele: a função nasceria com EXECUTE para `anon` em
+-- quem ATUALIZA, sem nada mais adiante para tirar. A tabela vai no bloco do
+-- fim, e a ordem entre os dois não importa: o corpo de uma plpgsql só resolve
+-- os nomes na execução, e o trigger é de UPDATE (nada dispara durante o
+-- baseline).
+--
+-- `fn_lgpd_cascade_redact_contact` tem 180 linhas; acrescentar um 9º passo
+-- exigiria reescrevê-la inteira aqui, e a partir daí existiriam duas cópias —
+-- a do dump e a do apêndice — que divergem no primeiro conserto que alguém
+-- fizer na de cima. O gancho é a transição `is_anonymized false → true` na
+-- própria `contacts`, que é o último fato da anonimização e roda na MESMA
+-- transação do cascade. E alcança mais que o 9º passo alcançaria: qualquer
+-- caminho que anonimize um contato passa por este UPDATE.
+create or replace function public.fn_redigir_captacoes_do_contato_anonimizado()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  update public.webhook_lead_captures
+     set captured_name = null,
+         captured_phone = null,
+         captured_email = null,
+         fields = '{}'::jsonb,
+         utm = '{}'::jsonb,
+         remote_ip = null,
+         user_agent = null
+   where organization_id = new.organization_id
+     and contact_id = new.id;
+  return new;
+end;
+$$;
+
+revoke execute on function public.fn_redigir_captacoes_do_contato_anonimizado() from public, anon, authenticated;
+grant execute on function public.fn_redigir_captacoes_do_contato_anonimizado() to service_role;
+
+notify pgrst, 'reload schema';
+
+-- ---- nono dígito canônico (migration 0198) ----
+-- 0198 — celular BR canônico COM o nono dígito
+--
+-- +553284793302 e +5532984793302 são a MESMA pessoa. O CRM passa a GRAVAR e
+-- MOSTRAR a forma com o 9; o WhatsApp/WAHA continuam podendo endereçar sem ele
+-- (check-exists tenta as duas grafias).
+--
+-- A busca por variantes já existia em TypeScript. Sem a RPC e sem o backfill,
+-- o webhook que chega sem o 9 ainda nascia um segundo contato.
+--
+-- Idempotente: create or replace + updates que na segunda passada casam zero
+-- linhas. Sem constraint nova.
+
+-- 1 · a RPC reencontra pelas duas grafias e GRAVA a canônica.
+create or replace function public.fn_upsert_wa_contact(
+  p_org uuid, p_kind text, p_phone text, p_lid text, p_chat_id text, p_notify text
+) returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid;
+  v_conflito text;
+  v_lid text := nullif(regexp_replace(coalesce(p_lid, ''), '@.*$', ''), '');
+  v_phone text := nullif(p_phone, '');
+  v_digits text;
+  v_alt text;
+begin
+  -- Celular BR de 12 dígitos (local 6–9) ganha o nono. A grafia sem o 9 fica
+  -- em v_alt só para a BUSCA — não se escreve mais.
+  if v_phone is not null then
+    v_digits := regexp_replace(v_phone, '\D', '', 'g');
+    if v_digits ~ '^55[1-9][0-9][6-9][0-9]{7}$' then
+      v_alt := '+' || v_digits;
+      v_phone := '+55' || substring(v_digits from 3 for 2) || '9' || substring(v_digits from 5);
+    elsif v_digits ~ '^55[1-9][0-9]9[6-9][0-9]{7}$' then
+      v_phone := '+' || v_digits;
+      v_alt := '+55' || substring(v_digits from 3 for 2) || substring(v_digits from 6);
     end if;
-    if tinha_service then
-      execute format('grant execute on function %s to service_role', f.assinatura);
+  end if;
+
+  if v_lid is not null then
+    select id into v_id from public.contacts
+     where organization_id = p_org and wa_lid = v_lid and is_merged_into is null
+     limit 1;
+  end if;
+
+  if v_id is null and v_phone is not null then
+    select id into v_id from public.contacts
+     where organization_id = p_org and is_merged_into is null
+       and phone_number in (v_phone, v_alt)
+     order by case when phone_number = v_phone then 0 else 1 end
+     limit 1;
+  end if;
+
+  if v_id is not null and v_phone is not null and exists (
+    select 1 from public.contacts
+     where organization_id = p_org and phone_number = v_phone
+       and is_merged_into is null and id <> v_id
+  ) then
+    v_conflito := v_phone;
+    v_phone := null;
+  end if;
+
+  if v_id is not null then
+    update public.contacts set
+      -- Promove 12→13 quando é a MESMA pessoa e o canônico está livre.
+      -- Outro número (pessoa diferente) continua intocável.
+      phone_number = case
+        when v_phone is not null and (phone_number is null or phone_number = v_alt) then v_phone
+        else phone_number
+      end,
+      display_name = coalesce(display_name, nullif(p_notify, '')),
+      source_metadata = source_metadata
+        || case when v_lid is not null then jsonb_build_object('waha_lid', v_lid) else '{}'::jsonb end
+        || case when p_chat_id is not null then jsonb_build_object('waha_chat_id', p_chat_id) else '{}'::jsonb end
+        || case when nullif(p_notify, '') is not null then jsonb_build_object('notify_name', p_notify) else '{}'::jsonb end
+        || case when v_conflito is not null then jsonb_build_object('telefone_em_conflito', v_conflito) else '{}'::jsonb end,
+      updated_at = now()
+    where id = v_id;
+    return v_id;
+  end if;
+
+  begin
+    insert into public.contacts (organization_id, phone_number, source, consent, tags, source_metadata, display_name)
+    values (p_org, v_phone, 'whatsapp', '{}'::jsonb, '{}'::text[],
+      case when v_lid is not null
+        then jsonb_build_object('waha_lid', v_lid, 'waha_chat_id', p_chat_id, 'notify_name', nullif(p_notify, ''))
+        else jsonb_build_object('waha_chat_id', p_chat_id, 'notify_name', nullif(p_notify, '')) end,
+      nullif(p_notify, ''))
+    returning id into v_id;
+    return v_id;
+  exception when unique_violation then
+    select id into v_id from public.contacts
+     where organization_id = p_org and is_merged_into is null
+       and (
+         (v_phone is not null and phone_number = v_phone)
+         or (v_alt is not null and phone_number = v_alt)
+         or (v_lid is not null and wa_lid = v_lid)
+       )
+     order by case when phone_number = v_phone then 0 else 1 end
+     limit 1;
+    return v_id;
+  end;
+end; $$;
+
+-- 2 · pares 12+13: funde o de 12 no de 13 (canônico). Conversas 1:1 no mesmo
+-- canal são fundidas ANTES de remarcarmos o contact_id, senão
+-- uniq_conversations_1to1_per_contact_session estoura.
+
+with pares as (
+  select sem.id as loser_id, com.id as winner_id
+    from public.contacts sem
+    join public.contacts com
+      on com.organization_id = sem.organization_id
+     and com.is_merged_into is null
+     and sem.is_merged_into is null
+     and sem.id <> com.id
+     and sem.is_anonymized = false
+     and com.is_anonymized = false
+     and regexp_replace(coalesce(sem.phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+     and com.phone_number = '+55'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 3 for 2)
+       || '9'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 5)
+)
+, conv_pares as (
+  select loser.id as loser_conv, winner.id as winner_conv, p.winner_id
+    from pares p
+    join public.conversations loser
+      on loser.contact_id = p.loser_id and loser.is_group = false
+    join public.conversations winner
+      on winner.contact_id = p.winner_id
+     and winner.channel_session_id = loser.channel_session_id
+     and winner.organization_id = loser.organization_id
+     and winner.is_group = false
+     and winner.id <> loser.id
+)
+update public.messages m
+   set conversation_id = cp.winner_conv, contact_id = cp.winner_id
+  from conv_pares cp
+ where m.conversation_id = cp.loser_conv;
+
+with pares as (
+  select sem.id as loser_id, com.id as winner_id
+    from public.contacts sem
+    join public.contacts com
+      on com.organization_id = sem.organization_id
+     and com.is_merged_into is null
+     and sem.is_merged_into is null
+     and sem.id <> com.id
+     and sem.is_anonymized = false
+     and com.is_anonymized = false
+     and regexp_replace(coalesce(sem.phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+     and com.phone_number = '+55'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 3 for 2)
+       || '9'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 5)
+)
+, conv_pares as (
+  select loser.id as loser_conv, winner.id as winner_conv
+    from pares p
+    join public.conversations loser
+      on loser.contact_id = p.loser_id and loser.is_group = false
+    join public.conversations winner
+      on winner.contact_id = p.winner_id
+     and winner.channel_session_id = loser.channel_session_id
+     and winner.organization_id = loser.organization_id
+     and winner.is_group = false
+     and winner.id <> loser.id
+)
+update public.ai_agent_runs t set conversation_id = cp.winner_conv
+  from conv_pares cp where t.conversation_id = cp.loser_conv;
+
+with pares as (
+  select sem.id as loser_id, com.id as winner_id
+    from public.contacts sem
+    join public.contacts com
+      on com.organization_id = sem.organization_id
+     and com.is_merged_into is null
+     and sem.is_merged_into is null
+     and sem.id <> com.id
+     and sem.is_anonymized = false
+     and com.is_anonymized = false
+     and regexp_replace(coalesce(sem.phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+     and com.phone_number = '+55'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 3 for 2)
+       || '9'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 5)
+)
+, conv_pares as (
+  select loser.id as loser_conv, winner.id as winner_conv
+    from pares p
+    join public.conversations loser
+      on loser.contact_id = p.loser_id and loser.is_group = false
+    join public.conversations winner
+      on winner.contact_id = p.winner_id
+     and winner.channel_session_id = loser.channel_session_id
+     and winner.organization_id = loser.organization_id
+     and winner.is_group = false
+     and winner.id <> loser.id
+)
+update public.ai_invocations t set conversation_id = cp.winner_conv
+  from conv_pares cp where t.conversation_id = cp.loser_conv;
+
+with pares as (
+  select sem.id as loser_id, com.id as winner_id
+    from public.contacts sem
+    join public.contacts com
+      on com.organization_id = sem.organization_id
+     and com.is_merged_into is null
+     and sem.is_merged_into is null
+     and sem.id <> com.id
+     and sem.is_anonymized = false
+     and com.is_anonymized = false
+     and regexp_replace(coalesce(sem.phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+     and com.phone_number = '+55'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 3 for 2)
+       || '9'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 5)
+)
+, conv_pares as (
+  select loser.id as loser_conv, winner.id as winner_conv
+    from pares p
+    join public.conversations loser
+      on loser.contact_id = p.loser_id and loser.is_group = false
+    join public.conversations winner
+      on winner.contact_id = p.winner_id
+     and winner.channel_session_id = loser.channel_session_id
+     and winner.organization_id = loser.organization_id
+     and winner.is_group = false
+     and winner.id <> loser.id
+)
+update public.conversation_notes t set conversation_id = cp.winner_conv
+  from conv_pares cp where t.conversation_id = cp.loser_conv;
+
+with pares as (
+  select sem.id as loser_id, com.id as winner_id
+    from public.contacts sem
+    join public.contacts com
+      on com.organization_id = sem.organization_id
+     and com.is_merged_into is null
+     and sem.is_merged_into is null
+     and sem.id <> com.id
+     and sem.is_anonymized = false
+     and com.is_anonymized = false
+     and regexp_replace(coalesce(sem.phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+     and com.phone_number = '+55'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 3 for 2)
+       || '9'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 5)
+)
+, conv_pares as (
+  select loser.id as loser_conv, winner.id as winner_conv
+    from pares p
+    join public.conversations loser
+      on loser.contact_id = p.loser_id and loser.is_group = false
+    join public.conversations winner
+      on winner.contact_id = p.winner_id
+     and winner.channel_session_id = loser.channel_session_id
+     and winner.organization_id = loser.organization_id
+     and winner.is_group = false
+     and winner.id <> loser.id
+)
+update public.conversation_assignment_events t set conversation_id = cp.winner_conv
+  from conv_pares cp where t.conversation_id = cp.loser_conv;
+
+with pares as (
+  select sem.id as loser_id, com.id as winner_id
+    from public.contacts sem
+    join public.contacts com
+      on com.organization_id = sem.organization_id
+     and com.is_merged_into is null
+     and sem.is_merged_into is null
+     and sem.id <> com.id
+     and sem.is_anonymized = false
+     and com.is_anonymized = false
+     and regexp_replace(coalesce(sem.phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+     and com.phone_number = '+55'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 3 for 2)
+       || '9'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 5)
+)
+, conv_pares as (
+  select loser.id as loser_conv, winner.id as winner_conv
+    from pares p
+    join public.conversations loser
+      on loser.contact_id = p.loser_id and loser.is_group = false
+    join public.conversations winner
+      on winner.contact_id = p.winner_id
+     and winner.channel_session_id = loser.channel_session_id
+     and winner.organization_id = loser.organization_id
+     and winner.is_group = false
+     and winner.id <> loser.id
+)
+update public.agent_cases t set conversation_id = cp.winner_conv
+  from conv_pares cp where t.conversation_id = cp.loser_conv;
+
+with pares as (
+  select sem.id as loser_id, com.id as winner_id
+    from public.contacts sem
+    join public.contacts com
+      on com.organization_id = sem.organization_id
+     and com.is_merged_into is null
+     and sem.is_merged_into is null
+     and sem.id <> com.id
+     and sem.is_anonymized = false
+     and com.is_anonymized = false
+     and regexp_replace(coalesce(sem.phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+     and com.phone_number = '+55'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 3 for 2)
+       || '9'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 5)
+)
+, conv_pares as (
+  select loser.id as loser_conv, winner.id as winner_conv
+    from pares p
+    join public.conversations loser
+      on loser.contact_id = p.loser_id and loser.is_group = false
+    join public.conversations winner
+      on winner.contact_id = p.winner_id
+     and winner.channel_session_id = loser.channel_session_id
+     and winner.organization_id = loser.organization_id
+     and winner.is_group = false
+     and winner.id <> loser.id
+)
+update public.followup_enrollments t set conversation_id = cp.winner_conv
+  from conv_pares cp where t.conversation_id = cp.loser_conv;
+
+with pares as (
+  select sem.id as loser_id, com.id as winner_id
+    from public.contacts sem
+    join public.contacts com
+      on com.organization_id = sem.organization_id
+     and com.is_merged_into is null
+     and sem.is_merged_into is null
+     and sem.id <> com.id
+     and sem.is_anonymized = false
+     and com.is_anonymized = false
+     and regexp_replace(coalesce(sem.phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+     and com.phone_number = '+55'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 3 for 2)
+       || '9'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 5)
+)
+, conv_pares as (
+  select loser.id as loser_conv, winner.id as winner_conv
+    from pares p
+    join public.conversations loser
+      on loser.contact_id = p.loser_id and loser.is_group = false
+    join public.conversations winner
+      on winner.contact_id = p.winner_id
+     and winner.channel_session_id = loser.channel_session_id
+     and winner.organization_id = loser.organization_id
+     and winner.is_group = false
+     and winner.id <> loser.id
+)
+update public.contact_field_proposals t set conversation_id = cp.winner_conv
+  from conv_pares cp where t.conversation_id = cp.loser_conv;
+
+with pares as (
+  select sem.id as loser_id, com.id as winner_id
+    from public.contacts sem
+    join public.contacts com
+      on com.organization_id = sem.organization_id
+     and com.is_merged_into is null
+     and sem.is_merged_into is null
+     and sem.id <> com.id
+     and sem.is_anonymized = false
+     and com.is_anonymized = false
+     and regexp_replace(coalesce(sem.phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+     and com.phone_number = '+55'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 3 for 2)
+       || '9'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 5)
+)
+, conv_pares as (
+  select loser.id as loser_conv, winner.id as winner_conv
+    from pares p
+    join public.conversations loser
+      on loser.contact_id = p.loser_id and loser.is_group = false
+    join public.conversations winner
+      on winner.contact_id = p.winner_id
+     and winner.channel_session_id = loser.channel_session_id
+     and winner.organization_id = loser.organization_id
+     and winner.is_group = false
+     and winner.id <> loser.id
+)
+delete from public.demanda_conversas d
+ using conv_pares cp
+ where d.conversation_id = cp.loser_conv
+   and exists (
+     select 1 from public.demanda_conversas w
+      where w.demanda_id = d.demanda_id and w.conversation_id = cp.winner_conv
+   );
+
+with pares as (
+  select sem.id as loser_id, com.id as winner_id
+    from public.contacts sem
+    join public.contacts com
+      on com.organization_id = sem.organization_id
+     and com.is_merged_into is null
+     and sem.is_merged_into is null
+     and sem.id <> com.id
+     and sem.is_anonymized = false
+     and com.is_anonymized = false
+     and regexp_replace(coalesce(sem.phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+     and com.phone_number = '+55'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 3 for 2)
+       || '9'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 5)
+)
+, conv_pares as (
+  select loser.id as loser_conv, winner.id as winner_conv
+    from pares p
+    join public.conversations loser
+      on loser.contact_id = p.loser_id and loser.is_group = false
+    join public.conversations winner
+      on winner.contact_id = p.winner_id
+     and winner.channel_session_id = loser.channel_session_id
+     and winner.organization_id = loser.organization_id
+     and winner.is_group = false
+     and winner.id <> loser.id
+)
+update public.demanda_conversas t set conversation_id = cp.winner_conv
+  from conv_pares cp where t.conversation_id = cp.loser_conv;
+
+with pares as (
+  select sem.id as loser_id, com.id as winner_id
+    from public.contacts sem
+    join public.contacts com
+      on com.organization_id = sem.organization_id
+     and com.is_merged_into is null
+     and sem.is_merged_into is null
+     and sem.id <> com.id
+     and sem.is_anonymized = false
+     and com.is_anonymized = false
+     and regexp_replace(coalesce(sem.phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+     and com.phone_number = '+55'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 3 for 2)
+       || '9'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 5)
+)
+, conv_pares as (
+  select loser.id as loser_conv, winner.id as winner_conv
+    from pares p
+    join public.conversations loser
+      on loser.contact_id = p.loser_id and loser.is_group = false
+    join public.conversations winner
+      on winner.contact_id = p.winner_id
+     and winner.channel_session_id = loser.channel_session_id
+     and winner.organization_id = loser.organization_id
+     and winner.is_group = false
+     and winner.id <> loser.id
+)
+delete from public.conversations d
+ using conv_pares cp
+ where d.id = cp.loser_conv;
+
+-- Marca os de 12 dígitos como fundidos no irmão de 13.
+with pares as (
+  select sem.id as loser_id, com.id as winner_id
+    from public.contacts sem
+    join public.contacts com
+      on com.organization_id = sem.organization_id
+     and com.is_merged_into is null
+     and sem.is_merged_into is null
+     and sem.id <> com.id
+     and sem.is_anonymized = false
+     and com.is_anonymized = false
+     and regexp_replace(coalesce(sem.phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+     and com.phone_number = '+55'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 3 for 2)
+       || '9'
+       || substring(regexp_replace(sem.phone_number, '\D', '', 'g') from 5)
+)
+update public.contacts c
+   set is_merged_into = p.winner_id, merged_at = now()
+  from pares p
+ where c.id = p.loser_id;
+
+-- lead_state é unique (org, contact): apaga o perdedor se o vencedor já tem linha.
+delete from public.lead_state l
+ using public.contacts c
+ where l.contact_id = c.id and c.is_merged_into is not null
+   and exists (
+     select 1 from public.lead_state w
+      where w.contact_id = c.is_merged_into and w.organization_id = l.organization_id
+   );
+
+update public.followup_enrollments e
+   set status = 'cancelled', cancel_reason = 'nono_digito_merge', next_eval_at = null, updated_at = now()
+  from public.contacts c
+ where e.contact_id = c.id and c.is_merged_into is not null
+   and e.status in ('active', 'waiting_reply', 'paused_handoff')
+   and exists (
+     select 1 from public.followup_enrollments w
+      where w.organization_id = e.organization_id
+        and w.contact_id = c.is_merged_into
+        and w.status in ('active', 'waiting_reply', 'paused_handoff')
+   );
+
+update public.conversations       t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.messages            t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.ai_agent_runs       t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.crm_lead_activities t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.crm_leads           t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.lgpd_requests       t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.orders              t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.job_queue           t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null
+  and not (t.status = 'running' and exists (
+    select 1 from public.job_queue w where w.contact_id = c.is_merged_into and w.status = 'running'
+  ));
+update public.send_ledger         t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.llm_calls           t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.lead_checkpoints    t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.lead_state          t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.lead_state_transitions t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.cron_jobs           t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.lead_notes          t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.before_send_traces  t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.followup_enrollments t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.demandas            t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+update public.contact_field_proposals t set contact_id = c.is_merged_into from public.contacts c where t.contact_id = c.id and c.is_merged_into is not null;
+
+-- 3 · quem só tinha a grafia de 12 dígitos ganha o nono. Pula se o canônico
+-- já pertence a outro contato vivo (o passo 2 deveria ter fundido; isto é o
+-- piso de segurança para o unique).
+update public.contacts
+   set phone_number = '+55'
+     || substring(regexp_replace(phone_number, '\D', '', 'g') from 3 for 2)
+     || '9'
+     || substring(regexp_replace(phone_number, '\D', '', 'g') from 5),
+       updated_at = now()
+ where is_merged_into is null
+   and is_anonymized = false
+   and regexp_replace(coalesce(phone_number, ''), '\D', '', 'g') ~ '^55[1-9][0-9][6-9][0-9]{7}$'
+   and not exists (
+     select 1 from public.contacts o
+      where o.organization_id = contacts.organization_id
+        and o.is_merged_into is null
+        and o.id <> contacts.id
+        and o.phone_number = '+55'
+          || substring(regexp_replace(contacts.phone_number, '\D', '', 'g') from 3 for 2)
+          || '9'
+          || substring(regexp_replace(contacts.phone_number, '\D', '', 'g') from 5)
+   );
+
+-- ---- agenda: o cascade que o vínculo polimórfico não tem — função (migration 0177) ----
+--
+-- A PRIMEIRA metade da 0177. Está aqui, e não no fim do arquivo, porque cria
+-- FUNÇÃO — e o bloco da VARREDURA anon (logo abaixo) proíbe qualquer
+-- `create function` depois dele: a função nasceria com EXECUTE para `anon` em
+-- quem ATUALIZA, sem nada mais adiante para tirar. A tabela, o trigger e a RLS
+-- vão no bloco do fim, e a ordem entre os dois não importa: o corpo de uma
+-- plpgsql só resolve nomes na execução, e o trigger é de DELETE (nada dispara
+-- durante o baseline).
+--
+-- O agendamento se liga ao lead por `crm_lead_links` (target_kind='appointment',
+-- valor que o CHECK daquela tabela já aceitava antes desta migration), e
+-- `target_id` é polimórfico: não pode ter FK, logo não tem ON DELETE. Apagar um
+-- agendamento deixaria o vínculo apontando para o nada. O caminho normal é que
+-- agendamento não se apague — se cancele —, mas isso é prosa, e prosa não é
+-- guarda.
+-- ────────────────────────────────────────────────────────────────────────────
+-- 8 · o cascade que o polimórfico não tem
+-- ────────────────────────────────────────────────────────────────────────────
+-- O vínculo com o lead vai por `crm_lead_links` (target_kind='appointment'), e
+-- `target_id` é polimórfico: não pode ter FK, logo não tem ON DELETE. Apagar
+-- um agendamento deixaria o vínculo apontando para o nada.
+--
+-- O caminho NORMAL é que agendamento não se apague: cancela-se (`status`
+-- 'cancelled'), porque o cancelamento é informação de negócio e a aba
+-- Histórico existe para mostrá-lo. Mas "ninguém deveria apagar" é prosa, e
+-- prosa não é guarda. Este trigger é o mecanismo.
+create or replace function public.fn_limpar_vinculos_do_agendamento()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  delete from public.crm_lead_links
+   where organization_id = old.organization_id
+     and target_kind = 'appointment'
+     and target_id = old.id;
+  return old;
+end;
+$$;
+
+-- Função de trigger não exige EXECUTE de quem dispara o DELETE, então revogar
+-- das três origens não a quebra — e mantém a função fora da lista de exceções
+-- do invariante de hardening, que é congelada.
+revoke execute on function public.fn_limpar_vinculos_do_agendamento() from public, anon, authenticated;
+grant  execute on function public.fn_limpar_vinculos_do_agendamento() to service_role;
+
+-- ---- LGPD alcança a agenda: função (migration 0184) ----
+--
+-- A PRIMEIRA metade da 0184. Está aqui, e não no fim, porque cria FUNÇÃO — e a
+-- VARREDURA anon (logo abaixo) proíbe `create function` depois dela: a função
+-- nasceria com EXECUTE para `anon` em quem ATUALIZA, sem nada adiante para tirar.
+-- O trigger vai no bloco do fim; a ordem não importa, porque o corpo de uma
+-- plpgsql só resolve nomes na execução e nada dispara UPDATE durante o baseline.
+--
+-- `fn_lgpd_cascade_redact_contact` percorre uma lista escrita à mão e
+-- `calendar_appointments` não estava nela — e a tabela guarda `title`,
+-- `description`, `notes` (numa clínica, queixa clínica), `location_details` e
+-- `cancellation_reason`. A função reportava sucesso, a rota reportava sucesso, o
+-- SLA de D+15 era marcado como cumprido, e a queixa continuava legível.
+--
+-- Trigger e não passo dentro da função: ela vem do dump com ~180 linhas, e um
+-- passo novo exigiria carregar uma CÓPIA inteira dela aqui — duas cópias que
+-- divergem no primeiro conserto. E o trigger escuta a COLUNA, não o chamador,
+-- então alcança qualquer caminho de anonimização.
+create or replace function public.fn_redigir_agenda_do_contato_anonimizado()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  update public.calendar_appointments
+     set title               = 'Compromisso anonimizado',
+         description         = null,
+         notes               = null,
+         location_details    = null,
+         meeting_url         = null,
+         cancellation_reason = null
+   where organization_id = new.organization_id
+     and contact_id = new.id;
+  return new;
+end;
+$$;
+
+-- Função de trigger não exige EXECUTE de quem dispara o UPDATE, então revogar
+-- das três origens não a quebra — e a mantém fora da lista de exceções do
+-- invariante de hardening, que é congelada.
+revoke execute on function public.fn_redigir_agenda_do_contato_anonimizado() from public, anon, authenticated;
+grant  execute on function public.fn_redigir_agenda_do_contato_anonimizado() to service_role;
+
+-- ---- a agenda nasce com o que marcar: funções (migration 0185) ----
+--
+-- A PRIMEIRA metade da 0185, aqui porque cria FUNÇÃO e a VARREDURA anon (logo
+-- abaixo) proíbe `create function` depois dela.
+--
+-- Zero INSERT em `calendar_event_types` em todo o repo, medido com controle
+-- positivo. Instalação fresca abria a Agenda numa semana em branco, sem nada
+-- para clicar e sem mensagem — e grade vazia é indistinguível de "ninguém marcou
+-- hoje". É o P0 da doutrina de QA Visual.
+--
+-- NEUTRO de propósito: o nicho não é persistido em lugar nenhum (a inferência
+-- roda em memória no passo do funil e morre lá), e o trigger dispara no INSERT
+-- da organização, antes de existir qualquer texto para inferir. Este é o PISO;
+-- o enriquecimento por nicho vive onde o nicho existe, no passo do onboarding.
+create or replace function public.fn_semear_tipos_de_agendamento(p_organization_id uuid)
+returns integer
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_criados integer := 0;
+  r record;
+begin
+  for r in
+    select * from (values
+      ('Consulta',    'consulta',    'consulta', 30, 1000::numeric),
+      ('Reunião',     'reuniao',     'reuniao',  30, 2000::numeric),
+      ('Atendimento', 'atendimento', 'outro',    30, 3000::numeric)
+    ) as t(nome, slug, categoria, duracao, posicao)
+  loop
+    insert into public.calendar_event_types
+      (organization_id, name, slug, category, duration_minutes, position)
+    values
+      (p_organization_id, r.nome, r.slug, r.categoria, r.duracao, r.posicao)
+    on conflict (organization_id, slug) do nothing;
+
+    if found then
+      v_criados := v_criados + 1;
     end if;
   end loop;
-end $$;
 
--- regra 2 (authenticated): as 5 que o update abriu e o install não abre. Aqui não
--- cabe varredura — `authenticated` PRECISA de EXECUTE nos helpers de RLS e em
--- `retrieve_top_k_chunks` (num install fresco ele tem). É julgamento por função,
--- e o alvo de cada linha é o valor que um install fresco produz, medido.
-revoke execute on function public.fn_audit_log_row() from authenticated;
-revoke execute on function public.fn_decrypt_oauth(bytea) from authenticated;
-revoke execute on function public.fn_encrypt_oauth(text) from authenticated;
-revoke execute on function public.fn_lgpd_cascade_redact_contact(uuid, uuid, uuid) from authenticated;
-revoke execute on function public.fn_update_budget_consumption() from authenticated;
+  return v_criados;
+end;
+$$;
 
-grant execute on function public.fn_audit_log_row() to service_role;
-grant execute on function public.fn_decrypt_oauth(bytea) to service_role;
-grant execute on function public.fn_encrypt_oauth(text) to service_role;
-grant execute on function public.fn_lgpd_cascade_redact_contact(uuid, uuid, uuid) to service_role;
-grant execute on function public.fn_update_budget_consumption() to service_role;
+create or replace function public.fn_semear_tipos_de_agendamento_na_org_nova()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.fn_semear_tipos_de_agendamento(new.id);
+  return new;
+end;
+$$;
+
+-- Função de trigger não exige EXECUTE de quem dispara o INSERT, e a de seed é
+-- chamada por ela e pelo backfill — nenhum dos dois passa pelo PostgREST.
+revoke execute on function public.fn_semear_tipos_de_agendamento(uuid) from public, anon, authenticated;
+revoke execute on function public.fn_semear_tipos_de_agendamento_na_org_nova() from public, anon, authenticated;
+grant  execute on function public.fn_semear_tipos_de_agendamento(uuid) to service_role;
+grant  execute on function public.fn_semear_tipos_de_agendamento_na_org_nova() to service_role;
+
+-- ---- o espelho do Google é cache com prazo: função (migration 0187) ----
+--
+-- A PRIMEIRA metade da 0187, aqui porque cria FUNÇÃO e a VARREDURA anon proíbe
+-- `create function` depois dela.
+--
+-- `calendar_external_events` ficou fora da cascata de LGPD (0184) por não ter
+-- `contact_id`. A decisão foi declarar ESPELHO — a fonte da verdade é a agenda do
+-- Google do próprio cliente. Mas essa declaração só é honesta com três
+-- propriedades, e faltava a terceira: PRAZO. Sem ele, "espelho" é um nome mais
+-- simpático para arquivo permanente de compromissos de terceiros.
+--
+-- Corta por `ends_at`, nunca por `created_at`: compromisso futuro não envelhece,
+-- e apagá-lo faria a agenda marcar em cima de hora ocupada. Piso de 7 dias e não
+-- 90 como o da auditoria — auditoria é rastro que precisa sobreviver a um
+-- incidente; isto é cache que o sync repõe.
+create or replace function public.fn_expurgar_espelho_da_agenda(
+  p_retencao_dias int default null,
+  p_limite int default null
+) returns int
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  -- 90 dias de passado visível; piso de 7 porque isto é cache reconstruível pelo
+  -- sync, e não rastro que precise sobreviver a um incidente.
+  v_dias int := greatest(coalesce(p_retencao_dias, 90), 7);
+  v_limite int := least(greatest(coalesce(p_limite, 1000), 1), 10000);
+  v_apagadas int;
+begin
+  with vencidos as (
+    select e.id
+      from public.calendar_external_events e
+     -- `ends_at` e não `created_at`: um compromisso futuro não envelhece, e
+     -- apagá-lo faria a agenda marcar em cima de hora ocupada.
+     where e.ends_at < now() - make_interval(days => v_dias)
+     order by e.ends_at
+     limit v_limite
+  )
+  delete from public.calendar_external_events e
+   using vencidos v
+   where e.id = v.id;
+  get diagnostics v_apagadas = row_count;
+  return v_apagadas;
+end;
+$$;
+
+revoke execute on function public.fn_expurgar_espelho_da_agenda(int, int) from public, anon, authenticated;
+grant  execute on function public.fn_expurgar_espelho_da_agenda(int, int) to service_role;
 
 -- ---- mensagem editada e mensagem apagada (migration 0153) ----
 -- O cliente edita ou apaga no aplicativo e o CRM seguia mostrando a versão
@@ -13976,4 +14828,2272 @@ create unique index if not exists channel_sessions_zernio_account_id_ativo_uniqu
   on public.channel_sessions (zernio_account_id)
   where archived_at is null and zernio_account_id is not null;
 
+-- ---- superfície do pointer de follow-up (migration 0196) ----
+-- IA vs automação CRM: um motor, duas listas. Default 'followup' deixa toda
+-- linha já existente na superfície de IA. CHECK de conjunto (PARES).
+alter table public.followup_flow_pointers
+  add column if not exists surface text not null default 'followup';
+
+alter table public.followup_flow_pointers
+  drop constraint if exists followup_flow_pointers_surface_check;
+
+alter table public.followup_flow_pointers
+  add constraint followup_flow_pointers_surface_check
+  check (surface in ('followup', 'crm_automation'));
+
+comment on column public.followup_flow_pointers.surface is
+  'Onde o fluxo aparece: followup = /app/ai/followups; crm_automation = CRM Automação. '
+  'Vocabulário cobrado por tests/invariants/vocabulario-banco-x-typescript.test.ts.';
+
+-- ---- inscrição Web Push (migrations 0197 e 0199) ----
+-- Bandeja do sistema com a aba fechada. A policy abaixo já é a da 0199 (o
+-- forward-fix de RBAC): quem atualiza recebe as duas de uma vez, e quem
+-- instala do zero nunca chega a existir sem o `fn_role_at_least`.
+create table if not exists public.push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists push_subscriptions_org_idx
+  on public.push_subscriptions (organization_id);
+
+alter table public.push_subscriptions enable row level security;
+
+drop policy if exists push_subscriptions_own on public.push_subscriptions;
+create policy push_subscriptions_own on public.push_subscriptions
+  for all
+  using (
+    organization_id in (select public.fn_user_org_ids())
+    and user_id = auth.uid()
+    and public.fn_role_at_least(organization_id, 'viewer')
+  )
+  with check (
+    organization_id in (select public.fn_user_org_ids())
+    and user_id = auth.uid()
+    and public.fn_role_at_least(organization_id, 'viewer')
+  );
+
+revoke all on public.push_subscriptions from anon, public;
+grant select, insert, update, delete on public.push_subscriptions to authenticated;
+
+comment on table public.push_subscriptions is
+  'Inscrição Web Push por navegador. Envio é service role; a sessão só vê a própria linha.';
+
+-- ---- a mensagem que responde outra (migration 0168) ----
+-- O canal intermediado aceita citação (`replyTo` no envio, com o `wamid` da
+-- citada) e o WhatsApp mostra a resposta pendurada na original. Sem guardar
+-- QUEM foi citado, o CRM manda a citação para o cliente e não a mostra de volta
+-- na própria tela: o atendente vê frases soltas onde o cliente vê um fio.
+--
+-- FK e não o wamid solto: a pergunta da tela é "qual mensagem NOSSA foi
+-- citada?", e a resposta é uma linha desta tabela — inclusive quando ela ainda
+-- não tem `external_id` (a nossa, enquanto está `queued`). O id que o provider
+-- recebe sai da linha apontada, no envio.
+--
+-- `set null` no delete: apagar a citada não pode levar junto a resposta, que é
+-- conteúdo próprio. Perder o fio é aceitável; perder a resposta é apagar
+-- histórico por causa de um ponteiro.
+alter table public.messages
+  add column if not exists reply_to_message_id uuid
+    references public.messages(id) on delete set null;
+create index if not exists messages_reply_to_idx
+  on public.messages (reply_to_message_id)
+  where reply_to_message_id is not null;
+
 notify pgrst, 'reload schema';
+
+-- ---- histórico DURÁVEL de leads captados: tabela (migration 0174) ----
+--
+-- A SEGUNDA metade da 0174. A função e o trigger de LGPD estão ANTES do bloco
+-- da VARREDURA anon, e a razão está escrita lá.
+--
+-- Quem publica uma landing page precisa responder depois: "chegou alguém?",
+-- "com que dados?" e "de onde?". A única coisa que existia era o ARQUIVO
+-- FORENSE (`webhook_events_log`), que é DESCARTÁVEL por desenho: o cron
+-- `webhook-log-retention` zera `raw_body`/`payload_parsed`/`headers` em D+7 e
+-- apaga a linha em D+90 (migration 0163). Foi a decisão certa — ele era 468 MB
+-- de um banco de 545 MB numa instalação real — mas transforma qualquer
+-- histórico construído sobre ele numa tela que MENTE a partir do sétimo dia.
+--
+-- O que esta tabela guarda e o arquivo não guardava: o IP em coluna tipada (lá
+-- ele só existia solto dentro de `headers`, que é podado); o DESFECHO (o
+-- arquivo registra "chegou um POST" e não sabe se virou lead, se caiu na
+-- deduplicação, ou se foi RECUSADO — que é justamente o caso em que a pessoa
+-- não vê nada hoje); e o nome da fonte NO MOMENTO da captação.
+--
+-- RLS exige `manager`: `fields` carrega o formulário como a pessoa preencheu, e
+-- a policy de `webhook_events_log` é org-flat sem gate de papel — qualquer
+-- `viewer` lê aquela PII pelo PostgREST, mesmo com a rota HTTP exigindo
+-- manager. Não repetir o buraco. Sem policy de escrita: só o service role
+-- escreve (a rota pública de captação), e ele bypassa RLS.
+create table if not exists public.webhook_lead_captures (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  webhook_source_id uuid references public.webhook_sources(id) on delete set null,
+  source_name text not null,
+  lead_id uuid references public.crm_leads(id) on delete set null,
+  contact_id uuid references public.contacts(id) on delete set null,
+  outcome text not null
+    check (outcome in ('criado', 'duplicado', 'recusado')),
+  reject_reason text,
+  captured_name text,
+  captured_phone text,
+  captured_email text,
+  fields jsonb not null default '{}'::jsonb,
+  utm jsonb not null default '{}'::jsonb,
+  remote_ip inet,
+  user_agent text,
+  origin text,
+  request_id uuid,
+  received_at timestamptz not null default now()
+);
+
+create index if not exists webhook_lead_captures_org_recebido_idx
+  on public.webhook_lead_captures (organization_id, received_at desc, id desc);
+create index if not exists webhook_lead_captures_fonte_idx
+  on public.webhook_lead_captures (webhook_source_id, received_at desc)
+  where webhook_source_id is not null;
+create index if not exists webhook_lead_captures_lead_idx
+  on public.webhook_lead_captures (lead_id)
+  where lead_id is not null;
+create index if not exists webhook_lead_captures_poda_idx
+  on public.webhook_lead_captures (received_at);
+
+comment on table public.webhook_lead_captures is
+  'Histórico DURÁVEL de leads captados por formulário/webhook: o que chegou, quando, de onde (IP, página, UTM) e no que deu. '
+  'Distinto de webhook_events_log, que é arquivo forense e é PODADO (corpo em D+7, linha em D+90).';
+comment on column public.webhook_lead_captures.remote_ip is
+  'IP de origem do POST, lido de x-forwarded-for/x-real-ip. Informativo — forjável, nada no produto decide com base nele. NULL = não havia proxy à frente.';
+comment on column public.webhook_lead_captures.outcome is
+  'criado = virou lead novo; duplicado = mesmo external_id já capturado antes (retry da ferramenta); recusado = não entrou (reject_reason diz por quê).';
+comment on column public.webhook_lead_captures.source_name is
+  'Nome da fonte NO MOMENTO da captação. Cópia deliberada: a fonte pode ser renomeada ou excluída, e o histórico responde de onde o contato veio.';
+
+alter table public.webhook_lead_captures enable row level security;
+
+drop policy if exists "webhook_lead_captures_manager_read" on public.webhook_lead_captures;
+create policy "webhook_lead_captures_manager_read" on public.webhook_lead_captures
+  for select using (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and public.fn_role_at_least(organization_id, 'manager'))
+  );
+
+-- O trigger vive aqui (e não com a função, no bloco de cima) porque só faz
+-- sentido depois que a tabela existe.
+drop trigger if exists trg_redigir_captacoes_ao_anonimizar on public.contacts;
+create trigger trg_redigir_captacoes_ao_anonimizar
+  after update of is_anonymized on public.contacts
+  for each row
+  when (new.is_anonymized is true and old.is_anonymized is distinct from true)
+  execute function public.fn_redigir_captacoes_do_contato_anonimizado();
+
+
+-- ---- a automação precisa poder dizer "ainda não" (migration 0175) ----
+--
+-- `automation_rule_runs.status` aceitava success/partial/failed. Faltava o
+-- quarto estado que o motor JÁ produz: quando uma ação de envio pede adiamento
+-- (fora da janela do número, cap diário), `runAutomationForEvent` devolve
+-- `retry` e sai SEM GRAVAR LINHA NENHUMA — e a aba Atividade não mostra nada
+-- enquanto isso. Para quem montou a regra, "não apareceu nada" e "não rodou"
+-- são a mesma tela.
+--
+-- Valor novo em vez de reusar `partial`: `partial` é "algumas ações falharam" e
+-- a tela pinta de amarelo com esse texto; adiamento não é falha nenhuma.
+--
+-- CHECK reconstruído em UM bloco só (lição do #159, a mesma de
+-- `agent_inbox_items_kind_check`): N blocos quebram o `update.sh` de um clone
+-- com vocabulário posterior. Aditiva — só alarga o conjunto, nada a corrigir
+-- antes.
+alter table public.automation_rule_runs
+  drop constraint if exists automation_rule_runs_status_check;
+
+alter table public.automation_rule_runs
+  add constraint automation_rule_runs_status_check check (status in (
+    'success',
+    'partial',
+    'failed',
+    'adiado'
+  ));
+
+comment on column public.automation_rule_runs.status is
+  'success = todas as ações funcionaram; partial = algumas falharam; failed = todas falharam; '
+  'adiado = nada chegou ao cliente e ainda pode chegar — a regra espera a janela de envio do '
+  'número, ou a mensagem ficou na fila do canal.';
+
+notify pgrst, 'reload schema';
+
+-- ---- agenda: o compromisso marcado — tabelas, cor do membro, RLS (migration 0177) ----
+--
+-- A SEGUNDA metade da 0177. A função de limpeza do vínculo está ANTES do bloco
+-- da VARREDURA anon, e a razão está escrita lá.
+--
+-- O produto sabia agendar um RETORNO — o sistema volta a falar com o lead
+-- daqui a X, em `cron_jobs` (kind='at', job_kind='followup_turn') — e não sabia
+-- guardar o oposto: DUAS PESSOAS COMBINARAM ESTAR JUNTAS ÀS 14h DE QUINTA.
+-- Retorno é decisão interna, não ocupa agenda de ninguém e o cliente não sabe;
+-- compromisso tem hora, tem dono, ocupa a agenda de um atendente e foi
+-- combinado com o cliente. Ficam separados, e a aresta entre eles é o índice
+-- `calendar_appointments_org_vivos_idx`: quem tem consulta marcada não é lead
+-- parado e não pode ser cobrado com "ainda tem interesse?".
+--
+-- NENHUMA tabela de jornada semanal: ela já existe em
+-- `attendant_availability.schedule`, lida pelo roteamento de conversa e com
+-- tela própria. A agenda lê aquela coluna com OUTRA régua (`windows` vazio ali
+-- é 24/7; aqui é "não publicou horário" ⇒ zero slots) e não escreve outra.
+-- A única tabela nova de disponibilidade é a de EXCEÇÃO por data, que é
+-- informação que o jsonb não sabe dar.
+--
+-- Sem constraint de sobreposição de horário: exigiria `btree_gist`, que não
+-- existe neste baseline nem no prelude do harness de teste — quebraria o
+-- install de todo clone.
+--
+-- `calendar_connections` é a única com gate de papel, porque guarda token
+-- OAuth: lê o DONO da conexão ou `manager`+. Os tokens são `bytea` cifrado por
+-- `fn_encrypt_oauth`, cuja decifragem só `service_role` executa.
+--
+-- Aditiva e idempotente: seis tabelas novas e uma coluna nova e nullable numa
+-- tabela existente. Nenhuma linha atual passa a violar nada.
+-- ────────────────────────────────────────────────────────────────────────────
+-- 1 · o molde: que tipos de compromisso esta organização marca
+-- ────────────────────────────────────────────────────────────────────────────
+create table if not exists public.calendar_event_types (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+
+  name text not null,
+  -- Identificador legível e estável. NÃO é para URL pública (auto-agendamento
+  -- ficou fora do escopo): serve para (a) impedir dois "Consulta" iguais na
+  -- mesma organização e (b) dar à IA um handle que ela não alucina, ao
+  -- contrário de um uuid. Renomear o tipo não muda o slug.
+  slug text not null,
+  description text,
+
+  category text not null default 'outro',
+  duration_minutes int not null default 30,
+  buffer_before_minutes int not null default 0,
+  buffer_after_minutes int not null default 0,
+  minimum_notice_minutes int not null default 120,
+  -- null = a grade anda de duração em duração. Preenchido, permite oferecer
+  -- 09:00/09:15/09:30 para um serviço de 30min.
+  slot_interval_minutes int,
+  booking_window_days int not null default 60,
+
+  color text,
+  location_kind text not null default 'in_person',
+  location_details text,
+  requires_confirmation boolean not null default false,
+  is_active boolean not null default true,
+
+  -- ─── o lembrete, e por que ele é COLUNA e não detalhe de implementação ───
+  -- Em canal oficial (meta_cloud, zernio) texto livre fora da janela de 24h é
+  -- recusado — e o lembrete cai exatamente aí: a pessoa marca na terça, o
+  -- lembrete sai na quinta, e ela não mandou mensagem desde então, que é o
+  -- normal de quem já marcou. Medido em lib/channels/capabilities.ts:
+  -- `freeformOutsideWindow` é true só para `waha`; meta_cloud e zernio exigem
+  -- template, e o gate de envio (guardrails/before-send.ts) só abre a porta
+  -- para `isTemplate === true`.
+  --
+  -- ⚠️ O que torna isto grave não é a recusa, é a FORMA dela: a API responde
+  -- 200 com wamid e a Meta recusa a ENTREGA depois, pelo webhook (131047,
+  -- re-engagement). Quem lê o 200 como "enviado" acha que funcionou. Sem esta
+  -- coluna, num canal oficial, o lembrete NÃO SAI e o sistema ACHA QUE SAIU —
+  -- o cliente falta à consulta e não há erro nenhum para investigar.
+  --
+  -- O mecanismo de mandar template já existe (`sendTemplateForSession`). O que
+  -- não existia é o DADO que diz qual template este tipo de compromisso usa.
+  reminder_enabled boolean not null default true,
+  -- 1440 = 24h antes. É quanto tempo ANTES do compromisso o lembrete sai.
+  reminder_minutes_before int not null default 1440,
+  -- NULL = texto livre, que basta em WAHA. Preenchido, é o nome do template
+  -- aprovado no provedor oficial. Cadastro e escolha de template são tela de
+  -- outra wave; o que não podia era a coluna faltar.
+  reminder_template_name text,
+
+  -- `numeric`, NUNCA `int`: a lista é arrastável e o repo usa fractional
+  -- indexing (CLAUDE.md § Modelagem, mesma razão de crm_leads.position_in_stage).
+  position numeric not null default 1000,
+  default_owner_user_id uuid references auth.users(id) on delete set null,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint calendar_event_types_category_check check (category in (
+    'consulta','procedimento','retorno','visita','vistoria',
+    'reuniao','call','orcamento','demonstracao','outro'
+  )),
+  constraint calendar_event_types_location_kind_check check (location_kind in (
+    'in_person','phone','whatsapp','video_link','google_meet'
+  )),
+  -- Mesma forma de crm_stages_color_format, e a mesma tolerância a maiúscula.
+  -- (platform_branding.accent_hex exige minúscula; é cor de MARCA, outra régua.)
+  constraint calendar_event_types_color_format
+    check (color is null or color ~ '^#[0-9a-fA-F]{6}$'),
+  constraint calendar_event_types_duracao_sensata
+    check (duration_minutes between 5 and 1440),
+  constraint calendar_event_types_intervalo_sensato
+    check (slot_interval_minutes is null or slot_interval_minutes between 5 and 1440),
+  constraint calendar_event_types_lembrete_sensato
+    check (reminder_minutes_before between 0 and 43200),
+  constraint calendar_event_types_buffers_nao_negativos
+    check (buffer_before_minutes >= 0 and buffer_after_minutes >= 0
+           and minimum_notice_minutes >= 0 and booking_window_days > 0)
+);
+
+create unique index if not exists calendar_event_types_org_slug_key
+  on public.calendar_event_types (organization_id, slug);
+create index if not exists calendar_event_types_org_ativos_idx
+  on public.calendar_event_types (organization_id, position)
+  where is_active;
+
+comment on table public.calendar_event_types is
+  'O MOLDE de um compromisso: quanto dura, com que folga, com que antecedência mínima se marca. Distinto de calendar_appointments, que é o compromisso marcado — mudar o molde não reescreve o que já foi combinado.';
+comment on column public.calendar_event_types.slug is
+  'Handle estável e legível dentro da organização. Não é URL pública: serve para a IA referenciar o tipo sem inventar uuid, e para impedir dois tipos com o mesmo nome.';
+comment on column public.calendar_event_types.minimum_notice_minutes is
+  'Antecedência mínima para marcar. 120 = ninguém marca para daqui a meia hora. É o que impede a agenda de aceitar um encaixe que o atendente não tem como cumprir.';
+comment on column public.calendar_event_types.slot_interval_minutes is
+  'De quanto em quanto tempo a grade oferece horário. NULL = de duração em duração.';
+comment on column public.calendar_event_types.reminder_template_name is
+  'Nome do template aprovado no provedor, para o lembrete. NULL = texto livre, que basta em WAHA. Em canal oficial (meta_cloud, zernio) texto livre fora da janela de 24h é aceito com 200 e tem a ENTREGA recusada depois pelo webhook — sem template, o lembrete não sai e o sistema acha que saiu.';
+comment on column public.calendar_event_types.reminder_minutes_before is
+  'Quantos minutos ANTES do compromisso o lembrete sai. 1440 = 24h.';
+comment on column public.calendar_event_types.category is
+  'consulta/procedimento/retorno = clínica; visita/vistoria = imobiliária; reuniao/call = serviços e agência; orcamento = obra e serviço; demonstracao = loja e software; outro = qualquer. Espelha os nichos de lib/onboarding/pacotes-de-funil.ts.';
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 2 · o compromisso marcado
+-- ────────────────────────────────────────────────────────────────────────────
+create table if not exists public.calendar_appointments (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+
+  -- `set null`: apagar o molde não pode apagar o histórico do que já aconteceu.
+  event_type_id uuid references public.calendar_event_types(id) on delete set null,
+
+  title text not null,
+  description text,
+
+  starts_at timestamptz not null,
+  ends_at timestamptz not null,
+  -- O fuso em que a pessoa MARCOU. Guardado porque "quinta às 14h" é o que foi
+  -- combinado; o instante UTC sozinho não sabe dizer isso depois de uma virada
+  -- de horário de verão. Sem CHECK: a validação de fuso é do Intl, e o repo já
+  -- tem o lugar dela — `fusoValido` em lib/tempo/fusos.ts, aplicado no Zod.
+  time_zone text not null default 'America/Sao_Paulo',
+
+  status text not null default 'confirmed',
+
+  -- O ATENDENTE dono. `set null` e não cascade: o compromisso aconteceu mesmo
+  -- que a pessoa saia da empresa depois.
+  owner_user_id uuid references auth.users(id) on delete set null,
+
+  -- QUEM VAI SER ATENDIDO. `restrict` acompanha conversations.contact_id e
+  -- messages.contact_id — as duas únicas FKs RESTRICT do schema, e existem
+  -- pela mesma razão: apagar um contato não pode apagar o histórico dele. Na
+  -- prática a LGPD deste produto anonimiza em vez de apagar (CLAUDE.md § LGPD),
+  -- então o RESTRICT nunca é o caminho normal — é o cinto.
+  contact_id uuid references public.contacts(id) on delete restrict,
+  conversation_id uuid references public.conversations(id) on delete set null,
+
+  location_kind text not null default 'in_person',
+  location_details text,
+  meeting_url text,
+  notes text,
+
+  cancellation_reason text,
+  cancelled_at timestamptz,
+  -- A cadeia de remarcações. `set null` porque a remarcação sobrevive ao
+  -- sumiço do compromisso original.
+  rescheduled_from_id uuid references public.calendar_appointments(id) on delete set null,
+
+  -- QUEM MARCOU. O par `created_by_*` espelha `created_by_user_id`, que já
+  -- existe em crm_leads e crm_lead_links.
+  -- ⚠️ Os VALORES seguem crm_lead_activities.actor_kind ('user','ai','system',
+  -- 'rule','contact') e não o par 'human'/'agent' que a outra tabela usa,
+  -- porque é na timeline do lead que esta autoria vai ser RENDERIZADA: gravar
+  -- 'human' aqui e 'user' lá faria a tela mostrar duas palavras para a mesma
+  -- pessoa. 'sync' é o único acréscimo, e não é ator do produto: significa que
+  -- a linha nasceu de um evento que já existia na agenda externa.
+  created_by_kind text not null default 'user',
+  created_by_user_id uuid references auth.users(id) on delete set null,
+  created_by_agent_id uuid references public.ai_agents(id) on delete set null,
+  source text not null default 'ui',
+
+  -- Lembrete: idempotência do lado do dado. Quem DISPARA é a fila
+  -- (`cron_jobs` kind='at' agenda; `job_queue` executa), e o envio passa pela
+  -- MESMA cadeia de saída do produto — janela horária, espaçamento, opt-out.
+  -- Nenhum caminho novo de saída: esta base já pagou por uma automação com
+  -- janela paralela.
+  reminder_sent_at timestamptz,
+
+  -- Espelho do Google. 1:1 e por isso mora aqui (DIRC: duplicar).
+  google_connection_id uuid,
+  google_calendar_id text,
+  google_event_id text,
+  google_ical_uid text,
+  google_sequence int not null default 0,
+  google_synced_at timestamptz,
+  google_sync_error text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint calendar_appointments_status_check check (status in (
+    'pending','confirmed','cancelled','completed','no_show'
+  )),
+  constraint calendar_appointments_location_kind_check check (location_kind in (
+    'in_person','phone','whatsapp','video_link','google_meet'
+  )),
+  constraint calendar_appointments_created_by_kind_check check (created_by_kind in (
+    'user','ai','system','contact','sync'
+  )),
+  constraint calendar_appointments_source_check check (source in (
+    'ui','mcp','google_sync','public_page'
+  )),
+  constraint calendar_appointments_periodo_valido check (ends_at > starts_at),
+  -- Regra de negócio em constraint SEPARADA da de vocabulário, de propósito:
+  -- duas constraints casando `col in (...)` na mesma coluna fazem o extrator
+  -- do invariante de vocabulário se recusar a escolher. É a mesma convivência
+  -- de crm_leads.status com crm_leads_closed_at_consistency.
+  constraint calendar_appointments_cancelamento_coerente check (
+    (status <> 'cancelled' and cancelled_at is null)
+    or (status = 'cancelled' and cancelled_at is not null)
+  )
+);
+
+-- A grade: "o que há entre terça e domingo".
+create index if not exists calendar_appointments_org_periodo_idx
+  on public.calendar_appointments (organization_id, starts_at);
+-- O filtro por pessoa, que é o requisito explícito da tela.
+create index if not exists calendar_appointments_org_dono_idx
+  on public.calendar_appointments (organization_id, owner_user_id, starts_at)
+  where owner_user_id is not null;
+-- A ARESTA COM O FOLLOW-UP (e com o Radar de Risco): "este lead tem consulta
+-- marcada?". Quem tem compromisso vivo no futuro NÃO é lead parado, e cobrar
+-- "ainda tem interesse?" de quem marcou para amanhã é o tipo de erro que faz
+-- desinstalar o produto. Parcial nos dois estados vivos porque cancelado e
+-- realizado não seguram ninguém. A consulta canônica, já que o vínculo com o
+-- lead é polimórfico:
+--   select 1 from crm_lead_links l join calendar_appointments a on a.id = l.target_id
+--    where l.lead_id = $1 and l.target_kind = 'appointment'
+--      and a.organization_id = $2 and a.status in ('pending','confirmed')
+--      and a.starts_at > now();
+create index if not exists calendar_appointments_org_vivos_idx
+  on public.calendar_appointments (organization_id, starts_at)
+  where status in ('pending','confirmed');
+create index if not exists calendar_appointments_contato_idx
+  on public.calendar_appointments (contact_id, starts_at desc)
+  where contact_id is not null;
+-- Idempotência do sync: o mesmo evento do Google não vira dois agendamentos.
+-- O parceiro disto no código é a captura de `23505` no INSERT (CLAUDE.md
+-- § Idempotência), não um SELECT-antes-de-inserir.
+create unique index if not exists calendar_appointments_google_evento_key
+  on public.calendar_appointments (organization_id, google_connection_id, google_event_id)
+  where google_event_id is not null;
+
+comment on table public.calendar_appointments is
+  'O compromisso COMBINADO: hora marcada, com alguém, ocupando a agenda de um atendente. Distinto do RETORNO agendado (cron_jobs kind=at, job_kind=followup_turn), que é decisão interna do sistema, não ocupa agenda de ninguém e o cliente não sabe.';
+comment on column public.calendar_appointments.time_zone is
+  'O fuso em que foi marcado. "Quinta às 14h" é o que se combinou — o instante UTC sozinho não reconstrói isso depois de uma virada de horário de verão.';
+comment on column public.calendar_appointments.created_by_kind is
+  'user = pessoa da equipe pela tela; ai = agente de IA; system = o próprio produto; contact = o cliente (auto-agendamento, quando existir); sync = a linha nasceu de evento que já estava na agenda externa. Valores alinhados a crm_lead_activities.actor_kind, que é onde esta autoria aparece na tela.';
+comment on column public.calendar_appointments.reminder_sent_at is
+  'Carimbo de que o lembrete SAIU — idempotência do lado do dado, para remarcação ou reprocesso não avisarem duas vezes. Quem agenda o disparo é cron_jobs (kind=at); quem envia é a cadeia de saída do produto, com janela, espaçamento e opt-out.';
+comment on column public.calendar_appointments.google_sequence is
+  'O `sequence` do evento no Google. Ele exige que uma atualização venha com sequence >= o que está lá; guardar o nosso evita sobrescrever uma edição feita do lado de lá.';
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 3 · a exceção por data — a ÚNICA tabela nova de disponibilidade
+-- ────────────────────────────────────────────────────────────────────────────
+-- `attendant_availability.schedule` sabe dizer "atendo de segunda a sexta, das
+-- 9h às 18h". Não sabe dizer "no dia 12 eu não atendo" nem "neste sábado, das
+-- 9h ao meio-dia, atendo". Isso é informação NOVA — inflar o jsonb com ela é
+-- que seria o lock-in do anti-pattern nº 6.
+create table if not exists public.calendar_availability_exceptions (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+
+  exception_date date not null,
+  -- true = este pedaço do dia NÃO tem atendimento (o caso comum: feriado,
+  -- férias, congresso). false = tem atendimento AQUI mesmo que a jornada
+  -- semanal diga que não (o sábado excepcional).
+  is_unavailable boolean not null default true,
+
+  -- Minutos desde 00:00, NO MESMO FUSO da jornada da pessoa
+  -- (`attendant_availability.schedule.timezone`). Minutos inteiros e não
+  -- `time`: elimina a classe inteira de bug de fuso que um `time` carrega.
+  --
+  -- ⚠️ NOT NULL com default, e não nullable, e a razão é uma armadilha de
+  -- Postgres: numa UNIQUE, NULL não colide com NULL. Com `start_minute`
+  -- nullable, dois "dia 12 bloqueado o dia todo" para a mesma pessoa passariam
+  -- os dois, em silêncio, e a tela mostraria a exceção duplicada. Dia inteiro
+  -- é (0, 1440) — que é a mesma coisa e colide como deve.
+  start_minute int not null default 0,
+  end_minute int not null default 1440,
+  reason text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint calendar_exceptions_faixa_valida
+    check (start_minute >= 0 and end_minute <= 1440 and end_minute > start_minute)
+);
+
+create unique index if not exists calendar_exceptions_pessoa_dia_faixa_key
+  on public.calendar_availability_exceptions (organization_id, user_id, exception_date, start_minute);
+create index if not exists calendar_exceptions_org_dia_idx
+  on public.calendar_availability_exceptions (organization_id, exception_date);
+
+comment on table public.calendar_availability_exceptions is
+  'O que a jornada semanal não sabe dizer: "neste dia não atendo" e "neste sábado atendo". A jornada continua morando em attendant_availability.schedule — esta tabela não a duplica, a excepciona.';
+comment on column public.calendar_availability_exceptions.start_minute is
+  'Minutos desde 00:00 no fuso da JORNADA da pessoa (attendant_availability.schedule.timezone), não em UTC. Dia inteiro = 0..1440.';
+comment on column public.calendar_availability_exceptions.is_unavailable is
+  'true = bloqueia esta faixa; false = ABRE esta faixa mesmo fora da jornada semanal.';
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 4 · a agenda conectada (BYO) — uma por PESSOA, não por organização
+-- ────────────────────────────────────────────────────────────────────────────
+-- `tenant_integrations` foi desenhada para OAuth com refresh e serviria — não
+-- fosse a cardinalidade: ela tem UNIQUE (organization_id, provider), uma
+-- conexão por organização. A agenda do Google é de cada atendente. Mudar
+-- aquela unique reescreveria o contrato de uma tabela viva para servir outro
+-- caso.
+--
+-- O que É reusado dela, porque é mecanismo e não modelo: a cifra
+-- (`fn_encrypt_oauth`/`fn_decrypt_oauth`, pgp_sym AES-256 com a chave em
+-- `private.fn_oauth_key()`, EXECUTE só para service_role), os nomes das
+-- colunas de token, e o vocabulário de `status` — os SETE valores de
+-- `tenant_integrations_status_check`, incluindo `rate_limited`, que é
+-- justamente o estado que uma API de calendário mais produz.
+create table if not exists public.calendar_connections (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+
+  provider text not null default 'google_calendar',
+  account_email text not null,
+
+  -- `bytea`, como as nove colunas cifradas do repo. Passe o valor CRU de
+  -- fn_encrypt_oauth (com o `\x`); tirar o prefixo é regra de quem guarda
+  -- cifrado dentro de jsonb, e aqui não é o caso.
+  oauth_access_token_encrypted bytea,
+  oauth_refresh_token_encrypted bytea,
+  token_expires_at timestamptz,
+  scopes text[] not null default array[]::text[],
+
+  status text not null default 'connecting',
+  last_sync_at timestamptz,
+  last_sync_error text,
+  -- Sync incremental da CONTA. O do calendário individual mora na tabela de
+  -- baixo, porque o Google versiona por calendário.
+  sync_token text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint calendar_connections_provider_check check (provider in ('google_calendar')),
+  constraint calendar_connections_status_check check (status in (
+    'connecting','healthy','token_expired','scope_missing','disconnected','rate_limited','error'
+  ))
+);
+
+create unique index if not exists calendar_connections_conta_key
+  on public.calendar_connections (organization_id, user_id, provider, account_email);
+-- A varredura do worker de renovação: quem está para vencer. Parcial porque
+-- conexão desconectada não se renova.
+create index if not exists calendar_connections_renovacao_idx
+  on public.calendar_connections (token_expires_at)
+  where status in ('healthy','rate_limited') and token_expires_at is not null;
+create index if not exists calendar_connections_org_pessoa_idx
+  on public.calendar_connections (organization_id, user_id);
+
+comment on table public.calendar_connections is
+  'A conta de agenda externa que UMA PESSOA conectou. Uma por atendente, e por isso não cabe em tenant_integrations, que é uma por organização e por provedor.';
+comment on column public.calendar_connections.status is
+  'connecting = o OAuth começou e ainda não voltou; healthy = renovando e sincronizando; token_expired = o refresh falhou com invalid_grant e SÓ a pessoa resolve, reconectando; scope_missing = conectou sem a permissão de calendário; rate_limited = o Google recusou por volume e vale tentar depois; disconnected = a pessoa desligou; error = falha que não se encaixa nas anteriores. Vocabulário idêntico ao de tenant_integrations.status — mesma pergunta, mesma palavra.';
+comment on column public.calendar_connections.oauth_access_token_encrypted is
+  'Cifrado por public.fn_encrypt_oauth (pgp_sym AES-256). NUNCA em claro. A chave vive em private.fn_oauth_key() e só service_role executa a decifragem.';
+comment on column public.calendar_connections.token_expires_at is
+  'Quando o access_token vence (~1h no Google). É o que o worker de renovação varre. Sem esse worker a integração morre em uma hora — e é por isso que o índice calendar_connections_renovacao_idx existe desde o primeiro dia, e não depois.';
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 5 · quais agendas daquela conta contam
+-- ────────────────────────────────────────────────────────────────────────────
+create table if not exists public.calendar_connection_calendars (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  connection_id uuid not null references public.calendar_connections(id) on delete cascade,
+
+  external_calendar_id text not null,
+  name text not null,
+  is_primary boolean not null default false,
+  -- O que este produto pergunta a cada agenda de fora: "você ocupa o horário
+  -- desta pessoa?" e "você recebe o que eu marcar?". São perguntas diferentes:
+  -- a agenda de aniversários ocupa nada e recebe nada; a pessoal ocupa e não
+  -- recebe; a de trabalho faz as duas.
+  counts_for_conflicts boolean not null default true,
+  is_destination boolean not null default false,
+  sync_token text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists calendar_connection_calendars_key
+  on public.calendar_connection_calendars (organization_id, connection_id, external_calendar_id);
+-- Só UM destino por conexão: se dois calendários recebessem, o mesmo
+-- compromisso apareceria duas vezes na agenda da pessoa.
+create unique index if not exists calendar_connection_calendars_um_destino_key
+  on public.calendar_connection_calendars (connection_id)
+  where is_destination;
+
+comment on table public.calendar_connection_calendars is
+  'As agendas dentro de uma conta conectada, e o que cada uma faz por nós: ocupar horário (counts_for_conflicts) e/ou receber o que marcamos (is_destination). São perguntas independentes.';
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 6 · o que veio de fora e ocupa a hora
+-- ────────────────────────────────────────────────────────────────────────────
+create table if not exists public.calendar_external_events (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  connection_id uuid not null references public.calendar_connections(id) on delete cascade,
+
+  external_calendar_id text not null,
+  external_event_id text not null,
+  title text,
+  starts_at timestamptz not null,
+  ends_at timestamptz not null,
+  is_all_day boolean not null default false,
+  status text not null default 'confirmed',
+  -- O vocabulário é do próprio Google: `opaque` ocupa o horário, `transparent`
+  -- não. Um evento marcado como livre lá não pode bloquear horário aqui.
+  transparency text not null default 'opaque',
+  external_updated_at timestamptz,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint calendar_external_events_status_check check (status in (
+    'confirmed','tentative','cancelled'
+  )),
+  constraint calendar_external_events_transparency_check check (transparency in (
+    'opaque','transparent'
+  )),
+  constraint calendar_external_events_periodo_valido check (ends_at > starts_at)
+);
+
+create unique index if not exists calendar_external_events_key
+  on public.calendar_external_events (organization_id, connection_id, external_calendar_id, external_event_id);
+-- A pergunta do motor de slots: "o que ocupa esta janela?". Parcial, porque
+-- evento cancelado ou marcado como livre não ocupa nada e só engordaria o
+-- índice.
+create index if not exists calendar_external_events_ocupam_idx
+  on public.calendar_external_events (organization_id, external_calendar_id, starts_at)
+  where status <> 'cancelled' and transparency = 'opaque';
+
+comment on table public.calendar_external_events is
+  'Espelho, somente-leitura, do que já existe na agenda conectada. Ocupa horário e aparece na grade, mas não é compromisso NOSSO: não tem lead, não tem estado de atendimento e nunca é reescrito por nós.';
+comment on column public.calendar_external_events.transparency is
+  'opaque = ocupa o horário; transparent = a pessoa marcou como livre lá, e não bloqueia nada aqui. É o vocabulário do próprio Google.';
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 7 · a cor da pessoa, na tabela de membros
+-- ────────────────────────────────────────────────────────────────────────────
+-- A cor é DA PESSOA NAQUELA ORGANIZAÇÃO, e por isso mora em user_organizations
+-- e não em auth.users: quem trabalha em duas organizações pode ser verde numa
+-- e azul na outra, e a cor de uma não vaza para a outra.
+alter table public.user_organizations
+  add column if not exists calendar_color text;
+
+alter table public.user_organizations
+  drop constraint if exists user_organizations_calendar_color_format;
+alter table public.user_organizations
+  add constraint user_organizations_calendar_color_format
+  check (calendar_color is null or calendar_color ~ '^#[0-9a-fA-F]{6}$');
+
+comment on column public.user_organizations.calendar_color is
+  'Cor desta pessoa na grade da Agenda, nesta organização. NULL = a tela deriva uma cor estável do user_id, para ninguém nascer sem cor. ⚠️ A policy de SELECT desta tabela é self-OU-manager+: um `agent` NÃO lê a linha dos colegas pelo PostgREST. A tela recebe as cores pela rota que já monta o roster com service role (GET /api/v1/team), não por leitura direta.';
+
+drop trigger if exists trg_limpar_vinculos_do_agendamento on public.calendar_appointments;
+create trigger trg_limpar_vinculos_do_agendamento
+  after delete on public.calendar_appointments
+  for each row
+  execute function public.fn_limpar_vinculos_do_agendamento();
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 9 · updated_at
+-- ────────────────────────────────────────────────────────────────────────────
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'calendar_event_types','calendar_appointments','calendar_availability_exceptions',
+    'calendar_connections','calendar_connection_calendars','calendar_external_events'
+  ]
+  loop
+    execute format('drop trigger if exists trg_%s_updated_at on public.%I', t, t);
+    execute format(
+      'create trigger trg_%s_updated_at before update on public.%I
+         for each row execute function public.fn_set_updated_at()', t, t);
+  end loop;
+end
+$$;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 10 · tenancy E PAPEL
+-- ────────────────────────────────────────────────────────────────────────────
+-- A primeira versão deste bloco dava `for all` só-tenancy às cinco tabelas de
+-- agenda, e o invariante `rbac-config-ia-canais` reprovou as cinco. Ele estava
+-- certo, e não é allowlist: `DIVIDA_RBAC_CONHECIDA` é uma CATRACA — a lista
+-- congelada das tabelas que JÁ nasceram só-tenancy antes da migration 0150. O
+-- teste se chama "a dívida de RBAC não cresce", e pôr tabela nova ali é
+-- exatamente o movimento que ele existe para impedir.
+--
+-- A razão de fundo (migration 0150): `requireRole()` na rota Next NÃO é a única
+-- porta. O PostgREST é exposto ao browser por construção — URL e anon key vão no
+-- bundle — e um usuário logado fala com ele direto, com o próprio JWT. Uma
+-- policy `for all` só-tenancy significa que o papel mais fraco do tenant escreve
+-- tudo o que a organização tem.
+--
+-- Por tabela, e cada uma tem uma razão diferente:
+--
+--   event_types            lê membro · escreve manager+   é CONFIGURAÇÃO do
+--     negócio: quanto dura uma consulta, que folga tem, quando se pode marcar.
+--     O atendente usa; quem define é quem responde pelo negócio.
+--
+--   appointments           lê membro · escreve agent+     é a OPERAÇÃO do dia.
+--     Marcar, remarcar e cancelar é o trabalho do atendente. O `viewer` vê a
+--     agenda e não mexe nela.
+--
+--   availability_exceptions lê membro · escreve o DONO ou manager+
+--     "No dia 12 eu não atendo" é da pessoa. Ela mesma escreve a sua, sem
+--     depender de ninguém; manager+ escreve a dos outros porque escala é
+--     trabalho de quem coordena.
+--
+--   connection_calendars   acompanha a conexão · escreve ninguém
+--     Ele é filho de `calendar_connections` e herda o escopo dela, como
+--     `crm_lead_links` herda o do lead. Quem escreve é o callback do OAuth.
+--
+--   external_events        lê membro · escreve NINGUÉM além de service_role
+--     Vem do sync e é espelho. Escrita humana aqui só teria um caso de uso:
+--     corromper a fonte de conflito, fazendo a agenda marcar em cima de
+--     compromisso real. Ausência de policy de escrita é a decisão.
+--
+-- Nenhuma leva `for all` só-tenancy, e por isso nenhuma precisa entrar na
+-- catraca.
+
+-- ─── os tipos de agendamento: configuração do negócio ─────────────────────
+alter table public.calendar_event_types enable row level security;
+drop policy if exists tenant_isolation_calendar_event_types_all on public.calendar_event_types;
+drop policy if exists calendar_event_types_select on public.calendar_event_types;
+create policy calendar_event_types_select on public.calendar_event_types
+  for select using (
+    (organization_id in (select public.fn_user_org_ids())) or public.fn_is_platform_admin()
+  );
+drop policy if exists calendar_event_types_write on public.calendar_event_types;
+create policy calendar_event_types_write on public.calendar_event_types
+  using (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and public.fn_role_at_least(organization_id, 'manager'))
+  )
+  with check (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and public.fn_role_at_least(organization_id, 'manager'))
+  );
+revoke all on public.calendar_event_types from anon;
+
+-- ─── os compromissos: a operação do dia ───────────────────────────────────
+alter table public.calendar_appointments enable row level security;
+drop policy if exists tenant_isolation_calendar_appointments_all on public.calendar_appointments;
+drop policy if exists calendar_appointments_select on public.calendar_appointments;
+create policy calendar_appointments_select on public.calendar_appointments
+  for select using (
+    (organization_id in (select public.fn_user_org_ids())) or public.fn_is_platform_admin()
+  );
+drop policy if exists calendar_appointments_write on public.calendar_appointments;
+create policy calendar_appointments_write on public.calendar_appointments
+  using (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and public.fn_role_at_least(organization_id, 'agent'))
+  )
+  with check (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and public.fn_role_at_least(organization_id, 'agent'))
+  );
+revoke all on public.calendar_appointments from anon;
+
+-- ─── as exceções: a agenda é de quem a vive ───────────────────────────────
+alter table public.calendar_availability_exceptions enable row level security;
+drop policy if exists tenant_isolation_calendar_availability_exceptions_all on public.calendar_availability_exceptions;
+drop policy if exists calendar_availability_exceptions_select on public.calendar_availability_exceptions;
+create policy calendar_availability_exceptions_select on public.calendar_availability_exceptions
+  for select using (
+    (organization_id in (select public.fn_user_org_ids())) or public.fn_is_platform_admin()
+  );
+drop policy if exists calendar_availability_exceptions_write on public.calendar_availability_exceptions;
+create policy calendar_availability_exceptions_write on public.calendar_availability_exceptions
+  using (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and (user_id = auth.uid() or public.fn_role_at_least(organization_id, 'manager')))
+  )
+  with check (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and (user_id = auth.uid() or public.fn_role_at_least(organization_id, 'manager')))
+  );
+revoke all on public.calendar_availability_exceptions from anon;
+
+-- ─── os calendários da conexão: herdam o escopo do pai ────────────────────
+alter table public.calendar_connection_calendars enable row level security;
+drop policy if exists tenant_isolation_calendar_connection_calendars_all on public.calendar_connection_calendars;
+drop policy if exists calendar_connection_calendars_select on public.calendar_connection_calendars;
+create policy calendar_connection_calendars_select on public.calendar_connection_calendars
+  for select using (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and exists (
+          select 1 from public.calendar_connections c
+           where c.id = connection_id
+             and (c.user_id = auth.uid()
+                  or public.fn_role_at_least(c.organization_id, 'manager'))
+        ))
+  );
+revoke all on public.calendar_connection_calendars from anon;
+
+-- ─── o espelho do Google: leitura de todos, escrita de ninguém ────────────
+alter table public.calendar_external_events enable row level security;
+drop policy if exists tenant_isolation_calendar_external_events_all on public.calendar_external_events;
+drop policy if exists calendar_external_events_select on public.calendar_external_events;
+create policy calendar_external_events_select on public.calendar_external_events
+  for select using (
+    (organization_id in (select public.fn_user_org_ids())) or public.fn_is_platform_admin()
+  );
+revoke all on public.calendar_external_events from anon;
+
+alter table public.calendar_connections enable row level security;
+
+drop policy if exists tenant_isolation_calendar_connections_all on public.calendar_connections;
+drop policy if exists calendar_connections_dono_ou_manager_read on public.calendar_connections;
+create policy calendar_connections_dono_ou_manager_read on public.calendar_connections
+  for select using (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and (user_id = auth.uid() or public.fn_role_at_least(organization_id, 'manager')))
+  );
+
+-- Escrita não tem policy: quem conecta e desconecta é o callback do OAuth e o
+-- worker de renovação, ambos com service role, e ambos filtram organization_id
+-- de fonte confiável. Uma policy de escrita aqui só abriria caminho para
+-- gravar token pelo PostgREST.
+revoke all on public.calendar_connections from anon;
+
+notify pgrst, 'reload schema';
+
+-- ---- dois cliques não marcam duas vezes (migration 0182) ----
+--
+-- Entre a validação do motor de slots e o INSERT há uma janela em que o banco
+-- não repete a pergunta: dois POSTs simultâneos para o mesmo horário passam OS
+-- DOIS na checagem e criam dois agendamentos. É o duplo clique, e é a corrida
+-- entre duas pessoas marcando o mesmo slot.
+--
+-- Não é a constraint de sobreposição que a 0177 recusou, e a distinção importa:
+-- `exclude using gist` proibiria SOBREPOSIÇÃO (14h-15h contra 14h30-15h30, que é
+-- o encaixe legítimo) e exigiria `btree_gist`, ausente deste baseline. Índice
+-- único parcial é btree PURO e proíbe só a COINCIDÊNCIA EXATA de instante para o
+-- mesmo dono.
+--
+-- ⚠️ `owner_user_id is not null` NÃO conserta buraco nenhum, e a primeira versão
+-- deste comentário dizia que sim. Medido num pg17 descartável: com a condição e
+-- sem ela, duas linhas com dono NULL no mesmo instante entram IGUAL — `NULL`
+-- nunca colide com `NULL` numa UNIQUE, esteja a linha dentro ou fora do índice.
+-- A condição fica porque mantém fora do índice o que nunca colidiria e porque
+-- DECLARA o alcance da guarda (ela é sobre a agenda de uma PESSOA), não porque
+-- proteja. Comentário que promete guarda inexistente é pior que nenhum: quem lê
+-- para de procurar.
+--
+-- Custo declarado: proíbe dois compromissos do mesmo atendente no MESMO
+-- instante, que numa clínica às vezes é o encaixe deliberado. A troca é
+-- consciente, e a contrapartida é a rota devolver 409 dizendo QUAL compromisso
+-- está ali — senão troca-se uma corrida rara por uma parede diária.
+--
+-- Deduplica ANTES da constraint, e deslocando em vez de apagar: cancelar a
+-- duplicata destruiria um compromisso combinado com uma pessoa real, e isso uma
+-- migration não faz. Nenhum clone tem linha nesta tabela hoje (nasceu na 0177 e
+-- a rota que grava não existe); o bloco é para o clone que vier a ter.
+-- ─── 1 · deduplicar deslocando, sem perder nenhum compromisso ──────────────
+-- Empurra a 2ª, 3ª… ocorrência em 1 segundo cada, levando `ends_at` junto para
+-- a duração não mudar. Em laço porque um deslocamento pode cair em cima de
+-- outro instante já ocupado; 10 passadas cobrem qualquer caso real e o teto
+-- impede laço infinito num dado patológico.
+do $$
+declare
+  mexidas integer;
+  passada integer := 0;
+begin
+  loop
+    with duplicadas as (
+      select id,
+             row_number() over (
+               partition by organization_id, owner_user_id, starts_at
+               order by created_at, id
+             ) - 1 as posicao
+        from public.calendar_appointments
+       where status in ('pending', 'confirmed')
+         and owner_user_id is not null
+    )
+    update public.calendar_appointments a
+       set starts_at = a.starts_at + (d.posicao * interval '1 second'),
+           ends_at   = a.ends_at   + (d.posicao * interval '1 second')
+      from duplicadas d
+     where d.id = a.id
+       and d.posicao > 0;
+
+    get diagnostics mexidas = row_count;
+    passada := passada + 1;
+    exit when mexidas = 0 or passada >= 10;
+  end loop;
+end
+$$;
+
+-- ─── 2 · a guarda ─────────────────────────────────────────────────────────
+create unique index if not exists calendar_appointments_sem_duplicata_idx
+  on public.calendar_appointments (organization_id, owner_user_id, starts_at)
+  where status in ('pending', 'confirmed') and owner_user_id is not null;
+
+comment on index public.calendar_appointments_sem_duplicata_idx is
+  'Fecha a janela entre a validação do motor de slots e o INSERT: dois POSTs simultâneos para o mesmo instante e o mesmo atendente não viram dois compromissos. Parcial em (pending, confirmed) porque cancelado e realizado não ocupam ninguém, e em owner_user_id não nulo porque NULL não colide com NULL numa UNIQUE — e porque agendamento sem atendente não ocupa agenda. Quem captura o 23505 é a rota, que devolve 409 dizendo qual compromisso está ali.';
+
+notify pgrst, 'reload schema';
+
+-- ---- a grade da agenda não se move sozinha (migration 0183) ----
+--
+-- `calendar_appointments` não estava na publicação: o `.channel()` sobe, o
+-- `subscribe` devolve SUBSCRIBED, nenhum erro em lugar nenhum, e nenhum evento
+-- chega nunca. Duas pessoas com a agenda aberta não veem o que a outra marcou.
+-- Agravante de diagnóstico: nesta base o canal já morre calado por outro motivo
+-- quando o token não chega ao socket, então quem investigar vai para o `setAuth`
+-- e não para a publicação — dois defeitos com o MESMO sintoma.
+--
+-- SÓ ela entra, e a doutrina julga tabela a tabela: `calendar_external_events` é
+-- espelho reescrito em lote pelo sync (200 eventos = 200 pulsos: o "pulso que
+-- mente" da 0075 em forma de calendário); `calendar_connections` guarda token; as
+-- de configuração mudam com quem já está na tela.
+--
+-- ⚠️ NÃO resolve o DELETE: `replica identity` tem zero ocorrência neste schema,
+-- então o payload de DELETE traz só o `id` e um canal com `filter` por
+-- `owner_user_id` não o recebe — o card apagado fica na tela até o F5. Não ligo
+-- `replica identity full` aqui porque hoje não há assinante nenhum, e o custo em
+-- WAL seria para servir um consumidor que não existe.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication where pubname = 'supabase_realtime'
+  ) then
+    create publication supabase_realtime;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public'
+       and tablename = 'calendar_appointments'
+  ) then
+    execute 'alter publication supabase_realtime add table public.calendar_appointments';
+  end if;
+end $$;
+
+comment on table public.calendar_appointments is
+  'O compromisso COMBINADO: hora marcada, com alguém, ocupando a agenda de um atendente. Distinto do RETORNO agendado (cron_jobs kind=at, job_kind=followup_turn), que é decisão interna do sistema, não ocupa agenda de ninguém e o cliente não sabe. ESTÁ na publicação supabase_realtime (migration 0183) porque marcar e cancelar é mudança de estado, não telemetria — mas o DELETE só traz o id, então um canal com filter por owner_user_id não o recebe.';
+
+notify pgrst, 'reload schema';
+
+-- ---- LGPD alcança a agenda: trigger (migration 0184) ----
+--
+-- A SEGUNDA metade da 0184. A função está ANTES do bloco da VARREDURA anon, e a
+-- razão está escrita lá.
+--
+-- Redige o texto livre e PRESERVA `starts_at`, `ends_at`, `status` e
+-- `owner_user_id`: a clínica precisa responder "quantos atendimentos houve em
+-- março" depois de anonimizar. O QUE aconteceu e QUANDO fica; COM QUEM e SOBRE O
+-- QUÊ sai.
+--
+-- `calendar_external_events` fica de fora e NÃO por esquecimento: ela não tem
+-- `contact_id`, e o único vínculo com a pessoa é o `title` copiado do Google.
+-- Alcançá-la exige uma decisão de produto — declarar que é espelho de terceiro,
+-- ou apagar a janela da conexão.
+drop trigger if exists trg_redigir_agenda_ao_anonimizar on public.contacts;
+create trigger trg_redigir_agenda_ao_anonimizar
+  after update of is_anonymized on public.contacts
+  for each row
+  when (new.is_anonymized is true and old.is_anonymized is distinct from true)
+  execute function public.fn_redigir_agenda_do_contato_anonimizado();
+
+comment on column public.calendar_appointments.notes is
+  'Anotação livre do atendimento — numa clínica, queixa clínica. É dado pessoal: o trigger trg_redigir_agenda_ao_anonimizar (migration 0184) a apaga quando o contato é anonimizado, junto com title, description, location_details, meeting_url e cancellation_reason. Horário, status e dono são PRESERVADOS: o que aconteceu e quando é registro de operação.';
+
+notify pgrst, 'reload schema';
+
+-- ---- a agenda nasce com o que marcar: trigger e backfill (migration 0185) ----
+--
+-- A SEGUNDA metade da 0185. As funções estão ANTES do bloco da VARREDURA anon.
+--
+-- TRIGGER e BACKFILL, e não um só: o baseline nunca semeia organização que ainda
+-- não existe (só faz backfill das de hoje), e o único mecanismo que alcança
+-- organização FUTURA é trigger em `organizations`. Só backfill deixaria a
+-- segunda organização do dono vazia; só trigger deixaria sem nada todo clone que
+-- já instalou.
+--
+-- `on conflict do nothing` e nunca `do update`: o `update.sh` re-aplica este
+-- arquivo a cada atualização, e `do update` sobrescreveria em silêncio o tipo
+-- que o dono já editou. É a diferença entre semear e mandar.
+drop trigger if exists trg_semear_tipos_de_agendamento on public.organizations;
+create trigger trg_semear_tipos_de_agendamento
+  after insert on public.organizations
+  for each row
+  execute function public.fn_semear_tipos_de_agendamento_na_org_nova();
+
+-- Backfill: os clones que JÁ instalaram. Guardado por `not exists` para o
+-- `update.sh` poder re-aplicar sem duplicar e sem tocar em quem já editou.
+do $$
+declare o record;
+begin
+  for o in
+    select id from public.organizations
+     where not exists (
+       select 1 from public.calendar_event_types t where t.organization_id = organizations.id
+     )
+  loop
+    perform public.fn_semear_tipos_de_agendamento(o.id);
+  end loop;
+end
+$$;
+
+comment on function public.fn_semear_tipos_de_agendamento(uuid) is
+  'O PISO da agenda: três tipos neutros (Consulta, Reunião, Atendimento) para que instalação fresca tenha o que marcar. Não é o teto — o enriquecimento por nicho vive no passo do funil do onboarding, onde o nicho existe. `on conflict do nothing` para nunca sobrescrever o que o dono editou.';
+
+notify pgrst, 'reload schema';
+
+-- ---- a cor da pessoa é uma trilha, e a do tipo não existe (migration 0186) ----
+--
+-- A 0177 criou duas colunas de cor guardando hex. As duas estavam erradas, e o
+-- argumento é do @VPS: hex guardado é "um segundo lugar para a mesma verdade, e
+-- o tema escuro fica de fora". Medido: as cores vivem em `--agenda-pessoa-1..8`
+-- no globals.css, em TRÊS blocos de tema, e a mesma trilha tem hex diferente em
+-- cada um.
+--
+-- `calendar_color` VIRA TRILHA e a escolha manual FICA: a derivação a partir do
+-- `user_id` é estável mas COLIDE (oito trilhas, mais de oito pessoas), e quem
+-- administra vai querer desempatar. NULL = use a derivada.
+--
+-- `calendar_event_types.color` SAI: há UM pixel por compromisso na grade, e duas
+-- colorações competindo pelo mesmo lugar significam que uma delas mente. O pedido
+-- é cor POR PESSOA. Se voltar um dia, volta como trilha, com alternador.
+--
+-- ⚠️ DROP COLUMN é destrutivo. O que autoriza: as colunas nasceram na 0177 hoje,
+-- o seed da 0185 não preenche nenhuma, e a varredura por consumidor devolveu zero
+-- com controle positivo. Não há dado de cliente a perder porque não há caminho
+-- que grave.
+-- ─── 1 · a cor da pessoa vira trilha ──────────────────────────────────────
+alter table public.user_organizations
+  add column if not exists calendar_trilha smallint;
+
+alter table public.user_organizations
+  drop constraint if exists user_organizations_calendar_trilha_valida;
+alter table public.user_organizations
+  add constraint user_organizations_calendar_trilha_valida
+  check (calendar_trilha is null or calendar_trilha between 1 and 8);
+
+comment on column public.user_organizations.calendar_trilha is
+  'A trilha de cor desta pessoa na grade da Agenda, nesta organização (1..8). NULL = use a derivada de trilhaPadraoDoMembro(user_id), que é estável mas colide para alguns pares — esta coluna existe para quem administra desempatar. A COR de cada trilha vive em app/globals.css (--agenda-pessoa-N) e muda com o tema; guardar hex aqui seria um segundo lugar para a mesma verdade, sem tema escuro. ⚠️ A policy de SELECT desta tabela é self-OU-manager+: um `agent` não lê a linha dos colegas pelo PostgREST, então as trilhas chegam à tela pela rota que monta o roster com service role.';
+
+alter table public.user_organizations
+  drop constraint if exists user_organizations_calendar_color_format;
+alter table public.user_organizations
+  drop column if exists calendar_color;
+
+-- ─── 2 · a cor do tipo de agendamento sai ─────────────────────────────────
+alter table public.calendar_event_types
+  drop constraint if exists calendar_event_types_color_format;
+alter table public.calendar_event_types
+  drop column if exists color;
+
+notify pgrst, 'reload schema';
+
+-- ---- o espelho do Google é cache com prazo (migration 0187) ----
+--
+-- A SEGUNDA metade da 0187. A função está ANTES do bloco da VARREDURA anon.
+comment on table public.calendar_external_events is
+  'ESPELHO, somente-leitura, do que já existe na agenda conectada. Ocupa horário e aparece na grade, mas NÃO é compromisso nosso: não tem lead, não tem estado de atendimento e nunca é reescrito por nós. É CACHE — reconstruível pelo sync, apagado em cascata quando a conexão sai, e com prazo (fn_expurgar_espelho_da_agenda, migration 0187). Fica FORA da cascata de LGPD por não ter contact_id: o único vínculo com a pessoa é o title copiado do Google, e a fonte da verdade daquele dado é a agenda do próprio cliente, onde o titular exerce o direito com o controlador de lá. A mira de verdade só nasce com o escritor do sync, que terá o ical_uid para ligar — decisão de QUANDO, não de SE.';
+
+create index if not exists calendar_external_events_poda_idx
+  on public.calendar_external_events (ends_at);
+
+notify pgrst, 'reload schema';
+
+-- ---- o espelho não se limpa sozinho (migration 0189) ----
+--
+-- A 0187 deu prazo ao espelho e o comentário passou a dizer "cache com prazo".
+-- Está certo e é insuficiente: quem ler aquilo conclui que ele se limpa sozinho.
+--
+-- O caso que a poda NÃO alcança: evento com `ends_at` no FUTURO, de conexão
+-- VIVA, apagado no Google. Nunca envelhece — o corte é `ends_at < now() - N`, e
+-- futuro não vence. Fica aqui para sempre, ocupando horário que na agenda do
+-- cliente já está livre, e fazendo a agenda RECUSAR hora que existe. Quem limpa
+-- é a RECONCILIAÇÃO do sync, que é de outra frente e não existe hoje.
+--
+-- Merece migration e não linha de doc porque `comment on table` é o que se lê no
+-- `\d+` e é a única declaração que viaja com o schema para todo clone. Ressalva
+-- que fica no briefing morre com a entrega.
+comment on table public.calendar_external_events is
+  'ESPELHO, somente-leitura, do que já existe na agenda conectada. Ocupa horário e aparece na grade, mas NÃO é compromisso nosso: não tem lead, não tem estado de atendimento e nunca é reescrito por nós. '
+  'É CACHE — reconstruível pelo sync, apagado em cascata quando a conexão sai, e com prazo para o PASSADO (fn_expurgar_espelho_da_agenda, migration 0187). '
+  '⚠️ O PRAZO NÃO LIMPA O FANTASMA: evento com ends_at no FUTURO, de conexão viva, apagado lá no Google, nunca envelhece e fica aqui para sempre — ocupando um horário que na agenda do cliente já está livre, e fazendo a agenda RECUSAR hora que existe. Quem limpa isso é a RECONCILIAÇÃO do sync (remover o que não veio na resposta da janela), que é da frente do Google e não existe hoje. '
+  'Fica FORA da cascata de LGPD por não ter contact_id: o único vínculo com a pessoa é o title copiado do Google, e a fonte da verdade daquele dado é a agenda do próprio cliente, onde o titular exerce o direito com o controlador de lá. A mira de verdade só nasce com o escritor do sync, que terá o ical_uid para ligar — decisão de QUANDO, não de SE.';
+
+notify pgrst, 'reload schema';
+-- ---- a volta do Google precisa de identidade (migration 0188) ----
+-- `calendar_appointments.google_ical_uid` existe desde a 0177 e diz qual evento
+-- do Google é nosso. A linha de VOLTA não tinha equivalente, e sem chave entre
+-- os dois o mesmo compromisso movido no Google passa a bloquear DOIS horários —
+-- o novo, pela linha externa, e o antigo, pelo agendamento — sem nada que os
+-- ligue para desfazer. Aditiva e idempotente.
+alter table public.calendar_external_events
+  add column if not exists ical_uid text;
+
+create index if not exists calendar_external_events_ical_uid_idx
+  on public.calendar_external_events (organization_id, ical_uid)
+  where ical_uid is not null;
+
+-- ---- o mesmo state do Google valia duas vezes (migration 0190) ----
+-- Tabela de nonces queimados. Postgres e nao Redis porque o Upstash e opcional
+-- no self-host, e propriedade de seguranca que degrada em silencio onde a
+-- dependencia falta e pior que propriedade nenhuma. Aditiva e idempotente.
+create table if not exists public.calendar_oauth_nonces (
+  nonce text primary key,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  -- O prazo do próprio `state`. Depois dele a linha não serve para mais nada:
+  -- um `state` vencido já é recusado pela assinatura, antes de chegar aqui.
+  expira_em timestamptz not null,
+  usado_em timestamptz not null default now()
+);
+
+comment on table public.calendar_oauth_nonces is
+  'Nonces de state do OAuth do Google já usados. A chave primária é o próprio nonce: a segunda tentativa viola a unicidade, e é assim que o replay é recusado.';
+
+create index if not exists calendar_oauth_nonces_expiracao_idx
+  on public.calendar_oauth_nonces (expira_em);
+
+alter table public.calendar_oauth_nonces enable row level security;
+
+-- Sem policy nenhuma, e é deliberado: quem escreve é o callback do OAuth, com
+-- service role, e ninguém precisa LER isto pela API. Policy aqui só abriria
+-- caminho para enumerar tentativas de conexão pelo PostgREST.
+revoke all on public.calendar_oauth_nonces from anon, authenticated;
+
+-- Negação ESCRITA (migration 0192). RLS ligada sem policy já nega tudo, mas no
+-- catálogo negação deliberada e negação esquecida são indistinguíveis — e é
+-- disso que o invariante de completude reclama, com razão. Não abre nada.
+drop policy if exists tenant_isolation_calendar_oauth_nonces_all on public.calendar_oauth_nonces;
+drop policy if exists calendar_oauth_nonces_ninguem_le on public.calendar_oauth_nonces;
+create policy calendar_oauth_nonces_ninguem_le
+  on public.calendar_oauth_nonces
+  for select
+  using (false);
+
+-- A quarta poda do `data-retention`. Assinatura idêntica às três irmãs
+-- (`p_dias`, `p_lote`) para o mesmo laço de lotes servir sem caso especial.
+create or replace function public.fn_expurgar_nonces_de_oauth(p_dias int, p_lote int default 500)
+returns int
+language plpgsql
+security definer
+set search_path to 'public', 'pg_temp'
+as $$
+declare
+  v_removidas int;
+begin
+  -- Piso no CORPO, como as irmãs: um chamador que passe 0 não apaga nonce que
+  -- ainda protege. O prazo do state é de 10 minutos, então um dia já é folga
+  -- de duas ordens de grandeza.
+  if p_dias is null or p_dias < 1 then
+    p_dias := 1;
+  end if;
+
+  with alvo as (
+    select nonce
+      from public.calendar_oauth_nonces
+     where expira_em < now() - make_interval(days => p_dias)
+     limit greatest(p_lote, 1)
+  )
+  delete from public.calendar_oauth_nonces n
+   using alvo
+   where n.nonce = alvo.nonce;
+
+  get diagnostics v_removidas = row_count;
+  return v_removidas;
+end$$;
+
+-- Função nova em `public` nasce EXPOSTA — as DUAS origens de EXECUTE.
+-- `authenticated` entra aqui pela migration 0192: as duas irmãs de assinatura
+-- idêntica já o revogavam, e o grant vem do `ALTER DEFAULT PRIVILEGES` do
+-- corpo deste arquivo — omissão que aparece como linha AUSENTE, não errada.
+revoke execute on function public.fn_expurgar_nonces_de_oauth(int, int) from public, anon, authenticated;
+grant execute on function public.fn_expurgar_nonces_de_oauth(int, int) to service_role;
+-- ---- playbook `agendamento` v2: cita as ferramentas de agenda (migration 0191) ----
+do $pub$
+declare
+  -- md5 do corpo abaixo. Conferido logo após o insert — ver item 2 do cabeçalho.
+  v_md5 constant text := 'c2022f05f5b5d9451e727cf0f4187f8a';
+  v_id  uuid;
+begin
+  select id into v_id
+    from skill_versions
+   where organization_id is null and name = 'agendamento' and md5(body) = v_md5
+   limit 1;
+
+  if v_id is null then
+    insert into skill_versions (organization_id, name, description, body, matcher)
+    values (
+      null,
+      'agendamento',
+      'Playbook pra marcar/remarcar horário (consulta, visita, sessão) — consulta a agenda real pelas ferramentas quando elas existem, nunca inventa disponibilidade, e confirma por escrito antes de fechar.',
+      $body$# Playbook: marcar horário/agendamento
+
+## Quando usar
+O lead pede pra marcar um horário, consulta, visita, demonstração ou sessão —
+qualquer compromisso com data/hora. Comum em clínicas, imobiliárias (visitas),
+serviços e consultorias.
+
+## Regra de ouro: consulte a agenda, não adivinhe
+Você tem acesso à agenda **se, e somente se**, a ferramenta `crm_find_free_slots`
+estiver disponível para você. Não julgue isso por intuição — chame e leia a resposta.
+- Voltou com horários → ofereça 2 ou 3 deles, concretos.
+- Voltou `publicou_horarios: false` → o atendente ainda não publicou os horários de
+  trabalho dele. Isso NÃO é "está lotado" e NÃO é "não tem vaga": não invente horário,
+  não diga que a agenda está cheia, e avise que alguém da equipe confirma.
+- Voltou com `motivo` → leia a `mensagem` e faça o que ela manda. Ela foi escrita para
+  o cliente ouvir.
+- Voltou `fuso_suposto: true` → o fuso da agenda veio do padrão e ninguém confirmou.
+  Ofereça pedindo confirmação — "consigo terça às 14h; confere se esse horário bate aí
+  pra você?" — em vez de afirmar.
+- Você não tem essa ferramenta → aí sim: não ofereça horário nenhum, diga que vai
+  confirmar a disponibilidade e sinalize handoff para quem tem acesso.
+Prometer um horário que depois não existe quebra confiança e gera reagendamento
+forçado. Inventar é pior do que demorar um instante a mais para responder.
+
+## Fluxo padrão (if-then)
+
+**1. Identifique o serviço/motivo antes de oferecer horário**
+- SE o lead só disse "quero agendar" sem contexto → pergunte o motivo/serviço
+  primeiro. Agendar sem saber o quê gera erro de encaixe (ex.: consulta de 20min
+  marcada num slot de 1h de procedimento).
+
+**2. Ofereça opções fechadas, não uma pergunta aberta**
+- SE `crm_find_free_slots` respondeu com horários → ofereça 2-3 concretos ("tenho terça
+  14h ou quarta 10h, qual funciona?"). Pergunta aberta tipo "qual horário você prefere?"
+  gera ida e volta desnecessária e trava a conversa.
+- SE você não tem a ferramenta → não invente. Diga algo como "vou confirmar a
+  disponibilidade e te retorno em instantes" e sinalize handoff/task pra quem tem
+  acesso.
+
+**3. Colete os dados obrigatórios antes de confirmar**
+- Nome completo do lead (ou confirme o que já está no CRM).
+- Serviço/motivo específico.
+- Unidade/local, se o tenant tiver mais de uma (clínica com filiais, imobiliária com
+  múltiplos imóveis).
+- Se for reagendamento, o horário anterior a ser substituído.
+
+**4. Confirme por escrito antes de encerrar**
+- SE o lead aceitar um horário → repita de volta por escrito: "Confirmado:
+  [serviço] dia [data] às [hora], em [local]. Confirma pra mim?"
+- Só considere o agendamento fechado depois do "sim"/confirmação explícita do lead —
+  silêncio ou "ok" vago não é confirmação suficiente pra compromissos com custo de
+  no-show alto (ex. consulta médica, visita a imóvel).
+
+**5. Reagendamento e cancelamento**
+- SE o lead pedir pra remarcar E você tem `crm_reschedule_appointment` → use ela.
+  NÃO cancele e marque de novo: é o MESMO compromisso mudando de hora. O histórico
+  continua um só e o lembrete é refeito sozinho para o horário novo.
+- SE o lead pedir pra remarcar e você NÃO tem essa ferramenta → então cancelar e marcar
+  de novo é o único caminho, e ele tem um custo que você precisa administrar: o cliente
+  pode receber dois avisos seguidos e contraditórios ("desmarcado" e depois "marcado").
+  Antes de fazer, diga a ele em uma frase o que vai acontecer — "vou desmarcar o horário
+  antigo e já marcar o novo, você pode receber dois avisos" — e nunca deixe os dois
+  compromissos de pé ao mesmo tempo.
+- SE o lead pedir pra cancelar → use `crm_cancel_appointment` se você a tiver, informe o
+  motivo, e pergunte se quer remarcar pra outra data, sem pressionar. Cancelar libera
+  aquele horário para outra pessoa e não dá para desfazer: confirme antes.
+
+**6. Risco de no-show**
+- Se o negócio tiver política de confirmação D-1 documentada na base de
+  conhecimento, siga-a (ex.: mensagem de lembrete automática). Se não houver, não
+  invente política — apenas confirme o agendamento normalmente.
+
+## Regras duras
+- Nunca confirme horário sem ter checado disponibilidade real (ou sem sinalizar que
+  ainda vai confirmar).
+- Nunca marque dois compromissos conflitantes pro mesmo lead sem avisar.
+- Se o lead pedir um horário fora do funcionamento do negócio (ex. domingo,
+  madrugada) e isso não estiver nas regras do tenant, não confirme — explique a
+  janela real de atendimento.
+- Dado sensível (endereço completo, documento) só é coletado se o fluxo do tenant
+  realmente exigir — não peça informação a mais que o agendamento precisa.
+- Marcar consulta e agendar retorno são coisas DIFERENTES. `crm_book_appointment` é para
+  hora combinada COM o cliente, que ele reservou e vai comparecer — alguém espera por ele.
+  `crm_schedule_followup` é decisão interna nossa de voltar a falar: o cliente não fica
+  sabendo e nada é reservado na agenda de ninguém. Se ele ESCOLHEU um horário para ser
+  atendido, é a primeira.
+
+## Exemplos de resposta (tom, não copiar literal)
+- "Pra eu te encaixar certo: é pra qual serviço/motivo?"
+- "Tenho quinta às 15h ou sexta às 9h — qual fica melhor pra você?"
+- "Confirmado: consulta dia 28/07 às 15h, na unidade Centro. Pode confirmar pra
+  mim?"
+
+## O que NÃO fazer
+- Não pergunte "qual horário você prefere?" sem oferecer opções concretas quando
+  você tem a agenda.
+- Não confirme agendamento sem resposta explícita do lead.
+- Não invente disponibilidade que você não checou.$body$,
+      '{"any_keywords": ["agendar", "marcar horário", "marcar consulta", "marcar uma visita", "agenda", "que horas vocês", "horário disponível", "remarcar", "reagendar", "cancelar o horário", "desmarcar"], "probe_keywords": ["que horas", "qual dia", "tem vaga", "disponibilidade"]}'::jsonb
+    )
+    returning id into v_id;
+
+    if (select md5(body) from skill_versions where id = v_id) is distinct from v_md5 then
+      raise exception 'playbook agendamento: o md5 declarado (%) nao corresponde ao corpo inserido. Recalcule antes de publicar.', v_md5;
+    end if;
+  end if;
+
+  -- Repointe SEMPRE. O ponteiro global e unico por nome (uniq_skill_pointers_platform,
+  -- parcial em organization_id is null), entao update-senao-insert e seguro e nao depende
+  -- de inferencia de conflito sobre indice parcial.
+  update skill_pointers
+     set version_id = v_id, updated_at = now()
+   where organization_id is null and name = 'agendamento';
+
+  if not found then
+    insert into skill_pointers (organization_id, name, version_id)
+    values (null, 'agendamento', v_id);
+  end if;
+end
+$pub$;
+
+
+-- ---- ⚠️ RESTAURADA AO FIM (2026-08-27) ----
+--
+-- Este bloco diz de si mesmo que é o ÚLTIMO do arquivo, e havia 24 apêndices
+-- depois dele. A cura deixou de alcançar tudo que veio no meio, e o gate
+-- `tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts` só reprova quando um
+-- desses blocos CRIA FUNÇÃO — o que levou 24 blocos para acontecer, com
+-- `fn_expurgar_nonces_de_oauth` (commit 75383e5a).
+--
+-- Movido em vez de remendado: mover o bloco novo para cima resolveria a
+-- INSTÂNCIA e deixaria a armadilha armada para o próximo. Mover a varredura
+-- para o fim resolve a CLASSE e restaura o que o texto dela já prometia.
+--
+-- Seguro porque a varredura preserva o que encontra: ela lê
+-- `has_function_privilege` de `authenticated` e `service_role` ANTES do
+-- revoke e regrava os dois. Rodar mais tarde só faz alcançar mais funções.
+
+-- ---- FK e fuso da conexão do Google (migration 0193) ----
+-- ⚠️ ENTRA ANTES DO BLOCO DA VARREDURA anon, que é de propósito o último do arquivo.
+-- Este bloco não cria função, então a varredura não o cura nem precisa curar — mas pôr
+-- apêndice DEPOIS dela recria a erosão que a 0192 acabou de consertar.
+alter table public.calendar_appointments
+  add column if not exists google_connection_id uuid;
+
+-- Backfill ANTES da constraint: a coluna é nova e nada escreve nela hoje, mas um clone
+-- adiantado poderia ter linha com ponteiro morto — e constraint criada sobre dado que a
+-- viola quebra o `update.sh` do clone, que roda SEM ON_ERROR_STOP e falharia no meio.
+update public.calendar_appointments a
+   set google_connection_id = null
+ where a.google_connection_id is not null
+   and not exists (select 1 from public.calendar_connections c where c.id = a.google_connection_id);
+
+do $fk$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conrelid = 'public.calendar_appointments'::regclass
+       and conname = 'calendar_appointments_google_connection_id_fkey'
+  ) then
+    alter table public.calendar_appointments
+      add constraint calendar_appointments_google_connection_id_fkey
+      foreign key (google_connection_id)
+      references public.calendar_connections(id) on delete set null;
+  end if;
+end
+$fk$;
+
+comment on column public.calendar_appointments.google_connection_id is
+  'Conexão do Google que espelha este compromisso. `set null`: conexão revogada não apaga compromisso — ele é do CRM, não da integração.';
+
+alter table public.calendar_connection_calendars
+  add column if not exists time_zone text;
+
+comment on column public.calendar_connection_calendars.time_zone is
+  'Fuso IANA do calendário, como o Google devolve (`timeZone`). NULL = ainda não sincronizado; quem lê deve tratar NULL como "não sei", nunca como UTC — foi o `?? UTC` que fez evento de dia inteiro vazar a noite anterior.';
+
+-- ---- lembrete nasce desligado (migration 0194) ----
+-- ⚠️ ENTRA ANTES DO BLOCO DA VARREDURA anon, pelo mesmo motivo da 0193.
+alter table public.calendar_event_types
+  alter column reminder_enabled set default false;
+
+-- As linhas JÁ criadas também voltam: com zero leitores e zero disparador, nada depende do
+-- valor atual, então este é o único momento em que corrigir o histórico não regride
+-- comportamento de ninguém. Depois do disparador, isto seria apagar a escolha de um operador.
+update public.calendar_event_types
+   set reminder_enabled = false
+ where reminder_enabled is true;
+
+comment on column public.calendar_event_types.reminder_enabled is
+  'Lembrete automático deste tipo. Nasce DESLIGADO de propósito: enviar mensagem é irreversível, e um default ligado inscreveria o histórico inteiro sem ninguém ter escolhido. Ligar por padrão é decisão do dono do produto, a ser tomada quando o disparador existir.';
+
+-- ---- tipo semeado adota dono no primeiro membro (migration 0195) ----
+-- ⚠️ ENTRA ANTES DO BLOCO DA VARREDURA anon: aqui é OBRIGATÓRIO, não preferência —
+-- este bloco CRIA FUNÇÃO, e função nova em `public` nasce exposta a `anon` pelo
+-- ALTER DEFAULT PRIVILEGES. Depois da varredura, ela ficaria sem a cura.
+create or replace function public.fn_adotar_tipos_de_agendamento_sem_dono()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  -- Só o primeiro membro ATIVO da organização.
+  --
+  -- ⚠️ As duas condições nasceram de um caso que a predição pegou antes do commit: sem
+  -- `new.revoked_at is null`, uma linha que JÁ nasce revogada adota os tipos e o dono padrão
+  -- da agenda vira alguém que nunca esteve lá. E contar TODOS em vez de só os ativos criaria
+  -- o furo simétrico: numa org com um ex-membro, o primeiro membro de verdade veria contagem
+  -- 2 e não adotaria nada — a org ficaria órfã para sempre.
+  --
+  -- `= 1` e não `> 0`: neste ponto a linha nova já está na tabela, então o primeiro ativo
+  -- vê contagem 1.
+  if new.revoked_at is null
+     and (select count(*) from public.user_organizations u
+           where u.organization_id = new.organization_id
+             and u.revoked_at is null) = 1 then
+    update public.calendar_event_types
+       set default_owner_user_id = new.user_id
+     where organization_id = new.organization_id
+       and default_owner_user_id is null;
+  end if;
+  return new;
+end
+$fn$;
+
+revoke execute on function public.fn_adotar_tipos_de_agendamento_sem_dono() from public, anon, authenticated;
+grant  execute on function public.fn_adotar_tipos_de_agendamento_sem_dono() to service_role;
+
+drop trigger if exists trg_adotar_tipos_de_agendamento_sem_dono on public.user_organizations;
+create trigger trg_adotar_tipos_de_agendamento_sem_dono
+  after insert on public.user_organizations
+  for each row execute function public.fn_adotar_tipos_de_agendamento_sem_dono();
+
+-- Backfill: organizações que JÁ nasceram com os tipos órfãos e já têm membro. Adota o
+-- membro ATIVO mais antigo — o mesmo que o trigger teria escolhido se existisse na época.
+--
+-- ⚠️ `revoked_at is null` nas DUAS metades, e não é detalhe: `user_organizations` guarda o
+-- ex-membro em vez de apagá-lo. Sem o filtro, o backfill adotaria como dono padrão da agenda
+-- alguém que já saiu da empresa — e o `exists` sem filtro faria pior, deixando o tipo órfão
+-- numa org que só tem ex-membros parecer "já resolvido" por ter alguém na tabela.
+update public.calendar_event_types t
+   set default_owner_user_id = (
+         select u.user_id from public.user_organizations u
+          where u.organization_id = t.organization_id
+            and u.revoked_at is null
+          order by u.created_at, u.user_id
+          limit 1)
+ where t.default_owner_user_id is null
+   and exists (select 1 from public.user_organizations u
+                where u.organization_id = t.organization_id and u.revoked_at is null);
+
+-- ---- o acervo é da organização; o agente escolhe o que lê (migration 0181) ----
+--
+-- A base de conhecimento PERTENCIA a um agente (`ai_knowledge_sources.agent_id`
+-- NOT NULL, FK CASCADE) e o acervo do agente era UMA versão monolítica. Daí
+-- saíam, em cadeia: material impossível de compartilhar; UM documento por
+-- categoria por agente (índice único `(agent_id, source_type) WHERE is_active`,
+-- e todo arquivo enviado virava `policy`, então o SEGUNDO PDF colidia);
+-- pipelines competindo pelo mesmo ponteiro (a ingestão de conversas ativava a
+-- versão dela e DESATIVAVA a de FAQ do mesmo agente, e vice-versa); e apagar o
+-- agente apagava a base junto.
+--
+-- Agora a fonte é da ORGANIZAÇÃO. `agent_id` fica como histórico (nullable, ON
+-- DELETE SET NULL). Quem lê o quê é `ai_agent_versions.knowledge_source_ids`,
+-- molde exato de `pipeline_ids` (0125) e pela mesma razão: escopo fora do ciclo
+-- rascunho→publicar muda o alcance do agente sem ninguém publicar nada. Coluna
+-- `uuid[]` na versão e não junção, porque o runtime lê a config em UMA query
+-- sem cache — junção custaria uma query a mais por turno atendido.
+--
+-- O ponteiro de índice vira POR FONTE (`ai_knowledge_sources.active_kb_version_id`).
+-- As versões legadas continuam válidas sem serem quebradas: a busca casa
+-- `(kb_version_id, knowledge_source_id)`, então uma versão compartilhada devolve
+-- para cada fonte exatamente os chunks daquela fonte.
+--
+-- Racional completo no cabeçalho da migration. Idempotente e auto-curativo.
+
+drop index if exists public.ai_knowledge_sources_unique_per_agent;
+
+alter table public.ai_knowledge_sources
+  alter column agent_id drop not null;
+
+alter table public.ai_knowledge_sources
+  drop constraint if exists ai_knowledge_sources_agent_id_fkey;
+alter table public.ai_knowledge_sources
+  add constraint ai_knowledge_sources_agent_id_fkey
+  foreign key (agent_id) references public.ai_agents(id) on delete set null;
+
+comment on column public.ai_knowledge_sources.agent_id is
+  'HISTÓRICO: o agente a partir do qual a fonte foi criada. NÃO é dono — desde a 0181 quem lê o quê é `ai_agent_versions.knowledge_source_ids`. Nullable e ON DELETE SET NULL de propósito.';
+
+-- A VERSÃO DE ÍNDICE TAMBÉM DEIXA DE PERTENCER A UM AGENTE.
+--
+-- `agent_id` era NOT NULL aqui, e um material da organização (sem agente
+-- nenhum) não tinha como ser indexado: `createKnowledgeVersion` batia em
+-- "null value in column agent_id violates not-null constraint" — medido na
+-- prova de tela, com o material parado em `indexando` para sempre.
+--
+-- E o CASCADE sai junto, por uma razão pior: os chunks apontam para a VERSÃO
+-- (`ai_chunks.kb_version_id ... on delete cascade`), então apagar o agente
+-- levava a versão, e a versão levava os trechos — o material da EMPRESA sumia
+-- porque alguém apagou um assistente. `SET NULL`: a versão pertence à fonte.
+alter table public.ai_knowledge_versions
+  alter column agent_id drop not null;
+
+alter table public.ai_knowledge_versions
+  drop constraint if exists ai_knowledge_versions_agent_id_fkey;
+alter table public.ai_knowledge_versions
+  add constraint ai_knowledge_versions_agent_id_fkey
+  foreign key (agent_id) references public.ai_agents(id) on delete set null;
+
+comment on column public.ai_knowledge_versions.agent_id is
+  'HISTÓRICO: o agente a partir do qual esta indexação foi disparada. Nullable desde a 0181 — a versão pertence à FONTE, e o acervo é da organização.';
+
+-- Vocabulário ABERTO (precedente da 0127): o CHECK tinha 6 valores com dois
+-- pares de sinônimos e nenhum valor para "documento avulso".
+alter table public.ai_knowledge_sources
+  drop constraint if exists ai_knowledge_sources_source_type_check;
+
+update public.ai_knowledge_sources
+   set source_type = case source_type
+         when 'policy'            then 'documento'
+         when 'conversation'      then 'conversas'
+         when 'nuvemshop_catalog' then 'catalogo'
+         when 'catalog'           then 'catalogo'
+         else source_type
+       end
+ where source_type in ('policy', 'conversation', 'nuvemshop_catalog', 'catalog');
+
+comment on column public.ai_knowledge_sources.source_type is
+  'Vocabulário ABERTO (sem CHECK, precedente da 0127). A lista que a tela oferece vive em lib/ai/rag/tipos-de-fonte.ts: faq | documento | conversas | catalogo.';
+
+-- Nome vira identidade: batizar o que está sem nome e desempatar homônimos
+-- ANTES do índice único, senão o `update.sh` do clone morre aqui.
+update public.ai_knowledge_sources
+   set name = case source_type
+         when 'faq'       then 'Perguntas frequentes'
+         when 'documento' then 'Documento'
+         when 'conversas' then 'Conversas anteriores'
+         when 'catalogo'  then 'Catálogo de produtos'
+         else 'Material'
+       end || ' ' || left(id::text, 8)
+ where coalesce(btrim(name), '') = '';
+
+with duplicados as (
+  select id,
+         row_number() over (
+           partition by organization_id, lower(btrim(name))
+           order by created_at, id
+         ) as n
+    from public.ai_knowledge_sources
+   where is_active
+)
+update public.ai_knowledge_sources s
+   set name = s.name || ' (' || left(s.id::text, 4) || ')'
+  from duplicados d
+ where d.id = s.id
+   and d.n > 1;
+
+create unique index if not exists ai_knowledge_sources_nome_unico_por_org
+  on public.ai_knowledge_sources (organization_id, lower(btrim(name)))
+  where is_active;
+
+-- Arquivar desliga de verdade: nenhuma linha do repo jamais escreveu
+-- `is_active = false`, e com o índice único antigo isso deixava o "slot"
+-- ocupado por uma fonte arquivada para sempre.
+update public.ai_knowledge_sources
+   set is_active = false
+ where status = 'archived' and is_active;
+
+alter table public.ai_knowledge_sources
+  drop constraint if exists ai_knowledge_sources_arquivada_nao_e_ativa;
+alter table public.ai_knowledge_sources
+  add constraint ai_knowledge_sources_arquivada_nao_e_ativa
+  check (not is_active or status <> 'archived');
+
+-- Os dois estados que o produto JÁ produz e a tela não sabia mostrar.
+-- Reconstruído em UM bloco só (lição do #159). Aditivo.
+alter table public.ai_knowledge_sources
+  drop constraint if exists ai_knowledge_sources_last_index_status_check;
+alter table public.ai_knowledge_sources
+  add constraint ai_knowledge_sources_last_index_status_check
+  check (last_index_status is null or last_index_status = any (array[
+    'success', 'partial', 'failed', 'indexando', 'sem_credencial'
+  ]));
+
+alter table public.ai_knowledge_sources
+  add column if not exists active_kb_version_id uuid;
+
+alter table public.ai_knowledge_versions
+  add column if not exists knowledge_source_id uuid;
+alter table public.ai_knowledge_versions
+  add column if not exists embedding_model text;
+alter table public.ai_knowledge_versions
+  add column if not exists embedding_dims integer;
+
+comment on column public.ai_knowledge_versions.knowledge_source_id is
+  'A fonte que esta versão indexa. NULL nas versões anteriores à 0181, que continham chunks de várias fontes — e continuam válidas: a busca casa (kb_version_id, knowledge_source_id) por fonte.';
+comment on column public.ai_knowledge_versions.embedding_model is
+  'Modelo com que os vetores desta versão foram calculados. NULL = anterior à 0181. A busca recusa a fonte cuja versão foi indexada com outro modelo — recall quebrado em silêncio é pior que fonte de fora.';
+
+-- Ponteiros pendurados saem ANTES das FKs. Um `active_kb_version_id` apontando
+-- para versão apagada é hoje indistinguível de "base vazia": zero chunk, zero erro.
+update public.ai_agents a
+   set active_kb_version_id = null
+ where a.active_kb_version_id is not null
+   and not exists (select 1 from public.ai_knowledge_versions v where v.id = a.active_kb_version_id);
+
+delete from public.ai_chunks c
+ where not exists (select 1 from public.ai_knowledge_versions v where v.id = c.kb_version_id);
+
+alter table public.ai_agents
+  drop constraint if exists ai_agents_active_kb_version_id_fkey;
+alter table public.ai_agents
+  add constraint ai_agents_active_kb_version_id_fkey
+  foreign key (active_kb_version_id) references public.ai_knowledge_versions(id) on delete set null;
+
+alter table public.ai_chunks
+  drop constraint if exists ai_chunks_kb_version_id_fkey;
+alter table public.ai_chunks
+  add constraint ai_chunks_kb_version_id_fkey
+  foreign key (kb_version_id) references public.ai_knowledge_versions(id) on delete cascade;
+
+alter table public.ai_knowledge_sources
+  drop constraint if exists ai_knowledge_sources_active_kb_version_id_fkey;
+alter table public.ai_knowledge_sources
+  add constraint ai_knowledge_sources_active_kb_version_id_fkey
+  foreign key (active_kb_version_id) references public.ai_knowledge_versions(id) on delete set null;
+
+alter table public.ai_knowledge_versions
+  drop constraint if exists ai_knowledge_versions_knowledge_source_id_fkey;
+alter table public.ai_knowledge_versions
+  add constraint ai_knowledge_versions_knowledge_source_id_fkey
+  foreign key (knowledge_source_id) references public.ai_knowledge_sources(id) on delete cascade;
+
+-- Cada fonte herda a versão ATIVA do agente dela, mas SÓ se aquela versão
+-- realmente contiver chunks daquela fonte.
+update public.ai_knowledge_sources s
+   set active_kb_version_id = v.id
+  from public.ai_knowledge_versions v
+ where v.agent_id = s.agent_id
+   and v.organization_id = s.organization_id
+   and v.is_active
+   and s.active_kb_version_id is null
+   and exists (
+     select 1 from public.ai_chunks c
+      where c.kb_version_id = v.id and c.knowledge_source_id = s.id
+   );
+
+drop index if exists public.ai_kbv_one_active_per_agent;
+create unique index if not exists ai_kbv_uma_ativa_por_fonte
+  on public.ai_knowledge_versions (knowledge_source_id)
+  where is_active and knowledge_source_id is not null;
+
+create index if not exists ai_knowledge_sources_org_idx
+  on public.ai_knowledge_sources (organization_id, is_active);
+create index if not exists ai_knowledge_versions_org_idx
+  on public.ai_knowledge_versions (organization_id, knowledge_source_id);
+
+alter table public.ai_agent_versions
+  add column if not exists knowledge_source_ids uuid[] not null default '{}'::uuid[];
+
+comment on column public.ai_agent_versions.knowledge_source_ids is
+  'Materiais que ESTE agente consulta. Vazio = NENHUM (falha fechada): ele conversa normalmente e a ferramenta de busca some do turno. Molde e racional de `pipeline_ids` (0125): escopo mora na versão publicada.';
+
+update public.ai_agent_versions v
+   set knowledge_source_ids = sub.fontes
+  from (
+    select agent_id, array_agg(id order by created_at) as fontes
+      from public.ai_knowledge_sources
+     where is_active and agent_id is not null
+     group by agent_id
+  ) sub
+ where v.agent_id = sub.agent_id
+   and v.knowledge_source_ids = '{}'::uuid[];
+
+-- CONSERTO OBRIGATÓRIO no mesmo bloco: escopo de leitura editável numa versão
+-- PUBLICADA sem virar versão nova é a própria ausência de escopo, com aparência
+-- de controle.
+create or replace function fn_ai_agent_version_content_immutable() returns trigger
+language plpgsql as $fn$
+begin
+  if old.status <> 'draft' and (
+       new.system_prompt          is distinct from old.system_prompt
+    or new.provider               is distinct from old.provider
+    or new.model                  is distinct from old.model
+    or new.credential_id          is distinct from old.credential_id
+    or new.tool_ids               is distinct from old.tool_ids
+    or new.trigger_config         is distinct from old.trigger_config
+    or new.channel_session_id     is distinct from old.channel_session_id
+    or new.max_steps              is distinct from old.max_steps
+    or new.token_budget           is distinct from old.token_budget
+    or new.cost_budget_cents      is distinct from old.cost_budget_cents
+    or new.history_message_window is distinct from old.history_message_window
+    or new.history_token_window   is distinct from old.history_token_window
+    or new.handoff_keywords       is distinct from old.handoff_keywords
+    or new.handoff_tool_enabled   is distinct from old.handoff_tool_enabled
+    or new.followup               is distinct from old.followup
+    or new.multimodal_input       is distinct from old.multimodal_input
+    or new.video_frames_enabled   is distinct from old.video_frames_enabled
+    or new.split_messages         is distinct from old.split_messages
+    or new.split_max_chars        is distinct from old.split_max_chars
+    or new.cases_enabled          is distinct from old.cases_enabled
+    or new.operator_enabled       is distinct from old.operator_enabled
+    or new.operator_model         is distinct from old.operator_model
+    or new.operator_tool_ids      is distinct from old.operator_tool_ids
+    or new.pipeline_ids           is distinct from old.pipeline_ids
+    or new.knowledge_source_ids   is distinct from old.knowledge_source_ids
+    or new.version_number         is distinct from old.version_number
+    or new.agent_id               is distinct from old.agent_id
+    or new.organization_id        is distinct from old.organization_id
+  ) then
+    raise exception 'ai_agent_versions % é imutável (status=%): mudança de conteúdo = versão draft nova; rollback = revert (clona + publica)',
+      old.id, old.status;
+  end if;
+  return new;
+end;
+$fn$;
+
+drop trigger if exists trg_ai_agent_versions_content_immutable on public.ai_agent_versions;
+create trigger trg_ai_agent_versions_content_immutable
+  before update on public.ai_agent_versions
+  for each row execute function fn_ai_agent_version_content_immutable();
+
+-- A busca que aceita VÁRIAS fontes. A antiga (`retrieve_top_k_chunks`) continua
+-- existindo: o worker legado e a capacidade MCP a chamam.
+--
+-- Preserva as duas decisões de que o chamador depende: quem corta pelo limiar é
+-- o TypeScript (o caller passa o piso −1, para enxergar o melhor candidato
+-- REPROVADO), e o gate de membership só morde quando há `auth.uid()` — o engine
+-- roda com role `bypassrls` e para ele o isolamento é o `organization_id = $1`.
+create or replace function public.fn_buscar_trechos_das_fontes(
+  p_organization_id uuid,
+  p_source_ids uuid[],
+  p_embedding public.vector,
+  p_k integer default 5,
+  p_threshold real default 0.40,
+  p_embedding_model text default null
+) returns table(
+  chunk_id uuid,
+  knowledge_source_id uuid,
+  source_name text,
+  content text,
+  similarity real,
+  metadata jsonb
+)
+  language plpgsql stable security definer
+  set search_path to 'public'
+as $$
+begin
+  if auth.uid() is not null
+     and not public.fn_role_at_least(p_organization_id, 'viewer') then
+    raise exception 'caller_not_authorized_for_org'
+      using hint = 'fn_buscar_trechos_das_fontes: caller must be an active member of the organization';
+  end if;
+
+  return query
+  select
+    c.id as chunk_id,
+    c.knowledge_source_id,
+    s.name as source_name,
+    c.content,
+    (1 - (c.embedding <=> p_embedding))::real as similarity,
+    c.metadata
+  from public.ai_chunks c
+  join public.ai_knowledge_sources s
+    on s.id = c.knowledge_source_id
+   and s.organization_id = c.organization_id
+  join public.ai_knowledge_versions v
+    on v.id = c.kb_version_id
+  where c.organization_id = p_organization_id
+    and s.id = any(p_source_ids)
+    and s.is_active
+    and s.status = 'ready'
+    and c.kb_version_id = s.active_kb_version_id
+    and (
+      p_embedding_model is null
+      or v.embedding_model is null
+      or v.embedding_model = p_embedding_model
+    )
+    and (1 - (c.embedding <=> p_embedding)) >= p_threshold
+  order by c.embedding <=> p_embedding asc
+  limit greatest(p_k, 0);
+end $$;
+
+comment on function public.fn_buscar_trechos_das_fontes(uuid, uuid[], public.vector, integer, real, text) is
+  'Top-K por similaridade de cosseno sobre os materiais que o agente pode ler (0181). SECURITY DEFINER + filtro programático de organização — quem chama valida o tenant.';
+
+revoke execute on function public.fn_buscar_trechos_das_fontes(uuid, uuid[], public.vector, integer, real, text) from public, anon;
+grant  execute on function public.fn_buscar_trechos_das_fontes(uuid, uuid[], public.vector, integer, real, text) to authenticated, service_role;
+
+-- `ai_models` não tinha NENHUM modelo de embedding, e é por isso que o painel de
+-- provedores não conseguia oferecer chave para `embedding_indexar` e
+-- `embedding_consultar`: não havia o que listar.
+alter table public.ai_models
+  add column if not exists supports_embedding boolean not null default false;
+alter table public.ai_models
+  add column if not exists embedding_dims integer;
+
+insert into public.ai_models
+  (provider, model_id, display_name, description,
+   input_price_per_million_cents, output_price_per_million_cents,
+   supports_tools, supports_embedding, embedding_dims)
+values
+  ('openai', 'text-embedding-3-small', 'Text Embedding 3 Small',
+   'O modelo que indexa e consulta o seu material. Trocar exige reindexar tudo de uma vez.',
+   2, 0, false, true, 1536)
+on conflict (provider, model_id) do update set
+  supports_embedding = excluded.supports_embedding,
+  embedding_dims     = excluded.embedding_dims,
+  supports_tools     = excluded.supports_tools;
+
+-- RBAC nas quatro tabelas de RAG (formato da 0150). Elas ficaram de fora do
+-- aperto e ainda estão como o relatório de segurança da comunidade descreveu:
+-- policy `ALL` só-tenancy mais `GRANT ALL ... TO anon`. Um membro papel `viewer`
+-- DELETA a base de conhecimento da própria organização falando direto com o
+-- PostgREST, com o JWT dele.
+drop policy if exists tenant_isolation_ai_knowledge_sources_all on public.ai_knowledge_sources;
+
+drop policy if exists tenant_isolation_ai_knowledge_sources_select on public.ai_knowledge_sources;
+create policy tenant_isolation_ai_knowledge_sources_select on public.ai_knowledge_sources
+  for select using (
+    organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin()
+  );
+
+drop policy if exists tenant_isolation_ai_knowledge_sources_write on public.ai_knowledge_sources;
+create policy tenant_isolation_ai_knowledge_sources_write on public.ai_knowledge_sources
+  for all using (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'manager'))
+    or public.fn_is_platform_admin()
+  ) with check (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'manager'))
+    or public.fn_is_platform_admin()
+  );
+
+drop policy if exists tenant_isolation_ai_faq_items_all on public.ai_faq_items;
+
+drop policy if exists tenant_isolation_ai_faq_items_select on public.ai_faq_items;
+create policy tenant_isolation_ai_faq_items_select on public.ai_faq_items
+  for select using (organization_id in (select public.fn_user_org_ids()));
+
+drop policy if exists tenant_isolation_ai_faq_items_write on public.ai_faq_items;
+create policy tenant_isolation_ai_faq_items_write on public.ai_faq_items
+  for all using (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'manager')
+  ) with check (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'manager')
+  );
+
+drop policy if exists tenant_isolation_ai_kbv_all on public.ai_knowledge_versions;
+
+drop policy if exists tenant_isolation_ai_kbv_select on public.ai_knowledge_versions;
+create policy tenant_isolation_ai_kbv_select on public.ai_knowledge_versions
+  for select using (
+    organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin()
+  );
+
+drop policy if exists tenant_isolation_ai_kbv_write on public.ai_knowledge_versions;
+create policy tenant_isolation_ai_kbv_write on public.ai_knowledge_versions
+  for all using (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  ) with check (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  );
+
+drop policy if exists tenant_isolation_ai_chunks_all on public.ai_chunks;
+
+drop policy if exists tenant_isolation_ai_chunks_select on public.ai_chunks;
+create policy tenant_isolation_ai_chunks_select on public.ai_chunks
+  for select using (
+    organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin()
+  );
+
+drop policy if exists tenant_isolation_ai_chunks_write on public.ai_chunks;
+create policy tenant_isolation_ai_chunks_write on public.ai_chunks
+  for all using (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  ) with check (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  );
+
+revoke all on table public.ai_knowledge_sources  from anon;
+revoke all on table public.ai_knowledge_versions from anon;
+revoke all on table public.ai_chunks             from anon;
+revoke all on table public.ai_faq_items          from anon;
+
+drop trigger if exists trg_ai_knowledge_sources_audit on public.ai_knowledge_sources;
+create trigger trg_ai_knowledge_sources_audit
+  after insert or update or delete on public.ai_knowledge_sources
+  for each row execute function public.fn_audit_log_row();
+
+notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------------------
+-- 12. A telemetria de busca aprende QUEM perguntou e SOBRE O QUÊ
+-- ---------------------------------------------------------------------------
+--
+-- `knowledge_searches` registrava organização, job, versão de índice, número de
+-- acertos, melhor nota e limiar. Faltava o que a torna acionável: QUAL
+-- assistente perguntou e em QUAIS materiais. Sem isso, "o recall está ruim" não
+-- tem como virar "o recall está ruim NAQUELE material", que é o conserto.
+--
+-- `kb_version_id` passa a aceitar NULL porque a busca deixou de ser sobre UMA
+-- versão: ela é sobre um conjunto de materiais, cada um com o índice dele.
+--
+-- A decisão declarada no cabeçalho da 0086 continua valendo: esta tabela NÃO
+-- guarda o texto da pergunta. Acrescentar ids é compatível com ela; acrescentar
+-- a pergunta seria PII contra a decisão.
+
+alter table public.knowledge_searches
+  alter column kb_version_id drop not null;
+
+alter table public.knowledge_searches
+  add column if not exists agent_id uuid references public.ai_agents(id) on delete set null;
+
+alter table public.knowledge_searches
+  add column if not exists knowledge_source_ids uuid[] not null default '{}'::uuid[];
+
+comment on column public.knowledge_searches.knowledge_source_ids is
+  'Materiais consultados nesta busca. Vazio nas linhas anteriores à 0181, quando a busca era sobre uma única versão de índice.';
+
+notify pgrst, 'reload schema';
+
+-- ---- o que ainda não foi ao Google (migration 0200) ----
+-- O worker `agenda-google-push` pedia os pendentes com
+-- `.or("google_synced_at.is.null,updated_at.gt.google_synced_at")`, e o PostgREST
+-- trata o lado DIREITO de `gt.` como VALOR LITERAL: ele tentava converter a
+-- string "google_synced_at" em `timestamptz` e recusava a consulta INTEIRA. Em
+-- produção isso é um `warn` a cada 5 minutos desde o deploy da v1.7.0 e ZERO
+-- compromissos empurrados — a ida ao Google nunca aconteceu em instalação
+-- nenhuma. A coluna derivada é o que dá ao PostgREST um filtro que ele sabe
+-- fazer (`.eq("needs_google_push", true)`).
+--
+-- ⚠️ O TRIGGER NÃO É ENFEITE — sem ele o conserto troca "nunca empurra" por
+-- "empurra para sempre". `updated_at` vem do `now()` do POSTGRES (trigger) e
+-- `google_synced_at` vinha do `new Date()` do NODE, calculado antes de a
+-- requisição sair: o do Node é sempre ANTERIOR, então `updated_at >
+-- google_synced_at` continuava verdadeiro logo depois de uma sincronização
+-- bem-sucedida e a linha voltava à fila na rodada seguinte, para sempre. O
+-- trigger faz o carimbo sair do MESMO relógio dos dois lados. Ele não carimba
+-- quando o valor novo é NULL: zerar a coluna é como se força re-sincronização de
+-- propósito.
+--
+-- Aditiva e idempotente: `add column if not exists` sobre coluna GERADA é no-op
+-- quando ela já existe, `create or replace function` e `drop trigger if exists`
+-- fazem o resto. Não há dado a curar — o valor é derivado das duas colunas que
+-- já estão lá e nasce correto para o histórico inteiro.
+--
+-- ⚠️ CRIA FUNÇÃO, então entra ANTES da varredura de `anon` logo abaixo: função
+-- nova em `public` nasce exposta pelo ALTER DEFAULT PRIVILEGES, e depois da
+-- varredura ela ficaria sem a cura. Os `revoke` explícitos abaixo já a fecham
+-- nas duas origens; a varredura é a rede, não a trava.
+alter table public.calendar_appointments
+  add column if not exists needs_google_push boolean
+  generated always as (google_synced_at is null or updated_at > google_synced_at) stored;
+
+comment on column public.calendar_appointments.needs_google_push is
+  'Derivada: a linha ainda não foi ao Google, ou mudou depois da última ida. Existe porque o PostgREST não compara coluna com coluna — o filtro do worker de push é `.eq("needs_google_push", true)`.';
+
+create or replace function public.fn_carimbar_ida_ao_google()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $fn$
+begin
+  -- `now()` e não `new.updated_at`: os dois são o instante de início da
+  -- transação, então o valor é o mesmo — e usar `now()` remove a dependência de
+  -- ORDEM entre este trigger e o de `updated_at`.
+  if new.google_synced_at is not null
+     and (tg_op = 'INSERT' or new.google_synced_at is distinct from old.google_synced_at) then
+    new.google_synced_at := now();
+  end if;
+  return new;
+end
+$fn$;
+
+revoke execute on function public.fn_carimbar_ida_ao_google() from public, anon, authenticated;
+grant  execute on function public.fn_carimbar_ida_ao_google() to service_role;
+
+drop trigger if exists trg_calendar_appointments_carimbo_do_google on public.calendar_appointments;
+create trigger trg_calendar_appointments_carimbo_do_google
+  before insert or update on public.calendar_appointments
+  for each row execute function public.fn_carimbar_ida_ao_google();
+
+create index if not exists calendar_appointments_pendente_no_google_idx
+  on public.calendar_appointments (starts_at)
+  where needs_google_push and owner_user_id is not null;
+
+-- ---- credencial do Google pela tela (migration 0201) ----
+-- Conectar o Google exigia SSH na VPS e editar o `.env`. O produto é self-host
+-- para quem NÃO programa: nomear variáveis de ambiente para essa pessoa é o
+-- mesmo que dizer que a funcionalidade não existe.
+--
+-- Singleton de INSTALAÇÃO, clone do molde de `platform_branding` (0155): o
+-- `redirect_uri` sai de `NEXT_PUBLIC_APP_URL` e o app OAuth é registrado no
+-- console do Google pelo dono da instalação — a credencial pareia 1:1 com ela.
+--
+-- ⚠️ RLS LIGADA COM ZERO POLICIES é o desenho, não descuido. A anon key vai para
+-- o browser; tabela servida pelo PostgREST e "protegida por policy" depende de a
+-- policy estar certa, esta simplesmente não é servida. O `client_secret` permite
+-- trocar códigos e refresh tokens em nome da instalação — ou seja, ler a agenda
+-- de todos os atendentes que conectaram.
+--
+-- Não cria função: usa `fn_encrypt_oauth`/`fn_decrypt_oauth` da 0041, a mesma
+-- cifra que o callback do Google já usa para os tokens. Entra antes da varredura
+-- de `anon` pela regra do arquivo, não por necessidade.
+--
+-- Aditiva e idempotente: `create table if not exists`, `revoke`/`grant` que
+-- reafirmam, `drop trigger if exists` antes de recriar. Sem dado a curar.
+create table if not exists public.platform_google_oauth (
+  id smallint primary key default 1,
+  client_id text,
+  client_secret_encrypted bytea,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  constraint platform_google_oauth_singleton check (id = 1)
+);
+
+comment on table public.platform_google_oauth is
+  'O app OAuth do Google DESTA INSTALAÇÃO (singleton). Server-side only: RLS ligada sem policies e grants revogados de anon/authenticated — o PostgREST não a serve. O segredo nunca volta ao browser; a tela devolve apenas se existe.';
+comment on column public.platform_google_oauth.client_secret_encrypted is
+  'Cifrado por fn_encrypt_oauth (pgp_sym_encrypt/aes256), a mesma cifra dos tokens em calendar_connections. Nunca gravar em claro: sem a chave mestra o save recusa.';
+
+alter table public.platform_google_oauth enable row level security;
+
+revoke all on public.platform_google_oauth from anon, authenticated;
+grant select, insert, update on public.platform_google_oauth to service_role;
+
+drop trigger if exists trg_platform_google_oauth_updated_at on public.platform_google_oauth;
+create trigger trg_platform_google_oauth_updated_at
+  before update on public.platform_google_oauth
+  for each row execute function public.fn_set_updated_at();
+
+-- ---- desnormaliza assigned_to_user_name em conversations (migration 0202) ----
+--
+-- GET /api/v1/conversations resolvia o nome do atendente via N chamadas ao
+-- GoTrue Admin API (uma por atendente único da página, medido em
+-- lib/users/nome-do-atendente.ts: ~1,2s para 50 atendentes). Toda atribuição
+-- de conversa passa por fn_conversation_assign (claim/release/transfer e o
+-- roteamento automático) — grava o nome ali, uma vez, no mesmo UPDATE que
+-- grava o id, em vez de replicar a resolução em 4 call sites TS.
+
+alter table public.conversations
+  add column if not exists assigned_to_user_name text;
+
+comment on column public.conversations.assigned_to_user_name is
+  'Cópia do nome de quem atende (auth.users.raw_user_meta_data->>''full_name''), escrita por fn_conversation_assign no mesmo UPDATE que grava assigned_to_user_id, e zerada junto quando a atribuição é removida. Existe para evitar 1 chamada HTTP ao GoTrue Admin API por atendente único na listagem do Inbox — ver lib/users/nome-do-atendente.ts. NULL quando a conversa não está atribuída, ou quando o atendente não tem full_name em user_metadata.';
+
+-- Backfill: só linhas já atribuídas, e só quando o nome ainda não está
+-- presente — não sobrescreve dado que uma reaplicação já preencheu.
+update public.conversations c
+   set assigned_to_user_name = u.raw_user_meta_data ->> 'full_name'
+  from auth.users u
+ where c.assigned_to_user_id = u.id
+   and c.assigned_to_user_name is null;
+
+create or replace function public.fn_conversation_assign(
+  p_organization_id uuid,
+  p_conversation_id uuid,
+  p_to_user_id uuid,
+  p_reason text,
+  p_expected_assignee uuid default null,
+  p_enforce_expected boolean default false
+) returns setof public.conversations
+language plpgsql security definer
+set search_path = public
+as $$
+declare
+  v_from uuid;
+  v_conv public.conversations%rowtype;
+begin
+  if auth.uid() is not null
+     and not public.fn_role_at_least(p_organization_id, 'agent') then
+    raise exception 'caller_not_authorized_for_org'
+      using hint = 'caller must be an active agent+ member of the organization';
+  end if;
+
+  if p_to_user_id is not null then
+    if coalesce(public.fn_member_role_in_org(p_to_user_id, p_organization_id), 'none')
+         not in ('agent','manager','admin') then
+      raise exception 'assignee_not_eligible_member'
+        using hint = 'target must be an active agent+ member of the organization';
+    end if;
+  end if;
+
+  select assigned_to_user_id into v_from
+    from public.conversations
+   where id = p_conversation_id
+     and organization_id = p_organization_id
+   for update;
+
+  if not found then
+    return;
+  end if;
+
+  if p_enforce_expected and v_from is distinct from p_expected_assignee then
+    return;
+  end if;
+
+  update public.conversations
+     set assigned_to_user_id = p_to_user_id,
+         -- Desnormalizado JUNTO com o dono, na mesma transação: nunca existe
+         -- uma janela em que id e nome discordam. NULL junto com o id quando
+         -- a atribuição é removida (release) — nunca sobra um nome órfão de
+         -- dono nenhum. Lido de auth.users porque quem chama esta função
+         -- (RPC) não necessariamente tem acesso ao Admin API — a definer
+         -- resolve por dentro.
+         assigned_to_user_name = case
+           when p_to_user_id is null then null
+           else (select raw_user_meta_data ->> 'full_name' from auth.users where id = p_to_user_id)
+         end,
+         assigned_at = case when p_to_user_id is null then null else now() end,
+         assignee_kind = case when p_to_user_id is null then null else 'user' end,
+         status = case when p_to_user_id is null then 'open' else 'claimed' end,
+         status_changed_at = now(),
+         unread_count_for_assignee = 0,
+         bot_silenced_until = case
+           when p_reason = 'routing'  then bot_silenced_until
+           when p_to_user_id is null  then (case when last_handoff_at is null
+                                                 then null
+                                                 else bot_silenced_until end)
+           else 'infinity'::timestamptz
+         end,
+         updated_at = now()
+   where id = p_conversation_id
+   returning * into v_conv;
+
+  insert into public.conversation_assignment_events
+    (organization_id, conversation_id, from_user_id, to_user_id, changed_by, reason)
+  values
+    (p_organization_id, p_conversation_id, v_from, p_to_user_id, auth.uid(), p_reason);
+
+  return next v_conv;
+end;
+$$;
+
+revoke all     on function public.fn_conversation_assign(uuid, uuid, uuid, text, uuid, boolean) from public;
+revoke execute on function public.fn_conversation_assign(uuid, uuid, uuid, text, uuid, boolean) from anon;
+grant  execute on function public.fn_conversation_assign(uuid, uuid, uuid, text, uuid, boolean)
+  to authenticated, service_role;
+
+-- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
+--
+-- ⚠️ ESTE BLOCO É, DE PROPÓSITO, O ÚLTIMO DO ARQUIVO. Apêndice novo entra ANTES
+-- dele — quem o empurrar para o meio desarma a cura para tudo que vier depois.
+-- Vigiado por `tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts`.
+--
+-- A 0108 revogou anon numa LISTA de 8 funções, medida num banco instalado do
+-- ZERO. Quem ATUALIZA tem outro estado: o `ALTER DEFAULT PRIVILEGES ... GRANT
+-- ALL ON FUNCTIONS TO anon` do corpo deste arquivo grava uma entrada em
+-- `pg_default_acl` que fica no catálogo PARA SEMPRE, e a partir daí toda função
+-- criada em `public` nasce com EXECUTE para anon — inclusive as deste apêndice.
+--
+-- Medido numa VPS real (2026-08-07), comparando com o que um install fresco
+-- produz: 6 definer expostas a anon e 5 a authenticated, entre elas
+-- `fn_decrypt_oauth` — alcançável pela anon key, que vai para o browser.
+--
+-- Lista conserta o estoque e reabre no próximo `create function`. Esta varredura
+-- é auto-curativa e roda DEPOIS de tudo que cria função, então cura no mesmo run
+-- em que o defeito nasceria. Desfazer o ALTER DEFAULT PRIVILEGES não serve: ele
+-- vem do `pg_dump` do Supabase e é reescrito a cada re-aplicação.
+--
+-- As duas origens de EXECUTE (a mesma lição da 0108): grant DIRETO a anon, que
+-- `revoke from public` não remove; e grant a PUBLIC, do qual anon HERDA, que
+-- `revoke from anon` não remove. O privilégio EFETIVO de authenticated e
+-- service_role é medido ANTES e devolvido depois — tira anon sem tirar leitura.
+do $$
+declare
+  f record;
+  tinha_auth boolean;
+  tinha_service boolean;
+begin
+  if to_regrole('anon') is null then
+    return;
+  end if;
+
+  for f in
+    select p.oid, p.oid::regprocedure as assinatura
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.prosecdef
+  loop
+    tinha_auth := to_regrole('authenticated') is not null
+                  and has_function_privilege('authenticated', f.oid, 'EXECUTE');
+    tinha_service := to_regrole('service_role') is not null
+                     and has_function_privilege('service_role', f.oid, 'EXECUTE');
+
+    execute format('revoke execute on function %s from public, anon', f.assinatura);
+
+    if tinha_auth then
+      execute format('grant execute on function %s to authenticated', f.assinatura);
+    end if;
+    if tinha_service then
+      execute format('grant execute on function %s to service_role', f.assinatura);
+    end if;
+  end loop;
+end $$;
+
+-- regra 2 (authenticated): as 5 que o update abriu e o install não abre. Aqui não
+-- cabe varredura — `authenticated` PRECISA de EXECUTE nos helpers de RLS e em
+-- `retrieve_top_k_chunks` (num install fresco ele tem). É julgamento por função,
+-- e o alvo de cada linha é o valor que um install fresco produz, medido.
+revoke execute on function public.fn_audit_log_row() from authenticated;
+revoke execute on function public.fn_decrypt_oauth(bytea) from authenticated;
+revoke execute on function public.fn_encrypt_oauth(text) from authenticated;
+revoke execute on function public.fn_lgpd_cascade_redact_contact(uuid, uuid, uuid) from authenticated;
+revoke execute on function public.fn_update_budget_consumption() from authenticated;
+
+grant execute on function public.fn_audit_log_row() to service_role;
+grant execute on function public.fn_decrypt_oauth(bytea) to service_role;
+grant execute on function public.fn_encrypt_oauth(text) to service_role;
+grant execute on function public.fn_lgpd_cascade_redact_contact(uuid, uuid, uuid) to service_role;
+grant execute on function public.fn_update_budget_consumption() to service_role;

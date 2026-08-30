@@ -9,11 +9,26 @@
  * deliberada e MÍNIMA que a rota de humanos já documenta. Exposto o mínimo: id,
  * nome e a versão PUBLICADA no momento da leitura.
  *
- * Esta rota é um PICKER, e só isso: `is_active` e `archived_at` filtrados de
- * propósito, porque agente desligado não deve receber negócio novo. Quem é o
- * dono ATUAL de um lead é outra pergunta e NÃO se responde aqui — vem resolvido
- * do board (`owner_agent`), sem esses filtros. Relaxar os filtros daqui para
- * "consertar" um nome que não aparece no card é consertar no lugar errado.
+ * Esta rota é um PICKER, e só isso: agente desligado não deve receber negócio
+ * novo. Quem é o dono ATUAL de um lead é outra pergunta e NÃO se responde aqui
+ * — vem resolvido do board (`owner_agent`), sem esses filtros. Relaxar o filtro
+ * daqui para "consertar" um nome que não aparece no card é consertar no lugar
+ * errado.
+ *
+ * ⚠️ O filtro era `.eq("is_active", true)`, e ele errava nos DOIS sentidos —
+ * porque `is_active` não é "está ligado" para `mcp_agent`, que é o que a tela
+ * cria:
+ *
+ *   - **escondia quem atende:** "Novo agente" grava `is_active: false`
+ *     (`app/app/ai/agents/[id]/_actions.ts`) e publicar nunca religa. Todo
+ *     agente criado pela tela e publicado ficava fora deste picker enquanto
+ *     respondia no WhatsApp;
+ *   - **oferecia quem não atende:** pausar limpa `published_version_id` e
+ *     deixa `is_active` de pé, então o agente pausado seguia listado como
+ *     destino de negócio.
+ *
+ * A régua agora é `agenteAtende` (`lib/ai/agents/no-ar.ts`), a mesma da tela e
+ * dos workers.
  *
  * Auth: cookie session; organization_id vem do JWT — nunca do body/query.
  * RLS-scoped (createClient), sem admin client: não há nada aqui que a RLS do
@@ -24,6 +39,7 @@ import type { NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
+import { agenteAtende } from "@/lib/ai/agents/no-ar";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -44,20 +60,22 @@ export async function GET(_req: NextRequest): Promise<Response> {
   const supabase = await createClient();
   const { data: agents, error } = await supabase
     .from("ai_agents")
-    .select("id, name, published_version_id")
+    .select("id, name, published_version_id, kind, is_active, archived_at")
     .eq("organization_id", orgId)
-    .eq("is_active", true)
     .is("archived_at", null)
     .order("priority", { ascending: false })
     .order("created_at", { ascending: true });
 
   if (error) return fail("internal_error", error.message, 500, { requestId });
 
-  const rows = (agents ?? []) as Array<{
+  const rows = ((agents ?? []) as Array<{
     id: string;
     name: string;
     published_version_id: string | null;
-  }>;
+    kind: string | null;
+    is_active: boolean | null;
+    archived_at: string | null;
+  }>).filter(agenteAtende);
 
   const publishedIds = rows.map((a) => a.published_version_id).filter((v): v is string => !!v);
   const versionById = new Map<string, number>();

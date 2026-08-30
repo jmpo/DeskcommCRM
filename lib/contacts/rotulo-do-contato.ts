@@ -25,6 +25,8 @@
  * 16 mediu em 30% dos turnos — vocabulário de máquina chegando ao cliente.
  */
 
+import { phoneForDisplay } from "@/lib/channels/phone-variants";
+
 /** O que qualquer tela precisa saber para chamar alguém pelo nome. */
 export interface ContatoNomeavel {
   display_name?: string | null;
@@ -60,12 +62,14 @@ export function ehIdentificadorTecnico(valor: string): boolean {
  * O rótulo. Primeiro o que uma pessoa escolheu, depois o que o canal informou,
  * depois o número — e só então a admissão de que não se sabe o nome.
  *
- * O telefone NÃO é reformatado: ele já é gravado em E.164 e é o mesmo texto que
- * o atendente copia para ligar ou buscar. Embelezá-lo aqui mudaria um rótulo
- * visível sem que ninguém tenha pedido.
+ * Celular BR aparece COM o nono dígito: `+553284793302` e `+5532984793302` são
+ * a mesma pessoa, e o 9 é o que o atendente espera copiar.
  */
-export function rotuloDoContato(c: ContatoNomeavel | null | undefined): string {
-  if (!c) return SEM_NOME;
+export function rotuloDoContato(
+  c: ContatoNomeavel | null | undefined,
+  t: (texto: string) => string = (texto) => texto,
+): string {
+  if (!c) return t(SEM_NOME);
 
   const candidatos = [c.display_name, c.name];
   for (const bruto of candidatos) {
@@ -74,10 +78,7 @@ export function rotuloDoContato(c: ContatoNomeavel | null | undefined): string {
   }
 
   const tel = (c.phone_number ?? "").trim();
-  // O telefone escapa da recusa acima de propósito: "5531988887777" é
-  // identificador para a regra de nome, e é informação ÚTIL para quem atende —
-  // muito melhor que "Sem nome".
-  if (tel !== "") return tel;
+  if (tel !== "") return phoneForDisplay(tel);
 
-  return SEM_NOME;
+  return t(SEM_NOME);
 }

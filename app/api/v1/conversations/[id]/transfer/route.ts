@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 
 import { audit, isServiceRoleConfigured } from "@/lib/audit";
+import { registrarTrocaDeComando } from "@/lib/inbox/atividade-de-comando";
 import { ApiError } from "@/lib/api/types";
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
@@ -117,6 +118,24 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
     .then(({ error: emitErr }) => {
       if (emitErr) console.error("[conversation.transfer] emit_event failed", emitErr.message);
     });
+
+  // O motivo que a pessoa escreveu ao transferir chega à TELA por aqui. Antes ele
+  // ia só para `metadata` do audit log, cuja policy exige `admin` — ou seja,
+  // sumia justamente para quem vai continuar o atendimento. O `reason` da
+  // atividade é coberto pela cascata de anonimização da LGPD, que é o que
+  // permite texto escrito por humano sobre um cliente morar ali.
+  await registrarTrocaDeComando({
+    supabase,
+    organizationId: conv.organization_id,
+    conversationId: conv.id,
+    contactId: conv.contact_id,
+    tipo: "conversation_transferred",
+    actor: { type: "user", id: user.id, role: authz.org.role },
+    motivo: input.reason?.trim()
+      ? `Transferiu a conversa: ${input.reason.trim()}`
+      : "Transferiu a conversa para outro atendente",
+    payload: { to_user_id: input.to_user_id },
+  });
 
   return ok(conv, { requestId });
 }

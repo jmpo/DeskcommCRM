@@ -1,6 +1,7 @@
 "use client";
 import type { MouseEvent } from "react";
 
+import { useT } from "@/hooks/i18n/useT";
 import { cn } from "@/lib/utils";
 import { useDecidirProximaAcao } from "@/hooks/kanban/useNextAction";
 
@@ -28,6 +29,7 @@ export function NextActionSlot({
   approvedSeq,
   pipelineId,
 }: NextActionSlotProps) {
+  const t = useT();
   const decidir = useDecidirProximaAcao(pipelineId);
 
   const decide = (e: MouseEvent<HTMLButtonElement>, decision: "approve" | "dismiss") => {
@@ -39,7 +41,7 @@ export function NextActionSlot({
   return (
     <>
       <span className="min-w-0 flex-1 truncate text-accent" title={label}>
-        Propõe: {label}
+        {t("Propõe:")} {label}
       </span>
       <span className="flex shrink-0 items-center gap-1">
         <button
@@ -48,27 +50,27 @@ export function NextActionSlot({
           onClick={(e) => decide(e, "approve")}
           // O rótulo curto cabe no card; o acessível diz DE QUE proposta se
           // trata — "Aprovar" sozinho, lido fora de contexto, não decide nada.
-          aria-label={`Aprovar: ${label}`}
+          aria-label={`${t("Aprovar:")} ${label}`}
           className={cn(
             "rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors",
             "bg-accent/10 text-accent hover:bg-accent/20",
             "disabled:opacity-50",
           )}
         >
-          Aprovar
+          {t("Aprovar")}
         </button>
         <button
           type="button"
           disabled={decidir.isPending}
           onClick={(e) => decide(e, "dismiss")}
-          aria-label={`Ignorar: ${label}`}
+          aria-label={`${t("Ignorar:")} ${label}`}
           className={cn(
             "rounded px-1.5 py-0.5 text-[11px] transition-colors",
             "text-text-muted hover:bg-surface-muted hover:text-text",
             "disabled:opacity-50",
           )}
         >
-          Ignorar
+          {t("Ignorar")}
         </button>
       </span>
     </>

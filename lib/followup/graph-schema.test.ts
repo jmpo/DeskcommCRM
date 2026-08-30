@@ -4,6 +4,7 @@ import {
   NodeType,
   waitConfigSchema,
   aiClassifyConfigSchema,
+  matchReplyConfigSchema,
   actionConfigSchema,
   conditionConfigSchema,
   endConfigSchema,
@@ -32,6 +33,8 @@ describe('graph-schema', () => {
         'wait',
         'condition',
         'ai_classify',
+        'match_reply',
+        'repeat',
         'action',
         'end',
       ]);
@@ -246,6 +249,21 @@ describe('graph-schema', () => {
   });
 
   describe('actionConfigSchema', () => {
+    describe('text mode', () => {
+      it('accepts a fixed body', () => {
+        const result = actionConfigSchema.safeParse({
+          mode: 'text',
+          body: 'Olá, qual é o seu nome?',
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('rejects empty body', () => {
+        const result = actionConfigSchema.safeParse({ mode: 'text', body: '' });
+        expect(result.success).toBe(false);
+      });
+    });
+
     describe('ai_message mode', () => {
       it('accepts valid ai_message config', () => {
         const result = actionConfigSchema.safeParse({
@@ -605,6 +623,59 @@ describe('graph-schema', () => {
         },
       });
       expect(result.success).toBe(true);
+    });
+
+    it('accepts match_reply with save_to and if_exists', () => {
+      const result = matchReplyConfigSchema.safeParse({
+        branches: [{ id: 'br_sim', label: 'Sim', op: 'contains', pattern: 'sim' }],
+        grace_timeout_ms: 900_000,
+        save_to: { kind: 'lead_custom', key: 'endereco' },
+        if_exists: 'confirm',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts match_reply node', () => {
+      const result = flowNodeSchema.safeParse({
+        id: 'mr-1',
+        type: 'match_reply',
+        label: 'Casar texto',
+        position: { x: 300, y: 300 },
+        config: {
+          branches: [{ id: 'br_sim', label: 'Sim', op: 'contains', pattern: 'sim' }],
+          grace_timeout_ms: 900_000,
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects match_reply with grace below 15min', () => {
+      const result = flowNodeSchema.safeParse({
+        id: 'mr-1',
+        type: 'match_reply',
+        label: 'Casar texto',
+        position: { x: 0, y: 0 },
+        config: {
+          branches: [{ id: 'br_sim', label: 'Sim', op: 'eq', pattern: 'ok' }],
+          grace_timeout_ms: 899_999,
+        },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects match_reply reserved branch id and unknown op', () => {
+      expect(
+        matchReplyConfigSchema.safeParse({
+          branches: [{ id: 'no_reply', label: 'X', op: 'contains', pattern: 'x' }],
+          grace_timeout_ms: 900_000,
+        }).success,
+      ).toBe(false);
+      expect(
+        matchReplyConfigSchema.safeParse({
+          branches: [{ id: 'br_a', label: 'A', op: 'regex', pattern: 'x' }],
+          grace_timeout_ms: 900_000,
+        }).success,
+      ).toBe(false);
     });
 
     it('accepts action node', () => {
@@ -1263,6 +1334,27 @@ describe('graph-schema', () => {
           expect(branches.filter((b) => b.kind === 'fallback')).toHaveLength(1);
           expect(branches.at(-1)!.kind).toBe('fallback');
         }
+      });
+
+      it('match_reply: declared branches + no_reply + always fallback (v2 only)', () => {
+        const node = flowNodeSchema.parse({
+          id: 'mr1',
+          type: 'match_reply',
+          label: 'Texto',
+          position: { x: 0, y: 0 },
+          config: {
+            branches: [
+              { id: 'br_sim', label: 'Sim', op: 'eq', pattern: 'sim' },
+              { id: 'br_nao', label: 'Não', op: 'contains', pattern: 'nao' },
+            ],
+            grace_timeout_ms: 900_000,
+          },
+        });
+        const branches = nodeBranches(node);
+        expect(branches.map((b) => b.id)).toEqual(['br_sim', 'br_nao', NO_REPLY_BRANCH_ID, FALLBACK_BRANCH_ID]);
+        expect(branches[0]!.condition).toEqual({ type: 'branch', branch_id: 'br_sim' });
+        expect(branches[2]!.condition).toEqual({ type: 'branch', branch_id: NO_REPLY_BRANCH_ID });
+        expect(branches.at(-1)!.condition).toEqual({ type: 'always' });
       });
     });
 

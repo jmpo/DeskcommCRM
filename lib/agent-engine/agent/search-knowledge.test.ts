@@ -23,7 +23,13 @@ describe('searchKnowledge', () => {
       { embed },
     );
     expect(out).toEqual({ ok: true, results: [hit] });
-    expect(embed).toHaveBeenCalledWith('frete', { organizationId: 'org1' });
+    // `ponto` viaja junto desde a 0181: é dele que sai QUAL binding de chave
+    // vale. Sem o campo, indexar e consultar poderiam usar chaves diferentes
+    // sem ninguém conseguir dizer qual.
+    expect(embed).toHaveBeenCalledWith('frete', {
+      organizationId: 'org1',
+      ponto: 'embedding_consultar',
+    });
     // embedding vai à RPC como literal pgvector '[0.1,0.2]'; o limiar do agente
     // NÃO vai à RPC (vai o piso -1) — o corte agora é aqui, ver testes abaixo.
     expect(query.mock.calls[0]?.[1]).toEqual(['org1', 'kb1', '[0.1,0.2]', 5, -1]);
@@ -115,7 +121,10 @@ describe('searchKnowledge', () => {
     // sozinho não pega se os dois valores sobrarem em posições erradas. Gravar
     // -1 em `threshold` faria TODA busca parecer acima do limiar e zeraria o
     // "quase acertou" do painel para sempre.
-    expect(registro!.params).toEqual(['org-1', 'job-9', 'kb-1', 0, 0.703, 0.72]);
+    // As seis primeiras posições são o contrato antigo, preservado de propósito:
+    // parâmetro novo entra no FIM. As duas últimas são os materiais consultados
+    // e o assistente que perguntou (0181).
+    expect(registro!.params).toEqual(['org-1', 'job-9', 'kb-1', 0, 0.703, 0.72, [], null]);
   });
 
   it('o RPC é chamado com o piso da similaridade, não com o limiar do agente', async () => {

@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { createClient } from "@/lib/supabase/server";
+import { normalizarIdioma } from "@/lib/i18n/idiomas";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 /**
  * `/500` — irmã de `/403` e `/503`, e faltava.
@@ -13,17 +16,32 @@ import { Card } from "@/components/ui/card";
  * Distinta de `app/error.tsx`, que trata exceção em runtime dentro do React.
  * Esta é a página estática, alcançável por URL.
  */
-export default function InternalErrorPage() {
+export default async function InternalErrorPage() {
+  // Rota fora da árvore de `app/app/layout.tsx` — sem `IdiomaProvider`, então
+  // resolve o idioma direto, como `admin/forbidden/page.tsx`. Quem cai aqui
+  // pode até ser o próprio Supabase falhando, por isso `user` é opcional e a
+  // ausência de sessão não impede a página de renderizar.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const idioma = normalizarIdioma(
+    (user?.user_metadata?.locale as string | undefined) ?? null,
+  );
+
   return (
     <main className="flex min-h-screen items-center justify-center p-8">
       <Card className="w-full max-w-md p-8 text-center">
-        <h1 className="text-2xl font-semibold">500 — Erro interno</h1>
+        <h1 className="text-2xl font-semibold">{traduzir("500 — Erro interno", idioma)}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Algo quebrou do nosso lado. Já registramos o ocorrido; tente de novo em instantes.
+          {traduzir(
+            "Algo quebrou do nosso lado. Já registramos o ocorrido; tente de novo em instantes.",
+            idioma,
+          )}
         </p>
         <div className="mt-6 flex justify-center gap-2">
           <Button asChild>
-            <Link href="/">Voltar</Link>
+            <Link href="/">{traduzir("Voltar", idioma)}</Link>
           </Button>
         </div>
       </Card>

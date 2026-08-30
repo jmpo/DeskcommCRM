@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { useT } from "@/hooks/i18n/useT";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -36,6 +37,7 @@ export function BulkActionBar({
   pipelineId,
   onClear,
 }: BulkActionBarProps) {
+  const t = useT();
   const user = useUser();
   const bulk = useBulkAction(pipelineId);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -76,8 +78,8 @@ export function BulkActionBar({
           const n = res.data.updated_count;
           toast.success(
             ownerId === null
-              ? `${n} lead${n > 1 ? "s" : ""} sem responsável.`
-              : `${n} lead${n > 1 ? "s" : ""} atribuído${n > 1 ? "s" : ""}.`,
+              ? `${n} lead${n > 1 ? "s" : ""} ${t("sem responsável.")}`
+              : `${n} lead${n > 1 ? "s" : ""} ${t(n > 1 ? "atribuídos." : "atribuído.")}`,
           );
           onClear();
         },
@@ -113,15 +115,21 @@ export function BulkActionBar({
 
   return (
     <>
-      <div className="sticky bottom-4 z-30 mx-auto flex w-fit items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 shadow-md">
+      {/* `w-fit` sozinho não tinha teto: seis itens (rótulo + 5 ações) numa
+          linha só passavam da largura da tela em qualquer smartphone e essa
+          barra `sticky` virava scroll horizontal da PÁGINA inteira — a barra
+          é `mx-auto`, então o excesso ficava invisível dos dois lados, não só
+          cortado. `max-w-[calc(100vw-2rem)]` + `flex-wrap` deixam a barra
+          quebrar em linhas em vez de vazar. */}
+      <div className="sticky bottom-4 z-30 mx-auto flex w-fit max-w-[calc(100vw-2rem)] flex-wrap items-center justify-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 shadow-md">
         <span className="text-sm font-medium">
-          {selectedIds.length} selecionado{selectedIds.length > 1 ? "s" : ""}
+          {selectedIds.length} {t(selectedIds.length > 1 ? "selecionados" : "selecionado")}
         </span>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button size="sm" variant="outline" disabled={bulk.isPending}>
-              Mover para…
+              {t("Mover para…")}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
@@ -138,13 +146,13 @@ export function BulkActionBar({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button size="sm" variant="outline" disabled={bulk.isPending}>
-              Atribuir a…
+              {t("Atribuir a…")}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
-            <DropdownMenuItem onClick={() => runAssign(user.id)}>Eu</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => runAssign(user.id)}>{t("Eu")}</DropdownMenuItem>
             <DropdownMenuItem onClick={() => runAssign(null)}>
-              Remover responsável
+              {t("Remover responsável")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -160,7 +168,7 @@ export function BulkActionBar({
               <Input
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}
-                placeholder="nova tag"
+                placeholder={t("nova tag")}
                 className="h-8 w-40"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -170,7 +178,7 @@ export function BulkActionBar({
                 }}
               />
               <Button size="sm" onClick={runTagAdd} disabled={!tagInput.trim()}>
-                Adicionar
+                {t("Adicionar")}
               </Button>
             </div>
           </DropdownMenuContent>
@@ -182,28 +190,30 @@ export function BulkActionBar({
           onClick={() => setConfirmDelete(true)}
           disabled={bulk.isPending}
         >
-          Excluir
+          {t("Excluir")}
         </Button>
 
         <Button size="sm" variant="ghost" onClick={onClear}>
-          Cancelar
+          {t("Cancelar")}
         </Button>
       </div>
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Excluir {selectedIds.length} lead(s)?</DialogTitle>
+            <DialogTitle>
+              {t("Excluir")} {selectedIds.length} lead(s)?
+            </DialogTitle>
             <DialogDescription>
-              Esta ação remove os leads selecionados. Não pode ser desfeita.
+              {t("Esta ação remove os leads selecionados. Não pode ser desfeita.")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
-              Cancelar
+              {t("Cancelar")}
             </Button>
             <Button variant="destructive" onClick={runDelete} disabled={bulk.isPending}>
-              Excluir
+              {t("Excluir")}
             </Button>
           </DialogFooter>
         </DialogContent>

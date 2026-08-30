@@ -167,9 +167,12 @@ function engineDb(): AdminClient {
     async loadLeadFacts() {
       return { lead_stage: null, tags: [] };
     },
+    async loadLastInboundBody() {
+      return null;
+    },
     async loadEnrollmentEvents(enrollmentId): Promise<EnrollmentEventRef[]> {
       const { rows } = await pool.query<EnrollmentEventRef>(
-        `select node_id, idempotency_key from followup_enrollment_events where enrollment_id = $1`,
+        `select node_id, idempotency_key, event_type, payload from followup_enrollment_events where enrollment_id = $1 order by created_at asc`,
         [enrollmentId],
       );
       return rows;
@@ -212,6 +215,7 @@ function engineDb(): AdminClient {
         [item.organization_id, item.title, item.body, item.ref_id],
       );
     },
+    async persistirRespostaFollowup() {},
   };
 }
 

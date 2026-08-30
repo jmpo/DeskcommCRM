@@ -1,12 +1,16 @@
 "use client";
+
+import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
+
+import type { Locale } from "date-fns";
 import Link from "next/link";
 import { formatDistanceToNow, format } from "date-fns";
-import { ptBR } from "date-fns/locale";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CaretLeft } from "@/lib/ui/icons";
 import { useAdminAuditEntry } from "@/hooks/useAdminAuditEntry";
+import { useT } from "@/hooks/i18n/useT";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -21,17 +25,17 @@ function maskEmail(email: string | null | undefined): string {
   return `${masked}@${domain}`;
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale: Locale): string {
   try {
-    return format(new Date(iso), "dd/MM/yyyy HH:mm:ss", { locale: ptBR });
+    return format(new Date(iso), "dd/MM/yyyy HH:mm:ss", { locale: locale });
   } catch {
     return iso;
   }
 }
 
-function relativeDate(iso: string): string {
+function relativeDate(iso: string, locale: Locale): string {
   try {
-    return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: ptBR });
+    return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: locale });
   } catch {
     return iso;
   }
@@ -66,6 +70,8 @@ interface AuditDetailClientProps {
 // ---------------------------------------------------------------------------
 
 export function AuditDetailClient({ entryId }: AuditDetailClientProps) {
+  const localeDaData = useLocaleDeData();
+  const t = useT();
   const { data, isLoading, isError } = useAdminAuditEntry(entryId);
   const detail = data?.data;
 
@@ -84,7 +90,7 @@ export function AuditDetailClient({ entryId }: AuditDetailClientProps) {
   if (isError || !detail) {
     return (
       <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-6 py-10 text-center text-sm text-destructive">
-        Entrada de audit não encontrada.
+        {t("Entrada de audit não encontrada.")}
       </div>
     );
   }
@@ -98,7 +104,7 @@ export function AuditDetailClient({ entryId }: AuditDetailClientProps) {
       <Button asChild variant="ghost" size="sm" className="gap-1.5 -ml-2">
         <Link href="/admin/audit">
           <CaretLeft size={14} aria-hidden />
-          Audit Log
+          {t("Audit Log")}
         </Link>
       </Button>
 
@@ -118,7 +124,7 @@ export function AuditDetailClient({ entryId }: AuditDetailClientProps) {
           )}
         </div>
         <p className="text-sm text-muted-foreground">
-          {formatDate(entry.created_at)}&nbsp;·&nbsp;{relativeDate(entry.created_at)}
+          {formatDate(entry.created_at, localeDaData)}&nbsp;·&nbsp;{relativeDate(entry.created_at, localeDaData)}
         </p>
       </div>
 
@@ -136,7 +142,7 @@ export function AuditDetailClient({ entryId }: AuditDetailClientProps) {
             <Row label="Request ID" value={entry.request_id ?? "—"} mono />
             <Row label="Resource Type" value={entry.resource_type ?? "—"} />
             <Row label="Resource ID" value={entry.resource_id ?? "—"} mono />
-            <Row label="Bypassed RLS" value={entry.bypassed_rls ? "Sim" : "Não"} />
+            <Row label="Bypassed RLS" value={entry.bypassed_rls ? t("Sim") : t("Não")} />
             <Row label="Actor IP" value={entry.actor_ip ?? "—"} mono />
             <Row
               label="User Agent"
@@ -160,7 +166,7 @@ export function AuditDetailClient({ entryId }: AuditDetailClientProps) {
               <p className="text-sm text-muted-foreground">
                 {entry.actor_user_id
                   ? `ID: ${entry.actor_user_id}`
-                  : "Sem actor registrado"}
+                  : t("Sem actor registrado")}
               </p>
             )}
           </div>
@@ -170,13 +176,13 @@ export function AuditDetailClient({ entryId }: AuditDetailClientProps) {
             <div className="rounded-md border p-4 space-y-2">
               <h2 className="text-sm font-medium">Tenant</h2>
               <div className="space-y-1 text-sm">
-                <Row label="Nome" value={tenant.display_name} />
+                <Row label={t("Nome")} value={tenant.display_name} />
                 <Row label="Slug" value={tenant.slug} mono />
-                <Row label="Status" value={tenant.status} />
+                <Row label={t("Status")} value={tenant.status} />
               </div>
               <Button asChild variant="outline" size="sm" className="mt-2">
                 <Link href={`/admin/tenants/${tenant.id}`}>
-                  Ver tenant
+                  {t("Ver tenant")}
                 </Link>
               </Button>
             </div>
@@ -185,14 +191,14 @@ export function AuditDetailClient({ entryId }: AuditDetailClientProps) {
           {/* Resource deep link */}
           {deepLink && (
             <div className="rounded-md border p-4">
-              <h2 className="text-sm font-medium mb-2">Recurso</h2>
+              <h2 className="text-sm font-medium mb-2">{t("Recurso")}</h2>
               <p className="text-sm text-muted-foreground mb-3">
                 {entry.resource_type}&nbsp;·&nbsp;
                 <span className="font-mono">{entry.resource_id}</span>
               </p>
               <Button asChild variant="outline" size="sm">
                 <Link href={deepLink}>
-                  Abrir recurso
+                  {t("Abrir recurso")}
                 </Link>
               </Button>
             </div>

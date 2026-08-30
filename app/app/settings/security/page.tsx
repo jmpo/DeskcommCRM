@@ -2,6 +2,7 @@ import { requireAuth, isMfaEnrolled, resolveActiveOrg, requiresMfa } from "@/lib
 import { createAdminClient } from "@/lib/supabase/admin";
 import { empresaExigeMfa } from "@/lib/auth/politica-mfa";
 import { SecurityClient } from "./_client";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -35,14 +36,17 @@ export default async function SecurityPage() {
   // ter uma segunda noção de "é obrigatório", ou ofereceria desligar o que o
   // layout volta a exigir no próximo carregamento.
   const obrigatorio = await requiresMfa(org?.role, user.is_platform_admin, user.id, org?.orgId);
+  const idioma = user.idioma;
 
   return (
     <div className="flex h-full flex-col gap-6 p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Segurança</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{traduzir("Segurança", idioma)}</h1>
         <p className="text-sm text-muted-foreground">
-          A verificação em duas etapas da sua conta, os códigos de recuperação e as
-          sessões abertas.
+          {traduzir(
+            "A verificação em duas etapas da sua conta, os códigos de recuperação e as sessões abertas.",
+            idioma,
+          )}
         </p>
       </header>
 

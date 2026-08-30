@@ -70,7 +70,8 @@ interface PoolOpts {
 /** Pool que responde como o Postgres responderia, inclusive quando erra. */
 function fakePool(opts: PoolOpts = {}) {
   const consultas: string[] = [];
-  const query = vi.fn(async (sql: string) => {
+  // Cada SQL devolve um shape diferente; o dublê não tenta unificar colunas.
+  const query = vi.fn(async (sql: string): Promise<{ rows: Array<Record<string, unknown>> }> => {
     consultas.push(sql);
     // Regra do Postgres: referência DIRETA a coluna inexistente é 42703. A
     // expressão `to_jsonb(cs) ->> 'archived_at'` não referencia coluna nenhuma —
@@ -163,13 +164,32 @@ describe("followup_turn — canal arquivado", () => {
     expect(consultas[0]).toMatch(/from conversations/);
   });
 
-  it("contato sem conversa/número: dead-letter, não turno contra o vazio", async () => {
+  it("contato sem conversa e sem número na org: dead-letter, não turno contra o vazio", async () => {
     runAgentTurn.mockClear();
     const { pool, query } = fakePool();
-    query.mockResolvedValueOnce({ rows: [] });
+    query.mockImplementation(async (sql: string) => {
+      if (/from conversations/.test(sql) && /select c\.id/.test(sql)) return { rows: [] };
+      if (/from channel_sessions/.test(sql)) return { rows: [] };
+      return { rows: [] };
+    });
     const run = handler();
 
     await expect(run(job(), pool, ctx)).rejects.toThrow(/impossível retomar o contato/i);
     expect(runAgentTurn).not.toHaveBeenCalled();
+  });
+
+  it("contato sem conversa, org com número: abre a thread e segue o turno", async () => {
+    runAgentTurn.mockClear();
+    const { pool, query } = fakePool();
+    query.mockImplementation(async (sql: string) => {
+      if (/from conversations/.test(sql) && /select c\.id/.test(sql)) return { rows: [] };
+      if (/from channel_sessions/.test(sql)) return { rows: [{ id: CANAL }] };
+      if (/insert into conversations/.test(sql)) return { rows: [{ id: CONVERSA }] };
+      return { rows: [] };
+    });
+    const run = handler();
+
+    await run(job(), pool, ctx);
+    expect(runAgentTurn).toHaveBeenCalledTimes(1);
   });
 });

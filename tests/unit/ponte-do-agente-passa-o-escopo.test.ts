@@ -56,6 +56,26 @@ describe("todo montador de ferramentas do turno passa o escopo", () => {
     }
   });
 
+  it("a ponte provê `resolveLeadDoContato` — senão a agenda recusa tudo", () => {
+    // Mesmo modo de falha descrito no cabeçalho deste arquivo, num alvo novo.
+    // `funil_vem_do_contato` (crm_book_appointment) falha FECHADA quando o resolvedor
+    // não vem: recusa com "resolvedor de contato ausente". Isso é o certo para o gate
+    // — dependência que falta não pode virar liberação —, mas significa que esquecer
+    // de passá-lo faz TODA marcação de consulta ser recusada, com a capacidade ligada
+    // na tela e nenhuma consulta entrando na agenda.
+    //
+    // A ponte é UMA (`pickToolsFromMcp`), então o guarda é sobre ela, e não sobre os
+    // chamadores: eles passam `pipelineIds`; quem monta o resolvedor é ela.
+    const fonte = readFileSync(resolve(RAIZ, "lib/ai/runtime/tools.ts"), "utf8");
+    expect(fonte, "a ponte não monta o resolvedor de contato").toMatch(/resolveLeadDoContato:/);
+    // E ele tem de vir da MESMA regra que roteia atividade — reimplementar "qual
+    // negócio da pessoa está em jogo" faria o escopo e a timeline discordarem sobre
+    // o mesmo cliente.
+    expect(fonte, "o resolvedor não usa `resolveActiveLeadForContact`").toMatch(
+      /resolveActiveLeadForContact\(/,
+    );
+  });
+
   it("nenhum deles esquece `pipelineIds`", () => {
     const esquecidos = CHAMADORES.filter((arquivo) => {
       const fonte = readFileSync(resolve(RAIZ, arquivo), "utf8");

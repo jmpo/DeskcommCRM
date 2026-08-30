@@ -17,6 +17,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useT } from "@/hooks/i18n/useT";
 
 import { RunTrace } from "./RunTrace";
 import type { AgentRunRow } from "@/hooks/ai/useAgentRuns";
@@ -48,12 +49,13 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
 };
 
 export function RunDetailDrawer({ run, open, onOpenChange }: Props) {
+  const t = useT();
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-2xl">
         <SheetHeader className="space-y-1 text-left">
           <SheetTitle className="flex items-center gap-2 text-base">
-            <span>Execução</span>
+            <span>{t("Execução")}</span>
             {run ? (
               <Badge variant={STATUS_VARIANT[run.status] ?? "outline"} className="text-xs">
                 {run.status}
@@ -73,22 +75,22 @@ export function RunDetailDrawer({ run, open, onOpenChange }: Props) {
         {run ? (
           <div className="flex flex-col gap-4 text-sm">
             <dl className="grid grid-cols-2 gap-2 text-xs">
-              <Cell label="Iniciado">{new Date(run.started_at).toLocaleString()}</Cell>
-              <Cell label="Concluído">
+              <Cell label={t("Iniciado")}>{new Date(run.started_at).toLocaleString()}</Cell>
+              <Cell label={t("Concluído")}>
                 {run.completed_at ? new Date(run.completed_at).toLocaleString() : "—"}
               </Cell>
-              <Cell label="Tokens (in/out)">
+              <Cell label={t("Tokens (in/out)")}>
                 {(run.tokens_in ?? 0).toLocaleString()} / {(run.tokens_out ?? 0).toLocaleString()}
               </Cell>
-              <Cell label="Custo">{fmtCost(run.cost_cents)}</Cell>
-              <Cell label="Latência">{fmtLatency(run.latency_ms)}</Cell>
-              <Cell label="Steps">{run.steps_count ?? 0}</Cell>
+              <Cell label={t("Custo")}>{fmtCost(run.cost_cents)}</Cell>
+              <Cell label={t("Latência")}>{fmtLatency(run.latency_ms)}</Cell>
+              <Cell label={t("Steps")}>{run.steps_count ?? 0}</Cell>
             </dl>
 
             {run.error_code || run.error_message ? (
               <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs">
                 <p className="font-medium text-destructive">
-                  {run.error_code ?? "error"}
+                  {run.error_code ?? t("error")}
                 </p>
                 {run.error_message ? (
                   <p className="mt-1 whitespace-pre-wrap">{run.error_message}</p>
@@ -100,14 +102,14 @@ export function RunDetailDrawer({ run, open, onOpenChange }: Props) {
               {run.conversation_id ? (
                 <Button variant="outline" size="sm" asChild>
                   <Link href={`/app/inbox?conversation=${run.conversation_id}`}>
-                    Ver conversa
+                    {t("Ver conversa")}
                   </Link>
                 </Button>
               ) : null}
               {run.inbound_message_id ? (
                 <Button variant="ghost" size="sm" asChild>
                   <Link href={`/app/inbox?message=${run.inbound_message_id}`}>
-                    Ver inbound
+                    {t("Ver inbound")}
                   </Link>
                 </Button>
               ) : null}
@@ -115,13 +117,13 @@ export function RunDetailDrawer({ run, open, onOpenChange }: Props) {
 
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Trace
+                {t("Trace")}
               </p>
               <RunTrace toolCalls={run.tool_calls} />
             </div>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">Selecione uma execução.</p>
+          <p className="text-sm text-muted-foreground">{t("Selecione uma execução.")}</p>
         )}
       </SheetContent>
     </Sheet>

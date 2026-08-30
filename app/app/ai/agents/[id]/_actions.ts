@@ -23,6 +23,7 @@ import { audit } from "@/lib/audit";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/ai/agents/escopo";
 import {
   agentMcpCreateSchema,
   versionCreateSchema,
@@ -35,7 +36,7 @@ import { VALID_TOOL_IDS } from "@/lib/mcp/tools";
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const VERSION_COLUMNS =
-  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids";
+  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids";
 
 type ActionResult<T = void> =
   | { ok: true; data?: T }
@@ -86,6 +87,17 @@ export async function saveAgentDraftAction(
     .maybeSingle();
   if (!agent) return { ok: false, error: "not_found" };
   if (agent.archived_at) return { ok: false, error: "agent_archived" };
+
+  // O escopo aponta para coisas que EXISTEM nesta organização. Marcar um
+  // material apagado (ou de outra organização) produz uma configuração muda: a
+  // tela mostra a marcação, o assistente não acha nada, e ninguém vê erro.
+  const escopo = await validarEscopoDaVersao(admin, activeOrg.orgId, {
+    pipeline_ids: v.pipeline_ids,
+    knowledge_source_ids: v.knowledge_source_ids,
+  });
+  if (!escopo.ok) {
+    return { ok: false, error: "validation_failed", message: mensagemDoEscopo(escopo) };
+  }
 
   // Procura draft existente (latest por version_number)
   const { data: existingDraft } = await admin
@@ -174,6 +186,7 @@ export async function saveAgentDraftAction(
         operator_model: v.operator_model,
         operator_tool_ids: v.operator_tool_ids,
         pipeline_ids: v.pipeline_ids,
+        knowledge_source_ids: v.knowledge_source_ids,
         split_messages: v.split_messages,
         split_max_chars: v.split_max_chars,
         followup: v.followup,
@@ -361,6 +374,7 @@ export async function revertToVersionAction(
     operator_model: string | null;
     operator_tool_ids: string[];
     pipeline_ids: string[];
+    knowledge_source_ids: string[];
     split_messages: boolean;
     split_max_chars: number;
   };
@@ -405,7 +419,10 @@ export async function revertToVersionAction(
         operator_tool_ids: src.operator_tool_ids,
         // O revert leva o escopo junto: voltar para uma versão e NÃO voltar a
         // permissão dela seria publicar uma configuração que nunca existiu.
+        // Vale igual para o acervo: reverter e o assistente esquecer o material
+        // que aquela versão consultava é publicar uma configuração inventada.
         pipeline_ids: src.pipeline_ids,
+        knowledge_source_ids: src.knowledge_source_ids ?? [],
         split_messages: src.split_messages,
         split_max_chars: src.split_max_chars,
         status: "draft",
@@ -553,6 +570,14 @@ export async function createMcpAgentAction(
     cases_enabled: v.cases_enabled,
     split_messages: v.split_messages,
     split_max_chars: v.split_max_chars,
+    // O corpo ACEITAVA estes cinco e o INSERT os descartava: criar o assistente
+    // pela tela com papel Operador, escopo de funil ou material marcado produzia
+    // uma versão com tudo no default do banco — desligado e vazio.
+    operator_enabled: v.operator_enabled,
+    operator_model: v.operator_model,
+    operator_tool_ids: v.operator_tool_ids,
+    pipeline_ids: v.pipeline_ids,
+    knowledge_source_ids: v.knowledge_source_ids,
     status: "draft",
     created_by: authUser.id,
   });

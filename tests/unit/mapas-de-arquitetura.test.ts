@@ -150,7 +150,7 @@ describe("mapas de arquitetura — coerência interna", () => {
     ) as Mapa;
     const grau = (id: string) =>
       (m.edges ?? []).filter((e) => e.from === id || e.to === id).length;
-    for (const peca of ["demandas", "fnatrito", "libradar", "toolradar", "inbox"]) {
+    for (const peca of ["demandas", "fnatrito", "libradar", "toolradar", "inbox", "rotalead", "crmleads"]) {
       expect(grau(peca), `${peca} com menos de 2 arestas — é ilha pelo invariante 1`).toBeGreaterThanOrEqual(2);
     }
   });

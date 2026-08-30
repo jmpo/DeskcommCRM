@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useT } from "@/hooks/i18n/useT";
 
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -8,6 +9,7 @@ import { mediaSrc } from "./media-utils";
 
 /** Figurinha: inline, sem bolha — como no WhatsApp. */
 export function StickerMedia({ messageId }: { messageId: string }) {
+  const t = useT();
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   if (state === "error") return <MediaUnavailable kind="Figurinha" className="h-40 w-40" />;
   return (
@@ -15,7 +17,7 @@ export function StickerMedia({ messageId }: { messageId: string }) {
       {state === "loading" && <Skeleton className="absolute inset-0 h-full w-full rounded-lg" />}
       <img
         src={mediaSrc(messageId)}
-        alt="Figurinha"
+        alt={t("Figurinha")}
         loading="lazy"
         onLoad={() => setState("ready")}
         onError={() => setState("error")}

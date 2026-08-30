@@ -16,6 +16,8 @@
  */
 import { expect, test } from "@playwright/test";
 
+import { PONTOS_DE_IA } from "@/lib/ai/pontos/registro";
+
 import { lerCreds, loginComoAdmin, type CredsE2E } from "./helpers/login-admin";
 
 /**
@@ -60,8 +62,16 @@ test("F0/F1 — o painel abre agrupado, explica os pontos e diz a origem", async
   await page.waitForSelector('[data-testid="painel-de-provedores"]', { timeout: 30_000 });
 
   await expect(page.getByRole("heading", { name: "Provedores de IA" })).toBeVisible();
-  // A frase de abertura conta ao operador a dimensão do que ele controla.
-  await expect(page.locator('[data-testid="painel-de-provedores"]')).toContainText("23 lugares");
+  // A frase de abertura conta ao operador a dimensão do que ele controla — e o
+  // número vem do REGISTRO, não cravado aqui.
+  //
+  // Estava `"23 lugares"` literal, e apodreceu no primeiro ponto de IA novo: a
+  // tela passou a dizer 24 (a verdade) e a spec reprovou o produto por estar
+  // certo. Afirmação de estado envelhece; a mesma lista que a tela conta é a
+  // que este teste conta, então elas não podem divergir.
+  await expect(page.locator('[data-testid="painel-de-provedores"]')).toContainText(
+    `${PONTOS_DE_IA.length} lugares`,
+  );
 
   for (const papel of ["atender", "entender", "proteger", "lembrar", "perceber", "melhorar"]) {
     await expect(page.locator(`[data-testid="papel-${papel}"]`)).toBeVisible();

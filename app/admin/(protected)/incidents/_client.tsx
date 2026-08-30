@@ -18,6 +18,7 @@ import {
   type IncidentStatus,
   type IncidentSeverity,
 } from "@/hooks/useAdminIncidents";
+import { useT } from "@/hooks/i18n/useT";
 
 const STATUS_OPTIONS: { value: IncidentStatus; label: string }[] = [
   { value: "open", label: "Abertos" },
@@ -32,6 +33,7 @@ const SEVERITY_OPTIONS: { value: IncidentSeverity; label: string }[] = [
 ];
 
 export function IncidentsClient() {
+  const t = useT();
   const [filters, setFilters] = useState<AdminIncidentsFilters>({
     status: "open",
   });
@@ -47,11 +49,11 @@ export function IncidentsClient() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Incidentes</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("Incidentes")}</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isLoading
-              ? "Carregando..."
-              : `${total} incidente${total !== 1 ? "s" : ""}${hasNextPage ? "+" : ""}`}
+              ? t("Carregando...")
+              : `${total} ${total !== 1 ? t("incidentes") : t("incidente")}${hasNextPage ? "+" : ""}`}
           </p>
         </div>
       </div>
@@ -65,12 +67,12 @@ export function IncidentsClient() {
           }
         >
           <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Status" />
+            <SelectValue placeholder={t("Status")} />
           </SelectTrigger>
           <SelectContent>
             {STATUS_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
+                {t(opt.label)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -86,13 +88,13 @@ export function IncidentsClient() {
           }
         >
           <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Severidade" />
+            <SelectValue placeholder={t("Severidade")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Todas severidades</SelectItem>
+            <SelectItem value="all">{t("Todas severidades")}</SelectItem>
             {SEVERITY_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
+                {t(opt.label)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -104,7 +106,7 @@ export function IncidentsClient() {
             size="sm"
             onClick={() => setFilters((f) => ({ status: f.status }))}
           >
-            Limpar filtros
+            {t("Limpar filtros")}
           </Button>
         )}
       </div>

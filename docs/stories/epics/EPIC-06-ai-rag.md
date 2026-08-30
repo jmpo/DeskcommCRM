@@ -52,7 +52,7 @@ Entregar a camada de IA conversacional do DeskcommCRM: bot que responde inbounds
 - Epics anteriores completos: `EPIC-00`, `EPIC-01`, `EPIC-03`
 - Migrations Supabase aplicadas: 0001-0007 + nova migration deste epic com tabelas `ai_agents`, `ai_knowledge_sources`, `ai_chunks`, `ai_knowledge_versions`, `ai_invocations`, `ai_pricing`, `ai_budgets` (Spec 05 §3)
 - Extensions Postgres: `vector`, `pg_trgm`, `pgcrypto` habilitadas
-- Variáveis de env: `AI_GATEWAY_API_KEY`, `AI_GATEWAY_BASE_URL`, `OPENAI_API_KEY` (fallback embedding), `SUPABASE_SERVICE_ROLE_KEY`, `EVENT_LOG_WORKER_ENABLED=true`
+- Variáveis de env: `AI_GATEWAY_API_KEY`, `AI_GATEWAY_BASE_URL`, `OPENAI_API_KEY` (fallback embedding), `SUPABASE_SERVICE_ROLE_KEY` (o `EVENT_LOG_WORKER_ENABLED` que esta linha pedia foi removido em 2026-08-25 — nunca teve leitor, e o laço dos handlers hoje vive no worker, com ritmo em `EVENT_LOG_DRAIN_*`)
 - Buckets Storage: `ai-policy/` (privado), `ai-logs/` (privado, 90d hot)
 - Dev server rodando em `localhost:3001`
 - Playwright MCP conectado pra QA

@@ -36,8 +36,13 @@ const WEEKDAY_INDEX: Record<string, number> = {
 /**
  * Momento local (dow 0-6 + "HH:MM") de `now` no timezone dado. tz-aware via
  * Intl (stdlib, sem dependência) — respeita DST do fuso.
+ *
+ * EXPORTADA porque a agenda (`lib/agenda/fuso.ts`) faz a MESMA pergunta — em que
+ * dia da semana cai este instante, no fuso da jornada — e escrever uma segunda
+ * versão dela seria a duplicação que já custou um bug de fuso a esta base. O
+ * corpo não mudou; só deixou de ser privado ao módulo.
  */
-function localMoment(now: Date, timezone: string): { dow: number; hhmm: string } {
+export function localMoment(now: Date, timezone: string): { dow: number; hhmm: string } {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     weekday: "short",

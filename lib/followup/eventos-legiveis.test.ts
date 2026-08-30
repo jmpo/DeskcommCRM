@@ -68,6 +68,17 @@ describe("resumoDoNo", () => {
     expect(r.resumo).toContain("agente escreve");
   });
 
+  it("texto fixo não menciona o agente", () => {
+    const r = resumoDoNo({
+      id: "a",
+      type: "action",
+      label: "Saudação",
+      position: { x: 0, y: 0 },
+      config: { mode: "text", body: "Olá, qual é o seu nome?" },
+    });
+    expect(r.resumo).toBe("envia um texto fixo");
+  });
+
   it("a espera adaptativa mostra a faixa que o dono do fluxo configurou", () => {
     const r = resumoDoNo({
       id: "w",
@@ -101,7 +112,7 @@ describe("descreveEvento", () => {
   it("traduz o passo do motor e diz onde ele aconteceu", () => {
     const r = descreveEvento(
       evento({ event_type: "node_advanced", payload: { next_node_id: "action-1" } }),
-      nos,
+      nos, "pt-BR",
     );
     expect(r.titulo).toBe("Seguiu em frente");
     expect(r.detalhe).toBe("foi para Primeira cutucada");
@@ -112,19 +123,19 @@ describe("descreveEvento", () => {
   it("a falha carrega a mensagem E o passo — nunca uma sem a outra", () => {
     const r = descreveEvento(
       evento({ event_type: "node_failed", payload: { error: "flow_version_not_found" } }),
-      nos,
+      nos, "pt-BR",
     );
     expect(r.detalhe).toBe("flow_version_not_found");
     expect(r.onde).toBe("Deixa esfriar");
   });
 
   it("intervenção humana é marcada como humana — é o que separa decisão de automatismo", () => {
-    expect(descreveEvento(evento({ event_type: "paused_manual" }), nos).autor).toBe("pessoa");
-    expect(descreveEvento(evento({ event_type: "reactivity_replied" }), nos).autor).toBe("cliente");
+    expect(descreveEvento(evento({ event_type: "paused_manual" }), nos, "pt-BR").autor).toBe("pessoa");
+    expect(descreveEvento(evento({ event_type: "reactivity_replied" }), nos, "pt-BR").autor).toBe("cliente");
   });
 
   it("tipo desconhecido não vira jargão disfarçado de frase, mas também não some", () => {
-    const r = descreveEvento(evento({ event_type: "passo_que_ainda_nao_existe" }), nos);
+    const r = descreveEvento(evento({ event_type: "passo_que_ainda_nao_existe" }), nos, "pt-BR");
     expect(r.titulo).toBe("Passo registrado pelo motor");
     // O código aparece porque é EXATAMENTE aqui que quem diagnostica precisa dele.
     expect(r.detalhe).toContain("passo_que_ainda_nao_existe");
@@ -258,13 +269,13 @@ describe("os eventos que o plano de tempo trouxe", () => {
     // descreve o passo errado é pior que uma genérica: não parece errada.
     const planejar = descreveEvento(
       evento({ node_id: null, event_type: "turn_enqueued", payload: { purpose: "plan_timing" } }),
-      nos,
+      nos, "pt-BR",
     );
     expect(planejar.titulo).toBe("Pediu ao agente para planejar os tempos de espera");
 
     const mensagem = descreveEvento(
       evento({ event_type: "turn_enqueued", payload: { purpose: "send_message" } }),
-      nos,
+      nos, "pt-BR",
     );
     expect(mensagem.titulo).toBe("Pediu ao agente para escrever a mensagem");
   });
@@ -272,14 +283,14 @@ describe("os eventos que o plano de tempo trouxe", () => {
   it("o plano decidido vira frase, não `código: timing_plan_decidido`", () => {
     const r = descreveEvento(
       evento({ event_type: "timing_plan_decidido", payload: { esperas: { "wait-1": {}, "wait-2": {} } } }),
-      nos,
+      nos, "pt-BR",
     );
     expect(r.titulo).toBe("O agente decidiu quanto esperar em cada passo");
     expect(r.detalhe).toBe("2 esperas planejadas");
   });
 
   it("desistir do plano é um FATO na timeline, não silêncio", () => {
-    const r = descreveEvento(evento({ event_type: "timing_plan_desistido" }), nos);
+    const r = descreveEvento(evento({ event_type: "timing_plan_desistido" }), nos, "pt-BR");
     expect(r.titulo).toBe("Seguiu sem o plano de tempo");
     expect(r.detalhe).toContain("máximo configurado");
   });

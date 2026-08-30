@@ -1,7 +1,7 @@
 /**
- * QUEM GANHA QUANDO QUATRO LUGARES OPINAM SOBRE O MESMO PONTO.
+ * QUEM GANHA QUANDO CINCO LUGARES OPINAM SOBRE O MESMO PONTO.
  *
- * A escolha de modelo de um ponto pode vir de quatro origens, e antes desta
+ * A escolha de modelo de um ponto pode vir de cinco origens, e antes desta
  * frente elas conviviam sem ordem declarada — o que produzia o pior desfecho
  * possível: o operador mudava a configuração numa tela e o comportamento não
  * mudava, porque outra origem estava vencendo em silêncio.
@@ -17,7 +17,12 @@
  *  3. **Variável de ambiente** — os sete knobs herdados (`COMPACTION_MODEL`,
  *     `STAGE_CLASSIFIER_MODEL`, …). Continuam valendo para quem já os usa, mas
  *     perdem para uma escolha feita na tela: quem clicou depois quis mais.
- *  4. **Padrão da organização** — `organizations.settings.llm`, o que sempre
+ *  4. **Herança de quem chamou** — o ponto AUXILIAR não tem modelo próprio, e
+ *     quando o knob está vazio ele empresta o do agente publicado (ou o do
+ *     roteador de intenção). Empresta os TRÊS campos juntos; emprestar só a
+ *     string do modelo é o defeito do PR #151, e ele voltou por este degrau
+ *     estar faltando.
+ *  5. **Padrão da organização** — `organizations.settings.llm`, o que sempre
  *     valeu quando ninguém disse nada.
  *
  * A decisão devolve a ORIGEM junto com o valor. Isso não é enfeite: é o que
@@ -37,12 +42,15 @@ export type OrigemDaEscolha =
   | "agente_publicado"
   | "binding"
   | "variavel_de_ambiente"
+  | "herdado_de_quem_chamou"
   | "padrao_da_organizacao";
 
 export const EXPLICACAO_DA_ORIGEM: Record<OrigemDaEscolha, string> = {
   agente_publicado: "Definido na versão publicada do agente.",
   binding: "Escolhido por você no painel de provedores.",
   variavel_de_ambiente: "Definido em variável de ambiente na instalação.",
+  herdado_de_quem_chamou:
+    "Herdado de quem disparou a chamada — o agente publicado, ou o roteador de intenção.",
   padrao_da_organizacao: "Usando o padrão da organização.",
 };
 
@@ -115,6 +123,30 @@ export const PONTOS_DO_AGENTE_PUBLICADO: ReadonlySet<string> = new Set([
  * endpoint da Anthropic e matava o turno inteiro. Cada ramo abaixo devolve os
  * três campos juntos, ou nenhum.
  */
+/**
+ * Os pontos que HERDAM do agente publicado sem serem o agente.
+ *
+ * Eles não têm modelo próprio: quando o knob de ambiente está vazio,
+ * `auxModelArgs` empresta o do agente — e, desde o PR #151, empresta provider e
+ * credencial JUNTO. Em runtime quem sinaliza a herança é a presença do
+ * override; a TELA não tem esse sinal e precisa desta lista, senão ela passaria
+ * a anunciar herança em ponto que não herda — a mesma mentira de antes, virada
+ * do avesso.
+ *
+ * Fonte: os quatro `argsAux(...)` de `inbound-turn.ts` mais o `checkpoint`, que
+ * passa o mesmo par direto. Ponto que entrar ou sair daquele conjunto entra ou
+ * sai daqui no mesmo commit.
+ */
+export const PONTOS_QUE_HERDAM_DO_AGENTE: ReadonlySet<string> = new Set([
+  "stage_classifier",
+  "jailbreak_detect",
+  "promise_semantic",
+  "compaction",
+  "checkpoint",
+  "draft_suggestion",
+  "automation_ai_message",
+]);
+
 export function decidirBinding(entrada: EntradaDaDecisao): DecisaoDeBinding {
   const ponto = PONTO_POR_ID.get(entrada.pontoId);
   const avisos: string[] = [];
@@ -127,9 +159,23 @@ export function decidirBinding(entrada: EntradaDaDecisao): DecisaoDeBinding {
       );
     }
     const agente = entrada.agentePublicado;
+    // Versão publicada SEM modelo: o padrão da organização vale INTEIRO. O
+    // `agente.model ?? padrao.defaultModel` que morava aqui juntava o provider
+    // do agente ao modelo da org — o cruzamento do PR #151 escrito à mão, num
+    // ramo que existe justamente para impedi-lo.
+    if (agente.model === undefined) {
+      return {
+        provider: entrada.padraoDaOrganizacao.provider,
+        modelId: entrada.padraoDaOrganizacao.defaultModel,
+        credentialId: null,
+        baseUrl: null,
+        origem: "padrao_da_organizacao",
+        avisos,
+      };
+    }
     return {
       provider: agente.provider,
-      modelId: agente.model ?? entrada.padraoDaOrganizacao.defaultModel,
+      modelId: agente.model,
       credentialId: agente.credentialId,
       baseUrl: null,
       origem: "agente_publicado",
@@ -165,6 +211,32 @@ export function decidirBinding(entrada: EntradaDaDecisao): DecisaoDeBinding {
       credentialId: null,
       baseUrl: null,
       origem: "variavel_de_ambiente",
+      avisos,
+    };
+  }
+
+  // 3.5 · A herança de quem disparou a chamada.
+  //
+  // ⚠️ É O RAMO QUE NÃO PODE FALTAR, e faltava. Sem ele o ponto auxiliar caía
+  // no padrão da organização — mas `runModelCall` já havia resolvido a config
+  // COM o override, então o `padraoDaOrganizacao` que chega aqui carrega o
+  // provider de quem chamou e o modelo da org. Provider de um lugar, modelo de
+  // outro: a forma exata do PR #151, medida de novo em produção em 2026-08-25
+  // (`stage_classifier`, provider `openai`, model `claude-sonnet-4-5`, 400
+  // `modelo_inexistente`, turno morto antes de o cliente receber resposta).
+  //
+  // Vem DEPOIS do knob de ambiente de propósito: `aux-model-args.ts` só
+  // empresta o modelo do agente quando o knob está vazio, e as duas metades da
+  // mesma regra não podem discordar sobre a ordem.
+  const modeloDeQuemChamou = entrada.agentePublicado?.model;
+  if (entrada.agentePublicado !== null && modeloDeQuemChamou !== undefined) {
+    const quemChamou = entrada.agentePublicado;
+    return {
+      provider: quemChamou.provider,
+      modelId: modeloDeQuemChamou,
+      credentialId: quemChamou.credentialId,
+      baseUrl: null,
+      origem: "herdado_de_quem_chamou",
       avisos,
     };
   }

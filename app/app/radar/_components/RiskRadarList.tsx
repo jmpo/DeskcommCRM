@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
+import { useT } from "@/hooks/i18n/useT";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,20 +27,21 @@ const RISK_META: Record<
   em_voo: { label: "Em voo", variant: "info" },
 };
 
-function coldFor(hours: number): string {
-  if (hours < 48) return `parado há ${hours}h`;
-  return `parado há ${Math.round(hours / 24)}d`;
+function coldFor(hours: number, t: (texto: string) => string): string {
+  if (hours < 48) return `${t("parado há")} ${hours}h`;
+  return `${t("parado há")} ${Math.round(hours / 24)}d`;
 }
 
-function followupWhen(iso: string): string {
+function followupWhen(iso: string, t: (texto: string) => string): string {
   const diffMs = new Date(iso).getTime() - Date.now();
-  if (diffMs <= 0) return "agora";
+  if (diffMs <= 0) return t("agora");
   const hours = Math.round(diffMs / 3_600_000);
-  if (hours < 48) return `em ${Math.max(1, hours)}h`;
-  return `em ${Math.round(hours / 24)}d`;
+  if (hours < 48) return `${t("em")} ${Math.max(1, hours)}h`;
+  return `${t("em")} ${Math.round(hours / 24)}d`;
 }
 
 export function RiskRadarList() {
+  const t = useT();
   const { data, isLoading } = useAtRiskLeads();
 
   if (isLoading) {
@@ -64,9 +66,9 @@ export function RiskRadarList() {
         data-testid="radar-empty"
       >
         <CheckCircle size={28} className="text-success-fg/70" aria-hidden />
-        <p className="text-sm font-medium">Nenhuma demanda em risco</p>
+        <p className="text-sm font-medium">{t("Nenhuma demanda em risco")}</p>
         <p className="text-xs text-muted-foreground">
-          Toda demanda aberta teve atividade recente ou já tem um retorno agendado.
+          {t("Toda demanda aberta teve atividade recente ou já tem um retorno agendado.")}
         </p>
       </div>
     );
@@ -85,19 +87,20 @@ export function RiskRadarList() {
           <p className="text-sm font-medium">
             {semPasso.length}{" "}
             {semPasso.length === 1
-              ? "demanda aberta sem próximo passo"
-              : "demandas abertas sem próximo passo"}
+              ? t("demanda aberta sem próximo passo")
+              : t("demandas abertas sem próximo passo")}
           </p>
           <p className="mb-2 text-xs text-muted-foreground">
-            Ninguém marcou o que acontece a seguir. Cada uma é alguém esperando sem que nada
-            esteja combinado.
+            {t(
+              "Ninguém marcou o que acontece a seguir. Cada uma é alguém esperando sem que nada esteja combinado.",
+            )}
           </p>
           <ul className="flex flex-col gap-1">
             {semPasso.slice(0, 8).map((d) => (
               <li key={d.id} className="flex items-baseline justify-between gap-3 text-xs">
-                <span className="truncate">{d.contact_name ?? "Contato sem nome"}</span>
+                <span className="truncate">{d.contact_name ?? t("Contato sem nome")}</span>
                 <span className="shrink-0 tabular-nums text-muted-foreground">
-                  aberta há {d.horas_aberta}h
+                  {t("aberta há")} {d.horas_aberta}h
                 </span>
               </li>
             ))}
@@ -106,9 +109,15 @@ export function RiskRadarList() {
       ) : null}
 
       <div className="flex flex-wrap gap-2" data-testid="radar-counts">
-        <Badge variant="error">{data.counts.critico} crítico</Badge>
-        <Badge variant="warning">{data.counts.em_risco} em risco</Badge>
-        <Badge variant="info">{data.counts.em_voo} em voo</Badge>
+        <Badge variant="error">
+          {data.counts.critico} {t("crítico")}
+        </Badge>
+        <Badge variant="warning">
+          {data.counts.em_risco} {t("em risco")}
+        </Badge>
+        <Badge variant="info">
+          {data.counts.em_voo} {t("em voo")}
+        </Badge>
       </div>
 
       <ul className="divide-y divide-border rounded-lg border border-border">
@@ -121,6 +130,7 @@ export function RiskRadarList() {
 }
 
 function RadarRow({ lead }: { lead: AtRiskLead }) {
+  const t = useT();
   const meta = RISK_META[lead.risk as Exclude<RiskBucket, "em_dia">] ?? RISK_META.em_risco;
   const href = lead.conversation_id
     ? `/app/inbox?id=${lead.conversation_id}`
@@ -136,12 +146,12 @@ function RadarRow({ lead }: { lead: AtRiskLead }) {
   // uma fonte de verdade para "quem é o dono", em todas as telas.
   const dono =
     lead.owner_kind === "ai"
-      ? `Agente: ${lead.owner_agent_name ?? "sem nome"}`
+      ? `${t("Agente:")} ${lead.owner_agent_name ?? t("sem nome")}`
       : lead.owner_user_id || lead.assignee_kind === "user"
-        ? "Com atendente"
+        ? t("Com atendente")
         : lead.assignee_kind === "ai"
-          ? "Assistente na conversa"
-          : "Sem dono";
+          ? t("Assistente na conversa")
+          : t("Sem dono");
 
   // "Assumir" é tirar da IA e trazer para si: continua valendo enquanto não há
   // dono HUMANO — dono agente não bloqueia o handoff, é justamente o caso dele.
@@ -155,7 +165,7 @@ function RadarRow({ lead }: { lead: AtRiskLead }) {
       {
         onSuccess: () => {
           qc.invalidateQueries({ queryKey: ["leads-at-risk"] });
-          toast.success("Você assumiu a demanda");
+          toast.success(t("Você assumiu a demanda"));
         },
       },
     );
@@ -169,7 +179,7 @@ function RadarRow({ lead }: { lead: AtRiskLead }) {
     >
       <Link href={href} className="flex min-w-0 flex-1 items-start gap-3 px-4 py-3">
         <Badge variant={meta.variant} className="mt-0.5 shrink-0">
-          {meta.label}
+          {t(meta.label)}
         </Badge>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{lead.title}</p>
@@ -177,7 +187,7 @@ function RadarRow({ lead }: { lead: AtRiskLead }) {
             {lead.contact_name ? <span className="truncate">{lead.contact_name}</span> : null}
             <span className="inline-flex items-center gap-1">
               <ClockCountdown size={13} aria-hidden />
-              {coldFor(lead.hours_since_activity)}
+              {coldFor(lead.hours_since_activity, t)}
             </span>
             <span className="inline-flex items-center gap-1" data-testid="radar-assignee">
               {dono}
@@ -186,12 +196,12 @@ function RadarRow({ lead }: { lead: AtRiskLead }) {
           {lead.in_flight && lead.next_followup_at ? (
             <p className="mt-1 inline-flex items-center gap-1 text-xs text-info-fg">
               <PaperPlaneTilt size={13} aria-hidden />
-              Assistente retorna {followupWhen(lead.next_followup_at)}
+              {t("Assistente retorna")} {followupWhen(lead.next_followup_at, t)}
             </p>
           ) : (
             <p className="mt-1 inline-flex items-center gap-1 text-xs text-warning-fg">
               <Warning size={13} aria-hidden />
-              Sem próximo passo agendado
+              {t("Sem próximo passo agendado")}
             </p>
           )}
         </div>
@@ -205,7 +215,7 @@ function RadarRow({ lead }: { lead: AtRiskLead }) {
             onClick={handleClaim}
             data-testid="radar-claim"
           >
-            Assumir
+            {t("Assumir")}
           </Button>
         ) : null}
         <ArrowRight size={16} className="text-muted-foreground" aria-hidden />

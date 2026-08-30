@@ -19,7 +19,7 @@ type SB = SupabaseClient;
 
 const SELECT_COLS = `
   id, organization_id, contact_id, channel_session_id, channel, status,
-  status_changed_at, assigned_to_user_id, assignee_kind, assigned_at, last_inbound_at,
+  status_changed_at, assigned_to_user_id, assigned_to_user_name, assignee_kind, assigned_at, last_inbound_at,
   last_outbound_at, last_message_at, last_message_preview,
   unread_count_for_assignee, is_group, group_chat_id, tags, metadata,
   snooze_until, created_at, updated_at,
@@ -100,7 +100,11 @@ export async function listConversationsHandler(
     .order("id", { ascending: asc })
     .limit(q.limit + 1);
 
-  if (q.status) query = query.eq("status", q.status);
+  // `.in` e não `.eq`: o filtro agora chega como LISTA (um valor vira lista de um,
+  // e o SQL resultante é equivalente). É o que deixa a aba Fila pedir os dois
+  // estados de espera numa consulta só, em vez de filtrar em memória o que a
+  // página já truncou.
+  if (q.status && q.status.length > 0) query = query.in("status", q.status);
   // Depois do `status` de propósito: pedir um status terminal E `exclude_finished`
   // é contradição, e a resposta certa para uma contradição é lista vazia — não
   // um dos dois lados escolhido em silêncio.
@@ -204,14 +208,42 @@ export async function patchConversationHandler(
   const now = new Date().toISOString();
   const update: Record<string, unknown> = {};
 
+  /**
+   * O ATALHO `status='claimed'` PASSA PELA RPC, e não escreve o dono aqui.
+   *
+   * Ele gravava `assigned_to_user_id` direto na tabela, e isso deixava TRÊS
+   * coisas para trás em relação ao `POST /claim`: nenhum evento em
+   * `conversation_assignment_events` (a auditoria de troca de dono simplesmente
+   * não existia por este caminho), `assignee_kind` intocado — o que viola a
+   * constraint `conversations_assignee_kind_coherence` quando a linha já tinha
+   * `assignee_kind='ai'` — e, desde a 0173, o silêncio do automático não sendo
+   * ligado, produzindo uma conversa com dono humano e o robô ainda respondendo.
+   *
+   * É a API pública versionada, alcançável por qualquer bearer agent+: dois
+   * caminhos de assumir com efeitos diferentes é o defeito, não a conveniência.
+   */
+  const assumirPelaRpc =
+    input.status === "claimed" && ctx.actor.type === "user" ? ctx.actor.id : null;
+
+  if (assumirPelaRpc !== null) {
+    const { error: erroRpc } = await supabase.rpc("fn_conversation_assign", {
+      p_organization_id: ctx.organization_id,
+      p_conversation_id: conversationId,
+      p_to_user_id: assumirPelaRpc,
+      p_reason: "claim",
+      p_expected_assignee: null,
+      // Sem lock otimista: este atalho nunca teve um, e passar a exigi-lo faria
+      // um cliente da API que hoje funciona começar a receber 409.
+      p_enforce_expected: false,
+    });
+    if (erroRpc) {
+      throw new ApiError(500, "internal_error", undefined, ctx.requestId, erroRpc.message);
+    }
+  }
+
   if (input.status !== undefined) {
     update.status = input.status;
     update.status_changed_at = now;
-    // Atalho: status='claimed' assume o atendimento se ator for usuário humano.
-    if (input.status === "claimed" && ctx.actor.type === "user") {
-      update.assigned_to_user_id = ctx.actor.id;
-      update.assigned_at = now;
-    }
   }
   if (input.tags !== undefined) {
     update.tags = input.tags;
@@ -233,6 +265,21 @@ export async function patchConversationHandler(
   }
 
   const conv = data as unknown as Conversation;
+
+  // MESMA REGRA DO `POST /close`, senão existem dois jeitos de fechar com efeitos
+  // opostos sobre a trava do automático. Condicionado a `last_handoff_at is null`
+  // pelo mesmo motivo de lá: fechar encerra o EPISÓDIO, não desfaz uma escalação.
+  const virouTerminal =
+    input.status !== undefined &&
+    (CONVERSATION_TERMINAL_STATUSES as readonly string[]).includes(input.status);
+  if (virouTerminal) {
+    await supabase
+      .from("conversations")
+      .update({ bot_silenced_until: null })
+      .eq("id", conversationId)
+      .eq("organization_id", ctx.organization_id)
+      .is("last_handoff_at", null);
+  }
   const a = actorAuditPayload(ctx.actor);
 
   if (input.status !== undefined) {

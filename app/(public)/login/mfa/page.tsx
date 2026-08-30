@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 import { MfaForm } from "@/components/auth/MfaForm";
+import { normalizarIdioma } from "@/lib/i18n/idiomas";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const metadata = { title: "Verificação em duas etapas" };
 
@@ -21,12 +23,17 @@ export default async function MfaChallengePage({
   const hasVerified = !!factorsData?.totp?.some((f) => f.status === "verified");
   if (!hasVerified) redirect("/app/inbox");
 
+  const idioma = normalizarIdioma(
+    (user.user_metadata?.locale as string | undefined) ?? null,
+  );
+  const t = (texto: string) => traduzir(texto, idioma);
+
   return (
     <div className="space-y-6">
       <div className="space-y-1.5 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Verificação em duas etapas</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("Verificação em duas etapas")}</h1>
         <p className="text-sm text-muted-foreground">
-          Digite o código de 6 dígitos do seu autenticador.
+          {t("Digite o código de 6 dígitos do seu autenticador.")}
         </p>
       </div>
       <MfaForm next={next} />

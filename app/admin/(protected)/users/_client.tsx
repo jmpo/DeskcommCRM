@@ -14,12 +14,14 @@ import {
   UsersTableAdmin,
   UsersTableAdminSkeleton,
 } from "@/components/admin/users/UsersTableAdmin";
+import { useT } from "@/hooks/i18n/useT";
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export function UsersClient() {
+  const t = useT();
   const [filters, setFilters] = useState<AdminUsersFilters>({});
   const [inputValue, setInputValue] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -68,51 +70,51 @@ export function UsersClient() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Usuários</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("Usuários")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
           {isLoading
-            ? "Carregando..."
-            : `${total} usuário${total !== 1 ? "s" : ""}${hasNextPage ? "+" : ""}`}
+            ? t("Carregando...")
+            : `${total} ${total !== 1 ? t("usuários") : t("usuário")}${hasNextPage ? "+" : ""}`}
         </p>
       </div>
 
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
         <Input
-          placeholder="Buscar por email ou nome..."
+          placeholder={t("Buscar por email ou nome...")}
           value={inputValue}
           onChange={(e) => handleSearch(e.target.value)}
           className="sm:w-72"
-          aria-label="Buscar usuários"
+          aria-label={t("Buscar usuários")}
         />
 
         <Select
           value={filters.tenant_id ?? "all"}
           onValueChange={handleTenant}
         >
-          <SelectTrigger className="sm:w-52" aria-label="Filtrar por tenant">
+          <SelectTrigger className="sm:w-52" aria-label={t("Filtrar por tenant")}>
             <SelectValue placeholder="Tenant" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Todos os tenants</SelectItem>
-            {tenants.map((t) => (
-              <SelectItem key={t.id} value={t.id}>
-                {t.display_name}
+            <SelectItem value="all">{t("Todos os tenants")}</SelectItem>
+            {tenants.map((tenant) => (
+              <SelectItem key={tenant.id} value={tenant.id}>
+                {tenant.display_name}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
 
         <Select value={filters.role ?? "all"} onValueChange={handleRole}>
-          <SelectTrigger className="sm:w-40" aria-label="Filtrar por role">
+          <SelectTrigger className="sm:w-40" aria-label={t("Filtrar por role")}>
             <SelectValue placeholder="Role" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Todos os roles</SelectItem>
-            <SelectItem value="admin">Admin</SelectItem>
-            <SelectItem value="manager">Manager</SelectItem>
-            <SelectItem value="agent">Agente</SelectItem>
-            <SelectItem value="viewer">Viewer</SelectItem>
+            <SelectItem value="all">{t("Todos os roles")}</SelectItem>
+            <SelectItem value="admin">{t("Admin")}</SelectItem>
+            <SelectItem value="manager">{t("Manager")}</SelectItem>
+            <SelectItem value="agent">{t("Agente")}</SelectItem>
+            <SelectItem value="viewer">{t("Viewer")}</SelectItem>
           </SelectContent>
         </Select>
       </div>

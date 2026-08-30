@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 
 import { audit } from "@/lib/audit";
+import { registrarTrocaDeComando } from "@/lib/inbox/atividade-de-comando";
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
@@ -61,6 +62,19 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     resourceType: "conversation",
     resourceId: conv.id,
     requestId,
+  });
+
+  // Liberar devolve o comando ao automático desde a 0173 (a RPC limpa
+  // `bot_silenced_until`), então a linha na timeline não é decoração: ela é o
+  // registro de que o cliente voltou a ser atendido por máquina.
+  await registrarTrocaDeComando({
+    supabase,
+    organizationId: conv.organization_id,
+    conversationId: conv.id,
+    contactId: conv.contact_id,
+    tipo: "conversation_released",
+    actor: { type: "user", id: user.id, role: authz.org.role },
+    motivo: "Liberou a conversa de volta para a fila",
   });
 
   return ok(conv, { requestId });

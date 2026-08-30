@@ -22,6 +22,8 @@ import * as path from "node:path";
 
 import { test, expect, type Page } from "@playwright/test";
 
+import { TETO_TOOLS_POR_AGENTE } from "@/lib/mcp/tools/selecao-por-pacote";
+
 import { loginComoAdmin } from "./helpers/login-admin";
 
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
@@ -61,7 +63,31 @@ let creds = loadCreds();
 const AGENTE = creds.capacidades!.agent_id;
 
 /** O que o seed deixa ligado — o cenário conhecido de onde os casos partem. */
-const TOOLS_DO_SEED = ["crm_get_lead", "crm_move_lead_stage", "crm_list_leads"];
+const TOOLS_DO_SEED = [
+  // As três originais primeiro: o caso do teto desliga `TOOLS_DO_SEED[2]` para
+  // liberar exatamente uma vaga, e a ordem é o que mantém esse índice válido.
+  "crm_get_lead",
+  "crm_move_lead_stage",
+  "crm_list_leads",
+  // ⚠️ AS CINCO ABAIXO ENTRARAM COM O TETO INDO DE 20 PARA 25, e não são enfeite.
+  //
+  // A jornada do teto (issue #162) só existe se o cenário ESTOURAR: eram 3 do
+  // seed + 18 de "Atender" = 21 contra teto 20, e a tela recusava dizendo
+  // "faltam 1 vaga". Com teto 25 essas mesmas 21 passam, a recusa nunca acontece
+  // e o caso vira um clique que sempre dá certo — verde sem medir nada.
+  //
+  // Oito reproduzem a MESMA aritmética no teto novo: 8 + 18 = 26 > 25, recusa
+  // por 1 vaga; desligar uma deixa 7 + 18 = 25, que é o teto exato e passa.
+  //
+  // As escolhidas ficam FORA do pacote "Atender" de propósito — se alguma
+  // estivesse dentro, a união seria menor que a soma e a conta acima não valeria.
+  // Quatro são a família de agenda, que é o assunto do defeito que subiu o teto.
+  "crm_find_free_slots",
+  "crm_list_appointments",
+  "crm_book_appointment",
+  "crm_reschedule_appointment",
+  "crm_list_pipelines",
+];
 
 /** A capacidade que não pode entrar por pacote. */
 const ENVIO = "crm_send_whatsapp_message";
@@ -178,13 +204,23 @@ test.describe("Configurar o que o agente pode fazer", () => {
     await abrirConfiguracao(page);
 
     const antes = await consumo(page);
-    expect(antes).toMatch(/de 20$/);
+    // A CONSTANTE, não o literal: este arquivo prendia o "20" em quatro pontos,
+    // e o teto subiu para 25 quando o dono do produto ficou sem como ligar as
+    // capacidades de agenda. Literal em asserção transforma decisão de produto
+    // em quebra de CI, e faz a próxima pessoa "consertar" o teste em vez de ler
+    // por que o número mudou.
+    expect(antes).toMatch(new RegExp(`de ${TETO_TOOLS_POR_AGENTE}$`));
 
     // O TETO ENTRA NA JORNADA (issue #162), e entra antes do clique.
     //
-    // Medido pela API servida em 2026-08-06: o catálogo tem 51 capacidades e
     // "Atender" exige 18 vagas (17 automáticas + a crítica que o pacote
-    // deliberadamente NÃO liga). Com as 3 do seed dá 21, num teto de 20.
+    // deliberadamente NÃO liga). Com as 8 do seed dá 26, acima do teto.
+    //
+    // ⚠️ AS 8 SÃO O QUE MANTÉM ESTE CASO VIVO. Eram 3, e 3 + 18 = 21 estourava o
+    // teto de 20. Quando o teto foi para 25 essas mesmas 21 passaram a caber: a
+    // recusa nunca aconteceria e o caso viraria um clique que sempre dá certo —
+    // verde sem medir nada, que é o pior desfecho para um teste de recusa.
+    // As 5 novas estão FORA de "Atender", senão a união seria menor que a soma.
     //
     // Antes da correção a tela aceitava o pacote, chegava a 20 exatas e deixava
     // o checkbox da crítica DESABILITADO — prometia uma escolha que o produto
@@ -274,7 +310,7 @@ test.describe("Configurar o que o agente pode fazer", () => {
     // Espera a configuração CARREGAR. Ler o estado antes disso devolve lista
     // vazia, e um teste que compara vazio com vazio passa sem medir nada.
     await expect(page.getByTestId("consumo-teto")).toHaveText(
-      `${TOOLS_DO_SEED.length} de 20`,
+      `${TOOLS_DO_SEED.length} de ${TETO_TOOLS_POR_AGENTE}`,
     );
 
     await page.getByTestId("switch-pacote-vender").click();
@@ -296,7 +332,7 @@ test.describe("Configurar o que o agente pode fazer", () => {
     await page.reload();
     await page.getByTestId("tool-picker").waitFor({ state: "visible" });
     await expect(page.getByTestId("consumo-teto")).toHaveText(
-      `${TOOLS_DO_SEED.length} de 20`,
+      `${TOOLS_DO_SEED.length} de ${TETO_TOOLS_POR_AGENTE}`,
     );
   });
 });

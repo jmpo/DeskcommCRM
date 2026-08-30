@@ -3,6 +3,7 @@ import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-q
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
+import { useT } from "@/hooks/i18n/useT";
 
 /**
  * Os estados que `followup_enrollments.status` aceita — todos eles.
@@ -76,6 +77,7 @@ export function useFollowupQueue(filters: FollowupQueueFilters = {}) {
 }
 
 export function useCancelFollowupEnrollment() {
+  const t = useT();
   const qc = useQueryClient();
   return useMutation({
     mutationKey: ["followup", "enrollments", "cancel"],
@@ -88,7 +90,7 @@ export function useCancelFollowupEnrollment() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["followup", "queue"] });
-      toast.success("Follow-up cancelado.");
+      toast.success(t("Follow-up cancelado."));
     },
     onError: (err) => {
       showApiError(err);
@@ -106,6 +108,7 @@ export function useCancelFollowupEnrollment() {
  * atingir a linha errada em silêncio.
  */
 export function useCancelFollowupPromise() {
+  const t = useT();
   const qc = useQueryClient();
   return useMutation({
     mutationKey: ["followup", "promises", "cancel"],
@@ -118,7 +121,7 @@ export function useCancelFollowupPromise() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["followup", "queue"] });
-      toast.success("Retorno cancelado.");
+      toast.success(t("Retorno cancelado."));
     },
     onError: (err) => {
       showApiError(err);

@@ -86,6 +86,52 @@ export async function buildContext(admin: SupabaseClient, row: EventRow): Promis
   return context;
 }
 
+/**
+ * Grava a linha do adiamento — a única evidência de que a regra casou e está
+ * esperando.
+ *
+ * Um run por adiamento, e não um por tique do drain: o evento só volta na hora
+ * marcada por `retry_at`, então não há repetição a cada minuto. Se a janela
+ * seguir fechada quando ele voltar, sai outra linha — e aí a repetição É a
+ * informação (a automação está presa há três dias).
+ *
+ * Fire-and-forget quanto a erro: perder o registro não pode impedir o
+ * adiamento, que é o que protege o número.
+ */
+async function registrarAdiamento(
+  admin: SupabaseClient,
+  row: EventRow,
+  rule: RuleRow,
+  actionType: string,
+  retryAt: string,
+): Promise<void> {
+  const { error } = await admin.from("automation_rule_runs").insert({
+    organization_id: row.organization_id,
+    rule_id: rule.id,
+    event_id: row.id,
+    status: "adiado",
+    actions_result: [
+      {
+        type: actionType,
+        status: "postponed",
+        detail: {
+          reason: "fora_da_janela_de_envio",
+          retry_at: retryAt,
+          explicacao:
+            "A regra casou e está esperando a janela de envio do número reabrir — nada foi tentado ainda.",
+        },
+      },
+    ],
+  });
+  if (error) {
+    logger.error("[automation.engine] não foi possível registrar o adiamento", {
+      rule_id: rule.id,
+      organization_id: row.organization_id,
+      error: error.message,
+    });
+  }
+}
+
 export async function runAutomationForEvent(
   admin: SupabaseClient,
   row: EventRow,
@@ -99,6 +145,7 @@ export async function runAutomationForEvent(
 
   const expectedKind = EXPECTED_ENTITY_KIND[row.event_type];
   if (expectedKind && row.entity_kind !== expectedKind) {
+  
     return { consumer_key: AUTOMATION_CONSUMER_KEY, status: "skipped", detail: "entity_kind_mismatch" };
   }
 
@@ -130,10 +177,15 @@ export async function runAutomationForEvent(
       const executor = getAction(action.type);
       if (!executor?.postponeUntil) continue;
       const until = await executor.postponeUntil(
-        { admin, organizationId: row.organization_id, ruleId: rule.id, event: row, context, requestId: row.id },
+        { admin, organizationId: row.organization_id, ruleId: rule.id, ruleName: rule.name, event: row, context, requestId: row.id },
         action.config ?? {},
       );
       if (until) {
+        // A ESPERA É UM ESTADO, e um estado que ninguém vê é indistinguível de
+        // morte. Sem esta linha o evento sumia até a janela reabrir e a aba
+        // Atividade não mostrava NADA — para quem montou a regra, "não apareceu
+        // nada" e "não rodou" são a mesma tela (migration 0175).
+        await registrarAdiamento(admin, row, rule, action.type, until);
         return { consumer_key: AUTOMATION_CONSUMER_KEY, status: "retry", retry_at: until };
       }
     }
@@ -150,7 +202,7 @@ export async function runAutomationForEvent(
       try {
         results.push(
           await executor.execute(
-            { admin, organizationId: row.organization_id, ruleId: rule.id, event: row, context, requestId: row.id },
+            { admin, organizationId: row.organization_id, ruleId: rule.id, ruleName: rule.name, event: row, context, requestId: row.id },
             action.config ?? {},
           ),
         );
@@ -163,8 +215,49 @@ export async function runAutomationForEvent(
       }
     }
 
-    const failed = results.filter((r) => r.status === "failed").length;
-    const status = failed === 0 ? "success" : failed === results.length ? "failed" : "partial";
+    // ═══ O AGREGADOR TAMBÉM PRECISA DIZER A VERDADE ═══
+    //
+    // `failed === 0 ? "success"` fazia uma ação `postponed` — mensagem que ficou
+    // em `queued` e NÃO chegou ao cliente — virar "Sucesso" verde na tela. É o
+    // MESMO defeito que `desfecho-do-envio.ts` existe para matar, ressurgindo
+    // um nível acima: a ação passou a ser honesta e quem soma continuava
+    // mentindo. Conserto por instância, não por classe.
+    //
+    // Achado por revisão adversarial, com o cenário alcançável: instalação sem
+    // o transporte de WhatsApp configurado (o caso de TODA instalação nova), a
+    // janela aberta, `postponeUntil` devolve null, a ação executa, e o envio
+    // termina em `queued` com `queued_reason`. É exatamente o estado congelado
+    // em `tests/invariants/automation-send-whatsapp.test.ts` caso 2.
+    //
+    // A MESMA mentira reapareceu de novo, um degrau abaixo: `status ===
+    // "skipped"` (guarda-do-contato.ts — sem contato, bloqueado, sem telefone,
+    // OU sem consentimento) também não era `failed` nem `postponed`, então caía
+    // no `else` e virava "Sucesso" — pra uma mensagem que nunca foi NEM
+    // TENTADA. Achado pelo e2e `tests/e2e/automacao-diz-a-verdade.spec.ts`: um
+    // lead de webhook genérico (sem Respondi, sem pergunta de consentimento)
+    // nunca tem `consent.marketing.granted_at`, então TODO envio automático
+    // pra um lead assim batia no gate de consentimento — e a tela dizia
+    // "Sucesso" pra um envio que nem chegou a discar o WhatsApp. Pior que o
+    // defeito original: aquele pelo menos tinha TENTADO.
+    //
+    // `skipped` entra junto de `failed` na contagem: as duas significam "não
+    // saiu, e não é a fila que vai resolver sozinha" — a diferença entre elas
+    // (uma tentou e não conseguiu, a outra nem tentou) é o `reason`/`error` que
+    // a ação já registra, não o status agregado.
+    //
+    // A ordem importa: falha (+ skip) vence adiamento. Uma regra em que uma
+    // ação falhou/pulou e outra ficou esperando é `partial` — quem lê precisa
+    // saber que algo quebrou, não que está tudo a caminho.
+    const naoEnviadas = results.filter((r) => r.status === "failed" || r.status === "skipped").length;
+    const adiados = results.filter((r) => r.status === "postponed").length;
+    const status =
+      naoEnviadas > 0
+        ? naoEnviadas === results.length
+          ? "failed"
+          : "partial"
+        : adiados > 0
+          ? "adiado"
+          : "success";
     const { data: runRow, error: runErr } = await admin
       .from("automation_rule_runs")
       .insert({

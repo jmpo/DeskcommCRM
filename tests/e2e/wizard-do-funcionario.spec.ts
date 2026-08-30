@@ -133,6 +133,39 @@ test.describe("o wizard monta um funcionário", () => {
     await expect(cabecalho).not.toContainText("Minha Empresa");
   });
 
+  test("o passo do telefone pergunta COMO se conecta antes de assumir o código", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.waitForURL(/\/onboarding\/connect-whatsapp/, { timeout: 30_000 });
+
+    // As três formas que o produto realmente suporta — as mesmas da tela de
+    // Conexões. Antes, o wizard oferecia uma e nem perguntava: a sessão do
+    // canal por código subia sozinha na montagem da tela.
+    await expect(page.getByTestId("forma-qr")).toBeVisible();
+    await expect(page.getByTestId("forma-oficial")).toBeVisible();
+    await expect(page.getByTestId("forma-parceiro")).toBeVisible();
+
+    // Nenhuma escolha feita: o código não pode estar na tela ainda.
+    await expect(page.locator('img[src*="/whatsapp/qr"]')).toHaveCount(0);
+
+    // A cópia visível fala a língua de quem vende, nunca a do transporte.
+    const corpo = page.locator("body");
+    await expect(corpo).not.toContainText(/provider/i);
+    await expect(corpo).not.toContainText(/channel_session/i);
+
+    // Escolher a conta oficial leva ao formulário dela, e dá para voltar —
+    // escolher errado não pode ser uma porta que tranca.
+    await page.getByTestId("forma-oficial").locator("input").click();
+    await expect(page.getByTestId("canal-oficial-root")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("voltar-para-escolha").click();
+    await expect(page.getByTestId("forma-qr")).toBeVisible();
+
+    // NÃO avança: a spec é serial e o caso seguinte começa neste mesmo passo.
+    // A escolha vive em memória e não é gravada, então voltar aqui não deixa
+    // rastro — se deixasse, o passo já contaria como cumprido.
+  });
+
   test("o passo do telefone não expõe identificador interno nem enum", async ({ page }) => {
     await login(page);
     await page.waitForURL(/\/onboarding\/connect-whatsapp/, { timeout: 30_000 });

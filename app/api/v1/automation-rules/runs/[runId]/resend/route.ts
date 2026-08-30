@@ -52,7 +52,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
 
   const { data: rule, error: ruleErr } = await supabase
     .from("automation_rules")
-    .select("id, actions")
+    .select("id, name, actions")
     .eq("id", run.rule_id)
     .eq("organization_id", activeOrg.orgId)
     .maybeSingle();
@@ -77,6 +77,29 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     (action) => action.type === "call_webhook",
   );
 
+  // ─── REENVIAR NADA NÃO É SUCESSO ──────────────────────────────────────────
+  //
+  // `failed === 0` é VERDADEIRO para lista vazia, e sem esta guarda uma regra
+  // que perdeu as ações de webhook (o operador removeu a ação no editor, e o
+  // botão "Reenviar" segue renderizado no run antigo) gravava uma linha
+  // `status: "success"` com `actions_result: []`. A tela então mostra o toast
+  // verde e o badge "Sucesso" com corpo vazio: o operador é informado de um
+  // reenvio que não aconteceu.
+  //
+  // É exatamente a classe de defeito que este PR existe para fechar — a
+  // automação dizer que deu certo quando não deu —, e ela reapareceria pela
+  // porta nova. 409 e não 200 porque o estado do MUNDO mudou desde o run
+  // original: a regra não tem mais o que reenviar, e isso é informação, não
+  // erro do chamador.
+  if (callWebhookActions.length === 0) {
+    return fail(
+      "no_actions_to_resend",
+      "Esta automação não tem mais nenhuma ação de webhook — não há o que reenviar.",
+      409,
+      { requestId },
+    );
+  }
+
   // Admin real no ctx: o executor decifra config.secret_enc via RPC
   // fn_decrypt_oauth (grant só service_role) — client de sessão falharia e o
   // outbound sairia sem assinatura silenciosamente.
@@ -87,6 +110,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
       admin: adminForActions,
       organizationId: activeOrg.orgId,
       ruleId: rule.id,
+      ruleName: (rule.name as string) ?? "Automação",
       event: typedEvent,
       context,
       requestId,

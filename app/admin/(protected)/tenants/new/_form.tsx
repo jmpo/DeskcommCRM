@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { useCreateTenant } from "@/hooks/useCreateTenant";
 import { ApiError } from "@/lib/api/types";
+import { useT } from "@/hooks/i18n/useT";
 
 // ---------------------------------------------------------------------------
 // Schema (mirrors server Zod; client keeps it in sync)
@@ -72,6 +73,7 @@ function maskCnpj(value: string): string {
 // ---------------------------------------------------------------------------
 
 export function NewTenantForm() {
+  const t = useT();
   const router = useRouter();
   const createTenant = useCreateTenant();
   const [slugLocked, setSlugLocked] = useState(false);
@@ -125,17 +127,17 @@ export function NewTenantForm() {
         owner_email: values.owner_email,
       });
 
-      toast.success("Tenant criado com sucesso!");
+      toast.success(t("Tenant criado com sucesso!"));
       router.push(`/admin/tenants/${result.data.id}`);
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.code === "conflict") {
-          form.setError("slug", { message: "Este slug já está em uso" });
+          form.setError("slug", { message: t("Este slug já está em uso") });
           return;
         }
-        toast.error(`Erro ao criar tenant: ${err.message}`);
+        toast.error(`${t("Erro ao criar tenant:")} ${err.message}`);
       } else {
-        toast.error("Erro inesperado ao criar tenant");
+        toast.error(t("Erro inesperado ao criar tenant"));
       }
     }
   });
@@ -145,32 +147,32 @@ export function NewTenantForm() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Novo Tenant</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("Novo Tenant")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Cria um novo tenant com status <em>onboarding</em>.
+          {t("Cria um novo tenant com status")} <em>onboarding</em>.
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Dados do tenant</CardTitle>
+          <CardTitle className="text-base">{t("Dados do tenant")}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-5" noValidate>
             {/* display_name */}
             <div className="space-y-1.5">
               <Label htmlFor="display_name">
-                Nome de exibição <span className="text-error-fg">*</span>
+                {t("Nome de exibição")} <span className="text-error-fg">*</span>
               </Label>
               <Input
                 id="display_name"
-                placeholder="Loja da Maria"
+                placeholder={t("Loja da Maria")}
                 {...register("display_name")}
                 onChange={(e) => handleDisplayNameChange(e.target.value)}
                 aria-invalid={!!errors.display_name}
               />
               {errors.display_name && (
-                <p className="text-xs text-error-fg">{errors.display_name.message}</p>
+                <p className="text-xs text-error-fg">{t(errors.display_name.message ?? "")}</p>
               )}
             </div>
 
@@ -181,31 +183,31 @@ export function NewTenantForm() {
               </Label>
               <Input
                 id="slug"
-                placeholder="loja-da-maria"
+                placeholder="tienda-de-maria"
                 {...register("slug")}
                 onChange={(e) => handleSlugChange(e.target.value)}
                 aria-invalid={!!errors.slug}
                 className="font-mono"
               />
               <p className="text-xs text-muted-foreground">
-                Apenas letras minúsculas, números e hífens. Gerado automaticamente.
+                {t("Apenas letras minúsculas, números e hífens. Gerado automaticamente.")}
               </p>
               {errors.slug && (
-                <p className="text-xs text-error-fg">{errors.slug.message}</p>
+                <p className="text-xs text-error-fg">{t(errors.slug.message ?? "")}</p>
               )}
             </div>
 
             {/* legal_name */}
             <div className="space-y-1.5">
-              <Label htmlFor="legal_name">Razão social</Label>
+              <Label htmlFor="legal_name">{t("Razão social")}</Label>
               <Input
                 id="legal_name"
-                placeholder="Maria da Silva LTDA"
+                placeholder={t("Maria da Silva LTDA")}
                 {...register("legal_name")}
                 aria-invalid={!!errors.legal_name}
               />
               {errors.legal_name && (
-                <p className="text-xs text-error-fg">{errors.legal_name.message}</p>
+                <p className="text-xs text-error-fg">{t(errors.legal_name.message ?? "")}</p>
               )}
             </div>
 
@@ -223,20 +225,20 @@ export function NewTenantForm() {
                 className="font-mono"
               />
               {errors.cnpj && (
-                <p className="text-xs text-error-fg">{errors.cnpj.message}</p>
+                <p className="text-xs text-error-fg">{t(errors.cnpj.message ?? "")}</p>
               )}
             </div>
 
             {/* plan */}
             <div className="space-y-1.5">
-              <Label htmlFor="plan">Plano</Label>
+              <Label htmlFor="plan">{t("Plano")}</Label>
               <Select
                 value={planValue}
                 onValueChange={(v) =>
                   setValue("plan", v as "standard" | "pro" | "enterprise")
                 }
               >
-                <SelectTrigger id="plan" aria-label="Plano">
+                <SelectTrigger id="plan" aria-label={t("Plano")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -246,31 +248,31 @@ export function NewTenantForm() {
                 </SelectContent>
               </Select>
               {errors.plan && (
-                <p className="text-xs text-error-fg">{errors.plan.message}</p>
+                <p className="text-xs text-error-fg">{t(errors.plan.message ?? "")}</p>
               )}
             </div>
 
             {/* owner_email */}
             <div className="space-y-1.5">
               <Label htmlFor="owner_email">
-                E-mail do responsável <span className="text-error-fg">*</span>
+                {t("E-mail do responsável")} <span className="text-error-fg">*</span>
               </Label>
               <Input
                 id="owner_email"
                 type="email"
-                placeholder="responsavel@empresa.com"
+                placeholder="responsable@empresa.com"
                 {...register("owner_email")}
                 aria-invalid={!!errors.owner_email}
               />
               {errors.owner_email && (
-                <p className="text-xs text-error-fg">{errors.owner_email.message}</p>
+                <p className="text-xs text-error-fg">{t(errors.owner_email.message ?? "")}</p>
               )}
             </div>
 
             {/* Actions */}
             <div className="flex items-center gap-3 pt-2">
               <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Criando..." : "Criar tenant"}
+                {isSubmitting ? t("Criando...") : t("Criar tenant")}
               </Button>
               <Button
                 type="button"
@@ -278,7 +280,7 @@ export function NewTenantForm() {
                 onClick={() => router.back()}
                 disabled={isSubmitting}
               >
-                Cancelar
+                {t("Cancelar")}
               </Button>
             </div>
           </form>

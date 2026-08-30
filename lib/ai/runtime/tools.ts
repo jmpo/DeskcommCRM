@@ -23,6 +23,7 @@ import { allTools, getToolByName } from "@/lib/mcp/tools";
 import { catalogEntry } from "@/lib/mcp/tools/catalog";
 import { recusaDeCapacidadeParaOModelo } from "@/lib/mcp/recusa-para-o-modelo";
 import type { McpContext, McpToolDefinition } from "@/lib/mcp/types";
+import { resolveActiveLeadForContact, type LeadCandidate } from "@/lib/leads/active-lead";
 import { podeChamarFerramenta, recusaParaOModelo } from "@/lib/leads/escopo-de-funil";
 
 export interface RuntimeHandoffSignal {
@@ -99,6 +100,34 @@ function wrapMcpTool(
             // não é dele, e ele pararia de tentar para sempre.
             if (error) throw new Error(error.message);
             return (data as { pipeline_id: string } | null)?.pipeline_id ?? null;
+          },
+          /**
+           * O negócio ABERTO de um contato — para `funil_vem_do_contato`.
+           *
+           * A agenda opera por CONTATO (quem é atendido), não por lead. Sem este
+           * resolvedor, `crm_book_appointment` só poderia ser `sem_funil` e o escopo
+           * não valeria para ela em caso nenhum.
+           *
+           * ⚠️ A DECISÃO de qual negócio é do contato NÃO nasce aqui: é de
+           * `resolveActiveLeadForContact`, a MESMA que o roteamento de atividade usa.
+           * Reimplementar "qual negócio da pessoa está em jogo" faria o escopo e a
+           * timeline discordarem sobre o mesmo cliente.
+           */
+          resolveLeadDoContato: async (contactId) => {
+            const { data, error } = await input.supabase
+              .from("crm_leads")
+              .select("id, organization_id, pipeline_id, status, last_activity_at, created_at")
+              .eq("organization_id", input.ctx.organizationId)
+              .eq("contact_id", contactId);
+            // `throw` e não desfecho: erro de consulta vira `indisponivel` lá dentro,
+            // nunca "fora do escopo" — a mesma razão do irmão acima.
+            if (error) throw new Error(error.message);
+
+            const r = resolveActiveLeadForContact((data ?? []) as LeadCandidate[]);
+            if (r.routed) return { tipo: "lead" as const, leadId: r.leadId };
+            return r.reason === "ambiguous_open_leads"
+              ? { tipo: "ambiguo" as const, quantos: r.candidateIds.length }
+              : { tipo: "sem_lead" as const };
           },
         });
 

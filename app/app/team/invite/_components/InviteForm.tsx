@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { useT } from "@/hooks/i18n/useT";
 import { useInviteMembers } from "@/hooks/team/useInviteMembers";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,6 +22,7 @@ interface ResultState {
 }
 
 export function InviteForm() {
+  const t = useT();
   const [emailsRaw, setEmailsRaw] = useState("");
   const [role, setRole] = useState<Role>("agent");
   const [result, setResult] = useState<ResultState | null>(null);
@@ -34,11 +36,11 @@ export function InviteForm() {
       .filter(Boolean);
     const unique = Array.from(new Set(emails));
     if (unique.length === 0) {
-      toast.error("Adicione ao menos um email.");
+      toast.error(t("Adicione ao menos um email."));
       return;
     }
     if (unique.length > 20) {
-      toast.error("Máximo 20 emails por convite.");
+      toast.error(t("Máximo 20 emails por convite."));
       return;
     }
     try {
@@ -48,7 +50,9 @@ export function InviteForm() {
       setResult(res.data);
       const ok = res.data.sent.length;
       const ko = res.data.failed.length;
-      toast.success(`${ok} convite(s) enviado(s)${ko > 0 ? `, ${ko} falha(s).` : "."}`);
+      toast.success(
+        `${ok} ${t("convite(s) enviado(s)")}${ko > 0 ? `, ${ko} ${t("falha(s).")}` : "."}`,
+      );
       setEmailsRaw("");
     } catch {
       /* showApiError handled */
@@ -84,7 +88,7 @@ export function InviteForm() {
           </Select>
         </div>
         <Button type="submit" disabled={invite.isPending}>
-          {invite.isPending ? "Enviando…" : "Enviar convites"}
+          {invite.isPending ? t("Enviando…") : t("Enviar convites")}
         </Button>
       </form>
 
@@ -93,15 +97,17 @@ export function InviteForm() {
           <>
             {result.sent.length > 0 ? (
               <section>
-                <h2 className="text-sm font-semibold">Enviados ({result.sent.length})</h2>
+                <h2 className="text-sm font-semibold">
+                  {t("Enviados")} ({result.sent.length})
+                </h2>
                 <ul className="mt-2 space-y-2 text-sm">
                   {result.sent.map((s) => (
                     <li key={s.email} className="rounded-md border p-2">
                       <div className="font-medium">{s.email}</div>
                       <div className="text-xs text-muted-foreground">
                         {s.email_dispatched
-                          ? "Email enviado."
-                          : "Resend não configurado — link copiável abaixo (DEV)."}
+                          ? t("Email enviado.")
+                          : t("Resend não configurado — link copiável abaixo (DEV).")}
                       </div>
                       {!s.email_dispatched ? (
                         <code className="mt-1 block break-all text-xs">{s.accept_url}</code>
@@ -114,7 +120,7 @@ export function InviteForm() {
             {result.failed.length > 0 ? (
               <section>
                 <h2 className="text-sm font-semibold text-destructive">
-                  Falhas ({result.failed.length})
+                  {t("Falhas")} ({result.failed.length})
                 </h2>
                 <ul className="mt-2 space-y-1 text-sm">
                   {result.failed.map((f) => (
@@ -129,7 +135,7 @@ export function InviteForm() {
           </>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Resultados aparecerão aqui após o envio.
+            {t("Resultados aparecerão aqui após o envio.")}
           </p>
         )}
       </div>

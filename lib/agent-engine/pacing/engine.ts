@@ -6,7 +6,7 @@
  * I/O nenhum. Clock e RNG são injetáveis (testes com clock fake e jitter
  * determinístico); em produção o chamador passa `new Date()` e omite o rng.
  *
- * Ordem de avaliação: janela horária (tz do tenant, domingo evitado) → caps
+ * Ordem de avaliação: janela horária (tz do tenant, domingo conforme `allowSunday`) → caps
  * diários (warm-up por idade do número; limite do CRM injetado) → throttle+jitter.
  */
 import type { PacingKnobs, WarmupStep } from './defaults';
@@ -189,6 +189,26 @@ function instantFromWall(y: number, mo: number, d: number, h: number, timezone: 
 export function dayStartInTz(instant: Date, timezone: string): Date {
   const w = wallClock(instant, timezone);
   return instantFromWall(w.y, w.mo, w.d, 0, timezone);
+}
+
+/**
+ * A janela horária está aberta agora? Exportada para quem precisa da pergunta
+ * ANTES de ter uma mensagem para enviar — hoje o turno inbound, que adia o job
+ * inteiro em vez de gastar uma chamada de modelo cujo texto o gate vetaria na
+ * saída (ver `inbound-turn.ts`). O gate de envio continua sendo o que decide de
+ * verdade: isto é só o atalho barato, sem tocar em caps nem em throttle.
+ */
+export function janelaDeEnvioAberta(now: Date, knobs: PacingKnobs): boolean {
+  return insideWindow(wallClock(now, knobs.timezone), knobs);
+}
+
+/** Próxima abertura da janela + jitter — o instante para o qual se adia. */
+export function proximaAberturaDaJanela(
+  now: Date,
+  knobs: PacingKnobs,
+  rng: () => number = Math.random,
+): Date {
+  return addMs(nextWindowOpen(now, knobs), jitterOf(rng, knobs));
 }
 
 function insideWindow(wall: Wall, knobs: PacingKnobs): boolean {

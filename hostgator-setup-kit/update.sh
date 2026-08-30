@@ -26,6 +26,12 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# ── 0-. Esta cópia do repo é a dona dos contêineres? ─────────────────────────
+# Antes do cron e antes do git: uma segunda cópia que atualiza por cima recria o
+# parque com o .env DELA. Foi o que deixou o WhatsApp de uma VPS real três dias
+# em 401. Ver `recusar_projeto_de_outra_arvore` em _common.sh.
+recusar_projeto_de_outra_arvore || die "Atualização interrompida para não quebrar a instalação que está no ar."
+
 # ── 0. Liga o agente da tela ANTES de qualquer decisão de versão ─────────────
 # Instalar o cron aqui, e não no fim, é o que faz o bootstrap ter fim: os
 # caminhos "já está na versão mais recente" e "essa versão é anterior à sua"
@@ -51,7 +57,11 @@ CURRENT_TAG="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
 # (Veio da `main`; a versão por tag cai exatamente na mesma armadilha, porque a
 # comparação de tags também fica satisfeita com a imagem velha no lugar.)
 image_desatualizada() {
-  local img="${APP_IMAGE:-ghcr.io/jmpo/deskcommcrm:latest}" local_d remote_d
+  # O fallback vem de `IMG_APP` (_common.sh, sourceado no topo deste arquivo) e não de
+  # um literal: num fork com namespace próprio, o literal apontava para a
+  # imagem do UPSTREAM, e um `.env` sem APP_IMAGE comparava o digest local
+  # contra um registry que não é o dele.
+  local img="${APP_IMAGE:-${IMG_APP}:latest}" local_d remote_d
   local_d="$(docker image inspect "$img" --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' 2>/dev/null | sed 's/.*@//')"
   [ -z "$local_d" ] && return 0                 # nem baixada ainda → atualizar
   remote_d="$(docker buildx imagetools inspect "$img" 2>/dev/null | awk '/^Digest:/{print $2; exit}')"

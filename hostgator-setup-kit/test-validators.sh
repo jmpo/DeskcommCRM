@@ -1049,9 +1049,9 @@ tk_ok "caddy não é traefik"              nao "caddy:2-alpine"    "outro-caddy-
 tk_ok "nginx não é traefik"              nao "nginxproxy/nginx"  "webproxy"
 
 echo "proxy reverso: a decisão"
-dec_ok() {  # dec_ok <descrição> <esperado> <ocupadas> <proj_dono> <proj_atual> <img> <nome>
+dec_ok() {  # dec_ok <descrição> <esperado> <ocupadas> <proj_dono> <proj_atual> <img> <nome> [árvore_dono] [árvore_atual]
   local desc="$1" esperado="$2" real
-  real="$(decide_proxy "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}")"
+  real="$(decide_proxy "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}" "${8:-}" "${9:-}")"
   if [ "$real" = "$esperado" ]; then printf '  ✓ %s\n' "$desc"
   else printf '  ✗ %s  (deu %s, esperava %s)\n' "$desc" "$real" "$esperado"; fail=1; fi
 }
@@ -1062,6 +1062,30 @@ dec_ok "portas livres → nosso Caddy"        caddy    ""        ""          "cr
 # rodar de novo para corrigir uma resposta, e sem nem um comando acionável.
 dec_ok "re-execução: portas com esta mesma instalação" caddy "80 e 443" "crm" "crm" "caddy:2-alpine" "crm-caddy-1"
 dec_ok "Caddy de OUTRO Deskcomm → bloqueia" bloqueia "80 e 443" "outro"     "crm" "caddy:2-alpine" "outro-caddy-1"
+# O fixture acima nomeia "outro Deskcomm" mas usa projeto DIFERENTE ("outro" vs
+# "crm") — e é justamente o nome do projeto que NÃO difere no caso real: o
+# projeto do compose é o basename da pasta, e toda cópia do repo se chama
+# DeskcommCRM. Medido numa VPS de produção em 2026-08-24: a instalação de uma
+# aula em /root/apagar7/DeskcommCRM viu o Caddy da produção em
+# /root/DeskcommCRM com o MESMO projeto `deskcommcrm`, concluiu "é a
+# re-execução" e subiu por cima — trocando o banco do CRM no ar sem um aviso.
+# Quem distingue as duas é a ÁRVORE (label com.docker.compose.project.working_dir),
+# não o nome.
+dec_ok "cópia irmã: mesmo projeto, OUTRA árvore → bloqueia" \
+  bloqueia "80 e 443" "deskcommcrm" "deskcommcrm" "caddy:2-alpine" "deskcommcrm-caddy-1" \
+  "/root/DeskcommCRM" "/root/apagar7/DeskcommCRM"
+# O outro lado da mesma moeda: re-execução DE VERDADE é mesma árvore, e tem de
+# seguir passando (é o caminho que o kit manda usar para corrigir uma resposta).
+dec_ok "re-execução real: mesmo projeto, MESMA árvore → segue" \
+  caddy "80 e 443" "deskcommcrm" "deskcommcrm" "caddy:2-alpine" "deskcommcrm-caddy-1" \
+  "/root/DeskcommCRM" "/root/DeskcommCRM"
+# Contêiner sem o label de árvore (não foi o compose que criou, ou é antigo):
+# não dá para afirmar que é cópia irmã, e fechar aqui quebraria re-execução
+# legítima. Mantém o comportamento anterior — a varredura de portas continua
+# sendo a rede que pega o resto.
+dec_ok "sem árvore conhecida: mantém o comportamento anterior" \
+  caddy "80 e 443" "deskcommcrm" "deskcommcrm" "caddy:2-alpine" "deskcommcrm-caddy-1" \
+  "" "/root/apagar7/DeskcommCRM"
 dec_ok "Traefik da hospedagem → por ele"    traefik  "80 e 443" "coolify"   "crm" "traefik:v3.3"   "coolify-proxy"
 dec_ok "ocupante não identificado → bloqueia" bloqueia "80"     ""          "crm" ""              ""
 dec_ok "projeto vazio não casa projeto vazio" bloqueia "80"     ""          ""    "nginx"         "web"
@@ -1381,15 +1405,18 @@ chegou_na_deteccao() {
 # Contagem de Enters antes do 'c', medida com
 #   eval "$(grep -m1 '^RESTO_DAS_PERGUNTAS=' test-validators.sh)"
 #   printf '%s' "${RESTO_DAS_PERGUNTAS%%c*}" | grep -c ''
-# → era 9 antes de APP_ACCENT_HEX entrar em FIELDS, é 10 agora.
-RESTO_DAS_PERGUNTAS=$'\n\n\n\n\n\n\n\n\n\nc\n'
+# → era 9 antes de APP_ACCENT_HEX entrar em FIELDS, 10 depois dela, e é 11
+#   desde que APP_LOCALE (o idioma da instalação) entrou logo após APP_NAME.
+RESTO_DAS_PERGUNTAS=$'\n\n\n\n\n\n\n\n\n\n\nc\n'
 
 # A posição da cor DENTRO da fila acima — 1 provedor + APP_IMAGE + OPENAI +
-# APP_NAME e ela é a 5ª. Fica numa variável porque a fila com a cor RESPONDIDA
+# APP_NAME + APP_LOCALE e ela é a 6ª. Fica numa variável porque a fila com a cor RESPONDIDA
 # (abaixo) é DERIVADA da de cima em vez de copiada: duas filas posicionais
 # mantidas à mão desincronizam no primeiro campo novo, e aí uma passa e a outra
 # reprova com um nome que não é o dela.
-POSICAO_DA_COR=5
+POSICAO_DA_COR=6
+# O idioma vem logo antes da cor: 1 provedor + APP_IMAGE + OPENAI + APP_NAME.
+POSICAO_DO_IDIOMA=5
 COR_DE_TESTE='#f2c94c'
 # fila_com <fila> <posição> <valor> → a mesma fila, com uma resposta no lugar de
 # um Enter. `awk` porque a substituição é por NÚMERO DE LINHA: um `sed s///`
@@ -1470,7 +1497,7 @@ STUB
   tag_app="${img_app##*:}"
   for par in "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
     chave="${par%%:*}"; repo="${par##*:}"
-    if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "ghcr.io/jmpo/${repo}:${tag_app}" ]; then
+    if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "${IMG_NS}/${repo}:${tag_app}" ]; then
       printf '  ✗ %s não acompanha a versão do app (%s): %s\n' "$chave" "$tag_app" \
         "$(grep -E "^${chave}=" "$VPS_PROJ/.env" || echo '(ausente)')"
       printf '     app numa versão e worker em outra é a matriz que ninguém testou.\n'; exit 1
@@ -1548,6 +1575,31 @@ STUB
       "$(valor_no_env "$VPS_PROJ/.env" SUPPORT_EMAIL)"; exit 1
   fi
   printf '  ✓ a cor respondida na entrevista (%s) chega ao .env, e a fila não desandou\n' "$COR_DE_TESTE"
+
+  # ── O IDIOMA respondido na entrevista chega ao .env ───────────────────────
+  # Mesmo desenho do caso da cor, e pela mesma razão: a pergunta existir em
+  # FIELDS não prova que a resposta é GRAVADA — foi assim que `APP_ACCENT_HEX`
+  # ficou meses sendo perguntado e descartado.
+  #
+  # A asserção é sobre o CÓDIGO (`es`), não sobre o "2" digitado: quem lê um
+  # menu numerado responde o número, e quem lê o .env — o bootstrap, o SQL que
+  # cria a organização, um operador conferindo — precisa do código. A conversão
+  # acontece no install; se ela sumir, `APP_LOCALE=2` chega ao banco e o
+  # resolvedor de idioma o descarta em silêncio, deixando tudo em português
+  # depois de a pessoa ter escolhido espanhol.
+  saida="$(rodar install.sh "" "" "$(fila_com "$RESTO_DAS_PERGUNTAS" "$POSICAO_DO_IDIOMA" 2)")"
+  chegou_na_deteccao || exit 1
+  idioma_gravado="$(valor_no_env "$VPS_PROJ/.env" APP_LOCALE)"
+  if [ "$idioma_gravado" != "es" ]; then
+    printf '  ✗ o idioma respondido na entrevista não chegou ao .env como código: [%s]\n' \
+      "${idioma_gravado:-(ausente)}"
+    printf '     esperava [es]. Três pontos produzem o mesmo sintoma:\n'
+    printf '       (a) o campo APP_LOCALE em FIELDS — sem ele a pergunta não existe;\n'
+    printf '       (b) o `envq APP_LOCALE` no bloco que fecha com `} > .env`;\n'
+    printf '       (c) a conversão 1/2 → pt-BR/es logo antes do envq — sem ela grava "2".\n'
+    exit 1
+  fi
+  printf '  ✓ o idioma respondido (2) chega ao .env como código (%s)\n' "$idioma_gravado"
 ) || fail=1
 rm -rf "$TMP3B"
 
@@ -1629,7 +1681,7 @@ STUB
 
   for par in "APP_IMAGE:deskcommcrm" "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
     chave="${par%%:*}"; repo="${par##*:}"
-    if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "ghcr.io/jmpo/${repo}:1.10.0" ]; then
+    if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "${IMG_NS}/${repo}:1.10.0" ]; then
       printf '  ✗ %s não foi pinado na versão resolvida (1.10.0): %s\n' "$chave" \
         "$(grep -E "^${chave}=" "$VPS_PROJ/.env" || echo '(ausente)')"
       printf '     instalação de cliente NUNCA nasce em tag móvel — docs/doctrine/packaging.md, invariante 3.\n'
@@ -1871,6 +1923,91 @@ STUB
   printf '  ✓ REVERSE_PROXY=traefik escrito à mão também acha a rede, sem perguntar\n'
 ) || fail=1
 rm -rf "$TMP4"
+
+echo "integração: instalar de uma CÓPIA IRMÃ, com o CRM já no ar (2026-08-24)"
+# Os casos de decide_proxy acima exercitam a FUNÇÃO. Este roda o install.sh
+# inteiro, porque o defeito real pode voltar por dois caminhos independentes: a
+# regra (dentro de decide_proxy) ou o call site (deixar de passar a árvore). Um
+# teste só da função fica verde enquanto o produto instala por cima da produção.
+#
+# A VPS deste teste é a que aconteceu de verdade: um DeskcommCRM no ar em
+# /root/DeskcommCRM (Caddy publicando 80/443, projeto `deskcommcrm`), e o
+# instalador rodando de OUTRA cópia — cuja pasta também se chama DeskcommCRM,
+# então o projeto colide e a versão anterior dizia "é a re-execução, siga".
+TMP_IRMA="$(mktemp -d)"
+(
+  montar_vps "$TMP_IRMA" "DeskcommCRM" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+case "$1" in
+  compose) case "$*" in *" exec "*) printf 'healthy\n{"data":{"status":"healthy"}}\n' ;; esac; exit 0 ;;
+  # 80/443 ocupadas: o bind de teste falha.
+  run)     case "$*" in *--entrypoint*) exit 1 ;; esac; exit 0 ;;
+  # O Caddy da instalação que está NO AR, com o MESMO nome de projeto.
+  ps)      for a in "$@"; do [ "$a" = "network=host" ] && em_host=1; done
+           [ "${em_host:-0}" = 1 ] && exit 0
+           printf 'deskcommcrm-caddy-1|deskcommcrm|caddy:2-alpine|0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp\n'
+           exit 0 ;;
+  # A árvore que pariu aquele contêiner — o dado que separa irmã de re-execução.
+  inspect) case "$*" in *working_dir*) printf '/root/DeskcommCRM\n' ;; esac; exit 0 ;;
+  network) case "$2" in inspect) exit 1 ;; esac; exit 0 ;;
+esac
+exit 0
+STUB
+  LOG="$VPS_LOG"; PROJ="$VPS_PROJ"
+
+  saida="$(rodar install.sh --yes)"
+  chegou_na_deteccao || exit 1
+
+  # 1. Recusa. O sintoma do defeito era instalar em silêncio; qualquer coisa que
+  #    não seja parar aqui é o defeito de volta.
+  if ! printf '%s' "$saida" | grep -q 'Já existe um DeskcommCRM NO AR'; then
+    printf '  ✗ NÃO recusou a instalação por cima da que está no ar\n'
+    printf '     últimas linhas: %s\n' "$(printf '%s' "$saida" | tail -3 | tr '\n' ' ')"; exit 1
+  fi
+  # 2. Nomeia a árvore do OUTRO — sem isso quem lê não sabe qual pasta usar.
+  if ! printf '%s' "$saida" | grep -q '/root/DeskcommCRM'; then
+    printf '  ✗ a recusa não diz ONDE está a instalação que já existe\n'; exit 1
+  fi
+  # 3. Ensina a saída acionável (atualizar a que existe).
+  if ! printf '%s' "$saida" | grep -q 'update.sh'; then
+    printf '  ✗ a recusa não ensina o caminho (update.sh na pasta que já existe)\n'; exit 1
+  fi
+  # 4. Recusou de verdade: não pode ter subido nada. `up -d` depois da recusa
+  #    seria o pior desfecho — a mensagem certa e o estrago feito assim mesmo.
+  if grep -qE '^compose .*up -d' "$LOG"; then
+    printf '  ✗ recusou mas subiu a stack mesmo assim: %s\n' "$(grep -m1 -E '^compose .*up -d' "$LOG")"; exit 1
+  fi
+  printf '  ✓ recusa, nomeia a instalação no ar e não sobe nada\n'
+
+  # ── O outro lado: a MESMA VPS, o MESMO nome de projeto, mas rodando de dentro
+  # da árvore que É a dona. Isto é re-execução legítima — o caminho que o kit
+  # ensina para corrigir uma resposta — e tem de seguir. Sem este par, bastaria
+  # bloquear tudo para o teste acima ficar verde.
+  cat > "$VPS_RAIZ/bin/docker" <<STUB2
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "\$DOCKER_LOG"
+case "\$1" in
+  compose) case "\$*" in *" exec "*) printf 'healthy\n{"data":{"status":"healthy"}}\n' ;; esac; exit 0 ;;
+  run)     case "\$*" in *--entrypoint*) exit 1 ;; esac; exit 0 ;;
+  ps)      for a in "\$@"; do [ "\$a" = "network=host" ] && em_host=1; done
+           [ "\${em_host:-0}" = 1 ] && exit 0
+           printf 'deskcommcrm-caddy-1|deskcommcrm|caddy:2-alpine|0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp\n'
+           exit 0 ;;
+  inspect) case "\$*" in *working_dir*) printf '%s\n' "$VPS_PROJ" ;; esac; exit 0 ;;
+  network) case "\$2" in inspect) exit 1 ;; esac; exit 0 ;;
+esac
+exit 0
+STUB2
+  chmod +x "$VPS_RAIZ/bin/docker"
+  saida="$(rodar install.sh --yes)"
+  chegou_na_deteccao || exit 1
+  if printf '%s' "$saida" | grep -q 'Já existe um DeskcommCRM NO AR'; then
+    printf '  ✗ bloqueou a RE-EXECUÇÃO legítima (mesma árvore) — o kit manda rodar de novo\n'; exit 1
+  fi
+  printf '  ✓ e a re-execução de dentro da própria árvore continua passando\n'
+) || fail=1
+rm -rf "$TMP_IRMA"
 
 echo "integração: instalação NOVA numa VPS com Traefik em bridge PRÓPRIA (Coolify)"
 # O caminho NÃO-host, que é a maioria das VPS com painel — e o que a pergunta

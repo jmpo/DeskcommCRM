@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
+import { useT } from "@/hooks/i18n/useT";
 import type { TeamMember } from "@/hooks/team/useTeamMembers";
 import type { Role } from "@/lib/schemas/team";
 
@@ -12,6 +13,7 @@ const MEMBERS_KEY = ["team", "members"] as const;
 /** Optimistic role change (G2-02): cache updated on mutate, rolled back on error. */
 export function useChangeRole() {
   const qc = useQueryClient();
+  const t = useT();
   return useMutation({
     mutationFn: async (args: { userId: string; role: Role }) =>
       apiClient.patch<{ data: { user_id: string; role: Role } }>(
@@ -36,7 +38,7 @@ export function useChangeRole() {
       showApiError(err);
     },
     onSuccess: () => {
-      toast.success("Papel atualizado.");
+      toast.success(t("Papel atualizado."));
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["team"] });

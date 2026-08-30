@@ -64,6 +64,13 @@ import {
   crmUpdateStage,
 } from "./operacao";
 import {
+  crmBookAppointment,
+  crmCancelAppointment,
+  crmFindFreeSlots,
+  crmListAppointments,
+  crmRescheduleAppointment,
+} from "./agendamento";
+import {
   crmScheduleFollowup,
   crmCancelFollowup,
   crmListFollowups,
@@ -79,6 +86,8 @@ import {
 // unknown>` e cada handler valida no Zod do registerTool.
 export const allTools: ReadonlyArray<McpToolDefinition> = [
   // read
+  crmFindFreeSlots,
+  crmListAppointments,
   crmSearchContacts,
   crmGetContact,
   crmProposeContactField,
@@ -113,6 +122,9 @@ export const allTools: ReadonlyArray<McpToolDefinition> = [
   crmListHumanCases,
   crmGetHumanCase,
   // write
+  crmBookAppointment,
+  crmRescheduleAppointment,
+  crmCancelAppointment,
   crmCreateLead,
   crmUpdateLead,
   crmMoveLeadStage,

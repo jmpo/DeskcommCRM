@@ -40,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Ponto {
   id: string;
@@ -96,6 +97,7 @@ interface Dados {
 }
 
 export function PainelDeProvedores() {
+  const t = useT();
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [avancado, setAvancado] = useState<Record<string, boolean>>({});
@@ -117,19 +119,23 @@ export function PainelDeProvedores() {
         // Corpo não-JSON quer dizer que a resposta nem chegou ao handler
         // (proxy, erro de runtime). O começo do corpo é o que há de mais
         // informativo, então ele vai para a tela em vez de sumir no console.
-        setErro(`resposta inesperada do servidor (${res.status}): ${texto.slice(0, 200)}`);
+        setErro(`${t("resposta inesperada do servidor")} (${res.status}): ${texto.slice(0, 200)}`);
         return;
       }
       if (!res.ok) {
-        setErro(json?.error?.message ?? `não consegui carregar a configuração (${res.status})`);
+        setErro(
+          json?.error?.message
+            ? t(json.error.message)
+            : `${t("não consegui carregar a configuração")} (${res.status})`,
+        );
         return;
       }
       setErro(null);
       setDados(json?.data as Dados);
     } catch (e) {
-      setErro(e instanceof Error ? e.message : "não consegui falar com o servidor");
+      setErro(e instanceof Error ? t(e.message) : t("não consegui falar com o servidor"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void carregar();
@@ -152,10 +158,10 @@ export function PainelDeProvedores() {
     return (
       <div className="p-6">
         <Card className="border-destructive/40 p-6">
-          <h2 className="font-medium">Não consegui carregar a configuração de IA</h2>
+          <h2 className="font-medium">{t("Não consegui carregar a configuração de IA")}</h2>
           <p className="mt-2 text-sm text-muted-foreground">{erro}</p>
           <Button className="mt-4" variant="outline" onClick={() => void carregar()}>
-            Tentar de novo
+            {t("Tentar de novo")}
           </Button>
         </Card>
       </div>
@@ -163,7 +169,7 @@ export function PainelDeProvedores() {
   }
 
   if (!dados) {
-    return <div className="p-6 text-sm text-muted-foreground">Carregando…</div>;
+    return <div className="p-6 text-sm text-muted-foreground">{t("Carregando…")}</div>;
   }
 
   const semChave = dados.credenciais.length === 0;
@@ -171,20 +177,21 @@ export function PainelDeProvedores() {
   return (
     <div className="mx-auto w-full max-w-5xl p-6" data-testid="painel-de-provedores">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Provedores de IA</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("Provedores de IA")}</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Seu sistema usa inteligência artificial em {dados.pontos.length} lugares diferentes.
-          Aqui você vê qual está atendendo cada um — e troca, se quiser.
+          {t("Seu sistema usa inteligência artificial em")} {dados.pontos.length}{" "}
+          {t("lugares diferentes. Aqui você vê qual está atendendo cada um — e troca, se quiser.")}
         </p>
       </header>
 
       {semChave && (
         <Card className="mb-6 border-amber-500/40 bg-amber-500/5 p-4" data-testid="aviso-sem-chave">
           <p className="text-sm">
-            Você ainda não cadastrou nenhuma chave de provedor. Enquanto isso, tudo usa a chave
-            que veio na instalação.{" "}
+            {t(
+              "Você ainda não cadastrou nenhuma chave de provedor. Enquanto isso, tudo usa a chave que veio na instalação.",
+            )}{" "}
             <Link className="underline underline-offset-4" href="/app/ai/credentials">
-              Cadastrar uma chave
+              {t("Cadastrar uma chave")}
             </Link>
           </p>
         </Card>
@@ -194,8 +201,8 @@ export function PainelDeProvedores() {
         {porPapel.map(({ papel, info, pontos }) => (
           <section key={papel} data-testid={`papel-${papel}`}>
             <div className="mb-3">
-              <h2 className="text-lg font-medium">{info.rotulo}</h2>
-              <p className="text-sm text-muted-foreground">{info.explicacao}</p>
+              <h2 className="text-lg font-medium">{t(info.rotulo)}</h2>
+              <p className="text-sm text-muted-foreground">{t(info.explicacao)}</p>
             </div>
 
             <ResumoDoGrupo pontos={pontos} />
@@ -207,8 +214,8 @@ export function PainelDeProvedores() {
                 data-testid={`avancado-${papel}`}
                 onClick={() => setAvancado((a) => ({ ...a, [papel]: !a[papel] }))}
               >
-                {avancado[papel] ? "Ocultar" : "Configuração avançada"} ({pontos.length}{" "}
-                {pontos.length === 1 ? "ponto" : "pontos"})
+                {avancado[papel] ? t("Ocultar") : t("Configuração avançada")} ({pontos.length}{" "}
+                {pontos.length === 1 ? t("ponto") : t("pontos")})
               </Button>
             </div>
 
@@ -233,13 +240,14 @@ export function PainelDeProvedores() {
 
 /** O que o grupo usa hoje, sem obrigar a abrir ponto a ponto. */
 function ResumoDoGrupo({ pontos }: { pontos: Ponto[] }) {
-  const modelos = [...new Set(pontos.map((p) => p.efetivo.modelId ?? "não definido"))];
+  const t = useT();
+  const modelos = [...new Set(pontos.map((p) => p.efetivo.modelId ?? t("não definido")))];
   const comAviso = pontos.filter((p) => p.avisos.length > 0).length;
 
   return (
     <Card className="p-4">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-muted-foreground">Usando:</span>
+        <span className="text-muted-foreground">{t("Usando:")}</span>
         {modelos.map((m) => (
           <Badge key={m} variant="secondary" className="font-mono text-xs">
             {m}
@@ -249,8 +257,8 @@ function ResumoDoGrupo({ pontos }: { pontos: Ponto[] }) {
       {comAviso > 0 && (
         <p className="mt-2 text-sm text-amber-600 dark:text-amber-500" data-testid="grupo-com-aviso">
           {comAviso === 1
-            ? "1 ponto deste grupo precisa da sua atenção."
-            : `${comAviso} pontos deste grupo precisam da sua atenção.`}
+            ? t("1 ponto deste grupo precisa da sua atenção.")
+            : `${comAviso} ${t("pontos deste grupo precisam da sua atenção.")}`}
         </p>
       )}
     </Card>
@@ -266,6 +274,7 @@ function CartaoDoPonto({
   dados: Dados;
   aoSalvar: () => Promise<void>;
 }) {
+  const t = useT();
   const [provider, setProvider] = useState(ponto.efetivo.provider);
   const [modelId, setModelId] = useState(ponto.efetivo.modelId ?? "");
   const [credentialId, setCredentialId] = useState(ponto.efetivo.credentialId ?? "");
@@ -303,14 +312,15 @@ function CartaoDoPonto({
       });
       const json = await res.json();
       if (!res.ok) {
-        // A mensagem do servidor é escrita para leigo (ver validar-binding.ts):
-        // repassar direto é melhor que traduzir de novo aqui e divergir.
-        toast.error(json?.error?.message ?? "não consegui salvar");
+        // A mensagem do servidor é escrita para leigo (ver validar-binding.ts).
+        // `t()` repassa direto quando não há entrada no dicionário — não é
+        // traduzir de novo, é a mesma degradação graciosa do resto do app.
+        toast.error(json?.error?.message ? t(json.error.message) : t("não consegui salvar"));
         return;
       }
       const avisos: string[] = json?.data?.avisos ?? [];
       if (avisos.length > 0) avisos.forEach((a) => toast.warning(a));
-      else toast.success(`"${ponto.rotulo}" agora usa ${modelId}`);
+      else toast.success(`"${t(ponto.rotulo)}" ${t("agora usa")} ${modelId}`);
       await aoSalvar();
     } finally {
       setSalvando(false);
@@ -322,29 +332,29 @@ function CartaoDoPonto({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="font-medium">{ponto.rotulo}</h3>
+            <h3 className="font-medium">{t(ponto.rotulo)}</h3>
             {ponto.exige.tools && (
               <Badge variant="outline" className="text-xs">
-                precisa de ferramentas
+                {t("precisa de ferramentas")}
               </Badge>
             )}
             {ponto.fixo && (
               <Badge variant="secondary" className="text-xs">
-                fixo
+                {t("fixo")}
               </Badge>
             )}
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">{ponto.oQueFaz}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{t(ponto.oQueFaz)}</p>
         </div>
         <div className="text-right text-xs text-muted-foreground">
           <div className="font-mono">{ponto.efetivo.modelId ?? "—"}</div>
-          <div data-testid={`origem-${ponto.id}`}>{ponto.efetivo.porQue}</div>
+          <div data-testid={`origem-${ponto.id}`}>{t(ponto.efetivo.porQue)}</div>
         </div>
       </div>
 
       {/* O que a pessoa VÊ quando este ponto falha. É a razão de a tela existir. */}
       <p className="mt-3 rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
-        <span className="font-medium">Se falhar:</span> {ponto.sintomaDeFalha}
+        <span className="font-medium">{t("Se falhar:")}</span> {t(ponto.sintomaDeFalha)}
       </p>
 
       {ponto.avisos.map((a) => (
@@ -359,15 +369,15 @@ function CartaoDoPonto({
 
       {ponto.fixo && (
         <p className="mt-2 text-xs text-muted-foreground" data-testid={`razao-fixo-${ponto.id}`}>
-          {ponto.fixo.razao}
+          {t(ponto.fixo.razao)}
         </p>
       )}
 
       {ponto.mandadoPeloAgente && (
         <p className="mt-2 text-xs text-muted-foreground">
-          Este ponto usa o modelo definido na versão publicada do agente.{" "}
+          {t("Este ponto usa o modelo definido na versão publicada do agente.")}{" "}
           <Link className="underline underline-offset-4" href="/app/ai/agents">
-            Configurar no agente
+            {t("Configurar no agente")}
           </Link>
         </p>
       )}
@@ -375,7 +385,7 @@ function CartaoDoPonto({
       {editavel && (
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <div>
-            <Label className="text-xs">Provedor</Label>
+            <Label className="text-xs">{t("Provedor")}</Label>
             <Select
               value={provider}
               onValueChange={(v) => {
@@ -398,7 +408,7 @@ function CartaoDoPonto({
           </div>
 
           <div>
-            <Label className="text-xs">Modelo</Label>
+            <Label className="text-xs">{t("Modelo")}</Label>
             {/*
               Catálogo vazio não pode ser beco sem saída. O `baseline.sql` semeia
               `ai_models` só para anthropic/openai/google; os da OpenRouter só
@@ -418,21 +428,21 @@ function CartaoDoPonto({
                   data-testid={`modelo-${ponto.id}`}
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  O catálogo deste provedor ainda não foi baixado. Digite o
-                  identificador do modelo como o provedor o nomeia — a lista
-                  completa aparece sozinha depois da primeira sincronização.
+                  {t(
+                    "O catálogo deste provedor ainda não foi baixado. Digite o identificador do modelo como o provedor o nomeia — a lista completa aparece sozinha depois da primeira sincronização.",
+                  )}
                 </p>
               </>
             ) : (
               <Select value={modelId} onValueChange={setModelId}>
                 <SelectTrigger data-testid={`modelo-${ponto.id}`}>
-                  <SelectValue placeholder="escolha" />
+                  <SelectValue placeholder={t("escolha")} />
                 </SelectTrigger>
                 <SelectContent>
                   {modelosDoProvider.map((m) => (
                     <SelectItem key={m.model_id} value={m.model_id}>
                       {m.display_name}
-                      {ponto.exige.tools && !m.supports_tools ? " — sem ferramentas" : ""}
+                      {ponto.exige.tools && !m.supports_tools ? ` — ${t("sem ferramentas")}` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -441,10 +451,10 @@ function CartaoDoPonto({
           </div>
 
           <div>
-            <Label className="text-xs">Chave</Label>
+            <Label className="text-xs">{t("Chave")}</Label>
             <Select value={credentialId} onValueChange={setCredentialId}>
               <SelectTrigger data-testid={`chave-${ponto.id}`}>
-                <SelectValue placeholder="da instalação" />
+                <SelectValue placeholder={t("da instalação")} />
               </SelectTrigger>
               <SelectContent>
                 {credsDoProvider.map((c) => (
@@ -458,17 +468,17 @@ function CartaoDoPonto({
 
           {aceitaEndpointProprio && (
             <div className="sm:col-span-3">
-              <Label className="text-xs">Endereço próprio (opcional)</Label>
+              <Label className="text-xs">{t("Endereço próprio (opcional)")}</Label>
               <Input
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://meu-gateway.exemplo.com/v1"
+                placeholder="https://mi-gateway.ejemplo.com/v1"
                 data-testid={`base-url-${ponto.id}`}
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Deixe em branco para usar o endereço oficial do provedor. Use
-                isto para apontar para um gateway compatível com a API da OpenAI
-                — inclusive um modelo rodando na sua própria máquina.
+                {t(
+                  "Deixe em branco para usar o endereço oficial do provedor. Use isto para apontar para um gateway compatível com a API da OpenAI — inclusive um modelo rodando na sua própria máquina.",
+                )}
               </p>
             </div>
           )}
@@ -480,7 +490,7 @@ function CartaoDoPonto({
               onClick={() => void salvar()}
               data-testid={`salvar-${ponto.id}`}
             >
-              {salvando ? "Salvando…" : "Salvar"}
+              {salvando ? t("Salvando…") : t("Salvar")}
             </Button>
           </div>
         </div>

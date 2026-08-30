@@ -18,6 +18,7 @@ import type { AdminClient, EnrollmentPatch } from "./engine";
 import { flowGraphSchema } from "./graph-schema";
 import { classEdgeMatch, selectEdge, type EnrollmentRow } from "./node-handlers";
 import { coletarEsperasAdaptativas, montarTimingPlan, type PropostaDeEspera } from "./timing-plan";
+import { persistirRespostaFollowupPg } from "./persistir-resposta";
 
 /** Superset de AdminClient: a ponte precisa do snapshot COMPLETO do enrollment
  *  (current_node_id/version_id/steps_taken) pra montar o passo de conclusão —
@@ -109,6 +110,10 @@ export async function completeTurnForEnrollment(
   };
 
   if (result.kind === "sent") {
+    // match_reply (if_exists: confirm) enfileira a pergunta e permanece no nó.
+    // Completar o envio não avança — a resposta do lead é que avança.
+    // Lançar aqui devolvia o job pra pending e o pipeline mandava a pergunta de novo.
+    if (node.type === "match_reply") return;
     if (node.type !== "action") {
       throw new Error(`completeTurnForEnrollment: resultado 'sent' mas o nó "${node.id}" não é 'action'`);
     }
@@ -232,17 +237,43 @@ export function createPgAdminClient(pool: pg.Pool): TurnBridgeAdminClient {
       return flowGraphSchema.parse(rows[0]!.graph);
     },
     async loadLeadFacts(orgId, contactId) {
-      const { rows } = await pool.query<{ stage_id: string | null; tags: string[] }>(
-        `select stage_id, tags from crm_leads where organization_id = $1 and contact_id = $2
+      const { rows: leads } = await pool.query<{
+        stage_id: string | null;
+        tags: string[];
+        custom_fields: Record<string, unknown> | null;
+      }>(
+        `select stage_id, tags, custom_fields from crm_leads where organization_id = $1 and contact_id = $2
          order by updated_at desc limit 1`,
         [orgId, contactId],
       );
-      if (rows.length === 0) return { lead_stage: null, tags: [] };
-      return { lead_stage: rows[0]!.stage_id, tags: rows[0]!.tags };
+      const { rows: contacts } = await pool.query<{ name: string | null }>(
+        `select name from contacts where organization_id = $1 and id = $2`,
+        [orgId, contactId],
+      );
+      const lead = leads[0];
+      return {
+        lead_stage: lead?.stage_id ?? null,
+        tags: lead?.tags ?? [],
+        contact_name: contacts[0]?.name ?? null,
+        custom_fields: lead?.custom_fields ?? {},
+      };
+    },
+    async loadLastInboundBody(orgId, contactId, _conversationId, naoAntesDe) {
+      const params: unknown[] = [orgId, contactId];
+      const desde = naoAntesDe ? "and sent_at >= $3" : "";
+      if (naoAntesDe) params.push(naoAntesDe);
+      const { rows } = await pool.query<{ body: string | null }>(
+        `select body from messages
+         where organization_id = $1 and contact_id = $2 and direction = 'inbound' ${desde}
+         order by sent_at desc limit 1`,
+        params,
+      );
+      const body = rows[0]?.body;
+      return typeof body === "string" ? body : null;
     },
     async loadEnrollmentEvents(enrollmentId) {
       const { rows } = await pool.query(
-        `select node_id, idempotency_key from followup_enrollment_events where enrollment_id = $1`,
+        `select node_id, idempotency_key, event_type, payload from followup_enrollment_events where enrollment_id = $1 order by created_at asc`,
         [enrollmentId],
       );
       return rows;
@@ -284,6 +315,9 @@ export function createPgAdminClient(pool: pg.Pool): TurnBridgeAdminClient {
          values ($1, 'followup_dead', 'warn', $2, $3, 'followup_enrollment', $4)`,
         [item.organization_id, item.title, item.body, item.ref_id],
       );
+    },
+    async persistirRespostaFollowup(input) {
+      await persistirRespostaFollowupPg((sql, params) => pool.query(sql, params), input);
     },
   };
 }

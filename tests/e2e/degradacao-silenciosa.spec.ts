@@ -19,6 +19,39 @@
  *                 Exigir o meu formato reprovaria uma tela que avisa de outro
  *                 jeito, que é o falso vermelho que me pegou sete vezes na wave 6.
  *
+ * ─── O DETECTOR QUE FALTA JÁ ESTÁ CALCULADO (achado de 2026-08-25) ──────────
+ *
+ * Quem pegar esta lacuna não precisa inventar detecção — ela existe e só não
+ * virou aviso. `hooks/realtime/useRefetchDeSeguranca.ts:116` calcula:
+ *
+ *     const perdeu = mudou && !canalTrouxe;
+ *
+ * "a tela mudou E o canal não trouxe" só é verdade com o canal ASSINADO E MUDO
+ * — que é exatamente a distinção que o `data-realtime-status` não faz e que o
+ * parágrafo acima diz não existir. Um contador que só incrementa nesse estado
+ * É o detector.
+ *
+ * Ele já é publicado no DOM como `data-refetch-divergencias` em dois lugares
+ * (`app/app/pipelines/[id]/_client.tsx` e `components/kanban/LeadDossier.tsx`).
+ * Sem número de linha de propósito: achar por
+ * `grep -rn data-refetch-divergencias` responde certo em qualquer branch, e um
+ * número envelhece no primeiro commit que mexer no arquivo — inclusive neste.
+ *
+ * ⚠️ E NÃO no Inbox — que é onde o operador vive e onde a intermitência mais
+ * dói. (Ressalva de régua: o PR #327 acrescenta a publicação em
+ * `components/inbox/InboxLayout.tsx`; enquanto ele não entrar, na `main` são
+ * dois pontos, não três. Confira com `grep -rn data-refetch-divergencias` em
+ * vez de confiar neste comentário.)
+ *
+ * Então o que falta aqui são duas coisas, e nenhuma é a difícil: transformar o
+ * número em AVISO visível ao operador, e publicá-lo também no Inbox. No dia em
+ * que isso existir, o `test.fail()` abaixo vira verde e esta cerca cumpre o que
+ * prometeu.
+ *
+ * Achado numa revisão cruzada entre MaestroConexoes e Assistente e Testes, e
+ * escrito aqui em vez de numa issue porque quem chega neste arquivo é quem vai
+ * pagar a dívida — e ia redescobrir o cálculo do zero.
+ *
  * POR QUE `test.fail()` E NÃO UM VERMELHO DE VERDADE: hoje o sinal que a tela
  * precisaria mostrar NÃO EXISTE. O único estado publicado é o da ASSINATURA
  * (`data-realtime-status`), e ele diz `subscribed` com a entrega morta — medido.

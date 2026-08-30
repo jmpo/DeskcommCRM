@@ -1,5 +1,7 @@
 "use client";
 
+import { useT } from "@/hooks/i18n/useT";
+
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -15,6 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useContactList } from "@/hooks/contacts/useContactList";
 import { parseDialablePhone, phoneToWhatsappId } from "@/lib/messaging/contact-card";
+import { phoneForDisplay } from "@/lib/channels/phone-variants";
+import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { MagnifyingGlass, UserCircle } from "@/lib/ui/icons";
 import { cn } from "@/lib/utils";
 import type { Contact } from "@/lib/types/contacts";
@@ -35,8 +39,8 @@ interface Props {
   onPick: (payload: ContactPickPayload) => void;
 }
 
-function displayName(c: Contact): string {
-  return c.display_name ?? c.name ?? c.phone_number ?? "Sem nome";
+function displayName(c: Contact, t: (texto: string) => string = (texto) => texto): string {
+  return rotuloDoContato(c, t);
 }
 
 export function ContactPickerDialog({
@@ -46,6 +50,7 @@ export function ContactPickerDialog({
   sending,
   onPick,
 }: Props) {
+  const t = useT();
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   const [manualName, setManualName] = useState("");
@@ -120,7 +125,7 @@ export function ContactPickerDialog({
         <DialogHeader>
           <DialogTitle>Enviar contato</DialogTitle>
           <DialogDescription>
-            Escolha alguém da base ou informe nome e telefone — como no WhatsApp.
+            {t("Escolha alguém da base ou informe nome e telefone — como no WhatsApp.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -144,7 +149,7 @@ export function ContactPickerDialog({
             <p className="px-3 py-6 text-center text-sm text-muted-foreground">Carregando…</p>
           ) : contacts.length === 0 ? (
             <p className="px-3 py-4 text-center text-sm text-muted-foreground">
-              {debounced ? "Nenhum contato encontrado na base." : "Nenhum contato com telefone na base."}
+              {debounced ? t("Nenhum contato encontrado na base.") : t("Nenhum contato com telefone na base.")}
             </p>
           ) : (
             <ul className="divide-y divide-border">
@@ -165,7 +170,7 @@ export function ContactPickerDialog({
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{displayName(c)}</span>
                       {c.phone_number && (
-                        <span className="block truncate text-xs text-muted-foreground">{c.phone_number}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{phoneForDisplay(c.phone_number)}</span>
                       )}
                     </span>
                   </button>
@@ -184,7 +189,7 @@ export function ContactPickerDialog({
             disabled={list.isFetchingNextPage}
             onClick={() => list.fetchNextPage()}
           >
-            {list.isFetchingNextPage ? "Carregando…" : "Carregar mais"}
+            {list.isFetchingNextPage ? t("Carregando…") : t("Carregar mais")}
           </Button>
         )}
 
@@ -192,7 +197,7 @@ export function ContactPickerDialog({
           <div className="space-y-3 border-t border-border pt-3">
             <p className="text-xs font-medium text-muted-foreground">
               {searchPhone && !phoneAlreadyInList
-                ? "Enviar número informado"
+                ? t("Enviar número informado")
                 : "Ou informe um contato"}
             </p>
             {searchPhone && !phoneAlreadyInList && (
@@ -222,7 +227,7 @@ export function ContactPickerDialog({
                 id="manual-contact-name"
                 value={manualName}
                 onChange={(e) => setManualName(e.target.value)}
-                placeholder="Como aparece no cartão"
+                placeholder={t("Como aparece no cartão")}
                 disabled={sending}
               />
             </div>

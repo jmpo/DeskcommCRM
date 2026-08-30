@@ -31,6 +31,13 @@ if ! grep -qx 'supabase/migrations/MANIFEST.md' <<<"$staged"; then
   exit 1
 fi
 
+# Um arquivo pode colidir no NNNN E no timestamp ao mesmo tempo — e colide, na
+# maioria das vezes: quem cria migration copiando outra copia os dois. Sair no
+# primeiro achado faria o autor renumerar o NNNN, commitar de novo e SÓ ENTÃO
+# descobrir o instante. Duas rodadas, e a segunda depende de ele ter lido o
+# aviso. Por isso os guards abaixo ACUMULAM: reportam tudo e saem uma vez só.
+houve_conflito=0
+
 # Sequência NNNN única contra TODAS as branches locais
 while IFS= read -r path; do
   fname=$(basename "$path")
@@ -46,10 +53,60 @@ while IFS= read -r path; do
       echo "pre-commit BLOQUEADO: sequência NNNN=$nnnn de '$fname' já existe na branch '$branch':" >&2
       echo "  $conflict" >&2
       echo "Escolha o próximo NNNN livre em TODAS as branches locais (git branch --format='%(refname:short)' + git ls-tree)." >&2
+      echo "E troque o TIMESTAMP JUNTO: renumerar só o NNNN fabricou 12 das colisões de timestamp deste repo." >&2
       echo "Correção orientada pelo dono: DESKCOMM_GOV_MIGRATION_EDIT=1." >&2
-      exit 1
+      houve_conflito=1
+      break
     fi
   done < <(git branch --format='%(refname:short)')
 done <<<"$new_migrations"
 
+
+# ── TIMESTAMP único contra TODAS as branches locais ──────────────────────
+#
+# O timestamp é a PK de `supabase_migrations.schema_migrations`: repetido, o
+# `db push` colide na PK e o `db reset` quebra. A issue #143 já renomeou quatro
+# pares por isso — não é hipótese.
+#
+# ⚠️ E metade das colisões vivas foi FABRICADA POR ESTE HOOK. Ao exigir NNNN novo
+# quando havia conflito entre branches, ele fazia trocar o NÚMERO e deixava o
+# instante intacto. Medido em 2026-08-27, sobre 754 refs: das 25 colisões de
+# timestamp, 12 eram exatamente isso. Por isso a mensagem do NNNN, acima, manda
+# trocar os dois.
+#
+# CATRACA: os 13 instantes abaixo já são compartilhados por migrations DISTINTAS
+# em branches ainda não mergeadas. Gate que nasce vermelho não entra, então ficam
+# congelados — e a lista só ENCOLHE: quando aquelas branches mergearem ou
+# morrerem, a entrada some daqui. Os outros 12 NÃO entram na catraca: neles a
+# colisão é o mesmo arquivo renumerado, artefato e não defeito, e congelar ruído
+# esconderia o sinal.
+DIVIDA_DE_TIMESTAMP="
+20260717190000 20260718160000 20260721120000 20260722160000 20260805120000
+20260805200000 20260807160000 20260820120000 20260822190000 20260824120000
+20260825120000 20260826190000 20260827010000
+"
+
+while IFS= read -r path; do
+  fname=$(basename "$path")
+  ts=$(sed -nE 's/^([0-9]{14})_[0-9]{4}_.+\.sql$/\1/p' <<<"$fname")
+  [ -z "$ts" ] && continue
+  grep -qw "$ts" <<<"$DIVIDA_DE_TIMESTAMP" && continue
+
+  while IFS= read -r branch; do
+    conflict=$(git ls-tree -r --name-only "$branch" -- supabase/migrations 2>/dev/null \
+      | grep -E "^supabase/migrations/${ts}_[0-9]{4}_.+\.sql$" \
+      | grep -v "^supabase/migrations/${fname}$" || true)
+    if [ -n "$conflict" ]; then
+      echo "pre-commit BLOQUEADO: o TIMESTAMP $ts de '$fname' já existe na branch '$branch':" >&2
+      echo "  $conflict" >&2
+      echo "O timestamp é a PK de supabase_migrations.schema_migrations: repetido, o db push colide na PK e o db reset quebra (issue #143)." >&2
+      echo "Escolha um instante livre — e renumerar só o NNNN não resolve: os dois têm de ser únicos." >&2
+      echo "Correção orientada pelo dono: DESKCOMM_GOV_MIGRATION_EDIT=1." >&2
+      houve_conflito=1
+      break
+    fi
+  done < <(git branch --format='%(refname:short)')
+done <<<"$new_migrations"
+
+[ "$houve_conflito" = 1 ] && exit 1
 exit 0

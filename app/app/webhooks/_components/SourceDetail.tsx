@@ -1,9 +1,12 @@
 "use client";
+
+import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
+
+import type { Locale } from "date-fns";
 import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { formatDistanceToNowStrict } from "date-fns";
-import { ptBR } from "date-fns/locale";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +39,7 @@ import {
   useWebhookSourceEvents,
   type WebhookSourceRow,
 } from "@/hooks/webhooks/useWebhookSources";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   source: WebhookSourceRow;
@@ -54,12 +58,12 @@ function publicUrl(pathToken: string): string {
   return `${base}/api/v1/webhooks/in/${pathToken}`;
 }
 
-function formSnippet(url: string): string {
+function formSnippet(url: string, t: (texto: string) => string): string {
   return `<form action="${url}" method="POST">
-  <input name="nome" placeholder="Seu nome" required />
-  <input name="telefone" placeholder="Seu WhatsApp" required />
-  <input name="email" type="email" placeholder="Seu e-mail" />
-  <button type="submit">Quero receber contato</button>
+  <input name="nome" placeholder="${t("Seu nome")}" required />
+  <input name="telefone" placeholder="${t("Seu WhatsApp")}" required />
+  <input name="email" type="email" placeholder="${t("Seu e-mail")}" />
+  <button type="submit">${t("Quero receber contato")}</button>
 </form>`;
 }
 
@@ -67,17 +71,19 @@ function curlSnippet(url: string): string {
   return `curl -X POST ${url} \\\n  -H 'Content-Type: application/json' \\\n  -d '{"nome":"...","telefone":"..."}'`;
 }
 
-async function copy(text: string, label: string): Promise<void> {
+async function copy(text: string, label: string, t: (texto: string) => string): Promise<void> {
   const ok = await copyToClipboard(text);
   if (ok) toast.success(label);
-  else toast.error("Não foi possível copiar — selecione e copie manualmente.");
+  else toast.error(t("Não foi possível copiar — selecione e copie manualmente."));
 }
 
-function relativeReceivedAt(iso: string): string {
-  return formatDistanceToNowStrict(new Date(iso), { addSuffix: true, locale: ptBR });
+function relativeReceivedAt(iso: string, locale: Locale): string {
+  return formatDistanceToNowStrict(new Date(iso), { addSuffix: true, locale: locale });
 }
 
 export function SourceDetail({ source, open, onOpenChange }: Props) {
+  const localeDaData = useLocaleDeData();
+  const t = useT();
   const update = useUpdateWebhookSource();
   const del = useDeleteWebhookSource();
   const { data: eventsRes, refetch: refetchEvents } = useWebhookSourceEvents(
@@ -104,16 +110,18 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         toast.error(
-          body?.error?.message ??
-            "Não funcionou. Confira se a fonte está ativa e se o funil/estágio ainda existem.",
+          t(
+            body?.error?.message ??
+              "Não funcionou. Confira se a fonte está ativa e se o funil/estágio ainda existem.",
+          ),
         );
         return;
       }
-      toast.success("Funcionou! Um lead de teste entrou no seu funil.");
+      toast.success(t("Funcionou! Um lead de teste entrou no seu funil."));
       setTestOk(true);
       void refetchEvents();
     } catch {
-      toast.error("Não conseguimos falar com o endereço. Confira sua internet e tente de novo.");
+      toast.error(t("Não conseguimos falar com o endereço. Confira sua internet e tente de novo."));
     } finally {
       setTesting(false);
     }
@@ -126,17 +134,17 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
           <div className="flex items-center gap-2">
             <SheetTitle>{source.name}</SheetTitle>
             <Badge variant={source.is_active ? "success" : "neutral"}>
-              {source.is_active ? "Ativa" : "Pausada"}
+              {source.is_active ? t("Ativa") : t("Pausada")}
             </Badge>
           </div>
           <SheetDescription>
-            Cada envio para o endereço abaixo vira um lead no seu funil, automaticamente.
+            {t("Cada envio para o endereço abaixo vira um lead no seu funil, automaticamente.")}
           </SheetDescription>
         </SheetHeader>
 
         <div className="mt-6 space-y-6">
           <section className="space-y-2">
-            <p className="text-sm font-medium text-text">Endereço da fonte</p>
+            <p className="text-sm font-medium text-text">{t("Endereço da fonte")}</p>
             <div className="flex items-center gap-2">
               <code className="flex-1 truncate rounded-sm border border-border bg-muted px-3 py-2 text-xs">
                 {url}
@@ -145,7 +153,7 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
                 type="button"
                 variant="secondary"
                 size="icon"
-                onClick={() => copy(url, "Endereço copiado.")}
+                onClick={() => copy(url, t("Endereço copiado."), t)}
               >
                 <Copy />
               </Button>
@@ -153,35 +161,41 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
           </section>
 
           <section className="space-y-2">
-            <p className="text-sm font-medium text-text">Formulário pronto para colar no seu site</p>
-            <Textarea readOnly rows={6} value={formSnippet(url)} className="font-mono text-xs" />
+            <p className="text-sm font-medium text-text">
+              {t("Formulário pronto para colar no seu site")}
+            </p>
+            <Textarea readOnly rows={6} value={formSnippet(url, t)} className="font-mono text-xs" />
             <Button
               type="button"
               variant="secondary"
-              onClick={() => copy(formSnippet(url), "Formulário copiado.")}
+              onClick={() => copy(formSnippet(url, t), t("Formulário copiado."), t)}
             >
-              <Copy /> Copiar formulário
+              <Copy /> {t("Copiar formulário")}
             </Button>
           </section>
 
           <section className="space-y-2 rounded-sm border border-border">
             <details className="group p-3">
               <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-text">
-                Como conectar no seu caso
+                {t("Como conectar no seu caso")}
                 <CaretDown className="transition-transform group-open:rotate-180" />
               </summary>
               <div className="mt-3 space-y-4 text-sm text-muted-foreground">
                 <div>
                   <p className="font-medium text-text">WordPress / Elementor</p>
-                  <p>Cole o endereço acima no campo &quot;Action&quot; (ou &quot;URL de envio&quot;) do seu formulário.</p>
+                  <p>
+                    {t(
+                      'Cole o endereço acima no campo "Action" (ou "URL de envio") do seu formulário.',
+                    )}
+                  </p>
                 </div>
                 <div>
                   <p className="font-medium text-text">Zapier / n8n</p>
-                  <p>Use a ação &quot;Webhooks&quot; → POST, apontando para o endereço acima.</p>
+                  <p>{t('Use a ação "Webhooks" → POST, apontando para o endereço acima.')}</p>
                 </div>
                 <div>
-                  <p className="font-medium text-text">Formulário próprio</p>
-                  <p>Use o HTML pronto logo acima — já aponta para o endereço certo.</p>
+                  <p className="font-medium text-text">{t("Formulário próprio")}</p>
+                  <p>{t("Use o HTML pronto logo acima — já aponta para o endereço certo.")}</p>
                 </div>
               </div>
             </details>
@@ -189,7 +203,7 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
 
           <details className="rounded-sm border border-border p-3">
             <summary className="cursor-pointer list-none text-sm font-medium text-text">
-              Para desenvolvedores
+              {t("Para desenvolvedores")}
             </summary>
             <pre className="mt-3 overflow-x-auto rounded-sm bg-muted p-3 text-xs">
               <code>{curlSnippet(url)}</code>
@@ -198,21 +212,21 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
 
           <section className="space-y-3">
             <Button type="button" onClick={sendTestLead} disabled={testing}>
-              {testing ? "Enviando…" : "Enviar lead de teste"}
+              {testing ? t("Enviando…") : t("Enviar lead de teste")}
             </Button>
             {testOk ? (
               <p className="text-sm">
                 <Link href="/app/kanban" className="text-accent underline underline-offset-4">
-                  Ver no Kanban
+                  {t("Ver no Kanban")}
                 </Link>
               </p>
             ) : null}
           </section>
 
           <section className="space-y-2">
-            <p className="text-sm font-medium text-text">Últimos recebimentos</p>
+            <p className="text-sm font-medium text-text">{t("Últimos recebimentos")}</p>
             {events.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Ainda não chegou nada por aqui.</p>
+              <p className="text-sm text-muted-foreground">{t("Ainda não chegou nada por aqui.")}</p>
             ) : (
               <ul className="space-y-1">
                 {events.map((ev) => (
@@ -223,9 +237,9 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
                         ev.valid_signature === false ? "bg-error" : "bg-success",
                       )}
                     />
-                    <span className="text-muted-foreground">{relativeReceivedAt(ev.created_at)}</span>
+                    <span className="text-muted-foreground">{relativeReceivedAt(ev.created_at, localeDaData)}</span>
                     {ev.valid_signature === false ? (
-                      <span className="text-xs text-error">assinatura inválida</span>
+                      <span className="text-xs text-error">{t("assinatura inválida")}</span>
                     ) : null}
                   </li>
                 ))}
@@ -235,8 +249,10 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
 
           <section className="flex items-center justify-between rounded-sm border border-border p-3">
             <div>
-              <p className="text-sm font-medium text-text">Fonte ativa</p>
-              <p className="text-xs text-muted-foreground">Pausada, ela para de aceitar novos envios.</p>
+              <p className="text-sm font-medium text-text">{t("Fonte ativa")}</p>
+              <p className="text-xs text-muted-foreground">
+                {t("Pausada, ela para de aceitar novos envios.")}
+              </p>
             </div>
             <Switch
               checked={source.is_active}
@@ -246,7 +262,7 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
                   { id: source.id, is_active: checked },
                   {
                     onSuccess: () =>
-                      toast.success(checked ? "Fonte ativada." : "Fonte pausada."),
+                      toast.success(checked ? t("Fonte ativada.") : t("Fonte pausada.")),
                   },
                 )
               }
@@ -256,27 +272,28 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button type="button" variant="destructive">
-                <Trash /> Excluir fonte
+                <Trash /> {t("Excluir fonte")}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Excluir esta fonte?</AlertDialogTitle>
+                <AlertDialogTitle>{t("Excluir esta fonte?")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  O endereço para de funcionar imediatamente. Leads já recebidos continuam no seu
-                  funil — só a captação futura é interrompida. Essa ação não pode ser desfeita.
+                  {t(
+                    "O endereço para de funcionar imediatamente. Leads já recebidos continuam no seu funil — só a captação futura é interrompida. Essa ação não pode ser desfeita.",
+                  )}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogCancel>{t("Cancelar")}</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={async () => {
                     await del.mutateAsync(source.id);
-                    toast.success("Fonte excluída.");
+                    toast.success(t("Fonte excluída."));
                     onOpenChange(false);
                   }}
                 >
-                  Excluir
+                  {t("Excluir")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

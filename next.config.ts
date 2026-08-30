@@ -8,9 +8,10 @@ import type { NextConfig } from "next";
  *  - Initial bundle /app/inbox < 250KB gzipped
  */
 const nextConfig: NextConfig = {
-  // Self-host (HostGator): gera .next/standalone pro container Docker (node server.js).
-  // Aditivo — não afeta o deploy Vercel.
-  output: "standalone",
+  // Self-host: gera .next/standalone pro container Docker (node server.js).
+  // Na Vercel (VERCEL=1) fica desligado — Next 16.3 + adapter + standalone
+  // quebra o onBuildComplete com ENOENT next-server.js.nft.json (#96646).
+  output: process.env.VERCEL ? undefined : "standalone",
   /**
    * O `standalone` copia SÓ o que o file tracing detecta — e ele não detecta
    * tudo de `@swc/helpers`.
@@ -54,6 +55,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: "/notify-sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      {
         source: "/(.*)",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
@@ -63,7 +71,11 @@ const nextConfig: NextConfig = {
           // usa getUserMedia({audio}); microphone=() bloquearia em TODA origem,
           // inclusive a própria — daria "microphone is not allowed in this document".
           // Câmera e geolocalização seguem bloqueadas (não usadas).
-          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
+          // notifications=(self): bandeja do SO quando a janela está minimizada.
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(self), geolocation=(), notifications=(self)",
+          },
         ],
       },
     ];

@@ -40,6 +40,7 @@ import { Label } from "@/components/ui/label";
 import { melhorFrenteSobre } from "@/lib/branding/contraste";
 import { TAMANHO_MAXIMO_DO_LOGO } from "@/lib/branding/logo";
 import { REGUA_DO_PRODUTO } from "@/lib/branding/regua-do-produto";
+import { useT } from "@/hooks/i18n/useT";
 
 /** A superfície onde o logo de fato aparece, em cada tema. Lida, nunca digitada. */
 function superficie(tema: "claro" | "escuro"): string {
@@ -101,6 +102,7 @@ export function CampoDeLogo({
   origemDoHerdado,
   nomeEmVigor,
 }: Props) {
+  const t = useT();
   const router = useRouter();
   const entrada = useRef<HTMLInputElement>(null);
   const [enviando, setEnviando] = useState(false);
@@ -207,7 +209,7 @@ export function CampoDeLogo({
       | { error?: { code?: string; message?: string } }
       | null;
     const codigo = corpo?.error?.code ?? "";
-    return ERRO_EM_PORTUGUES[codigo] ?? corpo?.error?.message ?? "Não consegui trocar o logo agora.";
+    return t(ERRO_EM_PORTUGUES[codigo] ?? corpo?.error?.message ?? "Não consegui trocar o logo agora.");
   }
 
   async function enviar(arquivo: File) {
@@ -221,7 +223,7 @@ export function CampoDeLogo({
         toast.error(await razaoDaFalha(resposta));
         return;
       }
-      toast.success("Logo atualizado.");
+      toast.success(t("Logo atualizado."));
       const gravado = await logoDaResposta(resposta);
       if (gravado !== undefined) setLogoGravado(gravado);
       startTransition(() => router.refresh());
@@ -241,7 +243,7 @@ export function CampoDeLogo({
         toast.error(await razaoDaFalha(resposta));
         return;
       }
-      toast.success("Logo removido.");
+      toast.success(t("Logo removido."));
       // A rota devolve `logo_url: null` — "esta camada ficou sem logo próprio" —,
       // e é isso que faz a prévia cair no herdado sem esperar o refresh.
       const gravado = await logoDaResposta(resposta);
@@ -255,7 +257,7 @@ export function CampoDeLogo({
   return (
     <div className="space-y-4" data-campo-de-logo={escopo} data-hidratado={hidratado ? "" : undefined}>
       <div className="space-y-2">
-        <Label htmlFor={`logo-${escopo}`}>Logo</Label>
+        <Label htmlFor={`logo-${escopo}`}>{t("Logo")}</Label>
         <div className="flex flex-wrap items-center gap-3">
           <input
             ref={entrada}
@@ -274,14 +276,15 @@ export function CampoDeLogo({
           />
           {logoGravado ? (
             <Button type="button" variant="outline" onClick={() => void remover()} disabled={enviando}>
-              Remover
+              {t("Remover")}
             </Button>
           ) : null}
         </div>
         <p className="text-xs text-text-muted">
-          PNG ou JPG, até {Math.round(TAMANHO_MAXIMO_DO_LOGO / 1024)} KB. Prefira fundo
-          transparente. SVG não é aceito: ele pode executar código quando aberto direto pelo
-          endereço da imagem.
+          {t("PNG ou JPG, até")} {Math.round(TAMANHO_MAXIMO_DO_LOGO / 1024)}{" "}
+          {t(
+            "KB. Prefira fundo transparente. SVG não é aceito: ele pode executar código quando aberto direto pelo endereço da imagem.",
+          )}
         </p>
       </div>
 
@@ -293,19 +296,19 @@ export function CampoDeLogo({
             subir, até o refresh chegar (ou para sempre, quando ele é abortado).
           */}
           {logoGravado
-            ? "Como o logo aparece nas duas aparências do sistema:"
-            : `Sem logo próprio, o sistema usa o logo ${origemDoHerdado}. Assim ele aparece:`}
+            ? t("Como o logo aparece nas duas aparências do sistema:")
+            : `${t("Sem logo próprio, o sistema usa o logo")} ${t(origemDoHerdado)}. ${t("Assim ele aparece:")}`}
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {(
             [
-              { rotulo: "Aparência clara", fundo: SUPERFICIE_CLARA },
-              { rotulo: "Aparência escura", fundo: SUPERFICIE_ESCURA },
+              { rotulo: t("Aparência clara"), fundo: SUPERFICIE_CLARA },
+              { rotulo: t("Aparência escura"), fundo: SUPERFICIE_ESCURA },
             ] as const
           ).map(({ rotulo, fundo }) => (
             <div key={rotulo} className="space-y-1">
               <div
-                data-previa-do-logo={rotulo === "Aparência clara" ? "claro" : "escuro"}
+                data-previa-do-logo={rotulo === t("Aparência clara") ? "claro" : "escuro"}
                 className="flex h-24 items-center justify-center rounded-sm border border-border px-4"
                 style={{ backgroundColor: fundo }}
               >
@@ -336,7 +339,7 @@ export function CampoDeLogo({
                   </span>
                 )}
               </div>
-              <p className="text-xs text-text-muted">{rotulo}</p>
+              <p className="text-xs text-text-muted">{t(rotulo)}</p>
             </div>
           ))}
         </div>

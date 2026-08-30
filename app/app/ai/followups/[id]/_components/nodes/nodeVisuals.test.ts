@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { describeNodeConfig } from "./nodeVisuals";
+import { describeNodeConfig, NODE_VISUAL_LIST } from "./nodeVisuals";
 
 describe("describeNodeConfig — nó final", () => {
   it.each([
@@ -24,6 +24,14 @@ describe("describeNodeConfig — nó final", () => {
  * afirmando uma coisa que o código ignora, e é no card que o usuário acredita.
  * Achado olhando o screenshot da própria evidência.
  */
+describe("NODE_VISUAL_LIST", () => {
+  it("oferece match_reply e repeat junto dos demais nós", () => {
+    expect(NODE_VISUAL_LIST.map((v) => v.type)).toContain("match_reply");
+    expect(NODE_VISUAL_LIST.map((v) => v.type)).toContain("repeat");
+    expect(NODE_VISUAL_LIST.map((v) => v.type)).toContain("ai_classify");
+  });
+});
+
 describe("describeNodeConfig — nó de condição", () => {
   const regras = [
     { id: "regra-1", field: "tag" as const, op: "contains" as const, value: "vip" },

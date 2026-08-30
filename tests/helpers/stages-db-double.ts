@@ -191,7 +191,14 @@ export function makeDb(opts: DbOpts = {}): Registro {
       let rows = [...casam()];
       if (ordem) rows.sort((a, b) => Number(a[ordem!]) - Number(b[ordem!]));
       if (teto !== null) rows = rows.slice(0, teto);
-      if (!colunas) return rows;
+      // `select("*")` (usado por `app/api/v1/leads/_handler.ts`) é o CURINGA do
+      // PostgREST — a linha inteira, não uma coluna literal chamada "*". Sem
+      // este ramo, o projetor abaixo tratava "*" como nome de coluna e devolvia
+      // `{"*": undefined}`: toda leitura virava linha vazia, e quem chama
+      // (`moveLeadHandler`) lia `lead.organization_id === undefined` e
+      // respondia 404 "Lead não encontrado" mesmo com o lead presente na
+      // tabela — media o dublê, não o handler.
+      if (!colunas || colunas.length === 1 && colunas[0] === "*") return rows;
       const chaves = colunas.map((c) => /^(\w+)\(/.exec(c)?.[1] ?? c);
       return rows.map((r) => Object.fromEntries(chaves.map((c) => [c, r[c]])));
     };
@@ -355,6 +362,7 @@ export function authOk(role: "manager" | "admin" = "manager"): void {
     full_name: null,
     avatar_url: null,
     is_platform_admin: false,
+    idioma: "pt-BR" as const,
     organizations: [{ organization_id: ORG_ID, organization_name: "Org", role }],
   };
   vi.mocked(requireRole).mockResolvedValue({

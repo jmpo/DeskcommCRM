@@ -31,6 +31,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useT } from "@/hooks/i18n/useT";
 
 import type { AgentVersionRow } from "@/hooks/ai/useAgentVersions";
 import { revertToVersionAction } from "../_actions";
@@ -47,6 +48,14 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   published: "default",
   superseded: "outline",
   archived: "destructive",
+};
+
+/** Rótulo em pt-BR para passar por `t()` no render — a chave do dicionário é sempre pt-BR. */
+const STATUS_LABEL_PT: Record<string, string> = {
+  draft: "Rascunho",
+  published: "Publicado",
+  superseded: "Substituída",
+  archived: "Arquivado",
 };
 
 function pickCounterpart(
@@ -69,6 +78,7 @@ function pickCounterpart(
 }
 
 export function VersionHistory({ agentId, versions, readOnly }: Props) {
+  const t = useT();
   const router = useRouter();
   const [diffOpen, setDiffOpen] = React.useState(false);
   const [diffPair, setDiffPair] = React.useState<{
@@ -85,13 +95,13 @@ export function VersionHistory({ agentId, versions, readOnly }: Props) {
   );
 
   if (sorted.length === 0) {
-    return <p className="text-sm text-muted-foreground">Nenhuma versão criada ainda.</p>;
+    return <p className="text-sm text-muted-foreground">{t("Nenhuma versão criada ainda.")}</p>;
   }
 
   function openDiff(target: AgentVersionRow) {
     const counterpart = pickCounterpart(sorted, target);
     if (!counterpart) {
-      toast.info("Não há outra versão para comparar.");
+      toast.info(t("Não há outra versão para comparar."));
       return;
     }
     // a = mais antiga, b = mais nova
@@ -110,11 +120,11 @@ export function VersionHistory({ agentId, versions, readOnly }: Props) {
     try {
       const res = await revertToVersionAction(agentId, revertTarget.id);
       if (!res.ok) {
-        toast.error(res.message ?? `Erro: ${res.error}`);
+        toast.error(res.message ?? `${t("Erro")}: ${res.error}`);
         return;
       }
       toast.success(
-        `Revertido para versão equivalente a v${targetNum} (publicada como v${res.data!.new_version_number}).`,
+        `${t("Revertido para versão equivalente a v")}${targetNum}${t(" (publicada como v")}${res.data!.new_version_number}).`,
       );
       setRevertTarget(null);
       router.refresh();
@@ -135,7 +145,7 @@ export function VersionHistory({ agentId, versions, readOnly }: Props) {
               className="flex flex-wrap items-center gap-3 rounded-md border border-border/60 p-3 text-sm"
             >
               <Badge variant={STATUS_VARIANT[v.status] ?? "outline"} className="text-xs">
-                {v.status}
+                {t(STATUS_LABEL_PT[v.status] ?? v.status)}
               </Badge>
               <span className="font-mono">v{v.version_number}</span>
               <span className="text-xs text-muted-foreground">
@@ -146,12 +156,12 @@ export function VersionHistory({ agentId, versions, readOnly }: Props) {
               </span>
               {v.published_at ? (
                 <span className="text-xs text-muted-foreground">
-                  publicada em {new Date(v.published_at).toLocaleString()}
+                  {t("publicada em")} {new Date(v.published_at).toLocaleString()}
                 </span>
               ) : null}
               <div className="ml-auto flex gap-2">
                 <Button variant="ghost" size="sm" onClick={() => openDiff(v)}>
-                  Diff
+                  {t("Diff")}
                 </Button>
                 {canRevert ? (
                   <Button
@@ -159,7 +169,7 @@ export function VersionHistory({ agentId, versions, readOnly }: Props) {
                     size="sm"
                     onClick={() => setRevertTarget(v)}
                   >
-                    Reverter
+                    {t("Reverter")}
                   </Button>
                 ) : null}
               </div>
@@ -173,8 +183,8 @@ export function VersionHistory({ agentId, versions, readOnly }: Props) {
           <DialogHeader>
             <DialogTitle>
               {diffPair
-                ? `Diff v${diffPair.a.version_number} ↔ v${diffPair.b.version_number}`
-                : "Diff"}
+                ? `${t("Diff v")}${diffPair.a.version_number}${t(" ↔ v")}${diffPair.b.version_number}`
+                : t("Diff")}
             </DialogTitle>
           </DialogHeader>
           {diffPair ? <VersionDiff versionA={diffPair.a} versionB={diffPair.b} /> : null}
@@ -188,17 +198,17 @@ export function VersionHistory({ agentId, versions, readOnly }: Props) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Reverter para v{revertTarget?.version_number}?
+              {t("Reverter para v")}{revertTarget?.version_number}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Uma nova versão idêntica a v{revertTarget?.version_number} será criada e
-              publicada imediatamente. A versão atualmente publicada vira superseded.
+              {t("Uma nova versão idêntica a v")}{revertTarget?.version_number}
+              {t(" será criada e publicada imediatamente. A versão atualmente publicada vira superseded.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={reverting}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel disabled={reverting}>{t("Cancelar")}</AlertDialogCancel>
             <AlertDialogAction onClick={handleRevert} disabled={reverting}>
-              {reverting ? "Revertendo…" : "Confirmar revert"}
+              {reverting ? t("Revertendo…") : t("Confirmar revert")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

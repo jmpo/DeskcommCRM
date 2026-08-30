@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useT } from "@/hooks/i18n/useT";
 
 import { Pause, Play } from "@/lib/ui/icons";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ interface Props {
 
 /** Player de voz estilo WhatsApp: play/pause, progresso seekável, tempo, 1x/1.5x/2x. */
 export function AudioPlayer({ messageId, isOutbound }: Props) {
+  const t = useT();
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -84,7 +86,7 @@ export function AudioPlayer({ messageId, isOutbound }: Props) {
       <audio ref={audioRef} src={mediaSrc(messageId)} preload="metadata" />
       <button
         type="button"
-        aria-label={playing ? "Pausar áudio" : "Reproduzir áudio"}
+        aria-label={playing ? t("Pausar áudio") : t("Reproduzir áudio")}
         onClick={toggle}
         className={cn(
           "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors",
@@ -102,8 +104,8 @@ export function AudioPlayer({ messageId, isOutbound }: Props) {
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <input
           type="range"
-          aria-label="Progresso do áudio"
-          aria-valuetext={`${fmt(current)} de ${fmt(safeDuration)}`}
+          aria-label={t("Progresso do áudio")}
+          aria-valuetext={`${fmt(current)} ${t("de")} ${fmt(safeDuration)}`}
           min="0"
           max={String(safeDuration || 1)}
           step="0.1"
@@ -117,7 +119,7 @@ export function AudioPlayer({ messageId, isOutbound }: Props) {
       </div>
       <button
         type="button"
-        aria-label={`Velocidade de reprodução: ${RATES[rateIdx]}x`}
+        aria-label={`${t("Velocidade de reprodução")}: ${RATES[rateIdx]}x`}
         onClick={cycleRate}
         className={cn(
           "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums transition-colors",

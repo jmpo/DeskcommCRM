@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { useT } from "@/hooks/i18n/useT";
 
 import { copyToClipboard } from "@/lib/clipboard";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import { ROLES, type Role } from "@/lib/schemas/team";
 import { ROTULO_DO_PAPEL } from "@/lib/auth/types";
 
 export function InviteTeamForm() {
+  const t = useT();
   const [emailsRaw, setEmailsRaw] = useState("");
   const [role, setRole] = useState<Role>("agent");
   const [undelivered, setUndelivered] = useState<{ email: string; accept_url: string }[]>([]);
@@ -28,7 +30,7 @@ export function InviteTeamForm() {
     startTransition(async () => {
       if (skip) {
         const res = await sendOnboardingInvites({ invitations: [], skip: true });
-        if (res && !res.ok) toast.error(`Falha: ${res.error}`);
+        if (res && !res.ok) toast.error(`${t("Falha:")} ${res.error}`);
         return;
       }
       const emails = Array.from(
@@ -40,18 +42,18 @@ export function InviteTeamForm() {
         ),
       );
       if (emails.length === 0) {
-        toast.error("Adicione ao menos um email ou clique em Pular.");
+        toast.error(t("Adicione ao menos um email ou clique em Pular."));
         return;
       }
       if (emails.length > 20) {
-        toast.error("Máximo 20 emails por convite.");
+        toast.error(t("Máximo 20 emails por convite."));
         return;
       }
       const res = await sendOnboardingInvites({
         invitations: emails.map((email) => ({ email, role })),
       });
       if (res && !res.ok) {
-        toast.error(`Falha: ${res.error}`);
+        toast.error(`${t("Falha:")} ${res.error}`);
         return;
       }
       if (res && res.ok && res.undelivered?.length) {
@@ -59,7 +61,7 @@ export function InviteTeamForm() {
         // admin mandar por conta própria — nunca fingir que o email saiu.
         setUndelivered(res.undelivered);
         toast.warning(
-          `${res.failed} convite(s) não puderam ser enviados por email. Copie os links abaixo e envie você mesmo.`,
+          `${res.failed} ${t("convite(s) não puderam ser enviados por email. Copie os links abaixo e envie você mesmo.")}`,
         );
       }
       // sucesso total redireciona no server action
@@ -69,7 +71,7 @@ export function InviteTeamForm() {
   return (
     <div className="space-y-4 rounded-lg border bg-background p-6">
       <div className="space-y-2">
-        <Label htmlFor="emails">E-mail de quem vai trabalhar com ele</Label>
+        <Label htmlFor="emails">{t("E-mail de quem vai trabalhar com ele")}</Label>
         <Textarea
           id="emails"
           value={emailsRaw}
@@ -80,7 +82,7 @@ export function InviteTeamForm() {
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="role">O que essas pessoas podem fazer</Label>
+        <Label htmlFor="role">{t("O que essas pessoas podem fazer")}</Label>
         <Select value={role} onValueChange={(v) => setRole(v as Role)}>
           <SelectTrigger id="role">
             <SelectValue />
@@ -93,7 +95,7 @@ export function InviteTeamForm() {
             */}
             {ROLES.map((r) => (
               <SelectItem key={r} value={r}>
-                {ROTULO_DO_PAPEL[r]}
+                {t(ROTULO_DO_PAPEL[r])}
               </SelectItem>
             ))}
           </SelectContent>
@@ -103,8 +105,9 @@ export function InviteTeamForm() {
       {undelivered.length > 0 && (
         <div className="space-y-3 rounded-md border border-amber-300/60 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-950/20">
           <p className="text-sm font-medium">
-            Esta instalação não envia e-mail. Os convites estão prontos — copie o link de
-            cada pessoa e mande por onde você já fala com ela:
+            {t(
+              "Esta instalação não envia e-mail. Os convites estão prontos — copie o link de cada pessoa e mande por onde você já fala com ela:",
+            )}
           </p>
           <ul className="space-y-2">
             {undelivered.map((u) => (
@@ -119,30 +122,30 @@ export function InviteTeamForm() {
                   variant="outline"
                   onClick={() => {
                     void copyToClipboard(u.accept_url).then((ok) => {
-                      if (ok) toast.success("Link copiado.");
-                      else toast.error("Não consegui copiar — selecione e copie o link manualmente.");
+                      if (ok) toast.success(t("Link copiado."));
+                      else toast.error(t("Não consegui copiar — selecione e copie o link manualmente."));
                     });
                   }}
                 >
-                  Copiar link
+                  {t("Copiar link")}
                 </Button>
               </li>
             ))}
           </ul>
-          <div className="flex justify-end">
-            <Button type="button" onClick={() => (window.location.href = "/onboarding")}>
-              Continuar
+          <div className="flex sm:justify-end">
+            <Button type="button" onClick={() => (window.location.href = "/onboarding")} className="w-full sm:w-auto">
+              {t("Continuar")}
             </Button>
           </div>
         </div>
       )}
 
-      <div className="flex justify-between gap-2 pt-2">
+      <div className="flex flex-wrap justify-between gap-2 pt-2">
         <Button type="button" variant="ghost" disabled={pending} onClick={() => submit(true)}>
-          Pular por enquanto
+          {t("Pular por enquanto")}
         </Button>
         <Button type="button" disabled={pending} onClick={() => submit(false)}>
-          {pending ? "Enviando..." : "Enviar convites"}
+          {pending ? t("Enviando...") : t("Enviar convites")}
         </Button>
       </div>
     </div>

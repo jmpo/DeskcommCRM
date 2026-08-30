@@ -9,6 +9,7 @@ import { fail, ok } from "@/lib/api/wrappers";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { listConversationsQuerySchema } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
+import { comNomeDoAtendente } from "@/lib/users/com-nome-do-atendente";
 
 import { listConversationsHandler } from "./_handler";
 
@@ -65,7 +66,14 @@ export async function GET(req: NextRequest): Promise<Response> {
       },
       qsParsed.data,
     );
-    return ok(conversations, { requestId, meta: { cursor, has_more } });
+    // O nome de quem atende entra AQUI, na borda HTTP, e não no handler: o
+    // handler é compartilhado com as tools MCP, que já resolvem o nome por conta
+    // própria (`lib/mcp/tools/conversations.ts`) — enriquecer lá faria a mesma
+    // leitura duas vezes por chamada do agente.
+    return ok(await comNomeDoAtendente(conversations), {
+      requestId,
+      meta: { cursor, has_more },
+    });
   } catch (err) {
     if (err instanceof ApiError) {
       return fail(err.code, err.message, err.status, { requestId });

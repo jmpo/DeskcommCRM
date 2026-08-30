@@ -197,13 +197,9 @@ export const zernioAdapter: ChannelAdapter = {
       accountId: creds.accountId,
       ...(envelope.media ? attachmentFields(envelope) : { message: envelope.body ?? "" }),
       // ─── A CITAÇÃO ──────────────────────────────────────────────────────
-      //
       // `replyTo` recebe o id que a PLATAFORMA conhece — para WhatsApp, o
-      // `wamid`. É o `external_id` da linha citada, e não o `id` da nossa
-      // tabela: o provider nunca viu o nosso.
-      //
-      // Só entra quando existe. Mandar `replyTo: null` seria pedir para citar
-      // "nada", e a API não tem por que ser gentil com isso.
+      // `wamid`. É o `external_id` da linha citada, nunca o `id` da nossa
+      // tabela: o provider nunca viu o nosso. Só entra quando existe.
       ...(envelope.replyToExternalId ? { replyTo: envelope.replyToExternalId } : {}),
     };
 

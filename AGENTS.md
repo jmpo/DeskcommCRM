@@ -31,7 +31,19 @@ que a major já não cobrisse — issue #235. Para a versão exata, `package.jso
 
 Runtime: **Node ≥22** (`.nvmrc` = 22; os quatro workflows fixam `node-version: 22` —
 `ci` ×2, `perf`, `e2e`). Gerenciador: **pnpm 9.15.9** (`packageManager`).
-Versão do produto: **1.0.0** (`CHANGELOG.md`, SemVer — mudança que afeta quem roda VPS entra lá).
+Versão do produto: **não está escrita aqui, de propósito.** Esta linha afirmava `1.0.0` até a
+v1.6.0 — seis minors de atraso, e nenhum teste a vigiava. Afirmação de versão envelhece a cada
+release; comando não. A que está publicada agora:
+
+```bash
+git ls-remote --tags --refs origin 'refs/tags/v*' \
+  | sed 's#.*refs/tags/v##' | awk '!/-/' | sort -V | tail -1   # awk, nao grep -v -- '-':
+                                                                # em maquina com ugrep aquele nao roda
+```
+
+O `package.json` **não** é a fonte da versão do produto (segue em `0.1.0`, e é assim de
+propósito). A fonte é a tag `v*` mais a seção do `CHANGELOG.md` — que é tela de produto, lida
+pelo dono da VPS. Como o número é decidido: [`docs/doctrine/versionamento.md`](docs/doctrine/versionamento.md).
 
 ## Estrutura que importa
 
@@ -157,12 +169,18 @@ verify, build-and-size, invariants, e2e, imagens-ok
 Medido em 2026-08-14 @ `741c4ec8`, com o comando ao lado de cada número:
 
 - **257** arquivos de teste unitário em `tests/unit/` (`git ls-files 'tests/unit/*.test.ts' 'tests/unit/*.test.tsx' | wc -l`). O repo tem **491** arquivos `*.test.ts(x)` no total (`git ls-files '*.test.ts' '*.test.tsx' | wc -l`) — a diferença vive junto ao código, fora de `tests/`, e também roda em `test:unit`.
-- **102** arquivos de invariante de banco em `tests/invariants/` (`git ls-files 'tests/invariants/*.test.ts' | wc -l`) — RLS/isolamento cross-tenant,
-  RBAC, governança (G1–G6). Excluídos do `test:unit` de propósito; rodam via `pnpm test:db`
-  **e no job `invariants` do CI**.
-- **46** specs Playwright em `tests/e2e/` (`ls tests/e2e/*.spec.ts | wc -l`). **45 rodam no CI** (via `e2e.yml`,
-  **obrigatório**). A única de fora é `vps-fresh-onboarding`, por dependência de serviço externo
-  (WAHA/Redis/Resend/Nuvemshop). Ver issue #63.
+- Arquivos de invariante de banco em `tests/invariants/` — RLS/isolamento cross-tenant, RBAC,
+  governança (G1–G6). Excluídos do `test:unit` de propósito; rodam via `pnpm test:db` **e no job
+  `invariants` do CI**. Quantos: `git ls-files 'tests/invariants/*.test.ts' | wc -l`.
+- Specs Playwright em `tests/e2e/`, **todas no CI menos uma** (via `e2e.yml`, **obrigatório**). A
+  única de fora é `vps-fresh-onboarding`, por dependência de serviço externo
+  (WAHA/Redis/Resend/Nuvemshop). Ver issue #63. Quantas: `ls tests/e2e/*.spec.ts | wc -l`.
+
+> **Os dois números saíram daqui, e é decisão, não descuido.** Estavam em 102 e 46/45 quando o
+> medido era 114 e 51/50 — envelheceram porque toda entrega que acrescenta um teste os falsifica,
+> e nenhum gate lê prosa. Onde a afirmação pode virar comando, ela vira: comando não envelhece.
+> O que continua vigiado por gate é o que importa — `tests/unit/e2e-cobertura-completa.test.ts`
+> reprova toda spec nova que não esteja em `SPECS_PARTE_*` ou em `FORA_DO_CI` com motivo escrito.
 
 ## Limitações conhecidas (estado em 2026-07-29, contra `origin/main` @ 789dfa6)
 

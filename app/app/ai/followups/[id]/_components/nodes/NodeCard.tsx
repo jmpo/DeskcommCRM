@@ -5,6 +5,7 @@ import { Handle, Position } from "@xyflow/react";
 import type { FlowBranch } from "@/lib/followup/graph-schema";
 import { rotuloDoRamo } from "@/lib/followup/rotulo-do-ramo";
 import { cn } from "@/lib/utils";
+import { useT } from "@/hooks/i18n/useT";
 import type { NodeVisual } from "./nodeVisuals";
 
 interface Props {
@@ -42,6 +43,7 @@ export function NodeCard({
   showSource = true,
   branches,
 }: Props) {
+  const t = useT();
   const Icon = visual.icon;
   const hasError = (errors?.length ?? 0) > 0;
   // Uma saída só continua sendo a bolinha de sempre no rodapé: não há o que
@@ -94,7 +96,7 @@ export function NodeCard({
                 branch.kind === "fallback" && "italic text-text-muted",
               )}
               data-testid={`node-branch-${id}-${branch.id}`}
-              title={rotuloDoRamo(branch)}
+              title={t(rotuloDoRamo(branch))}
             >
               <span
                 aria-hidden
@@ -103,7 +105,7 @@ export function NodeCard({
                   branch.kind === "fallback" ? "bg-text-muted/50" : "bg-accent-500",
                 )}
               />
-              <span className="truncate text-xs leading-tight">{rotuloDoRamo(branch)}</span>
+              <span className="truncate text-xs leading-tight">{t(rotuloDoRamo(branch))}</span>
               <Handle
                 type="source"
                 id={branch.id}

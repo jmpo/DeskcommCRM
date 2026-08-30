@@ -99,6 +99,13 @@ function makeAdminStub() {
                 active_kb_version_id: "99999999-9999-4999-8999-999999999999",
                 is_active: true,
                 is_default: true,
+                // O banco tem `kind` NOT NULL DEFAULT 'rag_bot' e os dois ponteiros:
+                // sem eles o dublê descreveria uma linha que não existe, e a régua
+                // de `lib/ai/agents/no-ar.ts` — que falha FECHADA quando o select
+                // não trouxe `kind` — recusaria o agente pelo motivo errado.
+                kind: "rag_bot",
+                published_version_id: null,
+                archived_at: null,
               }
             : null;
 
@@ -127,7 +134,12 @@ function makeAdminStub() {
                     created_at: new Date().toISOString(),
                   },
                 ]
-              : [],
+              // A seleção de agente do worker legado é uma LISTA (ele filtra os
+              // candidatos pela régua de `lib/ai/agents/no-ar.ts` em vez de cortar
+              // com `.limit(1)` antes de saber quem serve). O dublê acompanha.
+              : table === "ai_agents"
+                ? (single ? [single] : [])
+                : [],
           error: null,
         }).then(resolve),
     };

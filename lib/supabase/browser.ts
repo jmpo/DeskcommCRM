@@ -11,6 +11,92 @@ import { createBrowserClient } from "@supabase/ssr";
 
 let _client: ReturnType<typeof createBrowserClient> | null = null;
 
+/**
+ * QUEM DIZ AO SOCKET DO REALTIME QUAL É O TOKEN.
+ *
+ * O cookie de sessão é httpOnly (CLAUDE.md), então o supabase-js do browser não
+ * enxerga a sessão — `auth.getSession()` devolve null. A callback PADRÃO do
+ * supabase-js nesse caso é `_getAccessToken()`, e ela termina em
+ * `?? this.supabaseKey`: **o socket assina com a anon key**. Canal anônimo
+ * responde SUBSCRIBED, a RLS filtra do outro lado, e nada é entregue — morte
+ * silenciosa, porque todo sinal disponível diz "saudável".
+ *
+ * ⚠️ POR QUE AQUI E NÃO EM `setAuth()`, QUE ERA A CORREÇÃO ANTERIOR. O repo
+ * corrigia isto chamando `supabase.realtime.setAuth(token)` antes de assinar.
+ * Isso PAROU DE FUNCIONAR num bump de dependência, sem uma linha de código
+ * nossa mudar: a partir do realtime-js 2.112.x a callback passou a vencer o
+ * token manual, o que a própria biblioteca documenta em `setAuth` —
+ *
+ *   "the callback is the source of truth: the client remains in callback mode
+ *    and continues to refresh from it on heartbeat, even after a
+ *    bootstrap/override `setAuth(token)` call"
+ *
+ * — e o `_manuallySetToken` que protegia o token manual virou sempre `false`,
+ * porque o SupabaseClient SEMPRE instala uma callback. Medido: o token do
+ * usuário sobrevivia ~2ms ao `setAuth`, e o heartbeat seguinte (~30s) o
+ * substituía pela anon key de qualquer forma.
+ *
+ * Substituir a callback é a via suportada, e ela é melhor que o `setAuth` por
+ * uma razão que independe do bug: o socket a chama de novo a cada heartbeat e
+ * em cada reconexão. Um token de 1h deixa de ser uma bomba-relógio — quem
+ * ficava com o inbox aberto por mais de uma hora perdia o tempo real e nada
+ * avisava.
+ *
+ * `settings.realtime` sobrescreve a callback padrão porque entra depois no
+ * spread do SupabaseClient (`_initRealtimeClient({...defaults}, settings.realtime)`),
+ * e `accessToken` é opção pública de `RealtimeClientOptions`. Não tocamos em
+ * `supabase.auth`: passar `accessToken` no nível do CLIENT (e não do realtime)
+ * transformaria `.auth` num Proxy que lança.
+ */
+const MARGEM_DE_RENOVACAO_MS = 60_000;
+
+let tokenEmCache: { valor: string; expiraEm: number } | null = null;
+let buscaEmVoo: Promise<string | null> | null = null;
+
+/** Só para teste: zera o cache do token (é módulo-global de propósito). */
+export function __resetTokenDoRealtime(): void {
+  tokenEmCache = null;
+  buscaEmVoo = null;
+}
+
+async function tokenDoRealtime(): Promise<string | null> {
+  // Válido e longe de expirar: serve o cache. Sem isto seria uma requisição a
+  // cada heartbeat — ~2/min por aba aberta, para um token que vale uma hora.
+  if (tokenEmCache && Date.now() < tokenEmCache.expiraEm - MARGEM_DE_RENOVACAO_MS) {
+    return tokenEmCache.valor;
+  }
+  // Coalesce: N canais assinando juntos fazem UMA requisição, não N.
+  buscaEmVoo ??= (async () => {
+    try {
+      const res = await fetch("/api/v1/auth/realtime-token", { credentials: "include" });
+      if (!res.ok) return null;
+      const body = (await res.json()) as {
+        data?: { access_token?: string; expires_at?: number | null };
+      };
+      const token = body.data?.access_token;
+      if (!token) return null;
+      // `expires_at` é epoch em SEGUNDOS. Sem ele, trata como já vencido na
+      // próxima pergunta: revalidar de graça é melhor que servir token morto.
+      const expiraEm = body.data?.expires_at ? body.data.expires_at * 1000 : 0;
+      tokenEmCache = { valor: token, expiraEm };
+      return token;
+    } catch {
+      // Devolver null aqui degrada o canal para anônimo — ele responde
+      // SUBSCRIBED e não entrega. É por isso que o inbox NÃO depende só dele:
+      // a rede de segurança (useRefetchDeSeguranca) cura e denuncia a perda.
+      return null;
+    } finally {
+      // ⚠️ NUNCA memoizar a promessa além da requisição: uma falha transitória
+      // (sessão estabelecendo, cookie em renovação) condenaria o carregamento
+      // inteiro a canais anônimos. O que se guarda é o token BOM, com prazo;
+      // o que não se guarda é a falha. O critério não é "deu erro?" — é "o
+      // resultado guardado é o resultado DESEJADO?".
+      buscaEmVoo = null;
+    }
+  })();
+  return buscaEmVoo;
+}
+
 export function createClient() {
   // Singleton no browser pra reaproveitar canais Realtime e auth state.
   if (_client) return _client;
@@ -38,6 +124,7 @@ export function createClient() {
       sameSite: "strict",
       path: "/",
     },
+    realtime: { accessToken: tokenDoRealtime },
   });
   return _client;
 }

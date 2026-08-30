@@ -179,8 +179,8 @@ describe("0150 — o segredo cifrado some da superfície do browser", () => {
  * cima passando.
  */
 const DIVIDA_RBAC_CONHECIDA = new Set([
-  "agent_cases", "agent_inbox_items", "ai_agent_runs", "ai_chunks", "ai_faq_items",
-  "ai_invocations", "ai_knowledge_sources", "ai_knowledge_versions", "ai_router_decisions",
+  "agent_cases", "agent_inbox_items", "ai_agent_runs",
+  "ai_invocations", "ai_router_decisions",
   "before_send_traces", "channel_knobs", "channel_session_health", "channel_session_warmup",
   "contact_field_proposals", "contacts", "crm_lead_reactivations", "crm_lead_risk_states",
   "crm_lead_scores", "cron_jobs", "demanda_conversas", "demandas",
@@ -199,10 +199,14 @@ const DIVIDA_RBAC_CONHECIDA = new Set([
 ]);
 
 describe("0150 — a dívida de RBAC não cresce", () => {
-  it("as 8 tabelas corrigidas pela 0150 têm policy de escrita com fn_role_at_least", () => {
+  it("as tabelas já corrigidas têm policy de escrita com fn_role_at_least", () => {
     const corrigidas = [
       "channel_sessions", "ai_agents", "ai_agent_versions", "ai_budgets",
       "ai_routers", "ai_router_members", "ai_purpose_bindings", "ai_provider_credentials",
+      // As quatro do acervo entraram na 0181, pelo mesmo motivo e no mesmo
+      // formato: um `viewer` DELETAVA `ai_chunks` da própria organização
+      // falando direto com o PostgREST, com o JWT dele.
+      "ai_knowledge_sources", "ai_knowledge_versions", "ai_chunks", "ai_faq_items",
     ];
     const semRole = sql(`
       select coalesce(string_agg(distinct tablename, ','), '') from pg_policies

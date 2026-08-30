@@ -178,6 +178,71 @@ function resetEstado(): void {
   execFileSync("npx", ["tsx", "scripts/seed-e2e-system-update.ts"], { stdio: "inherit" });
 }
 
+test("quem pula versões vê os avisos de TODAS elas, não só o da mais nova", async ({
+  page,
+  request,
+}) => {
+  // O defeito que este caso guarda: a tela mostrava só a seção da versão-alvo.
+  // Quem estava na 1.0.0 e ia para a 1.2.0 nunca lia a 1.1.0 — e no caso real
+  // (commit ac9472c5) a versão do meio trazia uma instrução para o operador
+  // apagar a conexão que estava funcionando.
+  const changelog = [
+    "## [1.2.0] — 2026-08-03",
+    "",
+    "**⚠️ Requer atenção**",
+    "",
+    "Rode o comando de migração antes.",
+    "",
+    "### Adicionado",
+    "",
+    "- Coisa da versão nova.",
+    "",
+    "## [1.1.0] — 2026-08-02",
+    "",
+    "**⚠️ Requer atenção**",
+    "",
+    "Reconecte o número depois.",
+    "",
+    "### Corrigido",
+    "",
+    "- Conserto da versão do meio.",
+    "",
+    "## [1.0.0] — 2026-08-01",
+    "",
+    "- Primeira versão.",
+    "",
+  ].join("\n");
+
+  await loginWithTotp(page, creds.users.dono!.email, creds.dono_totp!.secret);
+  await heartbeat(request, { latest_version: "1.2.0", current_version: "1.0.0", changelog });
+  await page.goto("/app/settings/atualizacao");
+
+  // Os DOIS avisos visíveis, o da alvo e o da versão do meio, cada um nomeando
+  // de onde veio.
+  await expect(page.getByText(/Rode o comando de migração antes/)).toBeVisible();
+  await expect(page.getByText(/Reconecte o número depois/)).toBeVisible();
+  await expect(page.getByText(/Da versão 1\.1\.0/)).toBeVisible();
+
+  // E os dois ANTES do botão — medido por ferramenta, nunca a olho: aviso que
+  // aparece depois do clique não é aviso.
+  const y = async (rx: RegExp) => (await page.getByText(rx).boundingBox())!.y;
+  const botao = (await page.getByRole("button", { name: /atualizar agora/i }).boundingBox())!.y;
+  expect(await y(/Rode o comando de migração antes/)).toBeLessThan(botao);
+  expect(await y(/Reconecte o número depois/)).toBeLessThan(botao);
+
+  // O corpo da versão-alvo fica aberto; o da intermediária, recolhido. Texto
+  // dentro de um `<details>` FECHADO não é visível para o Playwright, então o
+  // caso abre e prova pelo estado real do elemento — e nunca põe um AVISO ali
+  // dentro, que é o defeito que esta tela existe para consertar.
+  await expect(page.getByText(/Coisa da versão nova/)).toBeVisible();
+  const recolhido = page.locator("details", { hasText: "Versão 1.1.0" });
+  await recolhido.locator("summary").click();
+  await expect(recolhido).toHaveJSProperty("open", true);
+  await expect(page.getByText(/Conserto da versão do meio/)).toBeVisible();
+
+  await page.screenshot({ path: ".superpowers/evidence/faixa-de-versoes.png" });
+});
+
 test("o dono vê a versão nova na sidebar e atualiza pela tela", async ({ page, request }) => {
   const changelog =
     "## [1.1.0] — 2026-08-02\n\n**⚠️ Requer atenção**\n\nReconecte o número depois.\n\n### Adicionado\n\n- Botão de atualizar pela tela.\n";

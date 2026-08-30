@@ -23,6 +23,7 @@ import { DEFAULT_VISIBILITY_MODE, ROLE_RANK, type VisibilityMode } from "@/lib/a
 import { routingConfigSchema } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
 import { AtendimentoForm } from "./_form";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -48,15 +49,19 @@ export default async function AtendimentoSettingsPage() {
   // `.catch(...)`: config antiga ou corrompida no jsonb não pode derrubar a
   // tela que serve justamente para consertá-la.
   const routing = routingConfigSchema.catch(routingConfigSchema.parse({})).parse(settings.routing ?? {});
+  const idioma = user.idioma;
 
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Distribuição de atendimento</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {traduzir("Distribuição de atendimento", idioma)}
+        </h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Quem recebe cada cliente novo, e o que cada atendente enxerga. As duas decisões
-          andam juntas: distribuir sem restringir deixa todo mundo vendo a carteira do
-          colega; restringir sem distribuir deixa o funil de cada um vazio.
+          {traduzir(
+            "Quem recebe cada cliente novo, e o que cada atendente enxerga. As duas decisões andam juntas: distribuir sem restringir deixa todo mundo vendo a carteira do colega; restringir sem distribuir deixa o funil de cada um vazio.",
+            idioma,
+          )}
         </p>
       </header>
 

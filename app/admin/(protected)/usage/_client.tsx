@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAdminUsage, type UsageRange } from "@/hooks/useAdminUsage";
 import { UsageCharts } from "@/components/admin/usage/UsageCharts";
 import { UsageTable } from "@/components/admin/usage/UsageTable";
+import { useT } from "@/hooks/i18n/useT";
 
 const RANGE_OPTIONS: { value: UsageRange; label: string }[] = [
   { value: "7d", label: "Últimos 7 dias" },
@@ -19,6 +20,7 @@ const RANGE_OPTIONS: { value: UsageRange; label: string }[] = [
 ];
 
 export function UsageClient() {
+  const t = useT();
   const [range, setRange] = useState<UsageRange>("30d");
 
   const { data, isLoading, isError } = useAdminUsage(range);
@@ -30,21 +32,21 @@ export function UsageClient() {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Uso & Custo</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("Uso & Custo")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Consumo de mensagens, conversas e AI por tenant
+            {t("Consumo de mensagens, conversas e AI por tenant")}
           </p>
         </div>
 
         {/* Range selector */}
         <Select value={range} onValueChange={(v) => setRange(v as UsageRange)}>
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Período" />
+            <SelectValue placeholder={t("Período")} />
           </SelectTrigger>
           <SelectContent>
             {RANGE_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
+                {t(opt.label)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -60,7 +62,7 @@ export function UsageClient() {
         </div>
       ) : isError || !usageData ? (
         <div className="flex items-center justify-center rounded-lg border py-12 text-sm text-muted-foreground">
-          Erro ao carregar dados de uso. Tente recarregar.
+          {t("Erro ao carregar dados de uso. Tente recarregar.")}
         </div>
       ) : (
         <>

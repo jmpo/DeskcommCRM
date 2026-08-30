@@ -1,5 +1,7 @@
 "use client";
-import { useEffect } from "react";
+
+import { useT } from "@/hooks/i18n/useT";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -11,6 +13,7 @@ import { useEditLead } from "@/hooks/kanban/useUpdateLead";
 import type { Lead } from "@/lib/types/leads";
 import { updateLeadSchema, type UpdateLeadInput } from "@/lib/schemas/leads";
 import { parseReaisToCents } from "@/lib/money";
+import { CustomFieldsEditor, type CustomFieldDef } from "@/components/contacts/CustomFieldsEditor";
 import { EcoDoValor } from "./EcoDoValor";
 
 interface FormShape {
@@ -24,6 +27,7 @@ interface FormShape {
 interface Props {
   lead: Lead;
   pipelineId: string;
+  fieldDefs?: CustomFieldDef[];
   /** Quando o salvamento dá certo. O dossiê NÃO fecha aqui — ver abaixo. */
   onSaved?: () => void;
   /** O dossiê não tem "cancelar"; o diálogo tem. */
@@ -44,8 +48,10 @@ function centsToReais(cents: number | null | undefined): string {
  * registro justamente de quem o produziu — a funcionalidade que prova "sua ação
  * fica registrada" provaria isso para todo mundo menos para o autor.
  */
-export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
+export function LeadFieldsForm({ lead, pipelineId, fieldDefs = [], onSaved, onCancel }: Props) {
+  const t = useT();
   const edit = useEditLead(pipelineId);
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>(lead.custom_fields ?? {});
 
   const form = useForm<FormShape>({
     defaultValues: {
@@ -65,6 +71,7 @@ export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
       tagsRaw: (lead.tags ?? []).join(", "),
       expected_close_date: lead.expected_close_date ?? "",
     });
+    setCustomFields(lead.custom_fields ?? {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lead.id]);
 
@@ -90,6 +97,7 @@ export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
       value_cents: valueCents,
       tags,
       expected_close_date: values.expected_close_date || null,
+      ...(fieldDefs.length > 0 ? { custom_fields: customFields } : {}),
     };
 
     const parsed = updateLeadSchema.safeParse(patch);
@@ -115,7 +123,7 @@ export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="title">Título</Label>
+          <Label htmlFor="title">{t("Título")}</Label>
           <Input
             id="title"
             {...form.register("title", { required: true, minLength: 2 })}
@@ -123,7 +131,7 @@ export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="description">Descrição</Label>
+          <Label htmlFor="description">{t("Descrição")}</Label>
           <Textarea id="description" rows={3} {...form.register("description")} />
         </div>
 
@@ -154,9 +162,21 @@ export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="tagsRaw">Tags (separadas por vírgula)</Label>
+          <Label htmlFor="tagsRaw">{t("Tags (separadas por vírgula)")}</Label>
           <Input id="tagsRaw" placeholder="vip, recompra" {...form.register("tagsRaw")} />
         </div>
+
+        {fieldDefs.length > 0 && (
+          <div className="space-y-2 border-t border-border pt-4">
+            <p className="text-sm font-medium">{t("Campos do funil")}</p>
+            <CustomFieldsEditor
+              fields={fieldDefs}
+              value={customFields}
+              onChange={setCustomFields}
+              mode="lead"
+            />
+          </div>
+        )}
 
       <div className="flex justify-end gap-2">
         {onCancel && (

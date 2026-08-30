@@ -21,10 +21,12 @@ import {
   LgpdRequestsTable,
   LgpdRequestsTableSkeleton,
 } from "@/components/admin/lgpd/LgpdRequestsTable";
+import { useT } from "@/hooks/i18n/useT";
 
 const NONE = "__none__";
 
 export function LgpdAdminClient() {
+  const t = useT();
   const [filters, setFilters] = useState<AdminLgpdFilters>({});
 
   const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } =
@@ -71,11 +73,11 @@ export function LgpdAdminClient() {
 
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">LGPD — Cross-tenant</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("LGPD — Cross-tenant")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
           {isLoading
-            ? "Carregando..."
-            : `${total} solicitaç${total !== 1 ? "ões" : "ão"}${hasNextPage ? "+" : ""}`}
+            ? t("Carregando...")
+            : `${total} ${total !== 1 ? t("solicitações") : t("solicitação")}${hasNextPage ? "+" : ""}`}
         </p>
       </div>
 
@@ -83,39 +85,39 @@ export function LgpdAdminClient() {
       <div className="flex flex-wrap items-center gap-3">
         <Select onValueChange={setStatus} value={filters.status ?? NONE}>
           <SelectTrigger className="h-8 w-[160px] text-xs">
-            <SelectValue placeholder="Status" />
+            <SelectValue placeholder={t("Status")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NONE}>Todos os status</SelectItem>
-            <SelectItem value="received">Recebido</SelectItem>
-            <SelectItem value="processing">Processando</SelectItem>
-            <SelectItem value="pending_review">Revisão</SelectItem>
-            <SelectItem value="completed">Concluído</SelectItem>
-            <SelectItem value="failed">Falhou</SelectItem>
+            <SelectItem value={NONE}>{t("Todos os status")}</SelectItem>
+            <SelectItem value="received">{t("Recebido")}</SelectItem>
+            <SelectItem value="processing">{t("Processando")}</SelectItem>
+            <SelectItem value="pending_review">{t("Revisão")}</SelectItem>
+            <SelectItem value="completed">{t("Concluído")}</SelectItem>
+            <SelectItem value="failed">{t("Falhou")}</SelectItem>
           </SelectContent>
         </Select>
 
         <Select onValueChange={setType} value={filters.request_type ?? NONE}>
           <SelectTrigger className="h-8 w-[200px] text-xs">
-            <SelectValue placeholder="Tipo" />
+            <SelectValue placeholder={t("Tipo")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NONE}>Todos os tipos</SelectItem>
-            <SelectItem value="redact">Anonimização cliente</SelectItem>
-            <SelectItem value="data_request">Solicitação de dados</SelectItem>
-            <SelectItem value="store_redact">Anonimização tenant</SelectItem>
+            <SelectItem value={NONE}>{t("Todos os tipos")}</SelectItem>
+            <SelectItem value="redact">{t("Anonimização cliente")}</SelectItem>
+            <SelectItem value="data_request">{t("Solicitação de dados")}</SelectItem>
+            <SelectItem value="store_redact">{t("Anonimização tenant")}</SelectItem>
           </SelectContent>
         </Select>
 
         <Select onValueChange={setRisk} value={filters.risk_level ?? NONE}>
           <SelectTrigger className="h-8 w-[160px] text-xs">
-            <SelectValue placeholder="Risco" />
+            <SelectValue placeholder={t("Risco")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NONE}>Todos os riscos</SelectItem>
-            <SelectItem value="expired">Vencido</SelectItem>
-            <SelectItem value="at_risk">Crítico (&lt;24h)</SelectItem>
-            <SelectItem value="warning">Alerta (&gt;50%)</SelectItem>
+            <SelectItem value={NONE}>{t("Todos os riscos")}</SelectItem>
+            <SelectItem value="expired">{t("Vencido")}</SelectItem>
+            <SelectItem value="at_risk">{t("Crítico (<24h)")}</SelectItem>
+            <SelectItem value="warning">{t("Alerta (>50%)")}</SelectItem>
             <SelectItem value="ok">OK</SelectItem>
           </SelectContent>
         </Select>
@@ -126,7 +128,7 @@ export function LgpdAdminClient() {
             className="cursor-pointer text-xs"
             onClick={clearFilters}
           >
-            Limpar filtros ×
+            {t("Limpar filtros")} ×
           </Badge>
         )}
       </div>

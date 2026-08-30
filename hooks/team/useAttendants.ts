@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
+import { useT } from "@/hooks/i18n/useT";
 import type { AvailabilitySchedule, RoutingConfig } from "@/lib/schemas/routing";
 
 export interface AttendantAvailability {
@@ -43,6 +44,7 @@ export interface AvailabilityUpdate {
 /** PATCH disponibilidade de um atendente (próprio OU manager+; a API enforça). */
 export function useUpdateAvailability() {
   const qc = useQueryClient();
+  const t = useT();
   return useMutation({
     mutationFn: async ({ userId, patch }: { userId: string; patch: AvailabilityUpdate }) =>
       apiClient.patch<{ data: AttendantAvailability }>(
@@ -51,7 +53,7 @@ export function useUpdateAvailability() {
       ),
     onError: (err) => showApiError(err),
     onSuccess: () => {
-      toast.success("Atendente atualizado.");
+      toast.success(t("Atendente atualizado."));
       qc.invalidateQueries({ queryKey: ATTENDANTS_KEY });
     },
   });
@@ -69,12 +71,13 @@ export function useRoutingConfig() {
 /** PATCH do modo/knobs de roteamento (manager+; a API enforça). */
 export function useUpdateRouting() {
   const qc = useQueryClient();
+  const t = useT();
   return useMutation({
     mutationFn: async (config: RoutingConfig) =>
       apiClient.patch<{ data: RoutingConfig }>("/api/v1/settings/routing", config),
     onError: (err) => showApiError(err),
     onSuccess: () => {
-      toast.success("Roteamento atualizado.");
+      toast.success(t("Roteamento atualizado."));
       qc.invalidateQueries({ queryKey: ROUTING_KEY });
     },
   });

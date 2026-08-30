@@ -3,9 +3,11 @@ import { useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { MagnifyingGlass } from "@/lib/ui/icons";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/hooks/i18n/useT";
 import { CommandPalette } from "@/components/shell/CommandPalette";
 
 export function SearchTrigger() {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   // `enableOnFormTags`: o atalho precisa funcionar com o cursor dentro do
@@ -21,7 +23,7 @@ export function SearchTrigger() {
         onClick={() => setOpen(true)}
       >
         <MagnifyingGlass size={14} aria-hidden />
-        <span className="hidden md:inline">Buscar...</span>
+        <span className="hidden md:inline">{t("Buscar...")}</span>
         <kbd className="ml-2 hidden md:inline rounded border bg-muted px-1.5 py-0.5 text-[10px]">⌘K</kbd>
       </Button>
       <CommandPalette open={open} onOpenChange={setOpen} />

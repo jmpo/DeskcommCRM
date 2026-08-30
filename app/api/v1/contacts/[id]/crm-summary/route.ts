@@ -30,14 +30,25 @@ import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
+import { camposDoFunil, settingsDoEmbed } from "@/lib/leads/campos-do-funil";
 import { createClient } from "@/lib/supabase/server";
+import { nomesDosAtendentes } from "@/lib/users/nome-do-atendente";
 
 export const dynamic = "force-dynamic";
 
-const LEAD_COLS = "id, title, status, value_cents, currency, updated_at";
+/** Sem o embed do funil o painel não consegue montar os campos customizados. */
+const LEAD_COLS =
+  "id, title, status, value_cents, currency, updated_at, pipeline_id, custom_fields, crm_pipelines(settings)";
 const ORDER_COLS = "id, external_id, status, total_cents, currency, created_at";
 /** Acompanha o que a timeline mostra — `reason` e `actor_kind` inclusive. */
-const ACTIVITY_COLS = "id, type, source_module, performed_at, payload, reason, actor_kind";
+/**
+ * `performed_by_user_id` entra porque a timeline dizia "Você/time" para TODA
+ * ação humana — o painel sabia que uma pessoa agiu e nunca QUAL. Com a troca de
+ * comando virando linha da timeline, "Transferiu a conversa · Você/time" seria a
+ * resposta errada para a pergunta que a entrega existe para responder.
+ */
+const ACTIVITY_COLS =
+  "id, type, source_module, performed_at, payload, reason, actor_kind, performed_by_user_id";
 /**
  * Passo 4 do cap. 5 — a DEMANDA chega ao lugar onde o humano atende.
  *
@@ -83,12 +94,17 @@ export async function GET(
       .eq("contact_id", contactId)
       .order("created_at", { ascending: false })
       .limit(3),
+    // 12 e não 5. A janela de 5 foi dimensionada quando a timeline não recebia
+    // troca de comando: agora um atendimento normal (assumiu → transferiu →
+    // liberou → voltou ao automático) gasta QUATRO linhas sozinho, e com 5 o
+    // painel mostraria só a movimentação de dono, empurrando para fora o que o
+    // negócio fez. 12 cabe sem rolagem própria na coluna de 296px.
     supabase
       .from("crm_lead_activities")
       .select(ACTIVITY_COLS)
       .eq("contact_id", contactId)
       .order("performed_at", { ascending: false })
-      .limit(5),
+      .limit(12),
     // Só as ABERTAS: demanda encerrada é histórico e já vive na timeline. Da
     // mais antiga para a mais nova — quem espera há mais tempo aparece primeiro,
     // mesma régua do Radar, para as duas telas não contarem histórias
@@ -109,13 +125,35 @@ export async function GET(
     return fail("internal_error", falha.message, 500, { requestId });
   }
 
+  // QUEM agiu, e não só "uma pessoa". O lookup roda sobre os autores DISTINTOS
+  // da janela (12 linhas, quase sempre 1 ou 2 pessoas), e degrada declarado
+  // quando não há service role — a tela cai no rótulo genérico que ela já usava.
+  const linhas = (activities.data ?? []) as Array<{
+    performed_by_user_id?: string | null;
+    [k: string]: unknown;
+  }>;
+  const nomes = await nomesDosAtendentes(linhas.map((a) => a.performed_by_user_id ?? null));
+
   return ok(
     {
-      leads: leads.data ?? [],
+      leads: (leads.data ?? []).map((row) => comCamposDoFunil(row as Record<string, unknown>)),
       orders: orders.data ?? [],
-      activities: activities.data ?? [],
+      activities: linhas.map((a) => ({
+        ...a,
+        performed_by_name: a.performed_by_user_id
+          ? (nomes.get(a.performed_by_user_id) ?? null)
+          : null,
+      })),
       demandas: demandas.data ?? [],
     },
     { requestId },
   );
+}
+
+function comCamposDoFunil(row: Record<string, unknown>) {
+  const { crm_pipelines, ...lead } = row;
+  return {
+    ...lead,
+    field_defs: camposDoFunil(settingsDoEmbed(crm_pipelines)),
+  };
 }

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
+import { useT } from "@/hooks/i18n/useT";
 
 export type FollowupFlowStatus = "draft" | "active" | "disabled";
 
@@ -42,6 +43,7 @@ export function useFollowupFlows(opts?: { initialData?: FollowupFlowPointerRow[]
 }
 
 export function useCreateFollowupFlow() {
+  const t = useT();
   const qc = useQueryClient();
   return useMutation({
     mutationKey: ["followup", "flows", "create"],
@@ -53,7 +55,7 @@ export function useCreateFollowupFlow() {
       qc.setQueryData<FollowupFlowPointerRow[]>(followupFlowsListQueryKey, (prev) =>
         prev ? [created, ...prev] : [created],
       );
-      toast.success("Fluxo criado.");
+      toast.success(t("Fluxo criado."));
     },
     onError: (err) => {
       showApiError(err);

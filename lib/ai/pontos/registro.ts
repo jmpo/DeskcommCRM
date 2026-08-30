@@ -180,6 +180,20 @@ export const PONTOS_DE_IA: readonly PontoDeIa[] = [
     registraEm: "llm_calls",
   },
   {
+    id: "automation_ai_message",
+    rotulo: "Abordar quem preencheu o formulário",
+    oQueFaz:
+      "Escreve a primeira mensagem para quem acabou de preencher um formulário, usando os campos que a pessoa respondeu e a orientação que você deu na automação.",
+    papel: "atender",
+    // Sem tools: o texto vem e quem envia é a automação, com janela de horário
+    // e opt-out. Dar `send_message` ao modelo faria dele o remetente.
+    exige: {},
+    emissor: "lib/agent-engine/agent/abordagem-de-formulario.ts",
+    sintomaDeFalha:
+      "O lead entra pelo formulário, a automação roda, e a mensagem de abordagem nunca é escrita — o contato fica no funil sem ninguém falar com ele.",
+    registraEm: "llm_calls",
+  },
+  {
     id: "draft_suggestion",
     rotulo: "Sugerir resposta ao atendente",
     oQueFaz:

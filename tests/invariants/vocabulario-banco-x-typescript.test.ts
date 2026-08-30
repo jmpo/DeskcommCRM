@@ -207,6 +207,44 @@ const PARES: Array<{
     arquivo: "lib/agent-engine/edge/llm/orcamento.ts",
     simbolo: "ModoDeOrcamento",
   },
+  {
+    tabela: "followup_flow_pointers",
+    coluna: "surface",
+    // lib/followup/api-schemas.ts → FOLLOWUP_FLOW_SURFACES (tupla `as const`).
+    // O type alias `FollowupFlowSurface = (typeof …)[number]` não carrega
+    // literais no fonte — o extrator lê a const, que é a fonte em runtime
+    // (`z.enum` / UI) e a que o CHECK do banco precisa espelhar.
+    arquivo: "lib/followup/api-schemas.ts",
+    simbolo: "FOLLOWUP_FLOW_SURFACES",
+  },
+  {
+    tabela: "webhook_lead_captures",
+    coluna: "outcome",
+    // lib/schemas/lead-captures.ts → DESFECHOS_DA_CAPTACAO.
+    //
+    // A tela pinta um badge por valor ("Virou lead" / "Reenvio" / "Não entrou")
+    // e filtra por ele. Um desfecho novo só no CHECK viraria linha sem rótulo e
+    // opção de filtro que não existe; só no TypeScript viraria `23514` num
+    // INSERT que roda dentro da rota PÚBLICA de captação — e ali o registro é
+    // fire-and-forget, ou seja, o histórico simplesmente não apareceria.
+    arquivo: "lib/schemas/lead-captures.ts",
+    simbolo: "DESFECHOS_DA_CAPTACAO",
+  },
+  {
+    tabela: "automation_rule_runs",
+    coluna: "status",
+    // hooks/webhooks/useAutomationRules.ts → AutomationRunStatus.
+    //
+    // O par aponta para o tipo da TELA porque é ela quem precisa conhecer TODOS
+    // os estados: `statusBadgeLabel` mapeia cada um para um texto em português,
+    // e um valor sem entrada cai no rótulo de "Parcial" — dizendo que algo
+    // falhou quando nada foi sequer tentado.
+    //
+    // Nasce com a 0175, que acrescentou `adiado` (a espera é um estado; sem ele
+    // a aba Atividade não mostrava NADA enquanto a regra aguardava a janela).
+    arquivo: "hooks/webhooks/useAutomationRules.ts",
+    simbolo: "AutomationRunStatus",
+  },
 ];
 
 /** Tira um nível de parênteses externos, se ele envolver a expressão inteira. */
@@ -351,12 +389,28 @@ function literaisDoUnionType(arquivo: string, simbolo: string): string[] {
   // Prosa em português tem ponto e vírgula. O extrator é que não podia depender
   // de a prosa não ter.
   const semComentarios = fonte.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
-  const decl = new RegExp(`type\\s+${simbolo}\\s*=([^;]*);`, "s").exec(semComentarios);
+
+  // DUAS FORMAS, e as duas são vocabulário legítimo neste repo:
+  //
+  //   type X = "a" | "b";                 ← union puro
+  //   const X = ["a", "b"] as const;      ← tupla congelada
+  //
+  // A segunda existe porque o Zod precisa do ARRAY em runtime (`z.enum(X)`), e
+  // escrever o union ao lado seria a terceira lista — exatamente o que este
+  // invariante existe para proibir. O extrator lia só a primeira e mandava
+  // "ENSINE O EXTRATOR"; esta é a lição aprendida, e não uma exceção aberta:
+  // as duas formas caem no MESMO caminho de comparação abaixo.
+  const decl =
+    new RegExp(`type\\s+${simbolo}\\s*=([^;]*);`, "s").exec(semComentarios) ??
+    new RegExp(`const\\s+${simbolo}\\s*=\\s*(\\[[^\\]]*\\])\\s*as\\s+const`, "s").exec(
+      semComentarios,
+    );
   if (!decl) {
     throw new Error(
-      `extrator de vocabulário: não achei \`type ${simbolo} = ...;\` em ${arquivo}. ` +
-        `Se o tipo virou \`const ... as const\` ou mudou de nome, ENSINE O EXTRATOR — ` +
-        `deixar isto falhar em silêncio devolveria lista vazia e o par passaria sem ler nada.`,
+      `extrator de vocabulário: não achei \`type ${simbolo} = ...;\` nem ` +
+        `\`const ${simbolo} = [...] as const\` em ${arquivo}. Se o símbolo mudou de nome ou ` +
+        `de forma, ENSINE O EXTRATOR — deixar isto falhar em silêncio devolveria lista vazia ` +
+        `e o par passaria sem ler nada.`,
     );
   }
 

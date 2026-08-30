@@ -8,39 +8,181 @@
     "quality_profile": "standard"
   },
   "lanes": [
-    { "id": "host", "label": "VPS (fora do app)" },
-    { "id": "app", "label": "App — rota do agente e da UI" },
-    { "id": "banco", "label": "Banco (instância, sem organization_id)" },
-    { "id": "humano", "label": "O que o dono vê" }
+    {
+      "id": "host",
+      "label": "VPS (fora do app)"
+    },
+    {
+      "id": "app",
+      "label": "App — rota do agente e da UI"
+    },
+    {
+      "id": "banco",
+      "label": "Banco (instância, sem organization_id)"
+    },
+    {
+      "id": "humano",
+      "label": "O que o dono vê"
+    }
   ],
-  "mainPath": ["agentsh", "agentroute", "systemversion", "footer", "painel", "updateroute", "runs"],
+  "mainPath": [
+    "agentsh",
+    "agentroute",
+    "systemversion",
+    "footer",
+    "painel",
+    "updateroute",
+    "runs"
+  ],
   "nodes": [
-    { "id": "agentsh", "lane": "host", "col": 0, "type": "service", "label": "agent.sh", "sublabel": "cron 5min · flock · esc() byte-safe (LC_ALL=C)" },
-    { "id": "updatesh", "lane": "host", "col": 1, "type": "service", "label": "update.sh --to <tag>", "sublabel": "backup → checkout da tag → baseline → imagem → healthcheck" },
-
-    { "id": "agentroute", "lane": "app", "col": 0, "type": "api", "label": "POST /api/v1/system/agent", "sublabel": "bearer INTERNAL_CRON_SECRET · heartbeat/run_progress/run_result" },
-    { "id": "versionroute", "lane": "app", "col": 2, "type": "api", "label": "GET /api/v1/system/version", "sublabel": "só is_platform_admin vê o operacional" },
-    { "id": "updateroute", "lane": "app", "col": 3, "type": "api", "label": "POST /api/v1/system/update", "sublabel": "cria o run — nunca executa nada" },
-
-    { "id": "systemversion", "lane": "banco", "col": 1, "type": "database", "label": "system_version", "sublabel": "singleton id=1 · current/latest/changelog_raw" },
-    { "id": "runs", "lane": "banco", "col": 3, "type": "database", "label": "system_update_runs", "sublabel": "índice único: no máx. 1 'dispatched'" },
-
-    { "id": "footer", "lane": "humano", "col": 2, "type": "frontend", "label": "Rodapé da sidebar", "sublabel": "aviso só se is_owner E update_available" },
-    { "id": "painel", "lane": "humano", "col": 3, "type": "frontend", "label": "/app/settings/atualizacao", "sublabel": "4 estados · atenção ANTES do botão" }
+    {
+      "id": "agentsh",
+      "lane": "host",
+      "col": 0,
+      "type": "service",
+      "label": "agent.sh",
+      "sublabel": "cron 5min · flock · esc() byte-safe (LC_ALL=C)"
+    },
+    {
+      "id": "updatesh",
+      "lane": "host",
+      "col": 1,
+      "type": "service",
+      "label": "update.sh --to <tag>",
+      "sublabel": "backup → checkout da tag → baseline → imagem → healthcheck"
+    },
+    {
+      "id": "agentroute",
+      "lane": "app",
+      "col": 0,
+      "type": "api",
+      "label": "POST /api/v1/system/agent",
+      "sublabel": "bearer INTERNAL_CRON_SECRET · heartbeat/run_progress/run_result"
+    },
+    {
+      "id": "versionroute",
+      "lane": "app",
+      "col": 2,
+      "type": "api",
+      "label": "GET /api/v1/system/version",
+      "sublabel": "só is_platform_admin vê o operacional · entrega a faixa instalada→alvo"
+    },
+    {
+      "id": "updateroute",
+      "lane": "app",
+      "col": 3,
+      "type": "api",
+      "label": "POST /api/v1/system/update",
+      "sublabel": "cria o run — nunca executa nada"
+    },
+    {
+      "id": "systemversion",
+      "lane": "banco",
+      "col": 1,
+      "type": "database",
+      "label": "system_version",
+      "sublabel": "singleton id=1 · current/latest/changelog_raw"
+    },
+    {
+      "id": "runs",
+      "lane": "banco",
+      "col": 3,
+      "type": "database",
+      "label": "system_update_runs",
+      "sublabel": "índice único: no máx. 1 'dispatched'"
+    },
+    {
+      "id": "footer",
+      "lane": "humano",
+      "col": 2,
+      "type": "frontend",
+      "label": "Rodapé da sidebar",
+      "sublabel": "aviso só se is_owner E update_available"
+    },
+    {
+      "id": "painel",
+      "lane": "humano",
+      "col": 3,
+      "type": "frontend",
+      "label": "/app/settings/atualizacao",
+      "sublabel": "4 estados · avisos de TODAS as versões da faixa, antes do botão"
+    }
   ],
   "edges": [
-    { "id": "e1", "from": "agentsh", "to": "agentroute", "label": "heartbeat: versão instalada + changelog cru" },
-    { "id": "e2", "from": "agentroute", "to": "systemversion", "label": "grava current/latest/changelog_raw" },
-    { "id": "e3", "from": "systemversion", "to": "versionroute", "label": "leitura para a tela" },
-    { "id": "e4", "from": "versionroute", "to": "footer", "label": "update_available + is_owner" },
-    { "id": "e5", "from": "footer", "to": "painel", "label": "clique no aviso 'Nova versão'" },
-    { "id": "e6", "from": "painel", "to": "updateroute", "label": "clique em 'Atualizar agora'" },
-    { "id": "e7", "from": "updateroute", "to": "runs", "label": "insert status='dispatched'" },
-    { "id": "e8", "from": "agentroute", "to": "runs", "label": "heartbeat seguinte: update_requested=true" },
-    { "id": "e9", "from": "agentsh", "to": "updatesh", "label": "dispara o script local — nunca um comando vindo do app", "route": "highlight" },
-    { "id": "e10", "from": "updatesh", "to": "agentroute", "label": "report() em 3 pontos: backup/código/banco", "route": "highlight" },
-    { "id": "e11", "from": "agentroute", "to": "runs", "label": "run_result fecha success/failed/failed_rolled_back" },
-    { "id": "e12", "from": "runs", "to": "painel", "label": "polling 5s — progresso e desfecho" }
+    {
+      "id": "e1",
+      "from": "agentsh",
+      "to": "agentroute",
+      "label": "heartbeat: versão instalada + changelog cru"
+    },
+    {
+      "id": "e2",
+      "from": "agentroute",
+      "to": "systemversion",
+      "label": "grava current/latest/changelog_raw"
+    },
+    {
+      "id": "e3",
+      "from": "systemversion",
+      "to": "versionroute",
+      "label": "faixa de seções entre a instalada e a alvo"
+    },
+    {
+      "id": "e4",
+      "from": "versionroute",
+      "to": "footer",
+      "label": "update_available + is_owner"
+    },
+    {
+      "id": "e5",
+      "from": "footer",
+      "to": "painel",
+      "label": "clique no aviso 'Nova versão'"
+    },
+    {
+      "id": "e6",
+      "from": "painel",
+      "to": "updateroute",
+      "label": "clique em 'Atualizar agora'"
+    },
+    {
+      "id": "e7",
+      "from": "updateroute",
+      "to": "runs",
+      "label": "insert status='dispatched'"
+    },
+    {
+      "id": "e8",
+      "from": "agentroute",
+      "to": "runs",
+      "label": "heartbeat seguinte: update_requested=true"
+    },
+    {
+      "id": "e9",
+      "from": "agentsh",
+      "to": "updatesh",
+      "label": "dispara o script local — nunca um comando vindo do app",
+      "route": "highlight"
+    },
+    {
+      "id": "e10",
+      "from": "updatesh",
+      "to": "agentroute",
+      "label": "report() em 3 pontos: backup/código/banco",
+      "route": "highlight"
+    },
+    {
+      "id": "e11",
+      "from": "agentroute",
+      "to": "runs",
+      "label": "run_result fecha success/failed/failed_rolled_back"
+    },
+    {
+      "id": "e12",
+      "from": "runs",
+      "to": "painel",
+      "label": "polling 5s — progresso e desfecho"
+    }
   ],
   "cards": [
     {

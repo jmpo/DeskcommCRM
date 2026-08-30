@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useT } from "@/hooks/i18n/useT";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +25,7 @@ interface Props {
 const CONFIRM_TEXT = "ANONIMIZAR";
 
 export function AnonymizeDialog({ contactId, open, onOpenChange }: Props) {
+  const t = useT();
   const anon = useAnonymizeContact();
   const [step, setStep] = useState<1 | 2>(1);
   const [justification, setJustification] = useState("");
@@ -42,9 +44,9 @@ export function AnonymizeDialog({ contactId, open, onOpenChange }: Props) {
         justification: justification.trim(),
       });
       if (res.data.action === "already_anonymized") {
-        toast.info("Contato já estava anonimizado.");
+        toast.info(t("Contato já estava anonimizado."));
       } else {
-        toast.success("Contato anonimizado.");
+        toast.success(t("Contato anonimizado."));
       }
       reset();
       onOpenChange(false);
@@ -62,48 +64,49 @@ export function AnonymizeDialog({ contactId, open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="text-error-fg">Anonimizar contato (LGPD)</DialogTitle>
+          <DialogTitle className="text-error-fg">{t("Anonimizar contato (LGPD)")}</DialogTitle>
           <DialogDescription>
-            Esta ação é irreversível. O nome será substituído por &quot;Contato Anonimizado #N&quot;,
-            email/telefone/CPF serão limpos, e atividades terão conteúdo redigido.
+            {t(
+              "Esta ação é irreversível. O nome será substituído por \"Contato Anonimizado #N\", email/telefone/CPF serão limpos, e atividades terão conteúdo redigido.",
+            )}
           </DialogDescription>
         </DialogHeader>
 
         {step === 1 ? (
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="anon-justif">Justificativa (mínimo 10 caracteres)</Label>
+              <Label htmlFor="anon-justif">{t("Justificativa (mínimo 10 caracteres)")}</Label>
               <Textarea
                 id="anon-justif"
                 value={justification}
                 onChange={(e) => setJustification(e.target.value)}
-                placeholder="Ex.: Solicitação formal do titular via email em DD/MM/YYYY"
+                placeholder={t("Ex.: Solicitação formal do titular via email em DD/MM/YYYY")}
                 rows={4}
               />
               <p className="text-xs text-muted-foreground">
-                {justification.trim().length}/10 caracteres mínimos
+                {justification.trim().length}/10 {t("caracteres mínimos")}
               </p>
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => handleOpenChange(false)}>
-                Cancelar
+                {t("Cancelar")}
               </Button>
               <Button
                 variant="destructive"
                 onClick={() => setStep(2)}
                 disabled={justification.trim().length < 10}
               >
-                Continuar
+                {t("Continuar")}
               </Button>
             </DialogFooter>
           </div>
         ) : (
           <div className="space-y-4">
             <div className="rounded-md border border-error-fg/30 bg-error-bg p-3 text-sm text-error-fg">
-              Para confirmar, digite <strong>{CONFIRM_TEXT}</strong> abaixo.
+              {t("Para confirmar, digite")} <strong>{CONFIRM_TEXT}</strong> {t("abaixo.")}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="anon-confirm">Confirmação</Label>
+              <Label htmlFor="anon-confirm">{t("Confirmação")}</Label>
               <Input
                 id="anon-confirm"
                 value={confirm}
@@ -114,14 +117,14 @@ export function AnonymizeDialog({ contactId, open, onOpenChange }: Props) {
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setStep(1)} disabled={anon.isPending}>
-                Voltar
+                {t("Voltar")}
               </Button>
               <Button
                 variant="destructive"
                 onClick={handleSubmit}
                 disabled={confirm !== CONFIRM_TEXT || anon.isPending}
               >
-                {anon.isPending ? "Anonimizando…" : "Anonimizar permanentemente"}
+                {anon.isPending ? t("Anonimizando…") : t("Anonimizar permanentemente")}
               </Button>
             </DialogFooter>
           </div>

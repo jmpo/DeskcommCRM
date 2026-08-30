@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PROVEDORES } from "@/lib/ai/pontos/provedores";
+import { useT } from "@/hooks/i18n/useT";
 
 /**
  * Derivado de `lib/ai/pontos/provedores.ts` — a mesma lista única da tela de
@@ -47,6 +48,7 @@ interface ApiResponse {
 }
 
 export function ModelPicker({ provider, value, onChange, disabled, id, placeholder }: Props) {
+  const t = useT();
   const query = useQuery({
     queryKey: ["ai", "providers", provider, "models"],
     queryFn: async () => {
@@ -60,7 +62,7 @@ export function ModelPicker({ provider, value, onChange, disabled, id, placehold
 
   return (
     <div className="space-y-1">
-      <Label htmlFor={id}>Modelo</Label>
+      <Label htmlFor={id}>{t("Modelo")}</Label>
       <Select
         value={value || undefined}
         onValueChange={(v) => {
@@ -70,18 +72,18 @@ export function ModelPicker({ provider, value, onChange, disabled, id, placehold
         disabled={disabled || query.isLoading}
       >
         <SelectTrigger id={id}>
-          <SelectValue placeholder={query.isLoading ? "Carregando…" : (placeholder ?? "Selecione um modelo")} />
+          <SelectValue placeholder={query.isLoading ? t("Carregando…") : (placeholder ?? t("Selecione um modelo"))} />
         </SelectTrigger>
         <SelectContent>
           {models.map((m) => (
             <SelectItem key={m.model_id} value={m.model_id}>
               {m.display_name}
-              {m.is_default_for_provider ? " · default" : ""}
+              {m.is_default_for_provider ? ` · ${t("default")}` : ""}
             </SelectItem>
           ))}
           {models.length === 0 && !query.isLoading ? (
             <SelectItem value="__none__" disabled>
-              Nenhum modelo disponível
+              {t("Nenhum modelo disponível")}
             </SelectItem>
           ) : null}
         </SelectContent>

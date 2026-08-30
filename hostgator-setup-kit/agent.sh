@@ -37,6 +37,13 @@ log_err() {  # log_err <mensagem> — grava com timestamp, corta pra ~200 linhas
   { tail -n 200 "$ERRLOG" > "${ERRLOG}.tmp" && mv "${ERRLOG}.tmp" "$ERRLOG"; } 2>/dev/null || true
 }
 
+# Antes de qualquer outra coisa: esta cópia do repo manda neste projeto Docker?
+#
+# Cedo de propósito — antes até de ANUNCIAR a versão. Uma cópia que não é a dona
+# anunciaria a versão da árvore dela, e o app ofereceria "Atualizar agora" com
+# base num número que não descreve o que está no ar.
+recusar_projeto_de_outra_arvore log_err || exit 0
+
 post() {  # post <json> → corpo da resposta em 2xx; VAZIO em qualquer falha
   # (quem chama, ex. o laço de retry do run_result, usa "saiu vazio" como sinal
   # de falha — por isso o corpo só é impresso no ramo de sucesso).
@@ -150,7 +157,17 @@ if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "$CURRENT" ]; then
   # HEARTBEAT INTEIRO morreria com 422 — sem short-circuit, isso morre calado.
   # 30000 cru garante ≤60000 escapado mesmo no pior caso (100% do texto
   # escapando 2x), com folga sobre o teto de 64000.
-  CHANGELOG="$(git show "${LATEST_TAG}:CHANGELOG.md" 2>/dev/null | head -c 30000 || true)"
+  # O corte deixou de ser cego. O `awk` para de imprimir AO IMPRIMIR o cabeçalho
+  # da versão instalada — e o cabeçalho entra de propósito: é ele que prova ao
+  # app que a faixa está completa. Isso encolhe o payload no caso comum (uma ou
+  # duas versões de salto) em vez de subir o teto, que mataria o heartbeat
+  # inteiro com 422, calado. O `head -c 30000` continua depois, como teto para o
+  # salto grande. `index()` e não regex: o rótulo tem `[` e `]`, e escapar isso
+  # em awk é onde se erra. Instalação fora de release (CURRENT é um SHA) nunca
+  # casa, cai no arquivo inteiro cortado, e o app declara que não alcançou.
+  # MANTENHA numa linha física só: tests/unit/changelog-cabe-na-tela-da-vps.test.ts
+  # lê o teto daqui por regex de linha única e EXPLODE se ela for quebrada.
+  CHANGELOG="$(git show "${LATEST_TAG}:CHANGELOG.md" 2>/dev/null | awk -v cur="## [${CURRENT#v}]" 'index($0, cur) == 1 { print; exit } { print }' | head -c 30000 || true)"
   # `head -c` corta em byte fixo, e o CHANGELOG tem emoji/acento multi-byte
   # (UTF-8) — um corte no meio de um caractere quebraria o JSON de um jeito
   # difícil de rastrear. `iconv -c` descarta o byte incompleto do final sem

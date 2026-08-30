@@ -16,6 +16,7 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 
+import { agenteAtende } from "@/lib/ai/agents/no-ar";
 import { computeCost } from "@/lib/ai/cost";
 import { DEFAULT_CLASSIFIER_MODEL, isAiGatewayConfigured } from "@/lib/ai/gateway";
 import { resolverModeloDoPonto } from "@/lib/ai/gateway-binding";
@@ -117,15 +118,20 @@ export async function processSentiment(event: EventRow): Promise<SentimentResult
     }
 
     // ── Load active agent to read sentiment_threshold config ──────────────
-    const { data: agent } = await admin
+    //
+    // Mesma régua da tela e do ai-response-worker (`lib/ai/agents/no-ar.ts`).
+    // Antes era `.eq("is_active", true)` sozinho, e pausar um `mcp_agent` não
+    // desliga essa coluna: o limiar de sentimento continuava saindo do agente
+    // que o dono acabara de pausar.
+    const { data: candidatos } = await admin
       .from("ai_agents")
-      .select("id, config")
+      .select("id, config, kind, is_active, published_version_id, archived_at")
       .eq("organization_id", event.organization_id)
-      .eq("is_active", true)
+      .is("archived_at", null)
       .order("is_default", { ascending: false })
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
+      .order("created_at", { ascending: true });
+
+    const agent = (candidatos ?? []).find(agenteAtende) ?? null;
 
     const agentConfig = (agent?.config as Record<string, unknown> | null) ?? {};
     const threshold =

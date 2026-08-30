@@ -1,4 +1,5 @@
 "use client";
+import { useT } from "@/hooks/i18n/useT";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface Props {
@@ -21,16 +22,17 @@ const BINDINGS: { keys: string; description: string }[] = [
 ];
 
 export function ShortcutsHelpDialog({ open, onOpenChange }: Props) {
+  const t = useT();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Atalhos de teclado</DialogTitle>
+          <DialogTitle>{t("Atalhos de teclado")}</DialogTitle>
         </DialogHeader>
         <ul className="space-y-2 text-sm">
           {BINDINGS.map((b) => (
             <li key={b.keys} className="flex items-center justify-between">
-              <span className="text-muted-foreground">{b.description}</span>
+              <span className="text-muted-foreground">{t(b.description)}</span>
               <kbd className="rounded border border-border bg-muted px-2 py-0.5 font-mono text-xs">
                 {b.keys}
               </kbd>

@@ -193,6 +193,14 @@ describe("openConversationWithContactSchema", () => {
     ).toBe(true);
   });
 
+  it("aceita só contact_id — a sessão é escolhida no servidor", () => {
+    expect(
+      openConversationWithContactSchema.safeParse({
+        contact_id: "22222222-2222-4222-8222-222222222222",
+      }).success,
+    ).toBe(true);
+  });
+
   it("rejeita sem contact_id nem phone_number", () => {
     expect(
       openConversationWithContactSchema.safeParse({ channel_session_id: session }).success,

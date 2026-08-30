@@ -1,8 +1,10 @@
 "use client";
 
+import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
+
 import Link from "next/link";
 import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { useT } from "@/hooks/i18n/useT";
 import { CaretLeft } from "@/lib/ui/icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,6 +47,8 @@ const STATUS_VARIANT: Record<
 };
 
 export function LgpdRequestDetail({ id }: Props) {
+  const localeDaData = useLocaleDeData();
+  const t = useT();
   const { data, isLoading, error } = useLgpdRequest(id);
 
   if (isLoading) {
@@ -62,7 +66,7 @@ export function LgpdRequestDetail({ id }: Props) {
   if (error || !data) {
     return (
       <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-        Falha ao carregar solicitação.
+        {t("Falha ao carregar solicitação.")}
       </div>
     );
   }
@@ -70,8 +74,8 @@ export function LgpdRequestDetail({ id }: Props) {
   const { request, audit_trail, signed_pdf_url } = data.data;
 
   const shortId = request.id.slice(0, 8);
-  const typeLabel = TYPE_LABELS[request.request_type] ?? request.request_type;
-  const statusLabel = STATUS_LABELS[request.status] ?? request.status;
+  const typeLabel = t(TYPE_LABELS[request.request_type] ?? request.request_type);
+  const statusLabel = t(STATUS_LABELS[request.status] ?? request.status);
 
   return (
     <div className="flex flex-col gap-6">
@@ -81,7 +85,7 @@ export function LgpdRequestDetail({ id }: Props) {
           <Button variant="ghost" size="sm" asChild className="-ml-2 gap-1 text-muted-foreground">
             <Link href="/app/lgpd/requests">
               <CaretLeft size={14} aria-hidden />
-              Solicitações
+              {t("Solicitações")}
             </Link>
           </Button>
         </div>
@@ -95,18 +99,18 @@ export function LgpdRequestDetail({ id }: Props) {
           </Badge>
           <Badge variant="outline">{typeLabel}</Badge>
           {request.emergency && (
-            <Badge variant="destructive">Urgente</Badge>
+            <Badge variant="destructive">{t("Urgente")}</Badge>
           )}
         </div>
 
         <p className="text-sm text-muted-foreground">
-          Recebido em{" "}
-          {format(new Date(request.received_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+          {t("Recebido em")}{" "}
+          {format(new Date(request.received_at), `dd/MM/yyyy '${t("às")}' HH:mm`, { locale: localeDaData })}
           {request.due_at && (
             <>
               {" · "}
-              Vence em{" "}
-              {format(new Date(request.due_at), "dd/MM/yyyy", { locale: ptBR })}
+              {t("Vence em")}{" "}
+              {format(new Date(request.due_at), "dd/MM/yyyy", { locale: localeDaData })}
             </>
           )}
         </p>
@@ -114,11 +118,11 @@ export function LgpdRequestDetail({ id }: Props) {
 
       {/* PDF download if completed */}
       {signed_pdf_url && (
-        <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm flex items-center justify-between gap-4">
-          <span>Relatório de exportação disponível (expira em 72h).</span>
-          <Button size="sm" variant="outline" asChild>
+        <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-4">
+          <span>{t("Relatório de exportação disponível (expira em 72h).")}</span>
+          <Button size="sm" variant="outline" asChild className="shrink-0">
             <a href={signed_pdf_url} download>
-              Baixar PDF
+              {t("Baixar PDF")}
             </a>
           </Button>
         </div>
@@ -139,7 +143,7 @@ export function LgpdRequestDetail({ id }: Props) {
         {/* SLA Timeline */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Linha do tempo SLA</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("Linha do tempo SLA")}</CardTitle>
           </CardHeader>
           <CardContent>
             {request.due_at ? (
@@ -149,7 +153,7 @@ export function LgpdRequestDetail({ id }: Props) {
                 request_type={request.request_type}
               />
             ) : (
-              <p className="text-sm text-muted-foreground">SLA não definido.</p>
+              <p className="text-sm text-muted-foreground">{t("SLA não definido.")}</p>
             )}
           </CardContent>
         </Card>
@@ -157,15 +161,15 @@ export function LgpdRequestDetail({ id }: Props) {
         {/* Request info */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Detalhes</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("Detalhes")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <Row label="ID completo" value={request.id} mono />
-            <Row label="Tipo" value={typeLabel} />
-            <Row label="Status" value={statusLabel} />
-            <Row label="Origem" value={request.source ?? "—"} />
-            <Row label="Escopo" value={request.scope} />
-            <Row label="Tentativas" value={String(request.attempts)} />
+            <Row label={t("ID completo")} value={request.id} mono />
+            <Row label={t("Tipo")} value={typeLabel} />
+            <Row label={t("Status")} value={statusLabel} />
+            <Row label={t("Origem")} value={request.source ?? "—"} />
+            <Row label={t("Escopo")} value={request.scope} />
+            <Row label={t("Tentativas")} value={String(request.attempts)} />
             {request.contact_id && (
               <Row label="Contact ID" value={request.contact_id} mono />
             )}
@@ -174,13 +178,13 @@ export function LgpdRequestDetail({ id }: Props) {
             )}
             {request.completed_at && (
               <Row
-                label="Concluído em"
-                value={format(new Date(request.completed_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                label={t("Concluído em")}
+                value={format(new Date(request.completed_at), "dd/MM/yyyy HH:mm", { locale: localeDaData })}
               />
             )}
             {request.error_message && (
               <div className="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1">
-                <p className="text-xs text-muted-foreground">Erro</p>
+                <p className="text-xs text-muted-foreground">{t("Erro")}</p>
                 <p className="text-destructive text-xs">{request.error_message}</p>
               </div>
             )}
@@ -191,7 +195,7 @@ export function LgpdRequestDetail({ id }: Props) {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-sm font-medium">
-              Trilha de auditoria ({audit_trail.length})
+              {t("Trilha de auditoria")} ({audit_trail.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -215,7 +219,15 @@ function Row({
   return (
     <div className="flex justify-between gap-4">
       <span className="text-muted-foreground shrink-0">{label}</span>
-      <span className={`text-right truncate ${mono ? "font-mono text-xs" : ""}`}>{value}</span>
+      {/* `title` dá o valor completo em hover — sem isso um uuid truncado
+          (id do contato, id externo) virava informação irrecuperável na
+          tela, justo num relatório que existe pra ser conferido. */}
+      <span
+        className={`text-right truncate ${mono ? "font-mono text-xs" : ""}`}
+        title={value}
+      >
+        {value}
+      </span>
     </div>
   );
 }

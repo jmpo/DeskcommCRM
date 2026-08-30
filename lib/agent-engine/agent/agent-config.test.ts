@@ -25,13 +25,18 @@ describe('loadPublishedAgentConfig — campos de RAG', () => {
     expect(cfg?.ragSimilarityThreshold).toBe(0.8);
   });
 
-  it('cai nos defaults (5 / 0.72) quando config é nulo ou fora da faixa', async () => {
+  // 0.40 e não 0.72: o limiar foi CALIBRADO com medição na migration 0097
+  // (pergunta literal 0.849, paráfrase 0.49–0.65, irrelevante 0.27). O banco
+  // moveu o default e ESTE fallback ficou para trás — e é ele que vale, porque
+  // quem corta pelo limiar é o TypeScript, não a RPC. Com 0.72, toda paráfrase
+  // era descartada e o RAG parecia quebrado funcionando.
+  it('cai nos defaults calibrados (5 / 0.40) quando config é nulo ou fora da faixa', async () => {
     const cfg = await loadPublishedAgentConfig(
       poolWith({ ...baseRow, config: { rag_top_k: 999, rag_similarity_threshold: -1 } }),
       'org1', 'cs1',
     );
     expect(cfg?.ragTopK).toBe(5);
-    expect(cfg?.ragSimilarityThreshold).toBe(0.72);
+    expect(cfg?.ragSimilarityThreshold).toBe(0.4);
   });
 
   it('activeKbVersionId nulo quando o agente não tem KB ativa', async () => {

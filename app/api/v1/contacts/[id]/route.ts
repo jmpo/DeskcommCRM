@@ -1,6 +1,7 @@
 /**
- * GET   /api/v1/contacts/[id] — fetch single (handler em ../_handler.ts)
- * PATCH /api/v1/contacts/[id] — update (handler em ../_handler.ts)
+ * GET    /api/v1/contacts/[id] — fetch single (handler em ../_handler.ts)
+ * PATCH  /api/v1/contacts/[id] — update (handler em ../_handler.ts)
+ * DELETE /api/v1/contacts/[id] — remove (handler em ../_handler.ts)
  *
  * Thin wrapper: auth + Zod + ok/fail. Decrypt CPF + LGPD irreversibility no handler.
  */
@@ -8,13 +9,13 @@ import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 
 import { ApiError } from "@/lib/api/types";
-import { ok, fail } from "@/lib/api/wrappers";
+import { ok, fail, noContent } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { contactPatchSchema, validateRequest } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
 
-import { getContactHandler, patchContactHandler } from "../_handler";
+import { deleteContactHandler, getContactHandler, patchContactHandler } from "../_handler";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +101,39 @@ export async function PATCH(
       input,
     );
     return ok(contact, { requestId });
+  } catch (err) {
+    if (err instanceof ApiError) {
+      return fail(err.code, err.message, err.status, { requestId });
+    }
+    throw err;
+  }
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  const requestId = randomUUID();
+  const { id } = await ctx.params;
+
+  const authz = await requireRole("agent", { requestId, resource: "contacts" });
+  if (!authz.ok) return authz.response;
+  const user = authz.user;
+  const activeOrg = authz.org;
+
+  const supabase = await createClient();
+
+  try {
+    await deleteContactHandler(
+      supabase,
+      {
+        organization_id: activeOrg.orgId,
+        actor: { type: "user", id: user.id },
+        requestId,
+      },
+      id,
+    );
+    return noContent(requestId);
   } catch (err) {
     if (err instanceof ApiError) {
       return fail(err.code, err.message, err.status, { requestId });

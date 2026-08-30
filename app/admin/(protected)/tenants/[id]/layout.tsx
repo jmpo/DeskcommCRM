@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CaretLeft } from "@/lib/ui/icons";
 import { TabNav } from "./_tab-nav";
+import { normalizarIdioma } from "@/lib/i18n/idiomas";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 // ---------------------------------------------------------------------------
 // Status badge helpers (same palette as TenantsTable)
@@ -61,7 +63,8 @@ export default async function TenantDetailLayout({
 }: TenantLayoutProps) {
   // Auth check — outer (protected)/layout.tsx already guards, but we need
   // org data server-side for the header. requirePlatformAdmin is cheap (cached).
-  await requirePlatformAdmin();
+  const { user } = await requirePlatformAdmin();
+  const idioma = normalizarIdioma((user.user_metadata?.locale as string | undefined) ?? null);
 
   const { id } = await params;
   const admin = createAdminClient();
@@ -82,7 +85,7 @@ export default async function TenantDetailLayout({
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
       >
         <CaretLeft size={14} aria-hidden />
-        Tenants
+        {traduzir("Tenants", idioma)}
       </Link>
 
       {/* Header */}
@@ -98,7 +101,7 @@ export default async function TenantDetailLayout({
           )}
           {org?.status && (
             <Badge variant={STATUS_VARIANTS[org.status] ?? "neutral"}>
-              {STATUS_LABELS[org.status] ?? org.status}
+              {traduzir(STATUS_LABELS[org.status] ?? org.status, idioma)}
             </Badge>
           )}
         </div>

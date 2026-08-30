@@ -116,7 +116,11 @@ export const crmScheduleFollowup: McpToolDefinition<typeof agendarShape> = {
     "OU `promised_at` (instante ISO 8601 absoluto). SE VOCÊ NÃO SABE QUE DIA É HOJE, USE " +
     "`in_hours` — é o caminho certo e não exige adivinhar a data. " +
     "Um retorno vivo por cliente: se já houver, a chamada devolve agendado=false com o motivo, " +
-    "e não é erro — é para você seguir sem duplicar.",
+    "e não é erro — é para você seguir sem duplicar. " +
+    "ISTO NÃO É COMPROMISSO COM HORA MARCADA: é decisão interna nossa de voltar a falar. O cliente " +
+    "não fica sabendo, e nada é reservado na agenda de ninguém. Se ele ESCOLHEU um horário para ser " +
+    "atendido, é outra coisa — use a ferramenta de marcar compromisso, se você tiver uma; se não " +
+    "tiver, diga que alguém da equipe confirma o horário e NÃO registre isso como retorno.",
   inputSchema: agendarShape,
   category: "write",
   requiresRole: "ai_operator",
@@ -256,7 +260,9 @@ export const crmCancelFollowup: McpToolDefinition<typeof cancelarShape> = {
   description:
     "Cancela um retorno agendado que ainda não disparou. Use quando o cliente já respondeu ou o " +
     "motivo do retorno deixou de existir — insistir com quem já respondeu é dano. " +
-    "Retorno já disparado ou já cancelado devolve cancelado=false, e isso não é erro.",
+    "Retorno já disparado ou já cancelado devolve cancelado=false, e isso não é erro. " +
+    "Cancela o RETORNO INTERNO, não um compromisso com hora marcada: se o cliente avisou que não " +
+    "vai a um horário combinado com ele, esta ferramenta não desmarca isso.",
   inputSchema: cancelarShape,
   category: "write",
   requiresRole: "ai_operator",
@@ -327,7 +333,9 @@ export const crmListFollowups: McpToolDefinition<typeof listarShape> = {
     "Lista os retornos de um cliente (informe lead_id OU contact_id), do mais próximo para o mais " +
     "antigo. Cada item traz situacao: 'agendado' (ainda vai acontecer), 'disparado' (já aconteceu) " +
     "ou 'cancelado' (alguém desmarcou, com motivo_do_cancelamento). É por aqui que você descobre " +
-    "que um humano desmarcou o retorno — se descobrir, NÃO reagende o mesmo retorno.",
+    "que um humano desmarcou o retorno — se descobrir, NÃO reagende o mesmo retorno. " +
+    "Lista RETORNOS INTERNOS, não compromissos com hora marcada. O mesmo cliente pode ter os dois, " +
+    "e não encontrar nada aqui não significa que ele não tenha um horário combinado.",
   inputSchema: listarShape,
   category: "read",
   requiresRole: "agent",

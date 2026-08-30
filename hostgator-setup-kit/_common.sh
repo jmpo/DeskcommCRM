@@ -52,6 +52,84 @@ nome_do_projeto_atual() {
   printf '%s' "${COMPOSE_PROJECT_NAME:-$(nome_do_projeto_compose "${PROJECT_DIR:-$PWD}")}"
 }
 
+# ── Quem é o DONO deste projeto Docker ───────────────────────────────────────
+#
+# Duas cópias do repo na mesma VPS — o clone de produção e um de teste ao lado —
+# recebem o MESMO nome de projeto compose: o docker o deriva do basename do
+# diretório, e `/root/DeskcommCRM` e `/root/apagar6/DeskcommCRM` dão os dois
+# `deskcommcrm`. Os contêineres são UM conjunto só; os `.env` são dois. Cada
+# `up -d` recria o parque com as credenciais da SUA árvore, e a outra fica
+# falando com um transporte que não a reconhece mais.
+#
+# Não é hipótese. Numa VPS real o clone de teste recriou o contêiner do WhatsApp
+# com a chave dele às 13:30; o app foi recriado da árvore de produção às 14:47,
+# com outra chave; e por TRÊS DIAS toda chamada ao WAHA respondeu 401 — nenhum
+# número conectava, nenhuma mensagem entrava, e o painel só dizia "não foi
+# possível verificar a conexão".
+#
+# O `flock` do agent.sh não protege disso: ele é por DIRETÓRIO, então as duas
+# árvores pegam locks diferentes enquanto disputam os mesmos contêineres. A
+# trava tem de ser pelo que elas de fato compartilham — o projeto Docker.
+#
+# O sinal é o próprio Docker: todo contêiner criado pelo compose carrega o label
+# `com.docker.compose.project.working_dir` com a árvore que o criou.
+donos_do_projeto_em_execucao() {  # → um diretório por linha, sem repetir
+  docker ps -a \
+    --filter "label=com.docker.compose.project=$(nome_do_projeto_atual)" \
+    --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null \
+    | grep -v '^$' | sort -u
+}
+
+# Imprime as árvores ALHEIAS que ainda são instalações VIVAS; sai 0 quando existe
+# ao menos uma. Sem contêiner no ar não há dono, e uma instalação nova assume
+# legitimamente — por isso o silêncio aqui é "pode seguir", não "não sei".
+#
+# "Viva" é o filtro que impede este guarda de nascer vermelho em quem não fez
+# nada de errado: quem MOVEU a instalação de pasta deixa contêineres apontando
+# para um caminho que não existe mais. Esse não é um rival disputando o parque —
+# é o endereço antigo desta mesma instalação, e recusar ali travaria as
+# atualizações para sempre, num log que ninguém lê. Só conta como rival a árvore
+# que ainda está no disco COM um compose: aquela de onde um segundo cron
+# realmente consegue rodar `up -d`.
+projeto_pertence_a_outra_arvore() {
+  local dir vivas=""
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    [ "$dir" != "${PROJECT_DIR:-$PWD}" ] || continue
+    [ -f "$dir/$COMPOSE" ] || continue
+    vivas="${vivas}${vivas:+$'\n'}${dir}"
+  done <<EOF
+$(donos_do_projeto_em_execucao)
+EOF
+  [ -n "$vivas" ] || return 1
+  printf '%s' "$vivas"
+}
+
+# O guarda que o agent.sh e o update.sh chamam antes de tocar em contêiner.
+#
+# Falha FECHADA na ação (não mexe em parque alheio) e ABERTA na informação: diz
+# qual árvore é a dona e como assumir de propósito. Parar calado deixaria o dono
+# da VPS achando que o agente atualiza, quando ele desiste a cada 5 minutos.
+#
+# `DESKCOMM_ASSUMIR_PROJETO=1` é a saída para o caso legítimo — a instalação
+# mudou de pasta e os contêineres ainda apontam para a antiga. É explícita de
+# propósito: assumir por engano é justamente o defeito que esta função existe
+# para impedir.
+recusar_projeto_de_outra_arvore() {  # recusar_projeto_de_outra_arvore <como reportar>
+  local alheias reportar="${1:-}"
+  alheias="$(projeto_pertence_a_outra_arvore)" || return 0
+  [ "${DESKCOMM_ASSUMIR_PROJETO:-}" != "1" ] || return 0
+
+  local recado
+  recado="os contêineres do projeto '$(nome_do_projeto_atual)' foram criados por outra cópia do repo ($(printf '%s' "$alheias" | tr '\n' ' ')) — esta aqui é $(printf '%s' "${PROJECT_DIR:-$PWD}"). Duas cópias com o mesmo nome de projeto disputam os MESMOS contêineres e cada uma os recria com o .env dela, o que derruba as conexões de WhatsApp e quebra as credenciais. Deixe apenas UMA no cron (crontab -e) ou, se esta é mesmo a instalação boa, rode com DESKCOMM_ASSUMIR_PROJETO=1"
+  if [ -n "$reportar" ] && command -v "$reportar" >/dev/null 2>&1; then
+    "$reportar" "$recado"
+  else
+    printf '%s\n' "$recado" >&2
+  fi
+  return 1
+}
+
 # A bridge que ESTE projeto reserva para o proxy externo. Um `basename` cru
 # diverge numa pasta com maiúscula, ponto ou underscore inicial — e aí o kit
 # cria uma rede e o compose procura outra.
@@ -348,6 +426,13 @@ psql_run() { docker run --rm -i postgres:17-alpine psql "$(url_do_schema)" -v ON
 # O namespace é constante e literal de propósito: ele está gravado no .env de
 # toda instalação viva, e derivá-lo de variável faria o kit antigo (que já está
 # no disco do cliente) e o novo montarem strings diferentes.
+#
+# Esta linha é a ÚNICA fonte do namespace para tudo que executa — os testes do
+# kit a leem em vez de repetir a string. Quem a confere é
+# `tests/unit/namespace-das-imagens.test.ts`, que assere este valor e cobra que
+# `docker-compose.prod.yml`, `.env.hostgator.example` e a matriz de
+# `publish-image.yml` digam o mesmo. Se você é um fork, é lá que está a lista do
+# que trocar junto.
 IMG_NS="ghcr.io/jmpo"
 IMG_APP="${IMG_NS}/deskcommcrm"
 IMG_WORKER="${IMG_NS}/deskcomm-worker"

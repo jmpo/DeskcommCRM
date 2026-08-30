@@ -192,6 +192,7 @@ main: <sha curto>            prévia do merge: <tree>
 MEDIDO:      <o quê> — <comando> — <saída observada>
 NÃO MEDIDO:  <o quê> — <por quê>
 BLOQUEADOR:  <arquivo:linha> — <o defeito> — <como reproduzir>
+VERSÃO:      <patch | minor | major | nenhuma> — <o que o dono da VPS precisa fazer>
 ```
 
 **`NÃO MEDIDO` é campo obrigatório.** Veredito sem ele é recusado pelo cético e não vai para o PR.
@@ -227,6 +228,65 @@ leve com o tempo. Se estiver ficando mais pesado, o passe 11 não está sendo cu
 
 ---
 
+## 12. A versão — porque merge na `main` não é entrega
+
+**O self-hoster puxa imagem publicada por número de versão.** Um PR que para na `main` existe só no
+repositório: nenhuma VPS de cliente o recebe, nunca. Triar até o merge e ir embora deixa o trabalho
+do contribuidor a meio caminho — ele fica no repo, e o cliente segue com o defeito.
+
+A lei é [`docs/doctrine/versionamento.md`](../docs/doctrine/versionamento.md). O que muda para você:
+
+### O fragmento é bloqueador, e você o escreve quando falta
+
+Todo PR que muda comportamento traz um arquivo em `.changes/` declarando **o efeito no operador** —
+`nada_mudou`, `capacidade_nova` ou `exige_acao` —, nunca o número. Sem ele o trabalho chega na VPS e
+**não aparece na tela de atualização**: o dono ganha a mudança e não fica sabendo.
+
+Contribuidor externo não conhece essa regra, e o passe 10 proíbe cobrar como descuido um gate não
+documentado. Então: **se o PR muda comportamento e não traz fragmento, escreva você**, em branch
+própria, creditando o autor — é reconciliação mecânica (passe 8), não decisão de projeto. Só volta
+como pergunta se você não souber dizer o que muda para quem opera.
+
+O impacto se **mede**, não se chuta. A pergunta é uma: *o operador precisa fazer alguma coisa?*
+Variável nova é o caso clássico — abra `lib/env.ts` e veja se ela é `required()` ou
+`optional().default(...)`. Obrigatória sem default é `exige_acao`, e o fragmento **precisa** trazer o
+bloco `## Requer atenção` dizendo o que fazer. Confira com `pnpm release:conferir`.
+
+### Seção de versão escrita à mão é BLOQUEADOR
+
+Se o PR adiciona uma linha `## [X.Y.Z]` ao `CHANGELOG.md`, isso entra no veredito como bloqueador e
+sai da branch. Ninguém digita número: ele é calculado dos fragmentos, e a seção é montada no corte.
+
+Isso não é preciosismo — foi medido em 2026-08-27. O PR #354 trazia `## [1.7.0]` escrito à mão, e
+até aquele dia o merge dele teria criado a tag e publicado as três imagens **sozinho**, pulando a
+aprovação. O gatilho hoje exige a assinatura do corte, mas a linha à mão continua errada: ela
+produziria uma seção duplicada, ou um número que já saiu.
+
+```bash
+gh pr diff <n> | grep -E '^\+## \[[0-9]+\.[0-9]+\.[0-9]+\]'   # vazio é o esperado
+```
+
+### Depois do merge, a versão sai — e isso não é opcional
+
+O merge é do mantenedor (Fronteira). Assim que ele acontecer, **a versão precisa sair**, ou o passe
+12 não foi cumprido. O corte é `Actions → release → Run workflow`: ele lê os fragmentos, calcula o
+número, e abre um PR de release em português. O merge desse PR cria a tag, publica as três imagens e
+move o canal `stable`.
+
+Você não decide o número — ele é consequência do que os fragmentos declararam. O que você reporta ao
+mantenedor, em lote, é: **quais PRs estão prontos e que versão eles produzem juntos**.
+
+E confira o desfecho, porque "a tag saiu" não é "a versão chegou":
+
+```bash
+git ls-remote --tags origin 'refs/tags/vX.Y.Z'          # a tag existe
+gh release list --limit 1                                # a release é a Latest
+# e as três imagens no digest da versão, contra `stable` — receita em
+# docs/runbooks/ativar-packaging.md
+```
+
+---
+
 ## Fronteira: o que você nunca faz
 
 | você faz sozinho | é a palavra do mantenedor |
@@ -234,7 +294,9 @@ leve com o tempo. Se estiver ficando mais pesado, o passe 11 não está sendo cu
 | liberar CI, rotular, acolher, comentar veredito | **mergear na `main`** |
 | criar worktree, rodar gate, escrever teste, sabotar | **fechar um PR** |
 | abrir issue e PR de follow-up | empurrar para a branch do fork alheio |
-| consertar CONTRIBUTING/README/docs | |
+| consertar CONTRIBUTING/README/docs | **mergear o PR de release** (é ele que cria a tag) |
+| escrever o fragmento que falta, e conferi-lo | |
+| disparar `Run workflow` do `release` depois do merge | |
 
 Sem perguntas de sim/não a cada passo: faça tudo, pare no merge, reporte em lote.
 

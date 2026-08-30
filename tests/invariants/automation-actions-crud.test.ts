@@ -273,6 +273,7 @@ function baseCtx(context: Record<string, unknown>, overrides: Partial<ActionCtx>
     admin,
     organizationId: GOV_ORG,
     ruleId: RULE_ID,
+  ruleName: "Automação de teste",
     event: { id: lastLine(sql(`select gen_random_uuid();`)) } as unknown as EventRow,
     context,
     requestId: "test-request-id",

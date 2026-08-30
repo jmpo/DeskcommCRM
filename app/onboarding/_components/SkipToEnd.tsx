@@ -1,10 +1,12 @@
 "use client";
 
 import { startTransition } from "react";
+import { useT } from "@/hooks/i18n/useT";
 import { Button } from "@/components/ui/button";
 import { finishOnboarding } from "@/app/actions/onboarding/finishOnboarding";
 
 export function SkipToEnd() {
+  const t = useT();
   return (
     <Button
       type="button"
@@ -17,7 +19,7 @@ export function SkipToEnd() {
         });
       }}
     >
-      Pular tudo (DEV)
+      {t("Pular tudo (DEV)")}
     </Button>
   );
 }

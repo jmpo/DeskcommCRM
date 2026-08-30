@@ -3,6 +3,9 @@ import Link from "next/link";
 import { SignupForm } from "@/components/auth/SignupForm";
 import { branding } from "@/lib/branding";
 import { verifyInviteToken } from "@/lib/auth/invite-token";
+import { createClient } from "@/lib/supabase/server";
+import { normalizarIdioma } from "@/lib/i18n/idiomas";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const metadata = { title: "Criar conta" };
 
@@ -25,14 +28,23 @@ export default async function SignupPage({
   const convite = invite && payload ? { token: invite, email: payload.email } : undefined;
   const conviteExpirado = Boolean(invite) && !payload;
 
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const idioma = normalizarIdioma(
+    (user?.user_metadata?.locale as string | undefined) ?? null,
+  );
+  const t = (texto: string) => traduzir(texto, idioma);
+
   return (
     <div className="space-y-6">
       <div className="space-y-1.5 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Criar conta</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("Criar conta")}</h1>
         <p className="text-sm text-muted-foreground">
           {convite
-            ? "Crie sua senha para entrar na empresa que te convidou"
-            : `Comece a usar o ${branding().name} em minutos`}
+            ? t("Crie sua senha para entrar na empresa que te convidou")
+            : `${t("Comece a usar o")} ${branding().name} ${t("em minutos")}`}
         </p>
       </div>
 
@@ -41,17 +53,18 @@ export default async function SignupPage({
           role="alert"
           className="rounded-md border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm dark:border-amber-500/30 dark:bg-amber-950/20"
         >
-          Esse convite expirou ou não é mais válido. Peça um novo a quem te convidou — criar uma
-          conta agora abriria uma empresa nova, e não é isso que você quer.
+          {t(
+            "Esse convite expirou ou não é mais válido. Peça um novo a quem te convidou — criar uma conta agora abriria uma empresa nova, e não é isso que você quer.",
+          )}
         </p>
       )}
 
       <SignupForm convite={convite} />
 
       <p className="text-center text-sm text-muted-foreground">
-        Já tem conta?{" "}
+        {t("Já tem conta?")}{" "}
         <Link href="/login" className="font-medium text-foreground underline underline-offset-4">
-          Entrar
+          {t("Entrar")}
         </Link>
       </p>
     </div>

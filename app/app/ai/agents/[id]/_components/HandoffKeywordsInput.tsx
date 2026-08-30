@@ -3,6 +3,7 @@ import * as React from "react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useT } from "@/hooks/i18n/useT";
 
 const DEFAULTS = ["falar com humano", "atendente", "pessoa real"];
 
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function HandoffKeywordsInput({ value, onChange, disabled }: Props) {
+  const t = useT();
   const [draft, setDraft] = React.useState("");
 
   function add(kw: string) {
@@ -31,7 +33,7 @@ export function HandoffKeywordsInput({ value, onChange, disabled }: Props) {
 
   return (
     <div className="space-y-2">
-      <Label htmlFor="handoff_kw">Palavras que chamam uma pessoa na hora</Label>
+      <Label htmlFor="handoff_kw">{t("Palavras que chamam uma pessoa na hora")}</Label>
       <div className="flex flex-wrap gap-1 rounded border border-border/60 p-2">
         {value.map((kw) => (
           <button
@@ -40,14 +42,14 @@ export function HandoffKeywordsInput({ value, onChange, disabled }: Props) {
             onClick={() => !disabled && remove(kw)}
             className="group flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs hover:bg-destructive/15"
             disabled={disabled}
-            aria-label={`Remover ${kw}`}
+            aria-label={`${t("Remover")} ${kw}`}
           >
             {kw}
             <span className="text-muted-foreground group-hover:text-destructive">×</span>
           </button>
         ))}
         {value.length === 0 ? (
-          <span className="text-xs text-muted-foreground">Sem palavras-chave.</span>
+          <span className="text-xs text-muted-foreground">{t("Sem palavras-chave.")}</span>
         ) : null}
       </div>
       <div className="flex gap-2">
@@ -61,7 +63,7 @@ export function HandoffKeywordsInput({ value, onChange, disabled }: Props) {
               add(draft);
             }
           }}
-          placeholder="Digite uma expressão e aperte Enter"
+          placeholder={t("Digite uma expressão e aperte Enter")}
           disabled={disabled || value.length >= 20}
           maxLength={60}
         />
@@ -71,7 +73,7 @@ export function HandoffKeywordsInput({ value, onChange, disabled }: Props) {
           onClick={() => add(draft)}
           disabled={disabled || draft.trim() === ""}
         >
-          Adicionar
+          {t("Adicionar")}
         </button>
       </div>
       <div className="flex flex-wrap gap-1">

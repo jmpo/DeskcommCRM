@@ -257,7 +257,6 @@ O não-negociável, em quatro linhas:
 Bump de versão **não pode** exigir que o operador da VPS edite `.env`, compose
 ou qualquer arquivo à mão. Se exigir, não entra: vira issue com plano de
 migração e vai para uma major.
-
 ---
 
 ## Como rodar local
@@ -284,6 +283,58 @@ pnpm test:db     # Postgres efêmero + baseline install/update + 364 invariantes
 pnpm test:e2e    # Playwright (requer dev server)
 ```
 
+**⚠️ `test:unit` NÃO é `tests/unit/`.** O script é `vitest run` **sem caminho**, e ele alcança
+o repositório inteiro — os testes co-localizados em `lib/`, `app/`, `components/` e `hooks/`
+inclusive. Medido em 2026-08-28: `vitest run` alcança **566 arquivos**; `tests/unit/` tem **388**.
+Os 178 de fora são 133 em `lib/`, 37 em `app/`, 3 em `components/`, 1 em `hooks/` e 4 em `tests/`.
+
+Quem lê o nome do script e roda `vitest run tests/unit` obtém um **verde menor e mais fácil** sem
+perceber que obteve — e foi o que aconteceu num PR: a suíte foi reportada como verde, e o que
+estava verde era o recorte. O comando que vale é `pnpm test:unit`, sem caminho.
+
+Duas armadilhas irmãs, as duas pagas no mesmo dia:
+
+- **Gate escolhido não é suíte.** `typecheck`, `lint`, `lint:channels` e os arquivos de cerca
+  podem estar todos verdes enquanto a suíte tem 17 falhas — nenhum deles toca o arquivo que
+  quebrou. Antes de abrir PR, rode a suíte, não os gates que você lembra.
+- **Não corte a saída.** `| tail -8` guarda o rodapé e joga fora os NOMES dos arquivos que
+  falharam, que é o único dado que permite reconciliar depois. Redirecione e filtre:
+
+  ```bash
+  pnpm test:unit > /tmp/vt.log 2>&1; echo "exit=$?"
+  grep -aE "Test Files|Tests " /tmp/vt.log | tail -2                   # ← a AUTORIDADE
+  grep -aE "^ *FAIL " /tmp/vt.log | sed 's/ > .*//' | sort | uniq -c   # arquivos + contagem
+  ```
+
+  **O rodapé é a autoridade; o `grep FAIL` é conveniência — e ele pode devolver
+  vazio COM falhas.** Medido: em execução sem TTY o reporter padrão às vezes
+  imprime só o resumo, e os nomes dos arquivos vermelhos nunca chegam a ser
+  escritos. Uma rodada com `3 failed` produziu um log de 629 bytes onde `FAIL`
+  não aparece em posição nenhuma — e o vazio dessa sonda lê exatamente como
+  "nenhuma falha".
+
+  Por isso **compare as duas saídas antes de concluir** — e compare a linha
+  certa: `Test Files N failed` conta ARQUIVOS, `Tests N failed` conta CASOS, e o
+  `uniq -c` do `grep` soma CASOS. O controle é contra a segunda linha:
+
+  ```bash
+  r=$(grep -aE "^ *Tests " /tmp/vt.log | tail -1 | grep -oE "[0-9]+ failed" | head -1)
+  g=$(grep -acE "^ *FAIL " /tmp/vt.log)
+  echo "rodapé: ${r:-0 failed} | grep contou: $g"   # têm de bater
+  ```
+
+  Se não baterem, a sonda está cega — troque por `--reporter=verbose` e rode de
+  novo, em vez de acreditar no silêncio. (Comparar contra `Test Files` dá
+  divergência falsa: `2 failed` de arquivos contra `7` de casos parece defeito
+  da sonda e é só régua trocada.)
+
+**Vermelho local que NÃO é seu:** `lib/ai/dispatcher/rate-limit.test.ts` falha em 5 casos, com
+15s de timeout cada, quando o `.env.local` tem `UPSTASH_REDIS_REST_URL`/`TOKEN` e o Redis para o
+qual eles apontam **não está de pé** (neste repo é o `serverless-redis-http` local, não a nuvem).
+O `tests/setup/vitest.setup.ts` carrega o `.env.local` para dentro do `process.env`, e o módulo
+só usa o contador em memória quando essas variáveis estão **ausentes**. Provado nos dois sentidos.
+No CI não há `UPSTASH` nenhum, então lá o caminho é o contador em memória e o arquivo passa.
+
 **Os invariantes não estão no `test:unit`.** `vitest.config.ts` exclui `tests/invariants/**` de propósito: essa suíte precisa de um Postgres real e roda via `vitest.db.config.ts`, orquestrada por `scripts/test-db.sh`. Rodar só `pnpm test:unit` e concluir "está tudo verde" é um falso verde — o isolamento RLS não foi exercitado.
 
 Checks **obrigatórios** na branch protection da `main` (verificado na configuração, não só no papel):
@@ -291,13 +342,13 @@ Checks **obrigatórios** na branch protection da `main` (verificado na configura
 - **`verify`** (`ci.yml`) — typecheck + lint + test:unit.
 - **`invariants`** (`ci.yml`) — `pnpm test:db`: sobe `pgvector/pgvector:pg17`, aplica `supabase/baseline.sql` em modo install (`ON_ERROR_STOP=1`) e update (idempotência), e roda os testes de invariante, incluindo o de isolamento RLS entre 2 organizações.
 - **`build-and-size`** (`perf.yml`) — `pnpm build` em Node 22.
-- **`e2e`** (`e2e.yml`) — sobe Supabase local, aplica o `baseline.sql` e roda **48 das 49 specs** Playwright (medido em 2026-08-14 @ `587a494d`; **reconte antes de citar** — este número já apodreceu **quatro** vezes). A **única** de fora é `vps-fresh-onboarding` (precisa de WAHA + Redis + Resend + Nuvemshop) — e ela é a **P0** da doutrina de QA Visual, ou seja, `e2e` verde **não** prova a jornada de instalação fresca, que é o produto que se vende.
+- **`e2e`** (`e2e.yml`) — sobe Supabase local, aplica o `baseline.sql` e roda **todas as specs Playwright menos uma**. O número saiu daqui de propósito: ele apodreceu **cinco** vezes (a quinta em 2026-08-24, quando `inbox-quem-manda.spec.ts` entrou), e a condição que o PR #242 pôs para parar de recontar já tinha vencido na quarta. Quem precisa do número roda o comando abaixo — comando não envelhece. A **única** de fora é `vps-fresh-onboarding` (precisa de WAHA + Redis + Resend + Nuvemshop) — e ela é a **P0** da doutrina de QA Visual, ou seja, `e2e` verde **não** prova a jornada de instalação fresca, que é o produto que se vende.
 
-  **A receita antiga de recontagem estava errada** e é provavelmente uma das causas do apodrecimento. `grep -oE '[a-z0-9-]+\.spec\.ts' .github/workflows/e2e.yml | sort -u | wc -l` devolve **49**, não 48 — mas *não* pelo motivo que este parágrafo afirmava até 2026-08-14. Ele dizia "conta menções em COMENTÁRIOS do workflow", e isso é falso: medido, o conjunto de specs citadas fora de variável é **vazio**. O excedente é a `FORA_DO_CI`, que é uma **variável YAML** como as outras — o grep não distingue a variável que o CI *invoca* da que ele só *declara*. Medir o arquivo inteiro mede quem é citado, não quem é invocado. O que roda são as `SPECS_PARTE_*`:
+  **Não confie em `grep` no arquivo inteiro.** `grep -oE '[a-z0-9-]+\.spec\.ts' .github/workflows/e2e.yml | sort -u | wc -l` conta quem é CITADO, não quem é INVOCADO: a `FORA_DO_CI` é uma variável YAML como as outras e entra na conta. (Até 2026-08-14 este parágrafo culpava "menções em comentários", e isso é falso — medido, o conjunto de specs citadas fora de variável é **vazio**.) O que roda são as `SPECS_PARTE_*`:
 
   ```bash
-  ls tests/e2e/*.spec.ts | wc -l                    # 49 em disco
-  python3 - <<'PY'                                  # 48 que o CI invoca
+  ls tests/e2e/*.spec.ts | wc -l                    # quantas existem
+  python3 - <<'PY'                                  # quantas o CI invoca
   import re
   y = open(".github/workflows/e2e.yml", encoding="utf-8").read()
   print(len({s for _, c in re.findall(r'(SPECS_PARTE_\d+):\s*>-\n((?:[ ]{8,}.*\n)+)', y)
@@ -305,7 +356,7 @@ Checks **obrigatórios** na branch protection da `main` (verificado na configura
   PY
   ```
 
-  **E a recontagem já não é o conserto.** A quarta vez era a condição que o PR #242 pôs para parar de recontar — ela aconteceu. O conserto devido é `tests/unit/e2e-cobertura-completa.test.ts` passar a cobrar também o texto daqui, como já cobra as três listas do workflow (medido em 2026-08-14: ele não cobra — `grep -c 'CLAUDE.md' tests/unit/e2e-cobertura-completa.test.ts` devolve 0). Prosa que nenhum gate lê é prosa que diverge — e uma triagem que a use como régua mede contra o número errado, que é o modo de falha nº 1 do procedimento.
+  **Por que não há mais número aqui.** O conserto que este parágrafo pedia era pôr a prosa sob gate — `tests/unit/e2e-cobertura-completa.test.ts` cobrando também o texto daqui. Tirar o número é melhor e mais barato: não há o que policiar, e a diferença entre disco e CI segue vigiada onde importa, no próprio teste, que reprova toda spec nova que não esteja em `SPECS_PARTE_*` ou em `FORA_DO_CI` **com motivo escrito**. Prosa que nenhum gate lê é prosa que diverge; prosa que não afirma número não tem como divergir.
 - **`imagens-ok`** (`publish-image.yml`) — reprova quando qualquer uma das três imagens Docker não constrói. **É obrigatório desde 2026-08-13**; este arquivo dizia o contrário em outro parágrafo (ver a doutrina de packaging acima, já corrigida).
 
 Todos os **cinco** são **obrigatórios** — medido em 2026-08-14 na branch protection:
@@ -428,5 +479,15 @@ Antes de declarar uma task pronta:
     ([`docs/audits/2026-08-14-afirmacoes-de-estado.md`](docs/audits/2026-08-14-afirmacoes-de-estado.md)).
     Onde a afirmação puder virar **comando**, troque em vez de corrigir: um número corrigido
     envelhece de novo; um `rode isto para saber` não envelhece nunca
+
+17. **Se o PR muda comportamento visível a quem opera uma VPS, ele traz o seu fragmento em
+    `.changes/`** (lei em [`docs/doctrine/versionamento.md`](docs/doctrine/versionamento.md)).
+    O fragmento declara **o efeito no operador** — `nada_mudou` / `capacidade_nova` /
+    `exige_acao` —, nunca o número: o número é calculado a partir do conjunto, e é por isso
+    que duas sessões paralelas não colidem mais. Confira com `pnpm release:conferir`.
+    O CI valida a FORMA de todo fragmento, mas **não** cobra a presença de um — cobrar
+    presença num check obrigatório reprovaria PR de Dependabot, PR de fork, e o próprio PR
+    de release, que consome os fragmentos e deixa o diretório vazio. A presença é cobrada
+    aqui, e por quem revisa.
 
 Um staff engineer aprovaria? Se não, itera.

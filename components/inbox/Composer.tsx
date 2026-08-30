@@ -334,15 +334,15 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
             }
             title={
               mode === "note"
-                ? "Enter salva a nota · Shift+Enter quebra linha"
-                : "Enter envia · Shift+Enter quebra linha"
+                ? t("Enter salva a nota · Shift+Enter quebra linha")
+                : t("Enter envia · Shift+Enter quebra linha")
             }
             className={cn(
               "min-h-9 max-h-40 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm",
               "placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring",
             )}
             disabled={mode === "note" ? isDisabled : respostaBarrada}
-            aria-label="Mensagem"
+            aria-label={t("Mensagem")}
           />
           {text.trim() || mode === "note" ? (
             <Button
@@ -351,7 +351,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
               className="h-9 w-9 shrink-0"
               onClick={handleSubmit}
               disabled={(mode === "note" ? isDisabled : respostaBarrada) || !text.trim()}
-              aria-label="Enviar"
+              aria-label={t("Enviar")}
             >
               <PaperPlaneTilt size={16} weight="fill" aria-hidden />
             </Button>

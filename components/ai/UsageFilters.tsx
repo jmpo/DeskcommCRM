@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useT } from "@/hooks/i18n/useT";
 
 export interface UsageFiltersAgent {
   id: string;
@@ -27,7 +28,7 @@ interface Props {
 }
 
 const KIND_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "all", label: "Todas" },
+  { value: "all", label: "Todas" }, // traduzido via t() no render
   { value: "bot_respond", label: "bot_respond" },
   { value: "sentiment_check", label: "sentiment_check" },
   { value: "sentiment_classify", label: "sentiment_classify" },
@@ -40,6 +41,7 @@ const ALL_AGENTS = "all";
 const DEBOUNCE_MS = 300;
 
 export function UsageFilters({ agents, initial }: Props) {
+  const t = useT();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -79,13 +81,13 @@ export function UsageFilters({ agents, initial }: Props) {
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <div className="space-y-1">
-        <Label className="text-xs text-muted-foreground">Agente</Label>
+        <Label className="text-xs text-muted-foreground">{t("Agente")}</Label>
         <Select value={agentId} onValueChange={setAgentId}>
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL_AGENTS}>Todos</SelectItem>
+            <SelectItem value={ALL_AGENTS}>{t("Todos")}</SelectItem>
             {agents.map((a) => (
               <SelectItem key={a.id} value={a.id}>
                 {a.name}
@@ -96,7 +98,7 @@ export function UsageFilters({ agents, initial }: Props) {
       </div>
 
       <div className="space-y-1">
-        <Label className="text-xs text-muted-foreground">Tipo de uso</Label>
+        <Label className="text-xs text-muted-foreground">{t("Tipo de uso")}</Label>
         <Select value={kind} onValueChange={setKind}>
           <SelectTrigger>
             <SelectValue />
@@ -104,7 +106,7 @@ export function UsageFilters({ agents, initial }: Props) {
           <SelectContent>
             {KIND_OPTIONS.map((o) => (
               <SelectItem key={o.value} value={o.value}>
-                {o.label}
+                {t(o.label)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -113,7 +115,7 @@ export function UsageFilters({ agents, initial }: Props) {
 
       <div className="space-y-1">
         <Label htmlFor="usage-from" className="text-xs text-muted-foreground">
-          De
+          {t("De")}
         </Label>
         <Input
           id="usage-from"
@@ -125,7 +127,7 @@ export function UsageFilters({ agents, initial }: Props) {
 
       <div className="space-y-1">
         <Label htmlFor="usage-to" className="text-xs text-muted-foreground">
-          Até
+          {t("Até")}
         </Label>
         <Input
           id="usage-to"

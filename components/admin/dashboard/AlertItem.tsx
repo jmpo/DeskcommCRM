@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { WifiSlash, Scales, ChartBar, Clock, Warning } from "@/lib/ui/icons";
 import type { AlertItem as AlertItemType, AlertKind } from "@/app/api/v1/admin/dashboard/kpis/route";
 import type { ElementType } from "react";
+import { useT } from "@/hooks/i18n/useT";
 
 const KIND_ICONS: Record<AlertKind, ElementType> = {
   waha_ban: WifiSlash,
@@ -24,9 +25,10 @@ interface AlertItemProps {
 }
 
 export function AlertItem({ alert }: AlertItemProps) {
+  const t = useT();
   const router = useRouter();
   const Icon = KIND_ICONS[alert.kind] ?? Warning;
-  const kindLabel = KIND_LABELS[alert.kind] ?? alert.kind;
+  const kindLabel = t(KIND_LABELS[alert.kind] ?? alert.kind);
 
   const severityVariant =
     alert.severity === "critical"
@@ -37,10 +39,10 @@ export function AlertItem({ alert }: AlertItemProps) {
 
   const severityLabel =
     alert.severity === "critical"
-      ? "Crítico"
+      ? t("Crítico")
       : alert.severity === "warning"
-        ? "Atenção"
-        : "Info";
+        ? t("Atenção")
+        : t("Info");
 
   return (
     <button

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useMemo, useState } from "react";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
+import { useT } from "@/hooks/i18n/useT";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBoard } from "@/hooks/kanban/useBoard";
@@ -13,6 +14,7 @@ import type { Lead } from "@/lib/types/leads";
 import type { Pipeline, Stage } from "@/lib/kanban/types";
 import { StageColumn } from "./StageColumn";
 import { LeadDossier } from "./LeadDossier";
+import { camposDoFunil } from "@/lib/leads/campos-do-funil";
 
 interface KanbanBoardProps {
   pipelineId: string;
@@ -31,6 +33,8 @@ interface KanbanBoardProps {
    */
   pulses?: Map<string, number>;
   onSelectionChange?: (ids: string[]) => void;
+  /** Lead a abrir já na montagem (deep link `?lead=` — ver o dossiê abaixo). */
+  leadInicial?: string | null;
 }
 
 function groupLeadsByStage(stages: Stage[], leads: Lead[]): Map<string, Lead[]> {
@@ -73,7 +77,9 @@ export function KanbanBoard({
   selectedIds,
   pulses: pulsesProp,
   onSelectionChange,
+  leadInicial,
 }: KanbanBoardProps) {
+  const t = useT();
   const useExternal = stagesProp !== undefined && leadsProp !== undefined;
   const queryResult = useBoard(useExternal ? null : pipelineId);
   const moveCard = useMoveCard(pipelineId);
@@ -113,7 +119,12 @@ export function KanbanBoard({
 
   // O dossiê é do BOARD e não da página: ele precisa do lead inteiro e do nome
   // do estágio, que só existem aqui depois do agrupamento.
-  const [dossieId, setDossieId] = useState<string | null>(null);
+  //
+  // `leadInicial` é o deep link: até aqui o dossiê SÓ abria por clique, então
+  // nenhuma outra tela do produto conseguia apontar para um lead específico —
+  // o histórico de captação tinha o id e nenhum lugar para levá-lo. Uma vez
+  // aberto, o estado local manda (fechar não reabre pela URL).
+  const [dossieId, setDossieId] = useState<string | null>(leadInicial ?? null);
   const [internalSelected, setInternalSelected] = useState<Set<string>>(new Set());
   const selectedLeadIds = useMemo(
     () => (selectedIds ? new Set(selectedIds) : internalSelected),
@@ -212,7 +223,7 @@ export function KanbanBoard({
   if (isError) {
     return (
       <Card className="m-4 p-6 text-sm text-text-muted">
-        Falha ao carregar o board.
+        {t("Falha ao carregar o board.")}
         {error instanceof Error ? ` ${error.message}` : null}
       </Card>
     );
@@ -225,7 +236,7 @@ export function KanbanBoard({
   if (data.stages.length === 0) {
     return (
       <Card className="m-4 p-6 text-sm text-text-muted">
-        Nenhum lead nesta pipeline ainda.
+        {t("Nenhum lead nesta pipeline ainda.")}
       </Card>
     );
   }
@@ -253,9 +264,10 @@ export function KanbanBoard({
       {leadDoDossie && (
         <LeadDossier
           open
-          onOpenChange={(v) => !v && setDossieId(null)}
+          onOpenChange={(v: boolean) => !v && setDossieId(null)}
           lead={leadDoDossie}
           pipelineId={pipelineId}
+          fieldDefs={camposDoFunil(data.pipeline.settings ?? null)}
           stageName={
             data.stages.find((s) => s.id === leadDoDossie.stage_id)?.name ?? "—"
           }

@@ -45,6 +45,16 @@ export function extractChangelogSection(raw: string, version: string): Changelog
 
   if (start === -1) return null;
 
+  return montarSecao(lines, start, end, wanted);
+}
+
+/** O miolo de `extractChangelogSection`, reusado pela faixa. */
+function montarSecao(
+  lines: readonly string[],
+  start: number,
+  end: number,
+  versao: string,
+): ChangelogSection {
   const bodyLines = lines.slice(start, end);
   const attention = findAttentionRange(bodyLines);
 
@@ -62,7 +72,84 @@ export function extractChangelogSection(raw: string, version: string): Changelog
     ? cleanBody(bodyLines.slice(attention.start + 1, attention.end).join("\n").trim()) || null
     : null;
 
-  return { version: wanted, body, requiresAttention };
+  return { version: versao, body, requiresAttention };
+}
+
+export interface ChangelogRange {
+  /** Da mais NOVA para a mais antiga, como o arquivo. */
+  secoes: ChangelogSection[];
+  /**
+   * Achei o cabeçalho da versão instalada no texto recebido?
+   *
+   * `false` significa "este histórico pode não alcançar a sua versão" — e a tela
+   * precisa DIZER isso. O agente da VPS manda o CHANGELOG cortado em bytes, e um
+   * corpo truncado no meio da frase é indistinguível de um corpo inteiro: sem
+   * este sinal, a tela afirmaria completude que não tem.
+   */
+  completa: boolean;
+}
+
+/**
+ * Todas as seções entre a versão-alvo e a instalada.
+ *
+ * Existe porque mostrar só a seção-alvo perde aviso: quem pula da 1.4.0 para a
+ * 1.6.0 nunca lia a 1.4.1 nem a 1.5.0 — e a 1.4.1 existia justamente para
+ * corrigir uma instrução invertida que mandava o operador apagar a conexão que
+ * estava funcionando. O contorno da época foi carregar o aviso órfão para a
+ * versão seguinte, à mão (commit ac9472c5); isto o aposenta.
+ *
+ * A seleção é POSICIONAL, não semver: o arquivo já vem do mais novo para o mais
+ * antigo, e comparar número exigiria um comparador que não existe no projeto —
+ * que tropeçaria em `v1.1.1-jmpo.1`, tag de fork que este repo carrega.
+ */
+export function extractChangelogRange(
+  raw: string,
+  alvo: string,
+  instalada: string,
+): ChangelogRange {
+  const vazio: ChangelogRange = { secoes: [], completa: false };
+  if (!raw || !alvo) return vazio;
+
+  const lines = raw.split("\n");
+  const cabs: Array<{ rotulo: string; i: number }> = [];
+  lines.forEach((linha, i) => {
+    const m = VERSION_HEADING.exec(linha);
+    if (m) cabs.push({ rotulo: normalize(m[1] ?? ""), i });
+  });
+
+  const iAlvo = cabs.findIndex((c) => c.rotulo === normalize(alvo));
+  if (iAlvo === -1) return vazio;
+
+  const iInst = cabs.findIndex((c) => c.rotulo === normalize(instalada));
+
+  // Os quatro casos são escritos um a um de propósito. Um `slice(iAlvo, iInst)`
+  // ingênuo devolve lista VAZIA quando `iInst < iAlvo`, e ainda assim diria
+  // `completa: true` — a tela ficaria sem corpo nenhum afirmando estar inteira.
+  let fim: number;
+  let completa: boolean;
+  if (iInst === -1) {
+    // Instalação fora de release (a versão é um SHA) ou texto cortado antes de
+    // alcançá-la. Mostra o que veio e admite que pode não alcançar.
+    fim = cabs.length;
+    completa = false;
+  } else if (iInst === iAlvo) {
+    return { secoes: [], completa: true }; // está em dia: nada entre as duas
+  } else if (iInst < iAlvo) {
+    // A instalada é MAIS NOVA que a alvo (rollback pendente, canal trocado).
+    // Só a seção-alvo faz sentido aqui.
+    fim = iAlvo + 1;
+    completa = true;
+  } else {
+    fim = iInst;
+    completa = true;
+  }
+
+  const secoes = cabs.slice(iAlvo, fim).map((c, k, arr) => {
+    const proximo = arr[k + 1]?.i ?? cabs[iAlvo + arr.length]?.i ?? lines.length;
+    return montarSecao(lines, c.i + 1, proximo, c.rotulo);
+  });
+
+  return { secoes, completa };
 }
 
 /**

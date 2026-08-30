@@ -186,6 +186,18 @@ beforeAll(() => {
             (organization_id, contact_id, campo, valor_proposto, expires_at)
             values (v_org, v_contact, 'email', 'rls-invariant@exemplo.test', now() + interval '7 days');
         end if;
+
+        if not exists (select 1 from public.push_subscriptions where organization_id = v_org) then
+          insert into public.push_subscriptions
+            (organization_id, user_id, endpoint, p256dh, auth)
+            values (
+              v_org,
+              case when v_org = '${ORG_A}'::uuid then '${USER_A}'::uuid else '${USER_B}'::uuid end,
+              'https://push.example.test/rls-' || v_org::text,
+              'p256dh-rls',
+              'auth-rls'
+            );
+        end if;
       end loop;
     end
     $seed$;
@@ -204,7 +216,7 @@ beforeAll(() => {
  * checagens de catálogo e devolve a org inteira do vizinho. Medido — ver o
  * cabeçalho do caso de `contact_field_proposals` abaixo.
  */
-const TABLES = [
+export const TABLES = [
   "conversations",
   "messages",
   "contacts",
@@ -223,6 +235,13 @@ const TABLES = [
   // sabotada para `... or true` a suíte seguia 31/31 verde num banco em que o vizinho
   // lia e escrevia. É o modo de falha que o aviso acima descreve, encontrado vivo.
   "org_guardrail_layers",
+  "push_subscriptions",
+  // ⚠️ `webhook_lead_captures` (migration 0174) NÃO entra nesta lista, e a
+  // ausência é deliberada: a policy dela exige `manager`, e o usuário semeado
+  // aqui é `agent` — o controle positivo falharia por ACERTO, e a "correção"
+  // natural seria afrouxar a policy para caber no molde. A prova dela vive em
+  // `tests/invariants/historico-de-captacao-rls.test.ts`, que mede as duas
+  // direções MAIS o gate de papel (o `viewer` que não lê o formulário).
 ] as const;
 
 describe("RLS tenant isolation (fn_user_org_ids pattern)", () => {

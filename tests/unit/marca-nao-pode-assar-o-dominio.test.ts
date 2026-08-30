@@ -1,6 +1,8 @@
+// @vitest-environment node
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
+import { baseDoStorage } from "@/lib/branding/logo";
 
 /**
  * O DOMÍNIO DO SUPABASE NÃO PODE SER ASSADO NO BUILD.
@@ -61,11 +63,25 @@ describe("a base do Storage vem de runtime, nunca do build", () => {
     expect(estaticos, "o Next vai assar isto com o valor do build").toEqual([]);
   });
 
-  it("o valor de runtime ainda é lido", () => {
-    // Controle positivo: um arquivo que simplesmente parasse de ler a variável
-    // passaria no caso acima e devolveria string vazia para todo mundo — sem
-    // logo nenhum, em vez de logo quebrado. Trocar um defeito por outro.
-    expect(FONTE).toMatch(/NEXT_PUBLIC_SUPABASE_URL/);
+  it("no servidor, devolve o valor que o process.env tem AGORA", () => {
+    // Controle positivo de COMPORTAMENTO, não de texto. O caso anterior era
+    // `expect(FONTE).toMatch(/NEXT_PUBLIC_SUPABASE_URL/)` e NÃO segurava o que
+    // dizia segurar: trocando o ramo do servidor por `return ""` — exatamente a
+    // sabotagem que o comentário descrevia — o teste ficava VERDE, porque o
+    // literal sobrevive na linha do NAVEGADOR (`window.__PUBLIC_ENV__?.…`), que
+    // a sabotagem não toca. O controle media o ramo errado.
+    //
+    // Medido: (a) fonte do PR → passa; (b) com `return ""` no ramo do servidor →
+    // `AssertionError: expected '' to be 'https://o-supabase-do-cliente…'`;
+    // (c) restaurado → passa.
+    const antes = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://o-supabase-do-cliente.supabase.co";
+    try {
+      expect(baseDoStorage()).toBe("https://o-supabase-do-cliente.supabase.co");
+    } finally {
+      if (antes === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+      else process.env.NEXT_PUBLIC_SUPABASE_URL = antes;
+    }
   });
 
   it("o navegador continua lendo o env injetado por requisição", () => {

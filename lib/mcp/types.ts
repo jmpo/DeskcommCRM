@@ -36,7 +36,7 @@ export interface McpToolDefinition<TInput extends z.ZodRawShape = z.ZodRawShape>
    */
   requiresScope: "mcp:read" | "mcp:write";
   handler: (
-    input: { [K in keyof TInput]: z.infer<TInput[K]> },
+    input: z.infer<z.ZodObject<TInput>>,
     ctx: McpContext,
   ) => Promise<unknown>;
 }

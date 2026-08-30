@@ -1,6 +1,7 @@
 "use client";
 import { Droppable } from "@hello-pangea/dnd";
 import type { CSSProperties } from "react";
+import { useT } from "@/hooks/i18n/useT";
 import { cn } from "@/lib/utils";
 import type { Lead } from "@/lib/types/leads";
 import type { Stage } from "@/lib/kanban/types";
@@ -52,6 +53,7 @@ export function StageColumn({
   onSelect,
   onOpen,
 }: StageColumnProps) {
+  const t = useT();
   const totalCents = leads.reduce((sum, l) => sum + (l.value_cents ?? 0), 0);
   const accentStyle: CSSProperties | undefined = stage.color
     ? { backgroundColor: stage.color }
@@ -114,7 +116,7 @@ export function StageColumn({
             {provided.placeholder}
             {leads.length === 0 && !snapshot.isDraggingOver && (
               <div className="flex h-20 items-center justify-center text-[11px] text-text-muted/70">
-                vazio
+                {t("vazio")}
               </div>
             )}
           </div>

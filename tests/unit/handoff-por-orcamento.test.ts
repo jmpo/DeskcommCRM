@@ -39,6 +39,7 @@ import {
   RESUMO_DO_HANDOFF_POR_ORCAMENTO,
   TITULO_DO_HANDOFF_POR_ORCAMENTO,
 } from "@/lib/agent-engine/agent/inbound-turn";
+import type { DesfechoDoAviso } from "@/lib/agent-engine/agent/aviso-de-escalacao";
 import { corpoDoBloqueio } from "@/lib/agent-engine/edge/llm/orcamento";
 import { LlmBudgetExceededError } from "@/lib/agent-engine/edge/llm/run-model-call";
 
@@ -68,7 +69,20 @@ function logFalso() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never;
 }
 
-function contexto(pool: unknown, log: unknown) {
+/**
+ * O AVISO AO LEAD entra como FUNÇÃO, pelo mesmo motivo do resumo: só é
+ * resolvido no caminho de erro — o caminho feliz não paga por ele.
+ *
+ * `avisoEspiao()` devolve o dublê para quem quiser medir SE e QUANDO ele foi
+ * chamado. O TEXTO do aviso não se mede aqui: tem arquivo próprio
+ * (`tests/unit/aviso-ao-lead.test.ts`), e misturá-los faria este reprovar por
+ * mudança de redação.
+ */
+function avisoEspiao() {
+  return vi.fn(async (): Promise<DesfechoDoAviso> => ({ avisado: true }));
+}
+
+function contexto(pool: unknown, log: unknown, avisarLead = avisoEspiao()) {
   return {
     pool: pool as never,
     tenantId: ORG,
@@ -78,6 +92,7 @@ function contexto(pool: unknown, log: unknown) {
     // checkpoint ter sido lido. Resolver o resumo no caminho feliz seria uma
     // query a mais por turno para um texto que quase nunca é usado.
     resumoDoCheckpoint: async () => RESUMO_DO_CHECKPOINT,
+    avisarLead,
     log: log as never,
   };
 }
@@ -176,6 +191,78 @@ describe("a escolta do orçamento", () => {
       RESUMO_DO_HANDOFF_POR_ORCAMENTO,
       "o resumo precisa dizer que o lead NÃO pediu humano — senão quem assume responde a um pedido que não houve",
     ).toMatch(/não pediu atendimento humano/iu);
+  });
+
+  it("o lead é AVISADO, e antes de a trava ser armada", async () => {
+    // O defeito que este caso fecha: a escolta devolvia a conversa à fila humana
+    // e silenciava a IA sem dizer nada a quem estava do outro lado. Do lado de
+    // fora, no WhatsApp, é a mesma coisa que não ter escolta nenhuma.
+    //
+    // A ORDEM é o que se mede, não só a chamada. `performHumanHandoff` grava
+    // `force_human = true`, e o gate 1 da cadeia de envio lê essa flag DIRETO da
+    // fonte a cada tentativa: avisar depois é avisar ninguém. Um conserto que
+    // invertesse a ordem ficaria verde num teste que só contasse a chamada.
+    const { pool, chamadas } = poolFalso();
+    const avisar = avisoEspiao();
+    let avisadoNaChamada = -1;
+    avisar.mockImplementation(async () => {
+      avisadoNaChamada = chamadas.length;
+      return { avisado: true };
+    });
+
+    await expect(
+      comHandoffSeOrcamentoAcabar(contexto(pool, logFalso(), avisar), async () => {
+        throw new LlmBudgetExceededError();
+      }),
+    ).rejects.toThrow();
+
+    expect(avisar, "escolta que silencia sem avisar é o defeito original").toHaveBeenCalledTimes(1);
+
+    const iForceHuman = chamadas.findIndex((c) => c.sql.includes("set force_human = true"));
+    expect(iForceHuman, "sem force_human não há passagem para medir a ordem contra").toBeGreaterThanOrEqual(0);
+    expect(
+      avisadoNaChamada,
+      "o aviso saiu DEPOIS de force_human — a trava que ele acabou de armar veta o envio",
+    ).toBeLessThanOrEqual(iForceHuman);
+  });
+
+  it("aviso que não chegou vira LINHA no item da Central", async () => {
+    // Falhar fechado na AÇÃO, aberto na INFORMAÇÃO: a passagem acontece de todo
+    // jeito, mas quem for assumir precisa saber que o cliente está esperando sem
+    // ter sido avisado — é o que muda a primeira frase que o atendente digita.
+    const { pool, chamadas } = poolFalso();
+    const avisar = vi.fn(async (): Promise<DesfechoDoAviso> => ({ avisado: false, porque: "outside_window" }));
+
+    await expect(
+      comHandoffSeOrcamentoAcabar(contexto(pool, logFalso(), avisar), async () => {
+        throw new LlmBudgetExceededError();
+      }),
+    ).rejects.toThrow();
+
+    const inbox = chamadas.find((c) => c.sql.includes("insert into agent_inbox_items"));
+    const corpo = String(inbox?.params?.[2] ?? "");
+    expect(corpo).toMatch(/NÃO foi avisado/u);
+    expect(corpo).toContain("outside_window");
+  });
+
+  it("aviso que falha NÃO impede a passagem", async () => {
+    // A ordem certa não pode virar dependência: se o canal cair, o cliente perde
+    // o aviso — mas não pode perder também o atendente.
+    const { pool, chamadas } = poolFalso();
+    const avisar = vi.fn(async () => {
+      throw new Error("canal fora");
+    });
+
+    await expect(
+      comHandoffSeOrcamentoAcabar(contexto(pool, logFalso(), avisar as never), async () => {
+        throw new LlmBudgetExceededError();
+      }),
+    ).rejects.toThrow();
+
+    expect(
+      chamadas.some((c) => c.sql.includes("set force_human = true")),
+      "o aviso derrubou a passagem que ele deveria só anteceder",
+    ).toBe(true);
   });
 
   it("handoff que falha deixa SUBIR o erro dele, não o de orçamento", async () => {
@@ -411,17 +498,27 @@ describe("o código morto de orçamento não volta", () => {
 describe("os textos do orçamento nomeiam botões que existem", () => {
   const fonteCabecalho = readFileSync(CABECALHO, "utf8");
 
-  /** O rótulo do botão de volta, extraído do próprio componente. */
+  /**
+   * O rótulo do botão de volta, extraído do próprio componente.
+   *
+   * Lê o ÚLTIMO `t("...")` antes de `</Button>`, não o primeiro depois do
+   * `data-testid`: o `title` do botão (tooltip com o alcance da ação, i18n
+   * também) ganhou suas próprias chamadas `t(...)` antes do texto visível, e
+   * pegar a primeira ocorrência passou a capturar o tooltip em vez do rótulo.
+   */
   function rotuloDoBotaoDeVolta(): string {
     const bloco = fonteCabecalho.slice(fonteCabecalho.indexOf('data-testid="devolver-ao-automatico"'));
-    const m = /t\("([^"]+)"\)/.exec(bloco);
-    if (m === null) {
+    const fechamento = bloco.indexOf("</Button>");
+    const corpoDoBotao = fechamento === -1 ? bloco : bloco.slice(0, fechamento);
+    const ocorrencias = [...corpoDoBotao.matchAll(/t\("([^"]+)"\)/g)];
+    const ultima = ocorrencias[ocorrencias.length - 1];
+    if (ultima === undefined) {
       throw new Error(
         "não achei o rótulo do botão de volta em ConversationHeader.tsx — o extrator perdeu o alvo. " +
           "Perder o alvo NÃO é aprovação: conserte o extrator, nunca apague o caso.",
       );
     }
-    return m[1]!;
+    return ultima[1]!;
   }
 
   it("o botão de volta existe e tem um rótulo legível (guarda de vacuidade)", () => {
@@ -448,9 +545,12 @@ describe("os textos do orçamento nomeiam botões que existem", () => {
       't("Voltar para a IA")',
     );
     expect(renomeado).not.toBe(fonteCabecalho);
-    const novo = /t\("([^"]+)"\)/.exec(
-      renomeado.slice(renomeado.indexOf('data-testid="devolver-ao-automatico"')),
-    )?.[1];
+    const blocoRenomeado = renomeado.slice(renomeado.indexOf('data-testid="devolver-ao-automatico"'));
+    const fechamentoRenomeado = blocoRenomeado.indexOf("</Button>");
+    const corpoRenomeado =
+      fechamentoRenomeado === -1 ? blocoRenomeado : blocoRenomeado.slice(0, fechamentoRenomeado);
+    const ocorrenciasRenomeadas = [...corpoRenomeado.matchAll(/t\("([^"]+)"\)/g)];
+    const novo = ocorrenciasRenomeadas[ocorrenciasRenomeadas.length - 1]?.[1];
     expect(novo).toBe("Voltar para a IA");
     expect(corpoDoBloqueio(15_000, 10_000)).not.toContain(novo as string);
   });

@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "@/hooks/i18n/useT";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/auth/AuthProvider";
 import { estadoDaJanela, formatarDecorrido } from "@/lib/channels/janela";
@@ -22,11 +23,40 @@ import { RetentionNotice } from "./RetentionNotice";
 import { CRMSidePanel } from "./CRMSidePanel";
 import type { Message as ConversationMensagem } from "@/lib/types/messaging";
 import { InboxKeyboardShortcuts } from "./InboxKeyboardShortcuts";
+import { CONVERSATION_QUEUE_STATUSES } from "@/lib/schemas";
+
 import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
-import { ChevronLeft, PanelRight } from "lucide-react";
+import { OpenConversationProvider } from "@/hooks/notifications/OpenConversationContext";
+// ADR-05: ícone de feature sai do mapa canônico, nunca do pacote direto.
+import { CaretLeft, IdentificationCard } from "@/lib/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+
+/**
+ * QUAL COLUNA APARECE NO CELULAR — as duas saem da MESMA pergunta.
+ *
+ * Abaixo do `md` só cabe uma coluna por vez, então a lista e a conversa se
+ * alternam. O defeito que esta função existe para tornar impossível é as duas
+ * decidirem por dados DIFERENTES: a lista somia com `selectedId` (o id) e a
+ * conversa aparecia com `selectedConversation` (o objeto já carregado). Entre
+ * uma coisa e a outra existe uma janela em que nenhuma das duas aparece — e
+ * essa janela tem dois casos reais no telefone:
+ *
+ *   1. o deep-link `/inbox/<id>`, enquanto a busca única ainda responde;
+ *   2. a conversa fora do acesso, que é estado PERMANENTE — e cuja mensagem
+ *      ("Conversa não encontrada") ficava escondida junto, deixando o dono
+ *      numa tela branca sem nem o botão de voltar.
+ *
+ * Com uma pergunta só, "as duas escondidas" deixa de ser representável.
+ * `md:flex` em ambas: no desktop as duas colunas convivem e a regra não vale.
+ */
+export function colunasDoCelular(temSelecao: boolean): { lista: string; conversa: string } {
+  return {
+    lista: temSelecao ? "hidden md:flex" : "flex",
+    conversa: temSelecao ? "flex" : "hidden md:flex",
+  };
+}
 
 /**
  * O QUE CADA ABA SIGNIFICA. Exportada porque é a definição em si — o defeito
@@ -36,7 +66,12 @@ import { cn } from "@/lib/utils";
 export function tabToFilter(tab: InboxFiltersValue["tab"]): Partial<ConversationsFilters> {
   switch (tab) {
     case "unassigned":
-      return { assigned_to: "unassigned", status: "open" };
+      // Os DOIS estados de espera, não só `open`. A conversa que o automático
+      // escalou é `pending` e não aparecia em aba nenhuma que o atendente vê —
+      // "Fila" pedia `open`, "Minhas" exige dono, "IA" filtra `ai_handling` e
+      // "Todas" é escondida do papel `agent` fora do modo `all`. A conversa que
+      // mais precisa de uma pessoa era a única invisível.
+      return { assigned_to: "unassigned", status: [...CONVERSATION_QUEUE_STATUSES] };
     case "mine":
       // Sem `exclude_finished` a aba mostra tudo que o atendente JÁ atendeu —
       // `Fechar` muda o status mas não solta o dono (de propósito: quem atendeu
@@ -67,6 +102,7 @@ interface InboxLayoutProps {
 }
 
 export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {}) {
+  const t = useT();
   const { activeOrg } = useAuth();
   const orgId = activeOrg?.orgId ?? null;
 
@@ -143,6 +179,8 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
   const selectionNotFound =
     needsFetch && !single.isPending && !single.data && isNotFound(single.error);
 
+  const colunas = colunasDoCelular(Boolean(selectedId));
+
   const claim = useClaimConversation();
   const close = useCloseConversation();
 
@@ -207,14 +245,14 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
   const motivoDaJanela =
     janela.tipo === "fechada"
       ? janela.fechadaHaMs === null
-        ? "O cliente ainda não escreveu — a janela de 24h nunca abriu. Só um modelo aprovado sai daqui."
-        : `A janela de 24h fechou há ${formatarDecorrido(janela.fechadaHaMs)}. Só um modelo aprovado sai daqui — texto livre é recusado pela plataforma.`
+        ? t("O cliente ainda não escreveu — a janela de 24h nunca abriu. Só um modelo aprovado sai daqui.")
+        : `${t("A janela de 24h fechou há")} ${formatarDecorrido(janela.fechadaHaMs)}. ${t("Só um modelo aprovado sai daqui — texto livre é recusado pela plataforma.")}`
       : null;
 
   const blockedReason = selectedConversation?.contacts?.is_blocked
-    ? "Contato bloqueado — envio de mensagens desabilitado."
+    ? t("Contato bloqueado — envio de mensagens desabilitado.")
     : selectedConversation?.contacts?.is_anonymized
-      ? "Contato anonimizado — não é possível enviar mensagens."
+      ? t("Contato anonimizado — não é possível enviar mensagens.")
       : null;
 
   // Altura da grade: a conta desconta TUDO que fica acima e abaixo dela.
@@ -255,7 +293,32 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
   // piso do composer (370px), em vez dos 2px que a versão de uma faixa só
   // deixava. Margem de 2px não é margem, é sorte.
   return (
-    <div className="grid h-[calc(100dvh-3.5rem-2*var(--space-6))] w-full grid-cols-1 md:grid-cols-[300px_1fr] xl:grid-cols-[272px_1fr_296px] 2xl:grid-cols-[300px_1fr_320px]">
+    <OpenConversationProvider conversationId={selectedId}>
+    <div
+      className="grid h-[calc(100dvh-3.5rem-2*var(--space-6))] w-full grid-cols-1 md:grid-cols-[300px_1fr] xl:grid-cols-[272px_1fr_296px] 2xl:grid-cols-[300px_1fr_320px]"
+      /*
+       * O ESTADO DO TEMPO REAL, LEGÍVEL DE FORA — mesmo par que o dossiê do lead
+       * já publica (`LeadDossier`), e pela mesma razão: quando a entrega morre,
+       * nenhuma tela avisa. Foi o único achado que atravessou o dia intacto
+       * quando o realtime quebrou pela primeira vez, e voltou a morder agora.
+       *
+       * `divergencias` é o que a rede de segurança contou: refetch trouxe estado
+       * novo que o canal NÃO tinha entregue. Zero com o canal vivo; subindo é a
+       * assinatura de canal que assina e não entrega — o defeito que não grita.
+       *
+       * ⚠️ `data-realtime-status` vem do STATUS do canal, não de um objeto que
+       * existe sempre. A primeira versão desta linha derivava o valor de
+       * `listQ.seguranca`, que nunca é nulo — ela diria `ativo` inclusive com o
+       * canal morto. Controle decorativo é pior que controle nenhum: mente com
+       * cara de instrumento.
+       *
+       * Atributo de dado e não texto na tela de propósito: quem lê isto é o
+       * teste e quem depura, não o atendente. Pôr um aviso permanente na cara de
+       * quem atende seria ruído; esconder o sinal do todo é o que custou o dia.
+       */
+      data-realtime-status={listQ.realtimeStatus}
+      data-refetch-divergencias={listQ.seguranca?.divergencias ?? 0}
+    >
       {/*
         NO CELULAR, UMA COISA POR VEZ.
 
@@ -272,14 +335,14 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
       <div
         className={cn(
           "h-full min-h-0 flex-col border-r border-border md:flex",
-          selectedId ? "hidden" : "flex",
+          colunas.lista,
         )}
       >
         <InboxFilters value={filterValue} onChange={setFilterValue} />
         <div className="min-h-0 flex-1 overflow-hidden">
           <ConversationList
+            listQuery={listQ}
             filters={filters}
-            orgId={orgId}
             selectedId={selectedId}
             onSelect={handleSelect}
             clientFilter={clientFilter}
@@ -288,49 +351,60 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
         </div>
       </div>
 
+      {/*
+        AS DUAS COLUNAS DECIDEM PELO MESMO DADO — `selectedId`, não o objeto.
+
+        A da lista some quando há `selectedId`; se esta aparecesse só quando a
+        conversa já está CARREGADA, a janela entre as duas coisas não mostra
+        nenhuma das colunas. No celular isso é a tela em branco, e ela tem dois
+        casos reais: o instante do deep-link `/inbox/<id>`, enquanto a busca
+        única ainda responde; e o estado permanente de conversa fora do acesso,
+        cuja mensagem ("Conversa não encontrada") é justamente o que ficava
+        escondido — deixando o dono numa tela vazia, sem sequer o botão de
+        voltar, porque ele morava dentro do ramo da conversa carregada.
+      */}
       <div
         className={cn(
           "h-full min-h-0 flex-col md:flex",
-          selectedConversation ? "flex" : "hidden md:flex",
+          colunas.conversa,
         )}
       >
-        {selectedConversation ? (
-          <>
-            {/*
-              A barra que só existe no celular: o caminho de VOLTA e a porta
-              para a ficha.
-
-              Sem o voltar, quem abre uma conversa no telefone fica preso nela —
-              a lista está escondida e não há gesto que a traga. E a ficha do
-              contato mora numa coluna que só aparece a partir do `xl`, então no
-              telefone ela seria inalcançável; aqui ela vira painel deslizante,
-              com o mesmo componente da coluna (nada de uma segunda versão que
-              diverge na primeira mudança).
-            */}
-            <div className="flex items-center gap-1 border-b border-border px-1 py-1 md:hidden">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-9 gap-1 px-2"
-                onClick={() => handleSelect(null)}
-              >
-                <ChevronLeft className="size-4" />
-                Conversas
-              </Button>
-              <div className="flex-1" />
+        {/*
+          A barra do celular vive FORA do ramo da conversa carregada: o caminho
+          de volta tem de existir inclusive quando não há o que mostrar — é aí
+          que ele é a única saída. A porta da ficha, essa sim, depende da
+          conversa, e só aparece quando há uma.
+        */}
+        {selectedId && (
+          <div className="flex items-center gap-1 border-b border-border px-1 py-1 md:hidden">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 gap-1 px-2"
+              onClick={() => handleSelect(null)}
+            >
+              <CaretLeft size={16} />
+              {t("Conversas")}
+            </Button>
+            <div className="flex-1" />
+            {selectedConversation && (
               <Sheet open={fichaAberta} onOpenChange={setFichaAberta}>
                 <SheetTrigger asChild>
                   <Button variant="ghost" size="sm" className="h-9 gap-1 px-2 xl:hidden">
-                    <PanelRight className="size-4" />
-                    Ficha
+                    <IdentificationCard size={16} />
+                    {t("Ficha")}
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="right" className="w-[min(22rem,90vw)] overflow-y-auto p-0">
-                  <SheetTitle className="sr-only">Ficha do contato</SheetTitle>
+                  <SheetTitle className="sr-only">{t("Ficha do contato")}</SheetTitle>
                   <CRMSidePanel conversation={selectedConversation} />
                 </SheetContent>
               </Sheet>
-            </div>
+            )}
+          </div>
+        )}
+        {selectedConversation ? (
+          <>
             <ConversationHeader conversation={selectedConversation} />
             <div className="min-h-0 flex-1 overflow-hidden">
               <ChatThread conversationId={selectedConversation.id} onResponder={setRespondendo} />
@@ -357,11 +431,11 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
           </>
         ) : selectionNotFound ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-            Conversa não encontrada ou fora do seu acesso.
+            {t("Conversa não encontrada ou fora do seu acesso.")}
           </div>
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            Selecione uma conversa
+            {t("Selecione uma conversa")}
           </div>
         )}
       </div>
@@ -381,5 +455,6 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
       />
       <ShortcutsHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
+    </OpenConversationProvider>
   );
 }

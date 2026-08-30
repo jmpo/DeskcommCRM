@@ -8,7 +8,7 @@ import { type NextRequest } from "next/server";
 import { audit } from "@/lib/audit";
 import { fail, noContent } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
-import { ROLE_RANK } from "@/lib/auth/types";
+import { roleAtLeast } from "@/lib/auth/types";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams): Promis
     .maybeSingle();
   if (!note) return fail("not_found", "Nota não encontrada.", 404, { requestId });
 
-  if (note.created_by_user_id !== user.id && ROLE_RANK[org.role] < ROLE_RANK.manager) {
+  if (note.created_by_user_id !== user.id && !roleAtLeast(org.role, "manager")) {
     return fail("forbidden", "Só o autor ou manager+ pode apagar esta nota.", 403, { requestId });
   }
 

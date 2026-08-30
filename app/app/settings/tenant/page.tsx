@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
+import { traduzir } from "@/lib/i18n/dicionario";
 import { createClient } from "@/lib/supabase/server";
 import { TenantForm } from "./_form";
 
@@ -41,13 +42,14 @@ export default async function TenantSettingsPage() {
     (row?.settings && Array.isArray((row.settings as { lost_reasons_extra?: unknown }).lost_reasons_extra)
       ? ((row.settings as { lost_reasons_extra?: string[] }).lost_reasons_extra ?? [])
       : []) as string[];
+  const idioma = user.idioma;
 
   return (
     <div className="flex h-full flex-col gap-6 p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Organização</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{traduzir("Organização", idioma)}</h1>
         <p className="text-sm text-muted-foreground">
-          Dados da empresa, retenção de mídia, DPO. Admin only.
+          {traduzir("Dados da empresa, retenção de mídia, DPO. Admin only.", idioma)}
         </p>
       </header>
       {row && (

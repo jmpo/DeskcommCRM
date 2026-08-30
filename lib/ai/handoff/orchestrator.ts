@@ -24,6 +24,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logger } from "@/lib/logger";
 
+import { avisarLeadDoCrm } from "./aviso-ao-lead";
+
 export type HandoffReason =
   | "requested_human"
   | "low_sentiment"
@@ -70,7 +72,7 @@ export async function triggerHandoff(
     // paralelo. Skip silenciosamente.
     const { data: convNow } = await admin
       .from("conversations")
-      .select("id, organization_id, last_handoff_at, last_handoff_reason")
+      .select("id, organization_id, contact_id, last_handoff_at, last_handoff_reason")
       .eq("id", input.conversationId)
       .eq("organization_id", input.organizationId)
       .maybeSingle();
@@ -95,6 +97,27 @@ export async function triggerHandoff(
     }
 
     const nowIso = new Date().toISOString();
+
+    // Step 0 — AVISA O LEAD. Antes de tudo, e este é o passo que faltava.
+    //
+    // Medido em produção (conversa `b934ba2d`, 2026-08-26): o agente PERGUNTOU o
+    // e-mail do cliente, o worker de sentimento disparou este caminho entre a
+    // pergunta e a resposta, e o cliente respondeu para o vazio. A passagem
+    // funcionava; a pessoa do outro lado é que não existia para o código.
+    //
+    // Precisa do `contact_id` — é a semente da variante do texto. Sem ele
+    // (conversa órfã, que a UI não mostra) seguimos sem avisar: o handoff é mais
+    // importante que o aviso, e a falta vira linha no item da Central abaixo.
+    const contactId = (convNow as unknown as { contact_id?: string | null }).contact_id ?? null;
+    const aviso =
+      contactId === null
+        ? { avisado: false, porque: "conversa_sem_contato" }
+        : await avisarLeadDoCrm(admin, {
+            organizationId: input.organizationId,
+            conversationId: input.conversationId,
+            contactId,
+            reason: input.reason,
+          });
 
     // Step 1 — flip conversation to pending + silence bot indefinitely.
     // We use 'infinity' (Postgres timestamp special) so any later comparison
@@ -208,6 +231,65 @@ export async function triggerHandoff(
         conversation_id: input.conversationId,
         error: auditErr.message,
       });
+    }
+
+    // Step 6 — o aviso na CENTRAL, para uma pessoa de verdade puxar a conversa.
+    //
+    // Faltava, e a falta era grave: este motor devolvia a conversa à fila
+    // (`status='pending'`) e silenciava a IA, mas não abria item nenhum em
+    // `agent_inbox_items` — só `performHumanHandoff` abria. O resultado é o
+    // invariante 4 do Sistema Vivo quebrado nos dois sentidos ao mesmo tempo: o
+    // cliente sem resposta E o time sem sinal de que havia alguém esperando.
+    //
+    // Dedup por episódio ABERTO, o mesmo padrão do irmão do motor: dois
+    // gatilhos disparando na mesma conversa (sentimento + termo jurídico, por
+    // exemplo) rendem UM item, não dois.
+    //
+    // A chave do dedup é a MESMA de `performHumanHandoff`
+    // (`kind='handoff'`, `ref_kind='contact'`, `ref_id=<contato>`, `status='open'`),
+    // de propósito: assim os DOIS motores deduplicam um contra o outro, e uma
+    // conversa escalada por sentimento e depois por pedido explícito não vira
+    // dois avisos para a mesma pessoa.
+    if (contactId !== null) {
+      try {
+        const { data: aberto } = await admin
+          .from("agent_inbox_items")
+          .select("id")
+          .eq("organization_id", input.organizationId)
+          .eq("kind", "handoff")
+          .eq("ref_kind", "contact")
+          .eq("ref_id", contactId)
+          .eq("status", "open")
+          .limit(1)
+          .maybeSingle();
+        if (!aberto) {
+          const { error: inboxErr } = await admin.from("agent_inbox_items").insert({
+            organization_id: input.organizationId,
+            kind: "handoff",
+            severity: "critical",
+            title: "Atendimento automático parou — assumir a conversa",
+            body:
+              `Motivo: ${input.reason}. ` +
+              (aviso.avisado
+                ? "O cliente JÁ FOI avisado de que uma pessoa vai assumir."
+                : `⚠️ O cliente NÃO foi avisado (${aviso.porque ?? "motivo desconhecido"}) — ele está esperando sem saber.`),
+            ref_kind: "contact",
+            ref_id: contactId,
+          });
+          if (inboxErr) {
+            logger.warn("[handoff-orchestrator] inbox item insert failed", {
+              conversation_id: input.conversationId,
+              error: inboxErr.message,
+            });
+          }
+        }
+      } catch (err) {
+        // Fire-and-forget como os passos 2..5: o aviso é o alerta, não a ação.
+        logger.warn("[handoff-orchestrator] inbox item skipped", {
+          conversation_id: input.conversationId,
+          error: err instanceof Error ? err.message.slice(0, 200) : String(err),
+        });
+      }
     }
 
     return { triggered: true, reason: input.reason };

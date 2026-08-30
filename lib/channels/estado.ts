@@ -83,8 +83,11 @@ export function lerEstadoDoCanal(status: string | null | undefined): LeituraDoEs
 }
 
 /** Só o rótulo — o caso mais comum na tela. */
-export function rotuloDoEstadoDoCanal(status: string | null | undefined): string {
-  return lerEstadoDoCanal(status).rotulo;
+export function rotuloDoEstadoDoCanal(
+  status: string | null | undefined,
+  t: (texto: string) => string = (texto) => texto,
+): string {
+  return t(lerEstadoDoCanal(status).rotulo);
 }
 
 /**

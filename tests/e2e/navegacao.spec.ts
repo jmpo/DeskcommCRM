@@ -53,7 +53,16 @@ const sidebar = (page: Page) => page.getByRole("navigation", { name: "Navegaçã
 
 async function expectSemOverflowHorizontal(page: Page, contexto: string): Promise<void> {
   const m = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
+    // ⚠️ `body.scrollWidth`, NÃO `documentElement`. `app/globals.css` põe
+    // `overflow-x: hidden` em `html` E em `body` (linhas 422 e 440), e sob isso
+    // o `scrollWidth` do `documentElement` é GRAMPEADO no `clientWidth`: a
+    // conta dá zero mesmo com um filho de 3000px dentro. Medido com o chromium
+    // do repo, viewport 390x844, filho de 3000px — `visible` → 2610,
+    // `hidden` → 0, e `body.scrollWidth` = 3000 nos DOIS casos.
+    //
+    // A asserção existia e era incapaz de falhar. Trocar a medida é o conserto;
+    // o caso de sabotagem ao lado é o que prova que a nova consegue.
+    scrollWidth: document.body.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
   }));
 

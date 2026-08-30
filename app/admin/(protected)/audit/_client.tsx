@@ -7,8 +7,10 @@ import {
   AuditTable,
   AuditTableSkeleton,
 } from "@/components/admin/audit/AuditTable";
+import { useT } from "@/hooks/i18n/useT";
 
 export function AuditClient() {
+  const t = useT();
   const [filters, setFilters] = useState<AdminAuditFilters>({});
 
   // Load tenants for the multi-select (up to 200)
@@ -29,11 +31,11 @@ export function AuditClient() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Audit Log</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("Audit Log")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
           {isLoading
-            ? "Carregando..."
-            : `${total} evento${total !== 1 ? "s" : ""}${hasNextPage ? "+" : ""}`}
+            ? t("Carregando...")
+            : `${total} ${total !== 1 ? t("eventos") : t("evento")}${hasNextPage ? "+" : ""}`}
         </p>
       </div>
 

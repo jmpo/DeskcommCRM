@@ -293,6 +293,55 @@ export function LgpdExportPdf({ data, unsignedWarning }: Props): React.ReactElem
           </View>
         ) : null}
 
+        {/* Agenda — vai no PDF, e não só no JSON, porque é a substância legível
+            do Art. 18 II: "houve consulta no dia tal, sobre isto". `activities`
+            fica só no JSON de propósito (type/source_module é telemetria); um
+            compromisso, não. */}
+        {data.appointments.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Agenda — Compromissos</Text>
+            {data.appointments.map((c) => (
+              <View key={c.id} style={styles.itemBlock}>
+                <Text>
+                  {c.title ?? "(sem título)"} · {c.status}
+                  {c.location_details ? ` · ${c.location_details}` : ""}
+                </Text>
+                <Text style={styles.small}>
+                  {fmtDate(c.starts_at)} até {fmtDate(c.ends_at)} ({c.time_zone})
+                </Text>
+                {c.description ? <Text style={styles.small}>{c.description}</Text> : null}
+                {c.notes ? <Text style={styles.small}>Anotação: {c.notes}</Text> : null}
+                {c.cancellation_reason ? (
+                  <Text style={styles.small}>Cancelado: {c.cancellation_reason}</Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {/* Captação — de onde a pessoa veio. Entra no PDF porque `remote_ip`,
+            `user_agent` e `utm` são dados que a organização guarda A RESPEITO
+            dela e que ela raramente imagina que existem. */}
+        {data.webhook_captures.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Como seus dados chegaram até nós</Text>
+            {data.webhook_captures.map((c) => (
+              <View key={c.id} style={styles.itemBlock}>
+                <Text>
+                  {c.source_name ?? "(origem não identificada)"} · {c.outcome}
+                </Text>
+                <Text style={styles.small}>
+                  Recebido em {fmtDate(c.received_at)}
+                  {c.remote_ip ? ` · IP ${c.remote_ip}` : ""}
+                </Text>
+                {c.user_agent ? (
+                  <Text style={styles.small}>Navegador: {c.user_agent.slice(0, 160)}</Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         {/* Audit */}
         {data.audit_log_extract.length > 0 ? (
           <View style={styles.section}>

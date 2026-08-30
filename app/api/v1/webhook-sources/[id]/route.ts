@@ -70,7 +70,7 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
       if (enc === null) {
         return fail(
           "encryption_unavailable",
-          "Não foi possível guardar o segredo com segurança. Configure NUVEMSHOP_OAUTH_ENCRYPTION_KEY (chave de cifra do banco) e tente de novo.",
+          "Não foi possível guardar o segredo com segurança: a chave de cifra desta instalação não está ativa. Quem administra o servidor resolve rodando o update.sh, que gera e ativa a chave.",
           422,
           { requestId },
         );

@@ -132,8 +132,10 @@ Zero é indistinguível de "está tudo em ordem".
 
 - `supabase/migrations/20260807120000_0126_ai_purpose_bindings.sql` + apêndice
   idempotente no `baseline.sql` + linha no `MANIFEST.md` (a tripla).
-- `lib/ai/pontos/resolver.ts` — a ordem entre as quatro origens que podem
-  decidir o modelo de um ponto, com a **origem devolvida junto do valor**.
+- `lib/ai/pontos/resolver.ts` — a ordem entre as origens que podem decidir o
+  modelo de um ponto, com a **origem devolvida junto do valor**. Para ver
+  quantas são hoje sem confiar nesta linha:
+  `grep -A8 'export type OrigemDaEscolha' lib/ai/pontos/resolver.ts`.
 - `tests/unit/pontos-de-ia-resolver.test.ts` (21 testes) e
   `tests/invariants/ai-purpose-bindings.test.ts` (8 testes).
 
@@ -145,7 +147,13 @@ Zero é indistinguível de "está tudo em ordem".
 2. **Binding do painel** — os outros 21 pontos.
 3. **Variável de ambiente** — os sete knobs herdados. Continuam valendo para
    quem já os usa, mas perdem para quem clicou depois.
-4. **Padrão da organização** (`organizations.settings.llm`).
+4. **Herança de quem chamou** — o ponto auxiliar sem modelo próprio empresta
+   provider, credencial e modelo do agente publicado (ou do roteador), os três
+   JUNTOS. Este degrau faltava, e a falta reintroduziu o PR #151: medido em
+   produção em 2026-08-25, `stage_classifier` saía com `provider: openai` e
+   `model: claude-sonnet-4-5`, 400 `modelo_inexistente`, e o turno morria antes
+   de o cliente receber resposta.
+5. **Padrão da organização** (`organizations.settings.llm`).
 
 **Prova do baseline** (Postgres 17 local, não Docker — ver bloqueio B1):
 

@@ -48,9 +48,20 @@ export const canonicalConversationTagsSchema = z
 export type CanonicalConversationTags = z.infer<typeof canonicalConversationTagsSchema>;
 export type Locale = (typeof LOCALES)[number];
 
+/**
+ * "Sigo minha empresa" — a ausência de preferência, com um valor para ela.
+ *
+ * Sem isto, quem abrisse o perfil por qualquer motivo (trocar o fuso, o nome)
+ * sairia de lá com uma preferência de idioma que nunca escolheu: o seletor
+ * mostraria o idioma em vigor e o salvar o gravaria como decisão pessoal. A
+ * partir daí, trocar o idioma da empresa não alcançaria mais essa pessoa — e
+ * ninguém entenderia por quê.
+ */
+export const SEM_PREFERENCIA_DE_IDIOMA = "auto";
+
 export const profileSchema = z.object({
   full_name: z.string().min(1).max(120).nullable().optional(),
-  locale: z.enum(LOCALES),
+  locale: z.enum([...LOCALES, SEM_PREFERENCIA_DE_IDIOMA]),
   timezone: z.string().min(1).max(64),
   avatar_url: z
     .string()
@@ -111,7 +122,7 @@ export const notificationPrefsSchema = z.object({
 });
 export type NotificationPrefsInput = z.infer<typeof notificationPrefsSchema>;
 
-const customFieldSchema = z.object({
+export const customFieldSchema = z.object({
   key: z
     .string()
     .min(1)
@@ -135,6 +146,7 @@ const customFieldSchema = z.object({
     .array(z.object({ value: z.string().min(1), label: z.string().min(1) }))
     .optional(),
 });
+export type CustomFieldDef = z.infer<typeof customFieldSchema>;
 
 export const pipelineConfigPatchSchema = z.object({
   vocabulary: z

@@ -36,6 +36,7 @@ const OWN_SESSION = "ffffffff-2222-4000-8000-000000000001";
 const OWN_CONTACT = "ffffffff-3333-4000-8000-000000000001";
 const OWN_CONV_UNASSIGNED = "ffffffff-4444-4000-8000-000000000001";
 const GOV_MSG_AGENT_B = "ffffffff-7777-4000-8000-000000000001";
+const GOV_CAE_AGENT_B = "ffffffff-8888-4000-8000-000000000001";
 
 beforeAll(() => {
   seedGov();
@@ -46,6 +47,22 @@ beforeAll(() => {
     values
       ('${GOV_MSG_AGENT_B}', '${GOV_ORG}', '${GOV_CONV_AGENT_B}', '${GOV_SESSION}', '${GOV_CONTACT_2}',
        'text', 'inbound', 'gov invariant probe')
+    on conflict (id) do nothing;
+
+    -- 1 linha de auditoria de atribuição na MESMA conversa (probe de herança
+    -- conversation_assignment_events <- conversation, migration 0173). Antes dela
+    -- a policy cae_select era membership de org PURA: quem não enxergava a
+    -- conversa lia a auditoria dela -- e a tabela vive no schema public, logo o
+    -- furo era alcançável pelo PostgREST com a anon key + o JWT do usuário, sem
+    -- depender de rota nossa.
+    -- (Sem crase neste comentário de propósito: ele mora DENTRO de um template
+    -- literal, e uma crase aqui fecha a string — o parser reclama 40 linhas
+    -- depois, num lugar que não tem nada a ver.)
+    insert into public.conversation_assignment_events
+      (id, organization_id, conversation_id, from_user_id, to_user_id, changed_by, reason)
+    values
+      ('${GOV_CAE_AGENT_B}', '${GOV_ORG}', '${GOV_CONV_AGENT_B}', null,
+       '${GOV_AGENT_B}', '${GOV_AGENT_B}', 'claim')
     on conflict (id) do nothing;
 
     -- Org dedicada em modo 'own' (fila NÃO conta): agent A é membro, 1 conversa
@@ -129,6 +146,38 @@ describe("eixo 5 — escopo de visualização", () => {
       countAs(
         GOV_AGENT_B,
         `select count(*) from public.messages where id = '${GOV_MSG_AGENT_B}';`,
+      ),
+    ).toBe(1);
+  });
+
+  it("histórico de atribuição herda o escopo: agent A NÃO lê a auditoria de conversa fora do escopo", () => {
+    expect(
+      countAs(
+        GOV_AGENT_A,
+        `select count(*) from public.conversation_assignment_events
+           where id = '${GOV_CAE_AGENT_B}';`,
+      ),
+    ).toBe(0);
+  });
+
+  it("histórico de atribuição herda o escopo: agent B lê a auditoria da própria conversa", () => {
+    // O controle do caso anterior. Sem ele, um 0 não distingue "policy herdando o
+    // escopo" de "a linha não foi semeada".
+    expect(
+      countAs(
+        GOV_AGENT_B,
+        `select count(*) from public.conversation_assignment_events
+           where id = '${GOV_CAE_AGENT_B}';`,
+      ),
+    ).toBe(1);
+  });
+
+  it("histórico de atribuição herda o escopo: manager lê org-wide", () => {
+    expect(
+      countAs(
+        GOV_MANAGER,
+        `select count(*) from public.conversation_assignment_events
+           where id = '${GOV_CAE_AGENT_B}';`,
       ),
     ).toBe(1);
   });

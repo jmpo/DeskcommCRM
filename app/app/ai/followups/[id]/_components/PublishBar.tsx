@@ -25,6 +25,7 @@ import {
   type FollowupFlowDetailRow,
 } from "@/hooks/followup/useFollowupFlow";
 import { FlowStatusBadge } from "../../_components/FlowStatusBadge";
+import { DeleteFollowupFlowButton } from "../../_components/DeleteFollowupFlowButton";
 import { TriggerConfigControl } from "./TriggerConfigControl";
 
 interface Props {
@@ -75,7 +76,7 @@ export function PublishBar({ flowId, flow, graph, dirty, onSaved, onPublishError
             else flowLevel.push(e.message);
           }
           onPublishErrors(byNode);
-          toast.error("Fluxo reprovado na validação — corrija os nós destacados.", {
+          toast.error(t("Fluxo reprovado na validação — corrija os nós destacados."), {
             description: flowLevel.length > 0 ? flowLevel.join(" ") : undefined,
           });
           return;
@@ -102,7 +103,7 @@ export function PublishBar({ flowId, flow, graph, dirty, onSaved, onPublishError
         <FlowStatusBadge status={flow.status} />
         {dirty && (
           <Badge variant="warning" data-testid="dirty-indicator">
-            Alterações não salvas
+            {t("Alterações não salvas")}
           </Badge>
         )}
       </div>
@@ -111,13 +112,13 @@ export function PublishBar({ flowId, flow, graph, dirty, onSaved, onPublishError
         <TriggerConfigControl flowId={flowId} triggerConfig={flow.trigger_config} />
 
         <Select value={flow.handoff_policy} onValueChange={(v) => handoffPolicy.mutate(v as FollowupFlowDetailRow["handoff_policy"])}>
-          <SelectTrigger className="w-56" aria-label="Política de handoff">
+          <SelectTrigger className="w-56" aria-label={t("Política de handoff")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {(Object.keys(HANDOFF_LABEL) as Array<keyof typeof HANDOFF_LABEL>).map((k) => (
               <SelectItem key={k} value={k}>
-                {HANDOFF_LABEL[k]}
+                {t(HANDOFF_LABEL[k])}
               </SelectItem>
             ))}
           </SelectContent>
@@ -148,6 +149,7 @@ export function PublishBar({ flowId, flow, graph, dirty, onSaved, onPublishError
         >
           {t("Rollback")}
         </Button>
+        <DeleteFollowupFlowButton flowId={flowId} flowName={flow.name} redirectToList />
       </div>
     </div>
   );

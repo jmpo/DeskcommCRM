@@ -20,8 +20,40 @@ import { entraPorPacote, type ToolBundle, type ToolRisk } from "./pacotes";
  * argumento). `lib/ai/agents/validation.ts` importa daqui para que o número
  * exista em UM lugar — o mesmo teto que a tela mostra é o que o servidor
  * recusa.
+ *
+ * ═══ Por que 25, e não mais os 20 de antes ══════════════════════════════════
+ *
+ * O dono do produto abriu "O que o agente pode fazer" na v1.7.0 e leu
+ * "20 de 20 capacidades ligadas. Limite atingido." As capacidades de agenda
+ * estavam ali, DESLIGADAS, e não havia como ligá-las: a tela desabilita todo
+ * checkbox não marcado quando cheio, e o pacote inteiro é recusado por falta de
+ * vaga. O agente dele é ANTERIOR à agenda (o catálogo dela nasceu em
+ * 2026-08-26) e `tool_ids` é snapshot congelado por versão — nada o re-deriva.
+ *
+ * O que a medição diz, e é ela que autoriza subir:
+ *
+ *  - o teto NÃO é limite de provider. Varredura por `provider|anthropic|openai`
+ *    junto da constante: zero. O único argumento escrito é a heurística de
+ *    qualidade de escolha do modelo, e ela não está medida em lugar nenhum
+ *    deste repo (nem em docs/adr, nem em docs/specs, nem em docs/doctrine);
+ *  - o modelo JÁ recebe mais que 20. O turno monta 12 ferramentas nativas
+ *    além das do catálogo, então o prompt de um agente cheio sempre teve 32
+ *    definições, não 20. O número nunca foi o que a heurística media;
+ *  - o catálogo cresceu de 51 para 57. Só `vender` consome 17, e a partir do
+ *    default de hoje NENHUM segundo pacote cabia: evoluir exigia 21, reter 22,
+ *    escalar 28, atender 30, organizar 32.
+ *
+ * 25 é o MENOR passo que resolve: dá a um agente cheio as 5 vagas da família de
+ * agenda e mantém `vender` inteiro com folga real. Não é número redondo
+ * escolhido no olho — subir mais seria apostar contra um argumento que continua
+ * de pé só porque ninguém o mediu.
+ *
+ * ⚠️ O QUE FALTA, e é honesto dizer: não há instrumento para observar a
+ * degradação que a heurística prevê. O lugar de observá-la é
+ * `app/api/v1/ai/agents/[id]/tool-usage` e o log de invocação do run, com
+ * "ferramenta errada escolhida" como sinal. Quem for subir de novo mede antes.
  */
-export const TETO_TOOLS_POR_AGENTE = 20;
+export const TETO_TOOLS_POR_AGENTE = 25;
 
 /** O mínimo que a regra precisa saber de uma capacidade. */
 export interface CapacidadeSelecionavel {
@@ -176,12 +208,13 @@ export function excedeuTeto(selecionadas: ReadonlyArray<string>): boolean {
 export function textoDaContagem(
   totalDoPacote: number,
   ligadas: number,
+  t: (texto: string) => string = (texto) => texto,
 ): string {
-  if (totalDoPacote === 0) return "Nenhuma capacidade disponível ainda para esta jornada.";
+  if (totalDoPacote === 0) return t("Nenhuma capacidade disponível ainda para esta jornada.");
   // O particípio concorda junto com o substantivo. Separá-los deixava
   // "1 de 1 capacidade ligadas" — latente hoje (o menor pacote tem 2), visível
   // no dia em que um pacote ficar com uma só, inclusive num fork que remova
   // capacidades.
-  const trecho = totalDoPacote === 1 ? "capacidade ligada" : "capacidades ligadas";
-  return `${ligadas} de ${totalDoPacote} ${trecho}`;
+  const trecho = totalDoPacote === 1 ? t("capacidade ligada") : t("capacidades ligadas");
+  return `${ligadas} ${t("de")} ${totalDoPacote} ${trecho}`;
 }

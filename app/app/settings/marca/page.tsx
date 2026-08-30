@@ -35,6 +35,7 @@ import { marcaDaInstalacao } from "@/lib/branding/instalacao";
 import { marcaDaOrganizacaoDeSettings } from "@/lib/branding/organizacao";
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 import { FormularioDaMarcaDaOrganizacao } from "./_form";
 
@@ -62,13 +63,14 @@ export default async function MarcaDaOrganizacaoPage() {
 
   const gravada = marcaDaOrganizacaoDeSettings(data?.settings ?? null);
   const linha = await marcaDaInstalacao();
+  const idioma = user.idioma;
 
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Marca</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{traduzir("Marca", idioma)}</h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
-          O nome e a cor que a sua empresa mostra para quem trabalha aqui dentro.
+          {traduzir("O nome e a cor que a sua empresa mostra para quem trabalha aqui dentro.", idioma)}
         </p>
       </header>
 

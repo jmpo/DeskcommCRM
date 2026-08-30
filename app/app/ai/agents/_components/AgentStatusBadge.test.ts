@@ -12,30 +12,45 @@ const base = {
 } as unknown as AgentRow;
 
 describe("deriveAgentStatus", () => {
-  it("sem versão publicada é RASCUNHO, mesmo ativo", () => {
-    // O defeito de origem: o agente criado no onboarding (rag_bot, ativo, sem
-    // versão) aparecia como "Publicado" enquanto os dois runtimes o ignoram —
-    // ambos resolvem o agente por join com ai_agent_versions.
-    expect(deriveAgentStatus({ ...base, is_active: true, published_version_id: null })).toBe("draft");
+  it("mcp_agent sem versão publicada é RASCUNHO — a config dele vive na versão", () => {
+    // O defeito de origem: o agente do onboarding aparecia como "Publicado"
+    // enquanto nenhum runtime o executava. `createDefaultAgent.ts` grava
+    // `kind: "mcp_agent"`, e um mcp_agent sem ponteiro não é executável por
+    // motor nenhum — prompt, tools, funis e guardrails moram em
+    // `ai_agent_versions`. Este é o caso que aquele conserto protegia, e ele
+    // continua protegido.
     expect(deriveAgentStatus({ ...base, kind: "mcp_agent", published_version_id: null } as AgentRow)).toBe("draft");
+  });
+
+  it("rag_bot legado ATIVO e sem versão é PUBLICADO — porque ele responde ao cliente", () => {
+    // Este caso dizia "draft", com a justificativa de que "os dois runtimes o
+    // ignoram". MEDIDO como falso: existe um terceiro runtime,
+    // `workers/ai-response-worker.ts`, que seleciona exatamente por
+    // `is_active` e responde ao cliente por ele — ver
+    // `tests/unit/agente-pausado-nao-atende.test.ts`, caso "rag_bot legado
+    // ATIVO e nunca publicado continua atendendo", onde a requisição sai para
+    // api.anthropic.com. A tela chamava de "Rascunho" um agente no ar.
+    expect(deriveAgentStatus({ ...base, is_active: true, published_version_id: null })).toBe("published");
+  });
+
+  it("rag_bot legado DESATIVADO e sem versão é RASCUNHO", () => {
+    expect(deriveAgentStatus({ ...base, is_active: false, published_version_id: null })).toBe("draft");
   });
 
   it("com versão publicada e ativo é PUBLICADO", () => {
     expect(deriveAgentStatus({ ...base, published_version_id: "v1" } as AgentRow)).toBe("published");
   });
 
-  it("com versão publicada e inativo é PAUSADO (rag_bot legado)", () => {
-    expect(deriveAgentStatus({ ...base, published_version_id: "v1", is_active: false } as AgentRow)).toBe("paused");
-  });
-
-  it("mcp_agent publicado é PUBLICADO mesmo com is_active false", () => {
-    // `is_active` é semântica do rag_bot legado. Para mcp_agent os dois runtimes
-    // (lib/ai/dispatcher e lib/agent-engine/agent/agent-config) resolvem o agente
-    // só por published_version_id + archived_at — nenhum dos dois lê is_active.
-    // Lendo a coluna aqui, o badge dizia "Pausado" para um agente que está no ar,
-    // e o menu não oferecia saída: "Despausar" fica disabled para mcp_agent e
-    // unpauseAgentAction recusa com publish_required. Republicar também não
-    // liberava, porque fn_publish_ai_agent_version não toca is_active.
+  it("com versão publicada é PUBLICADO mesmo com is_active false — em QUALQUER kind", () => {
+    // `is_active` não decide nada quando há versão publicada: nem o
+    // agent-engine (`loadPublishedAgentConfig`) nem o dispatcher leem a coluna.
+    // O badge dizia "Pausado" para o rag_bot nessa situação — um agente que
+    // está no ar — e não oferecia saída: "Despausar" fica disabled para
+    // mcp_agent, `unpauseAgentAction` recusa com publish_required, e
+    // `fn_publish_ai_agent_version` não toca `is_active`.
+    expect(
+      deriveAgentStatus({ ...base, published_version_id: "v1", is_active: false } as AgentRow),
+    ).toBe("published");
     expect(
       deriveAgentStatus({
         ...base,

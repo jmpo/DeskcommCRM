@@ -53,10 +53,15 @@ import { HANDOFF_REASON_ORCAMENTO } from '../edge/llm/orcamento';
 import { MIRROR_WARN_ONLY, mirrorLeadStageToCrm } from '../edge/crm/move-lead-stage';
 import { insertInboxItem } from '../db/repository';
 import { buildNativeMediaParts } from './media-parts';
-import { enqueueJob, type JobRow, type Queryable } from '../queue/queue';
+import { enqueueJob, rescheduleJob, type JobRow, type Queryable } from '../queue/queue';
 import { applyLeadStateUpdate, getLeadState, type LeadStage, type LeadStateRow } from './lead-state';
 import { applySaveLeadNote, buildNotesIndexBlock, getLeadNoteBody } from './lead-notes';
 import { applyScheduleFollowup, type FollowupWindowKnobs } from './schedule-followup';
+import {
+  avisarLeadDaEscalacao,
+  avisarLeadLendoOContato,
+  type DesfechoDoAviso,
+} from './aviso-de-escalacao';
 import {
   applyRequestHumanHandoff,
   buildHandoffSummary,
@@ -79,6 +84,9 @@ import { projetarContexto, projetarRetornoDeTool, turnoProjeta, type ContextoPro
 import { capacidadesEntreguesAoOperador, catalogoEntregueAoOperador } from './entrega-de-capacidade';
 import { composeSystemPrompt, loadOrgMemory, renderOrgMemory } from './org-memory';
 import { matchesHandoffKeyword } from './agent-config';
+import { msAteAJanelaAbrir } from './janela-de-atendimento';
+import { janelaDeEnvioAberta, proximaAberturaDaJanela } from '../pacing/engine';
+import { loadChannelKnobs } from '../pacing/store';
 import { resolveTurnAgent } from './resolve-turn-agent';
 import {
   hasOpenCaseForContact,
@@ -215,8 +223,10 @@ export const AGENT_TOOL_DEFS = {
     description:
       'Passa a conversa para um ATENDENTE HUMANO imediatamente. Use quando o lead pedir para falar com ' +
       'uma pessoa, quando a situação exigir alguém humano (reclamação séria, questão jurídica/financeira ' +
-      'sensível) ou quando você atingir o limite do que pode resolver. Depois de acionar, o bot silencia ' +
-      'para este lead — encerre o turno sem enviar mais mensagens.',
+      'sensível) ou quando você atingir o limite do que pode resolver. ' +
+      'AVISE O LEAD ANTES: mande uma mensagem dizendo que você vai chamar alguém da equipe e SÓ ENTÃO ' +
+      'chame esta ferramenta — depois dela você não consegue mais falar com ele. Se você não avisar, ' +
+      'o sistema manda um aviso padrão no seu lugar. Acionada a ferramenta, encerre o turno.',
     // Schema LARGO para o SDK (o modelo vê o campo); a validação REAL é a whitelist .strict()
     // + guard de prototype pollution dentro de applyRequestHumanHandoff — campo extra/forjado
     // vira erro de ENSINO ao modelo, nunca exceção do SDK nem strip silencioso.
@@ -285,6 +295,19 @@ export const AGENT_TOOL_DEFS = {
  * que o modelo não fez não vale um cliente sem resposta.
  */
 export const MAX_VETOS_DE_VOCABULARIO_INTERNO = 2;
+
+/**
+ * Teto de mensagens FÍSICAS enviadas ao lead por turno quando `knobs.maxSendsPerTurn`
+ * está ausente (testes) — produção sempre recebe o knob do env (MAX_SENDS_PER_TURN).
+ *
+ * Existe porque NENHUM gate de before-send limita CONTAGEM por turno — `pacing` só
+ * limita RITMO (tempo entre envios), não quantidade. Sem este teto, um modelo que
+ * decida tratar uma lista de perguntas de qualificação como uma mensagem por pergunta
+ * (em vez de perguntar uma e esperar a resposta) só para no teto genérico de STEPS do
+ * loop de tools (AGENT_MAX_STEPS) — e esse teto conta QUALQUER tool, não só envio.
+ * Medido em produção: um lead recebeu 8 mensagens seguidas do mesmo turno.
+ */
+export const DEFAULT_MAX_SENDS_PER_TURN = 3;
 
 /**
  * Job já saiu de 'running' por decisão do próprio run (ex.: cancelJob no veto
@@ -450,6 +473,15 @@ export async function comHandoffSeOrcamentoAcabar<T>(
      * — do checkpoint durável, zero LLM.
      */
     resumoDoCheckpoint: () => Promise<string>;
+    /**
+     * Avisa o lead de que uma pessoa vai assumir, ANTES do handoff.
+     *
+     * Também resolvido só no caminho de erro, e pela mesma razão do resumo: o
+     * caminho feliz não deve pagar por nada disto. O aviso é texto de CÓDIGO,
+     * então não gasta um token — o que aqui não é detalhe, é o único jeito de
+     * ele existir: o motivo do desvio é justamente não haver mais orçamento.
+     */
+    avisarLead: () => Promise<DesfechoDoAviso>;
     log: Logger;
   },
   chamada: () => Promise<T>,
@@ -459,6 +491,25 @@ export async function comHandoffSeOrcamentoAcabar<T>(
   } catch (err) {
     if (!(err instanceof LlmBudgetExceededError)) throw err;
     const resumo = await ctx.resumoDoCheckpoint();
+    // AVISA antes de silenciar — ver a nota de ORDEM no gatilho determinístico:
+    // `performHumanHandoff` arma a trava que o gate de envio lê, então a única
+    // janela em que o aviso passa é ANTES dela.
+    //
+    // O try/catch NÃO é defesa contra o emissor de hoje (`avisarLeadLendoOContato`
+    // já promete não lançar) — é contra a dependência que a ordem cria. Sem ele,
+    // um canal fora do ar faria o cliente perder o aviso E o atendente, quando o
+    // pior dos dois já teria acontecido no primeiro. Medido por
+    // `tests/unit/handoff-por-orcamento.test.ts` ("aviso que falha NÃO impede a
+    // passagem"), que reprovava a versão anterior desta linha.
+    let aviso: DesfechoDoAviso;
+    try {
+      aviso = await ctx.avisarLead();
+    } catch (erroDoAviso) {
+      ctx.log.warn('aviso ao lead falhou antes da passagem por orçamento', {
+        error: erroDoAviso instanceof Error ? erroDoAviso.message.slice(0, 200) : 'erro desconhecido',
+      });
+      aviso = { avisado: false, porque: 'erro_no_envio' };
+    }
     await performHumanHandoff(
       ctx.pool,
       { tenantId: ctx.tenantId, leadId: ctx.leadId, conversationId: ctx.conversationId },
@@ -466,10 +517,13 @@ export async function comHandoffSeOrcamentoAcabar<T>(
         reason: HANDOFF_REASON_ORCAMENTO,
         conversationSummary: `${RESUMO_DO_HANDOFF_POR_ORCAMENTO}\n\n${resumo}`,
         inboxTitle: TITULO_DO_HANDOFF_POR_ORCAMENTO,
+        avisoAoLead: aviso,
         log: ctx.log,
       },
     );
-    ctx.log.warn('turno interrompido pelo teto de gasto — conversa devolvida à fila humana');
+    ctx.log.warn('turno interrompido pelo teto de gasto — conversa devolvida à fila humana', {
+      lead_avisado: aviso.avisado,
+    });
     throw err;
   }
 }
@@ -517,6 +571,13 @@ export interface InboundTurnKnobs {
   notesIndexMaxTokens: number;
   /** teto de steps do loop de tools por run (AGENT_MAX_STEPS) — circuit breaker fino é F2-15 */
   maxSteps: number;
+  /**
+   * Teto de mensagens FÍSICAS enviadas ao lead neste turno (MAX_SENDS_PER_TURN),
+   * send_message + send_template somados, bolhas incluídas. Ausente = usa
+   * `DEFAULT_MAX_SENDS_PER_TURN` — main.ts sempre o preenche pelo knob do env;
+   * testes que não exercitam o teto o omitem sem custo.
+   */
+  maxSendsPerTurn?: number;
   /** atraso do reagendamento em veto/queued herdado da F2-06 (SEND_QUEUED_RETRY_MS) */
   queuedRetryDelayMs: number;
   /** circuit breaker de tools por run (F2-15) — env TOOL_BREAKER_* */
@@ -970,10 +1031,51 @@ export async function runAgentTurn(
       conversationId: input.conversationId,
       resumoDoCheckpoint: () =>
         resumoDoCheckpointDuravel(pool, job.organization_id, leadIdDoJob, logDaEscolta),
+      // O canal nasce DENTRO da closure: instanciá-lo aqui faria todo turno feliz
+      // pagar por um adapter que só o caminho de erro usa. Sem `agentActorId` de
+      // propósito — quando o teto estoura antes da primeira chamada, não houve
+      // agente resolvido para creditar.
+      avisarLead: () =>
+        avisarLeadLendoOContato(
+          pool,
+          {
+            tenantId: job.organization_id,
+            leadId: leadIdDoJob,
+            conversationId: input.conversationId,
+            channelSessionId: input.channelSessionId,
+            jobId: job.id,
+          },
+          {
+            motivo: 'orcamento_de_ia',
+            channel: (deps.channel ?? ((p: pg.Pool) => new WahaChannelAdapter(p, deps.crmCfg)))(pool),
+            now: deps.clock?.() ?? new Date(),
+            log: logDaEscolta,
+            ...(deps.knobs.disclosureMode !== undefined ? { disclosureMode: deps.knobs.disclosureMode } : {}),
+            ...(deps.sleep !== undefined ? { sleep: deps.sleep } : {}),
+          },
+        ),
       log: logDaEscolta,
     },
     () => executarTurnoDoAgente(deps, job, pool, ctx, input),
   );
+}
+
+/**
+ * Este turno termina em mensagem PARA O LEAD? Só esses são adiados pela janela
+ * anti-ban — adiar os outros seria parar trabalho interno por causa de um
+ * horário que não é dele.
+ *
+ *   * `inbound_turn` / `case_reply_turn` — respondem o cliente, sempre.
+ *   * `followup_turn` — só com `purpose: 'send_message'`. Os outros dois
+ *     propósitos do fluxo (`classify`, `plan_timing`) são leitura e
+ *     planejamento: não abrem o WhatsApp de ninguém.
+ *   * `operator_turn` — retaguarda (mexe no funil), nunca fala com o lead.
+ */
+function turnoVaiFalarComOLead(job: JobRow): boolean {
+  if (job.kind === 'inbound_turn' || job.kind === 'case_reply_turn') return true;
+  if (job.kind !== 'followup_turn') return false;
+  const purpose = (job.payload as { purpose?: unknown } | null)?.purpose;
+  return purpose === undefined || purpose === 'send_message';
 }
 
 async function executarTurnoDoAgente(
@@ -988,6 +1090,16 @@ async function executarTurnoDoAgente(
   if (leadId === null) {
     throw new Error('job de turno sem contact_id — o CHECK da fila deveria impedir');
   }
+  // O RELÓGIO, declarado antes de qualquer guarda de janela.
+  //
+  // Ele já existia — 330 linhas ABAIXO, depois das duas guardas que mais
+  // dependem dele. O contrato de `InboundTurnDeps.clock` diz "a janela horária
+  // do gate anti-ban é avaliada nele", e as duas guardas chamavam `new Date()`
+  // cru: o relógio injetado não alcançava justamente o que ele existe para
+  // fixar. Em produção dá no mesmo; no CI, a hora real do runner decidia, e a
+  // suíte de invariantes ficava vermelha das 22h às 7h (fuso do tenant) — nove
+  // horas por dia em que um PR reprova por causa do relógio de parede.
+  const clock = deps.clock ?? ((): Date => new Date());
   const contextKnobs = { historyLimit: deps.knobs.historyLimit, maxTokens: deps.knobs.maxContextTokens };
   // Contexto do RUN em toda linha de log do turno (F2-16): job_id É o run id.
   const runLog = withFields(deps.log, { job_id: job.id, tenant_id: tenantId, lead_id: leadId });
@@ -1011,6 +1123,42 @@ async function executarTurnoDoAgente(
   if (await isLeadInHandoff(pool, tenantId, leadId)) {
     runLog.info('turno pulado — lead em handoff humano (bot silenciado)', { kind: job.kind });
     return;
+  }
+
+  // JANELA ANTI-BAN (7h–22h por padrão, fuso do tenant): fora dela o turno é
+  // ADIADO, não gasto.
+  //
+  // ⚠️ ISTO CONSERTA UMA MENSAGEM PERDIDA, não um custo. O gate de envio
+  // (`pacingGate` em guardrails/before-send.ts) já vetava o envio fora da
+  // janela — mas, no caminho do agente, esse veto vira ERRO DE ENSINO devolvido
+  // ao modelo dentro do tool `send_message`. O turno terminava `ok`, sem
+  // exceção, sem reagendamento e sem mensagem: o lead escrevia 22h e não recebia
+  // NADA, nem naquele momento nem às 7h. Medido em produção (2026-08-18): run
+  // `agent_turn` com status `ok` às 22:56 e zero outbound na conversa.
+  //
+  // O caminho determinístico de re-entrada já fazia o certo — "veto por JANELA
+  // anti-ban não dropa — re-agenda para a próxima abertura" (followup-turn.ts) —
+  // e é essa regra que passa a valer também para a resposta do agente.
+  //
+  // Só a JANELA adia. Cap diário e warm-up continuam com o gate de envio: eles
+  // dependem de quanto já saiu hoje, e antecipá-los aqui adiaria turno que, na
+  // hora do envio, teria passado.
+  if (turnoVaiFalarComOLead(job)) {
+    const { knobs } = await loadChannelKnobs(pool, tenantId, input.channelSessionId, runLog);
+    const agora = clock();
+    if (!janelaDeEnvioAberta(agora, knobs)) {
+      const abertura = proximaAberturaDaJanela(agora, knobs);
+      await rescheduleJob(pool, job.id, ctx.workerId, {
+        delayMs: Math.max(abertura.getTime() - agora.getTime(), 1_000),
+        reason: 'fora da janela anti-ban de envio — turno adiado para a abertura',
+      });
+      runLog.info('turno adiado — fora da janela anti-ban de envio', {
+        janela: `${knobs.windowStartHour}h-${knobs.windowEndHour}h`,
+        timezone: knobs.timezone,
+        abertura: abertura.toISOString(),
+      });
+      throw new JobSettledError('fora da janela anti-ban — job reagendado para a abertura da janela');
+    }
   }
 
   // Fase 3: stickiness do router — qual agente já atende esta conversa. Leituras
@@ -1079,6 +1227,33 @@ async function executarTurnoDoAgente(
       intent: routed.intentName,
     });
   }
+  // Horário de funcionamento da versão publicada (spec da tela: TriggerEditor).
+  // Vale SÓ para o turno inbound: a janela do lojista é sobre QUANDO ele atende
+  // quem chega, e adiar por ela um follow-up já prometido ao lead atrasaria uma
+  // promessa que não é dele. O que segura o follow-up é a janela anti-ban logo
+  // acima (`pacing/engine.ts`), que vale para os dois.
+  //
+  // Adia, não descarta: o job volta a 'pending' na abertura, SEM consumir
+  // attempts (`rescheduleJob`) — quem escreveu 22h é atendido às 8h. O throw é
+  // o contrato de `JobSettledError`: o run já dispôs do job, main.ts no-opa.
+  if (job.kind === 'inbound_turn' && agentConfig?.janelaDeAtendimento != null) {
+    const esperaMs = msAteAJanelaAbrir(agentConfig.janelaDeAtendimento, clock());
+    if (esperaMs !== null) {
+      await rescheduleJob(pool, job.id, ctx.workerId, {
+        delayMs: esperaMs,
+        reason: 'fora do horário de funcionamento do agente — turno adiado para a abertura da janela',
+      });
+      runLog.info('turno adiado — fora do horário de funcionamento configurado na versão publicada', {
+        agent_id: agentConfig.agentId,
+        espera_ms: esperaMs,
+        janela: `${agentConfig.janelaDeAtendimento.start}-${agentConfig.janelaDeAtendimento.end}`,
+      });
+      throw new JobSettledError(
+        'fora do horário de funcionamento — job reagendado para a abertura da janela',
+      );
+    }
+  }
+
   // Fase 3: grava a decisão de roteamento e a aderência da conversa ao agente.
   // Fire-and-forget — falha de telemetria nunca derruba a resposta ao lead.
   if (routed.routerId !== null) {
@@ -1179,24 +1354,82 @@ async function executarTurnoDoAgente(
     throw new Error(`abertura do turno falhou em get_lead_context (${openingContext.error.code})`);
   }
 
+  // Seam de canal (F2-25): o envio vai SÓ pela interface ChannelAdapter — o
+  // default WAHA-via-CRM envolve o sink F2-06. Instanciado por job (o pool é
+  // per-job neste codebase); trocar o adapter não muda nada abaixo.
+  // Fase 2B: o envio carrega o ai_agents.id REAL como ator (audit/metadata do
+  // CRM apontam o agente publicado, não um id genérico).
+  //
+  // ⚠️ Ele nasce AQUI, e não depois da compactação como antes, porque os dois
+  // desvios determinísticos logo abaixo — pedido de humano e suspeita de
+  // opt-out — passaram a FALAR com o lead antes de silenciar. Eles rodam antes
+  // de qualquer chamada de modelo; o canal precisa existir antes deles.
+  const turnCrmCfg =
+    agentConfig !== null ? { ...deps.crmCfg, agentActorId: agentConfig.agentId } : deps.crmCfg;
+  const channel = (deps.channel ?? ((p: pg.Pool) => new WahaChannelAdapter(p, turnCrmCfg)))(pool);
+  // STOP lido no turno (fonte: CRM via get_lead_context) — combinado com o cache
+  // durável leads.is_opted_out no gate 1 da cadeia (F2-13).
+  const optedOutThisTurn = openingContext.context.contact.is_blocked;
+  // LGPD (F4-09): base legal/anonimização do CRM lidas na abertura do turno (fonte confiável,
+  // regra dura nº 1) — o gate LGPD da cadeia veta anonimizado (sempre) e 1º toque de prospecção
+  // sem base legal. Resposta a inbound (isProspecting=false) não dispara o veto de base legal.
+  const lgpd = openingContext.lgpd;
+
+  /** Argumentos fixos do aviso ao lead — os dois desvios abaixo só trocam o motivo. */
+  const avisoDaEscalacao = {
+    ids: {
+      tenantId,
+      leadId,
+      conversationId: input.conversationId,
+      channelSessionId: input.channelSessionId,
+      jobId: job.id,
+    },
+    base: {
+      channel,
+      optedOutThisTurn,
+      now: clock(),
+      log: runLog,
+      lgpd,
+      agentId: agentConfig?.agentId ?? null,
+      ...(deps.knobs.disclosureMode !== undefined ? { disclosureMode: deps.knobs.disclosureMode } : {}),
+      ...(deps.sleep !== undefined ? { sleep: deps.sleep } : {}),
+    },
+  };
+
   // F4-06 (acceptance 1): detecção DETERMINÍSTICA (regex PT-BR, sem LLM) de pedido explícito
   // de atendimento humano na última mensagem do lead. Handoff é cidadão de 1ª classe (exigência
-  // Meta fiscalizada, blueprint 5.5) — dispara ANTES do modelo: o bot silencia sem gastar LLM,
-  // sem enviar. A ação (CRM force_human + cache + cancela crons + inbox) é idempotente.
+  // Meta fiscalizada, blueprint 5.5) — dispara ANTES do modelo: o bot não gasta LLM.
+  // A ação (CRM force_human + cache + cancela crons + inbox) é idempotente.
+  //
+  // ⚠️ ORDEM: AVISA e SÓ ENTÃO silencia. Não é preferência de redação — é a única
+  // ordem que funciona. `performHumanHandoff` grava `contacts.force_human = true`,
+  // e o gate 1 da cadeia (`stopGate`) lê `(is_blocked or force_human)` DIRETO da
+  // fonte, sob o lock, a cada tentativa de envio. Avisar depois seria avisar
+  // ninguém: a própria trava que a passagem acabou de armar veta a mensagem.
   const inboundSignal = latestInboundSignal(openingContext.context.messages);
   if (
     detectHumanHandoffRequest(inboundSignal) ||
     (agentConfig !== null && matchesHandoffKeyword(inboundSignal, agentConfig.handoffKeywords))
   ) {
+    const aviso = await avisarLeadDaEscalacao(pool, avisoDaEscalacao.ids, {
+      ...avisoDaEscalacao.base,
+      motivo: 'pediu_humano',
+    });
     await performHumanHandoff(
       pool,
       { tenantId, leadId, conversationId: input.conversationId },
-      { reason: 'requested_human', conversationSummary: buildHandoffSummary(previous), log: runLog },
+      {
+        reason: 'requested_human',
+        conversationSummary: buildHandoffSummary(previous),
+        avisoAoLead: aviso,
+        log: runLog,
+      },
     );
     runLog.info('handoff humano acionado por pedido explícito do lead (detecção determinística)', {
       kind: job.kind,
+      lead_avisado: aviso.avisado,
     });
-    return; // bot silencia: sem modelo, sem envio neste turno
+    return; // bot silencia: o aviso já saiu, e nada mais sai neste turno
   }
 
   // F4-07: STOP AMBÍGUO ("para de me mandar isso", "não quero mais receber", "me tira da
@@ -1206,6 +1439,15 @@ async function executarTurnoDoAgente(
   // is_opted_out) e escala à inbox para o humano confirmar o opt-out real (is_blocked) no
   // CRM. Cancela os follow-ups agendados de tabela. Nada disso reverte (regra dura nº 2).
   if (detectAmbiguousOptOut(latestInboundSignal(openingContext.context.messages))) {
+    // O aviso daqui NÃO fala em atendente — quem pediu para parar não quer ouvir
+    // sobre atendimento (`textoDoAviso`, motivo `suspeita_de_opt_out`). Ele
+    // CONFIRMA a parada, que é o padrão de mensageria para um opt-out, e diz que
+    // uma pessoa vai conferir. Sair calado deixaria a pessoa sem saber se o
+    // pedido dela foi ouvido — e ela pediu justamente para ser ouvida.
+    const aviso = await avisarLeadDaEscalacao(pool, avisoDaEscalacao.ids, {
+      ...avisoDaEscalacao.base,
+      motivo: 'suspeita_de_opt_out',
+    });
     await performHumanHandoff(
       pool,
       { tenantId, leadId, conversationId: input.conversationId },
@@ -1213,13 +1455,15 @@ async function executarTurnoDoAgente(
         reason: 'suspected_optout',
         conversationSummary: buildHandoffSummary(previous),
         inboxTitle: 'Suspeita de opt-out — confirmar bloqueio do contato no CRM',
+        avisoAoLead: aviso,
         log: runLog,
       },
     );
     runLog.info('possível opt-out detectado no inbound — bot silenciado e escalado ao humano', {
       kind: job.kind,
+      lead_avisado: aviso.avisado,
     });
-    return; // bot silencia: sem modelo, sem envio neste turno
+    return; // bot silencia: a confirmação já saiu, e nada mais sai neste turno
   }
 
   // F3-07: compaction + flush pré-compaction. Quando o histórico cresce além do limiar,
@@ -1296,22 +1540,6 @@ async function executarTurnoDoAgente(
     });
   }
 
-  // Seam de canal (F2-25): o envio vai SÓ pela interface ChannelAdapter — o
-  // default WAHA-via-CRM envolve o sink F2-06. Instanciado por job (o pool é
-  // per-job neste codebase); trocar o adapter não muda nada abaixo.
-  // Fase 2B: o envio carrega o ai_agents.id REAL como ator (audit/metadata do
-  // CRM apontam o agente publicado, não um id genérico).
-  const turnCrmCfg =
-    agentConfig !== null ? { ...deps.crmCfg, agentActorId: agentConfig.agentId } : deps.crmCfg;
-  const channel = (deps.channel ?? ((p: pg.Pool) => new WahaChannelAdapter(p, turnCrmCfg)))(pool);
-  const clock = deps.clock ?? ((): Date => new Date());
-  // STOP lido no turno (fonte: CRM via get_lead_context) — combinado com o cache
-  // durável leads.is_opted_out no gate 1 da cadeia (F2-13).
-  const optedOutThisTurn = openingContext.context.contact.is_blocked;
-  // LGPD (F4-09): base legal/anonimização do CRM lidas na abertura do turno (fonte confiável,
-  // regra dura nº 1) — o gate LGPD da cadeia veta anonimizado (sempre) e 1º toque de prospecção
-  // sem base legal. Resposta a inbound (isProspecting=false) não dispara o veto de base legal.
-  const lgpd = openingContext.lgpd;
 
   // F4-07: STOP no CRM detectado no turno → cancela TODOS os follow-ups agendados do lead
   // (não só o job atual). O stopGate já veta ESTE turno; o cancel garante que nenhum cron
@@ -1326,6 +1554,11 @@ async function executarTurnoDoAgente(
 
   // Estado do RUN — vive só neste closure (isolamento por construção, acc 3).
   let seq = 0;
+  // Teto de mensagens físicas por turno (F2-15b) — `seq` JÁ é a contagem certa: ele só
+  // avança quando o envio de fato sai pro canal (send_message + send_template, bolhas
+  // incluídas), nunca em veto de gate. Checar `seq` antes de tentar o próximo envio
+  // barra o modelo sem gastar uma chamada de before-send à toa.
+  const maxSendsPerTurn = deps.knobs.maxSendsPerTurn ?? DEFAULT_MAX_SENDS_PER_TURN;
   // F3-11: estágio que o MODELO confirmou via update_lead_state neste turno (a máquina
   // F2-10 é a única porta). Comparado com a sugestão do classificador no fim → divergência.
   let confirmedStage: LeadStage | null = null;
@@ -1474,6 +1707,17 @@ async function executarTurnoDoAgente(
     send_template: tool({
       ...AGENT_TOOL_DEFS.send_template,
       execute: async ({ template_name, language, values }) => {
+        if (seq >= maxSendsPerTurn) {
+          return {
+            ok: false,
+            error: {
+              code: 'max_sends_per_turn',
+              message:
+                `você já enviou ${seq} mensagens neste turno (teto: ${maxSendsPerTurn}). ` +
+                'NÃO envie mais nada agora — encerre o turno e espere a resposta do lead.',
+            },
+          };
+        }
         // O texto RENDERIZADO vai como `body` da cadeia: os gates de promessa,
         // spinning e disclosure avaliam exatamente o que o contato vai ler. Sem
         // isso, "usar template" seria a forma de escapar dos guardrails de conteúdo.
@@ -1576,19 +1820,22 @@ async function executarTurnoDoAgente(
     search_knowledge: tool({
       ...AGENT_TOOL_DEFS.search_knowledge,
       execute: async ({ query }) => {
-        if (agentConfig?.activeKbVersionId == null) {
+        const fontes = agentConfig?.knowledgeSourceIds ?? [];
+        if (fontes.length === 0 && agentConfig?.activeKbVersionId == null) {
           return {
             ok: false,
-            error: { code: 'no_knowledge_base', message: 'este agente não tem base de conhecimento ativa — siga sem ela.' },
+            error: { code: 'no_knowledge_base', message: 'este agente não tem material de consulta habilitado — siga sem ele.' },
           };
         }
         const out = await searchKnowledge(pool, {
           organizationId: tenantId,
-          kbVersionId: agentConfig.activeKbVersionId,
+          knowledgeSourceIds: fontes,
+          kbVersionId: agentConfig?.activeKbVersionId ?? null,
           query,
-          topK: agentConfig.ragTopK,
-          threshold: agentConfig.ragSimilarityThreshold,
+          topK: agentConfig?.ragTopK ?? 5,
+          threshold: agentConfig?.ragSimilarityThreshold ?? 0.4,
           jobId: job.id,
+          agentId: agentConfig?.agentId ?? null,
         }, { log: runLog });
         if (out.ok && out.results.length > 0) {
           // As citações são montadas AQUI, pelo código, a partir do resultado
@@ -1606,6 +1853,17 @@ async function executarTurnoDoAgente(
     send_message: tool({
       ...AGENT_TOOL_DEFS.send_message,
       execute: async ({ body }) => {
+        if (seq >= maxSendsPerTurn) {
+          return {
+            ok: false,
+            error: {
+              code: 'max_sends_per_turn',
+              message:
+                `você já enviou ${seq} mensagens neste turno (teto: ${maxSendsPerTurn}). ` +
+                'NÃO envie mais nada agora — encerre o turno e espere a resposta do lead.',
+            },
+          };
+        }
         // F4-04: sinaliza (independente do gate F4-01/F4-08) se ESTA candidata é uma
         // promessa fora de tabela — usado só para correlacionar com o jailbreak no fim do
         // turno. A detecção é determinística (decidePromise); sem tabela do tenant = no-op.
@@ -1949,10 +2207,35 @@ async function executarTurnoDoAgente(
       ...AGENT_TOOL_DEFS.request_human_handoff,
       execute: async (raw) => {
         try {
+          // ═══ O PISO: se o modelo não falou, o sistema fala ═══
+          //
+          // A descrição da tool manda avisar o lead ANTES de chamá-la, e a
+          // mensagem de retorno repete. Mas capacidade que depende de o modelo
+          // LEMBRAR é capacidade que não existe metade das vezes — a mesma
+          // conclusão que fez `expectativaDeAtendimento` parar de esperar que
+          // ele consultasse a disponibilidade sozinho.
+          //
+          // `seq` é o contador de mensagens FÍSICAS já enviadas neste turno. Zero
+          // significa: o modelo decidiu passar a conversa sem dizer nada a
+          // ninguém — e depois desta tool ele não consegue mais falar, porque
+          // `force_human` arma o `stopGate`. Então o aviso determinístico sai
+          // AGORA, antes do handoff.
+          //
+          // `seq > 0` significa que ele JÁ falou neste turno; mandar o aviso ali
+          // em cima seria o robô dizendo duas vezes a mesma coisa, com palavras
+          // diferentes. Confiamos na fala dele e registramos que o piso não foi
+          // preciso.
+          const aviso =
+            seq === 0
+              ? await avisarLeadDaEscalacao(pool, avisoDaEscalacao.ids, {
+                  ...avisoDaEscalacao.base,
+                  motivo: 'pediu_humano',
+                })
+              : ({ avisado: true } as const);
           const res = await applyRequestHumanHandoff(
             pool,
             { tenantId, leadId, conversationId: input.conversationId },
-            { conversationSummary: buildHandoffSummary(previous), log: runLog },
+            { conversationSummary: buildHandoffSummary(previous), avisoAoLead: aviso, log: runLog },
             raw,
           );
           if (!res.ok) return res; // erro de ensino (payload fora da whitelist)
@@ -2116,9 +2399,12 @@ async function executarTurnoDoAgente(
     });
   }
 
-  // Fase 0 (convergência): a tool de conhecimento só entra quando o agente
-  // publicado tem KB ativa — def estática permanece no AGENT_TOOL_DEFS (prefixo).
-  if (agentConfig?.activeKbVersionId == null) {
+  // A tool de conhecimento só entra quando o agente publicado tem material para
+  // consultar. Desde a 0181 isso é a lista de materiais escolhida na tela; o
+  // ponteiro legado (`activeKbVersionId`) segue valendo para o clone que ainda
+  // não aplicou a migration. Ferramenta que só sabe responder "não tenho base"
+  // não é neutra: gasta contexto e degrada a escolha do modelo.
+  if ((agentConfig?.knowledgeSourceIds?.length ?? 0) === 0 && agentConfig?.activeKbVersionId == null) {
     delete rawTools.search_knowledge;
   }
 

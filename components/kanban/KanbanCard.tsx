@@ -1,6 +1,7 @@
 "use client";
 import { Draggable } from "@hello-pangea/dnd";
 import type { MouseEvent } from "react";
+import { useT } from "@/hooks/i18n/useT";
 import { cn } from "@/lib/utils";
 import type { Lead } from "@/lib/types/leads";
 import { resolveCardState, stageAgeLabel, type CardInput } from "@/lib/kanban/card-state";
@@ -65,9 +66,10 @@ export function KanbanCard({
   onSelect,
   onOpen,
 }: KanbanCardProps) {
+  const t = useT();
   const value = formatBRL(card.valueCents, card.currency);
-  const state = resolveCardState(card);
-  const age = stageAgeLabel(card.hoursInStage);
+  const state = resolveCardState(card, t);
+  const age = stageAgeLabel(card.hoursInStage, t);
 
   // Clique ABRE o dossiê; ctrl/cmd+clique SELECIONA. "Clicar abre" é a
   // convenção mais forte, e seleção múltipla é recurso de poder, que tolera
@@ -93,7 +95,7 @@ export function KanbanCard({
           // teclado do dnd (tabIndex e handlers continuam vindo do spread) sem
           // aninhar dois controles — nada de aria-hidden nem de suprimir regra.
           role="group"
-          aria-label={`Lead: ${card.title}`}
+          aria-label={`${t("Lead")}: ${card.title}`}
           onClick={handleClick}
           // Tags saem do card (Lei A): ficam a um hover, sem ocupar altura.
           title={card.tags.length > 0 ? `Tags: ${card.tags.join(", ")}` : undefined}
@@ -139,7 +141,7 @@ export function KanbanCard({
                   title={card.canonicalTag}
                   // role="img": um span nu não aceita aria-label (aria-prohibited-attr).
                   role="img"
-                  aria-label={`Tag: ${card.canonicalTag}`}
+                  aria-label={`${t("Tag")}: ${card.canonicalTag}`}
                 />
               )}
               {/* O TÍTULO é o elemento ativável, não o card inteiro.
@@ -228,7 +230,9 @@ export function KanbanCard({
               agentVersion={card.owner.agentVersion}
             />
             <span className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-text-muted">
-              {state.showStageAge && age ? `${age} em ${card.stageName}` : `em ${card.stageName}`}
+              {state.showStageAge && age
+                ? `${age} ${t("em")} ${card.stageName}`
+                : `${t("em")} ${card.stageName}`}
             </span>
           </div>
         </div>

@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { useT } from "@/hooks/i18n/useT";
 import {
   type CredentialRow,
   type Provider,
@@ -51,6 +52,7 @@ export function CredentialPicker({
   id,
   instalacaoTemChave = false,
 }: Props) {
+  const t = useT();
   const filtered = credentials.filter((c) => c.provider === provider);
   // Sem nenhuma das duas origens não há o que escolher — e é aí que o atalho
   // para cadastrar precisa aparecer.
@@ -58,10 +60,10 @@ export function CredentialPicker({
 
   return (
     <div className="space-y-1">
-      <Label htmlFor={id}>Chave de acesso</Label>
+      <Label htmlFor={id}>{t("Chave de acesso")}</Label>
       <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
         <SelectTrigger id={id}>
-          <SelectValue placeholder="Escolha uma chave" />
+          <SelectValue placeholder={t("Escolha uma chave")} />
         </SelectTrigger>
         <SelectContent>
           {/*
@@ -72,20 +74,20 @@ export function CredentialPicker({
           */}
           {instalacaoTemChave ? (
             <SelectItem value={CHAVE_DA_INSTALACAO}>
-              A chave desta instalação ({provider})
+              {t("A chave desta instalação")} ({provider})
             </SelectItem>
           ) : null}
           {filtered.map((c) => {
             const st = credentialStatus(c);
             return (
               <SelectItem key={c.id} value={c.id}>
-                {c.label} · …{c.api_key_last4 ?? "????"} · {STATUS_LABEL[st]}
+                {c.label} · …{c.api_key_last4 ?? "????"} · {t(STATUS_LABEL[st])}
               </SelectItem>
             );
           })}
           {semOpcao ? (
             <SelectItem value="__none__" disabled>
-              Nenhuma credencial {provider} cadastrada
+              {t("Nenhuma credencial")} {provider} {t("cadastrada")}
             </SelectItem>
           ) : null}
         </SelectContent>
@@ -96,9 +98,9 @@ export function CredentialPicker({
             href="/app/ai/credentials"
             className="font-medium text-foreground underline underline-offset-4"
           >
-            Cadastrar credencial {provider}
+            {t("Cadastrar credencial")} {provider}
           </Link>{" "}
-          na aba Credenciais.
+          {t("na aba Credenciais.")}
         </p>
       ) : null}
     </div>

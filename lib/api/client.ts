@@ -221,7 +221,14 @@ export const apiClient = {
   put<T>(path: string, body: unknown, opts?: RequestOpts): Promise<T> {
     return request<T>("PUT", path, body, opts);
   },
-  delete<T>(path: string, opts?: RequestOpts): Promise<T> {
-    return request<T>("DELETE", path, undefined, opts);
+  /**
+   * `body` é OPCIONAL e novo: a rota de cancelar agendamento exige `{id, reason}`
+   * no corpo do DELETE — o motivo do cancelamento é obrigatório de propósito
+   * ("cancelado" sem motivo faz alguém ligar para o cliente perguntando o que
+   * houve, ou pior, não ligar). Parâmetro opcional no fim mantém os chamadores
+   * antigos byte a byte.
+   */
+  delete<T>(path: string, body?: unknown, opts?: RequestOpts): Promise<T> {
+    return request<T>("DELETE", path, body, opts);
   },
 };

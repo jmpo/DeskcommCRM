@@ -2,6 +2,9 @@ import Link from "next/link";
 import { emailDeSuporte } from "@/lib/branding/saida";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { createClient } from "@/lib/supabase/server";
+import { normalizarIdioma } from "@/lib/i18n/idiomas";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const metadata = {
   title: "Conta suspensa",
@@ -15,32 +18,46 @@ export const metadata = {
  * contato simplesmente NÃO renderiza. Cair de volta num endereço do produto
  * seria o defeito de volta, com o agravante de parecer resolvido.
  */
-export default function AccountSuspendedPage() {
+export default async function AccountSuspendedPage() {
   const suporte = emailDeSuporte();
+  // Rota fora da árvore de `app/app/layout.tsx` — sem `IdiomaProvider`, então
+  // resolve o idioma direto, como `admin/forbidden/page.tsx`. Quem chega aqui
+  // normalmente tem sessão do Supabase Auth (a suspensão é regra do produto,
+  // não um ban de autenticação), mas `user` fica opcional por segurança.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const idioma = normalizarIdioma(
+    (user?.user_metadata?.locale as string | undefined) ?? null,
+  );
+
   return (
     <main className="flex min-h-screen items-center justify-center p-8">
       <Card className="w-full max-w-md p-8 text-center space-y-4">
-        <h1 className="text-2xl font-semibold">Conta suspensa</h1>
+        <h1 className="text-2xl font-semibold">{traduzir("Conta suspensa", idioma)}</h1>
         {suporte ? (
           <p className="text-sm text-muted-foreground">
-            Sua conta está suspensa. Entre em contato com{" "}
+            {traduzir("Sua conta está suspensa. Entre em contato com", idioma)}{" "}
             <a
               href={`mailto:${suporte}`}
               className="underline underline-offset-4 hover:text-foreground transition-colors"
             >
               {suporte}
             </a>{" "}
-            para mais informações.
+            {traduzir("para mais informações.", idioma)}
           </p>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Sua conta está suspensa. Fale com quem administra este sistema para
-            saber o motivo e como reativá-la.
+            {traduzir(
+              "Sua conta está suspensa. Fale com quem administra este sistema para saber o motivo e como reativá-la.",
+              idioma,
+            )}
           </p>
         )}
         <div className="pt-2">
           <Button asChild variant="outline">
-            <Link href="/login">Sair</Link>
+            <Link href="/login">{traduzir("Sair", idioma)}</Link>
           </Button>
         </div>
       </Card>

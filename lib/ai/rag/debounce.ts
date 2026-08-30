@@ -1,9 +1,31 @@
 /**
- * Redis-backed debounce for the RAG indexer.
+ * Debounce da indexação, com Redis quando ele existe.
  *
- * Uses Upstash Redis SET NX EX to ensure only one indexing job runs per
- * (org, agent, event_type) burst window. Falls back to an in-memory Map when
- * Redis is not configured (NOT safe for multi-instance deploys — warns loudly).
+ * `SET NX EX` garante que uma rajada de edições do mesmo material não dispare N
+ * indexações. Sem Redis configurado, cai num Map em memória (NÃO seguro para
+ * várias instâncias — avisa alto).
+ *
+ * ## POR QUE ISTO FALHA ABERTO, e por que a diferença é enorme
+ *
+ * Redis CONFIGURADO e INALCANÇÁVEL é um estado real de produção — VPS com o
+ * contêiner do Redis caído, rede entre serviços, credencial rotacionada. Até
+ * aqui, `redis.set()` era chamado sem timeout e sem `catch`: o SDK da Upstash
+ * tenta de novo com backoff e a promise simplesmente não volta.
+ *
+ * O efeito NÃO é "a indexação demora". `drainEventLog` marca a linha como
+ * `processing` ANTES de chamar o handler, e não existe reaper que devolva
+ * `processing` para `pending` no `event_log` (existe para `job_queue`, não para
+ * este). Um handler que não retorna deixa o evento preso para SEMPRE: o
+ * material nunca é preparado, nada aparece na tela, e nem tentar de novo
+ * resolve — a linha não volta para a fila.
+ *
+ * Medido na prova de tela desta frente: com o Redis do `.env.e2e` apontando
+ * para uma porta sem ninguém escutando, o evento ficou `processing`,
+ * `attempts=0`, `consumed_by` vazio, e a requisição do dreno estourou o tempo.
+ *
+ * Perder o debounce custa uma indexação a mais — centavos e alguns segundos.
+ * Perder o evento custa o material inteiro, em silêncio. Entre os dois, falhar
+ * ABERTO não é escolha difícil.
  */
 
 import { Redis } from "@upstash/redis";
@@ -15,6 +37,9 @@ import { env } from "@/lib/env";
 
 let _redis: Redis | null = null;
 let _fallbackWarned = false;
+
+/** Teto NOSSO para a ida ao Redis. Ver o cabeçalho: sem ele, a promise não volta. */
+const TIMEOUT_MS = 2_000;
 
 function getRedis(): Redis | null {
   if (_redis) return _redis;
@@ -76,9 +101,27 @@ export async function acquireDebounce(key: string, ttlSec: number): Promise<bool
     return memAcquire(key, ttlSec);
   }
 
-  // SET NX EX — returns "OK" if set, null if key already exists
-  const result = await redis.set(key, "1", { nx: true, ex: ttlSec });
-  return result === "OK";
+  try {
+    // SET NX EX — "OK" quando gravou, null quando a chave já existia.
+    //
+    // O timeout é NOSSO e não do SDK: o cliente da Upstash tenta de novo com
+    // backoff e, sem corrida contra um relógio, a promise não volta. Ver o
+    // cabeçalho — handler que não retorna deixa o evento preso em `processing`
+    // para sempre.
+    const result = await Promise.race([
+      redis.set(key, "1", { nx: true, ex: ttlSec }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("debounce_timeout")), TIMEOUT_MS),
+      ),
+    ]);
+    return result === "OK";
+  } catch (err) {
+    console.warn(
+      "[rag-debounce] Redis não respondeu — seguindo SEM debounce (pode indexar duas vezes):",
+      err instanceof Error ? err.message : String(err),
+    );
+    return true;
+  }
 }
 
 /**
@@ -92,5 +135,15 @@ export async function releaseDebounce(key: string): Promise<void> {
     return;
   }
 
-  await redis.del(key);
+  try {
+    await Promise.race([
+      redis.del(key),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("debounce_timeout")), TIMEOUT_MS),
+      ),
+    ]);
+  } catch {
+    // Soltar a trava cedo é otimização: o TTL a solta sozinho. Falhar aqui não
+    // pode derrubar quem chamou.
+  }
 }

@@ -1,6 +1,9 @@
 "use client";
 
+import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
+
 import { useState } from "react";
+import { useT } from "@/hooks/i18n/useT";
 import { Eye, ChartBar, Warning } from "@/lib/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +31,8 @@ const COUNT_LABELS: Record<keyof LgpdPreviewCounts, string> = {
 };
 
 export function PreviewPanel({ requestId }: PreviewPanelProps) {
+  const tagDoIdioma = useTagDeIdioma();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [showSample, setShowSample] = useState(false);
 
@@ -44,7 +49,7 @@ export function PreviewPanel({ requestId }: PreviewPanelProps) {
         className="gap-2"
       >
         <Eye size={16} aria-hidden />
-        Pré-visualizar dados
+        {t("Pré-visualizar dados")}
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -52,7 +57,7 @@ export function PreviewPanel({ requestId }: PreviewPanelProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ChartBar size={18} aria-hidden />
-              Prévia de dados do titular
+              {t("Prévia de dados do titular")}
             </DialogTitle>
           </DialogHeader>
 
@@ -70,7 +75,7 @@ export function PreviewPanel({ requestId }: PreviewPanelProps) {
           {error && (
             <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
               <Warning size={16} aria-hidden />
-              Falha ao carregar prévia.
+              {t("Falha ao carregar prévia.")}
             </div>
           )}
 
@@ -78,7 +83,7 @@ export function PreviewPanel({ requestId }: PreviewPanelProps) {
             <div className="space-y-4">
               {preview.no_local_footprint && (
                 <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-300">
-                  Nenhum dado local encontrado para este titular.
+                  {t("Nenhum dado local encontrado para este titular.")}
                 </div>
               )}
 
@@ -93,7 +98,9 @@ export function PreviewPanel({ requestId }: PreviewPanelProps) {
                     <p className="text-muted-foreground">{preview.contact.phone_number}</p>
                   )}
                   {preview.contact.cpf_present && (
-                    <p className="text-xs text-muted-foreground">CPF: presente (valor ocultado)</p>
+                    <p className="text-xs text-muted-foreground">
+                      CPF: {t("presente (valor ocultado)")}
+                    </p>
                   )}
                 </div>
               )}
@@ -105,7 +112,7 @@ export function PreviewPanel({ requestId }: PreviewPanelProps) {
                     <Card key={key} className="py-3">
                       <CardHeader className="px-3 pb-0 pt-0">
                         <CardTitle className="text-xs font-normal text-muted-foreground">
-                          {COUNT_LABELS[key]}
+                          {t(COUNT_LABELS[key])}
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="px-3 pb-0">
@@ -123,28 +130,29 @@ export function PreviewPanel({ requestId }: PreviewPanelProps) {
                 onClick={() => setShowSample((v) => !v)}
                 className="w-full text-xs"
               >
-                {showSample ? "Ocultar amostra" : "Expandir amostra (10 itens por categoria)"}
+                {showSample ? t("Ocultar amostra") : t("Expandir amostra (10 itens por categoria)")}
               </Button>
 
               {showSample && (
                 <div className="space-y-4">
                   {preview.sample.conversations.length > 0 && (
-                    <SampleBlock label="Conversas" rows={preview.sample.conversations} />
+                    <SampleBlock label={t("Conversas")} rows={preview.sample.conversations} />
                   )}
                   {preview.sample.messages_recent.length > 0 && (
-                    <SampleBlock label="Mensagens (recentes)" rows={preview.sample.messages_recent} />
+                    <SampleBlock label={t("Mensagens (recentes)")} rows={preview.sample.messages_recent} />
                   )}
                   {preview.sample.leads.length > 0 && (
                     <SampleBlock label="Leads" rows={preview.sample.leads} />
                   )}
                   {preview.sample.orders.length > 0 && (
-                    <SampleBlock label="Pedidos" rows={preview.sample.orders} />
+                    <SampleBlock label={t("Pedidos")} rows={preview.sample.orders} />
                   )}
                 </div>
               )}
 
               <p className="text-center text-xs text-muted-foreground">
-                Gerado em {new Date(preview.generated_at).toLocaleString("pt-BR")} · PII mascarada · CPF não exibido
+                {t("Gerado em")} {new Date(preview.generated_at).toLocaleString(tagDoIdioma)} · PII{" "}
+                {t("mascarada")} · CPF {t("não exibido")}
               </p>
             </div>
           )}

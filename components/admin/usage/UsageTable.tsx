@@ -13,6 +13,7 @@ import { ChartBar } from "@/lib/ui/icons";
 import type { UsageTenantRow } from "@/app/api/v1/admin/usage/route";
 import type { UsageRange } from "@/hooks/useAdminUsage";
 import { formatCentsUSD } from "@/lib/money";
+import { useT } from "@/hooks/i18n/useT";
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -72,13 +73,14 @@ interface UsageTableProps {
 }
 
 export function UsageTable({ tenants, range }: UsageTableProps) {
+  const t = useT();
   if (tenants.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 rounded-md border py-16 text-center text-muted-foreground">
         <ChartBar size={36} weight="duotone" className="opacity-40" aria-hidden />
-        <p className="text-sm font-medium">Nenhum tenant encontrado</p>
+        <p className="text-sm font-medium">{t("Nenhum tenant encontrado")}</p>
         <p className="max-w-xs text-xs opacity-70">
-          Não há dados de uso no período selecionado.
+          {t("Não há dados de uso no período selecionado.")}
         </p>
       </div>
     );
@@ -88,7 +90,7 @@ export function UsageTable({ tenants, range }: UsageTableProps) {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-muted-foreground">
-          Uso por tenant
+          {t("Uso por tenant")}
         </h2>
         <Button
           variant="outline"
@@ -96,7 +98,7 @@ export function UsageTable({ tenants, range }: UsageTableProps) {
           onClick={() => exportCSV(tenants, range)}
           className="gap-1.5 text-xs"
         >
-          Exportar CSV
+          {t("Exportar CSV")}
         </Button>
       </div>
 
@@ -105,11 +107,11 @@ export function UsageTable({ tenants, range }: UsageTableProps) {
           <TableHeader>
             <TableRow>
               <TableHead>Tenant</TableHead>
-              <TableHead className="text-right">Mensagens</TableHead>
-              <TableHead className="text-right">Conversas</TableHead>
-              <TableHead className="text-right">Invoc. AI</TableHead>
+              <TableHead className="text-right">{t("Mensagens")}</TableHead>
+              <TableHead className="text-right">{t("Conversas")}</TableHead>
+              <TableHead className="text-right">{t("Invoc. AI")}</TableHead>
               <TableHead className="text-right">Tokens</TableHead>
-              <TableHead className="text-right">Custo AI</TableHead>
+              <TableHead className="text-right">{t("Custo AI")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

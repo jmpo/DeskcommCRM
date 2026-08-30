@@ -14,7 +14,14 @@ export interface SystemVersion {
   /** O host já viu ao menos uma tag `v*` publicada neste repositório. */
   has_known_release?: boolean;
   agent_online?: boolean;
-  notes?: { body: string; requires_attention: string | null } | null;
+  notes?: {
+    /** Um por versão da faixa que tem aviso, do mais novo ao mais antigo. */
+    requires_attention: Array<{ version: string; texto: string }>;
+    /** Todas as seções entre a versão no ar e a alvo, da mais nova à mais antiga. */
+    sections: Array<{ version: string; body: string }>;
+    /** `false`: o texto recebido pode não alcançar a versão instalada. */
+    complete: boolean;
+  } | null;
   run?: {
     id: string;
     status: string;

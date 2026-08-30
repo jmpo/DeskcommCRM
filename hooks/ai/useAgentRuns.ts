@@ -14,6 +14,7 @@ import { toast } from "sonner";
 
 import { apiClient } from "@/lib/api/client";
 import { useRealtimeChannel } from "@/hooks/realtime/useRealtimeChannel";
+import { useT } from "@/hooks/i18n/useT";
 
 export type RunStatus =
   | "pending"
@@ -65,6 +66,7 @@ export function useAgentRuns(
   const realtime = opts?.realtime ?? enabled;
   const limit = opts?.limit ?? 25;
   const qc = useQueryClient();
+  const t = useT();
 
   const query = useQuery({
     queryKey: [...agentRunsKey(agentId), limit] as const,
@@ -82,19 +84,19 @@ export function useAgentRuns(
       const payload = raw as { eventType?: string; new?: AgentRunRow } | null;
       qc.invalidateQueries({ queryKey: agentRunsKey(agentId) });
       if (payload?.eventType === "INSERT" && !payload.new?.is_dry_run) {
-        toast.info("Nova execução iniciada.");
+        toast.info(t("Nova execução iniciada."));
       }
       if (payload?.eventType === "UPDATE" && payload.new?.status === "completed") {
-        toast.success("Execução concluída.");
+        toast.success(t("Execução concluída."));
       }
       if (
         payload?.eventType === "UPDATE" &&
         (payload.new?.status === "failed" || payload.new?.status === "aborted")
       ) {
-        toast.error(`Execução ${payload.new?.status}.`);
+        toast.error(`${t("Execução")} ${payload.new?.status}.`);
       }
     },
-    [agentId, qc],
+    [agentId, qc, t],
   );
 
   // Pelo hook compartilhado. Este canal foi o PROVADO MORTO pelo @QAVivo: A/B na

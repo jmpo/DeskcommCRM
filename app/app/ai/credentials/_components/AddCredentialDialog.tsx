@@ -33,6 +33,7 @@ import {
   type Provider,
 } from "@/hooks/ai/useCredentials";
 import { IDS_DE_PROVEDOR, PROVEDORES } from "@/lib/ai/pontos/provedores";
+import { useT } from "@/hooks/i18n/useT";
 
 const formSchema = z.object({
   // Derivado da lista única (`lib/ai/pontos/provedores.ts`), como a rota.
@@ -53,6 +54,7 @@ interface Props {
 }
 
 export function AddCredentialDialog({ open, onOpenChange }: Props) {
+  const t = useT();
   const router = useRouter();
   const qc = useQueryClient();
   const [provider, setProvider] = useState<Provider>("anthropic");
@@ -76,22 +78,22 @@ export function AddCredentialDialog({ open, onOpenChange }: Props) {
     if (!parsed.success) {
       const flat = parsed.error.flatten().fieldErrors;
       setErrors({
-        provider: flat.provider?.[0],
-        label: flat.label?.[0],
-        api_key: flat.api_key?.[0],
+        provider: flat.provider?.[0] ? t(flat.provider[0]) : undefined,
+        label: flat.label?.[0] ? t(flat.label[0]) : undefined,
+        api_key: flat.api_key?.[0] ? t(flat.api_key[0]) : undefined,
       });
       return;
     }
 
     setSubmitting(true);
-    const validatingToast = toast.loading("Credencial salva. Validando…");
+    const validatingToast = toast.loading(t("Credencial salva. Validando…"));
     try {
       const res = await apiClient.post<CreateResponse>(
         "/api/v1/ai/credentials",
         parsed.data,
       );
       toast.dismiss(validatingToast);
-      toast.success("Credencial salva. Validação em segundo plano.");
+      toast.success(t("Credencial salva. Validação em segundo plano."));
       reset();
       onOpenChange(false);
 
@@ -102,10 +104,10 @@ export function AddCredentialDialog({ open, onOpenChange }: Props) {
         const justCreated = fresh?.find((c) => c.id === res.data.id);
         if (justCreated?.models_available != null) {
           toast.success(
-            `Validada — ${justCreated.models_available} modelos disponíveis.`,
+            `${t("Validada")} — ${justCreated.models_available} ${t("modelos disponíveis.")}`,
           );
         } else if (justCreated?.validation_error) {
-          toast.error(`Validação falhou: ${justCreated.validation_error}`);
+          toast.error(`${t("Validação falhou")}: ${justCreated.validation_error}`);
         }
       }, 3000);
 
@@ -129,15 +131,14 @@ export function AddCredentialDialog({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChangeWrapped}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Adicionar credencial</DialogTitle>
+          <DialogTitle>{t("Adicionar credencial")}</DialogTitle>
           <DialogDescription>
-            A chave é cifrada (AES-GCM) antes de gravar e nunca é retornada em
-            texto claro.
+            {t("A chave é cifrada (AES-GCM) antes de gravar e nunca é retornada em texto claro.")}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="cred-provider">Provider</Label>
+            <Label htmlFor="cred-provider">{t("Provider")}</Label>
             <Select value={provider} onValueChange={(v) => setProvider(v as Provider)}>
               <SelectTrigger id="cred-provider">
                 <SelectValue />
@@ -156,12 +157,12 @@ export function AddCredentialDialog({ open, onOpenChange }: Props) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="cred-label">Label</Label>
+            <Label htmlFor="cred-label">{t("Label")}</Label>
             <Input
               id="cred-label"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="Ex: Produção"
+              placeholder={t("Ex: Produção")}
               maxLength={80}
               required
             />
@@ -169,7 +170,7 @@ export function AddCredentialDialog({ open, onOpenChange }: Props) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="cred-key">API key</Label>
+            <Label htmlFor="cred-key">{t("API key")}</Label>
             <Input
               id="cred-key"
               type="password"
@@ -191,10 +192,10 @@ export function AddCredentialDialog({ open, onOpenChange }: Props) {
               onClick={() => onOpenChangeWrapped(false)}
               disabled={submitting}
             >
-              Cancelar
+              {t("Cancelar")}
             </Button>
             <Button type="submit" disabled={submitting}>
-              {submitting ? "Salvando…" : "Salvar e validar"}
+              {submitting ? t("Salvando…") : t("Salvar e validar")}
             </Button>
           </DialogFooter>
         </form>

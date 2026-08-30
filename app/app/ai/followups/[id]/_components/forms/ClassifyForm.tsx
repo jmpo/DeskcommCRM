@@ -19,6 +19,7 @@ import {
   opcoes,
   type AlvoDaClassificacao,
 } from "@/lib/followup/vocabulario";
+import { useT } from "@/hooks/i18n/useT";
 
 import { msToMin, minToMs, type ConfigOf } from "./shared";
 
@@ -51,6 +52,7 @@ export function ClassifyForm({
   config: ConfigOf<"ai_classify">;
   onChange: (c: ConfigOf<"ai_classify">) => void;
 }) {
+  const t = useT();
   const [classesText, setClassesText] = useState(config.classes.join(", "));
   const [graceMin, setGraceMin] = useState(msToMin(config.grace_timeout_ms));
   const [target, setTarget] = useState(config.target);
@@ -70,7 +72,7 @@ export function ClassifyForm({
     };
     const parsed = aiClassifyConfigSchema.safeParse(candidate);
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Configuração inválida.");
+      setError(parsed.error.issues[0]?.message ?? t("Configuração inválida."));
       return;
     }
     setError(null);
@@ -80,7 +82,7 @@ export function ClassifyForm({
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <Label htmlFor="classify-classes">Classes (separadas por vírgula)</Label>
+        <Label htmlFor="classify-classes">{t("Classes (separadas por vírgula)")}</Label>
         <Input
           id="classify-classes"
           value={classesText}
@@ -88,11 +90,11 @@ export function ClassifyForm({
             setClassesText(e.target.value);
             commit({ classesText: e.target.value, graceMin, target, hint });
           }}
-          placeholder="interessado, sem interesse"
+          placeholder={t("interessado, sem interesse")}
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="classify-grace">{ESPERA_PELA_RESPOSTA.rotulo}</Label>
+        <Label htmlFor="classify-grace">{t(ESPERA_PELA_RESPOSTA.rotulo)}</Label>
         <Input
           id="classify-grace"
           type="number"
@@ -107,7 +109,7 @@ export function ClassifyForm({
         <p className="text-xs text-text-muted">{ESPERA_PELA_RESPOSTA.ajuda}</p>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="classify-target">O que a IA vai ler</Label>
+        <Label htmlFor="classify-target">{t("O que a IA vai ler")}</Label>
         <Select
           value={target}
           onValueChange={(v) => {
@@ -122,14 +124,14 @@ export function ClassifyForm({
           <SelectContent>
             {opcoes(ALVOS_DA_CLASSIFICACAO).map(({ valor, rotulo }) => (
               <SelectItem key={valor} value={valor}>
-                {rotulo}
+                {t(rotulo)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="classify-hint">Instrução (opcional)</Label>
+        <Label htmlFor="classify-hint">{t("Instrução (opcional)")}</Label>
         <Textarea
           id="classify-hint"
           maxLength={500}

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { guardrailItemSchema, type GuardrailItem, type GuardrailKind } from "@/lib/ai/guardrails-schema";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   value: GuardrailItem[];
@@ -27,23 +28,23 @@ const KIND_LABELS: Record<GuardrailKind, string> = {
   contact_flag: "Contact flag",
 };
 
-function defaultForKind(kind: GuardrailKind): GuardrailItem {
+function defaultForKind(kind: GuardrailKind, t: (texto: string) => string = (texto) => texto): GuardrailItem {
   switch (kind) {
     case "regex_output_block":
       return {
         kind: "regex_output_block",
         pattern: "",
         flags: "i",
-        reason: "Bloquear conteúdo sensível na resposta",
+        reason: t("Bloquear conteúdo sensível na resposta"),
       };
     case "rag_must_hit":
-      return { kind: "rag_must_hit", min_citations: 1, reason: "Exigir citação da base" };
+      return { kind: "rag_must_hit", min_citations: 1, reason: t("Exigir citação da base") };
     case "regex_input_block":
       return {
         kind: "regex_input_block",
         pattern: "",
         flags: "i",
-        reason: "Bloquear input com termo proibido",
+        reason: t("Bloquear input com termo proibido"),
       };
     case "window_check":
       return {
@@ -51,19 +52,20 @@ function defaultForKind(kind: GuardrailKind): GuardrailItem {
         start_hour: 7,
         end_hour: 22,
         timezone: "America/Sao_Paulo",
-        reason: "Janela operacional 7h-22h",
+        reason: t("Janela operacional 7h-22h"),
       };
     case "contact_flag":
       return {
         kind: "contact_flag",
         field: "force_human",
         expected: false,
-        reason: "Skip se contato pediu humano",
+        reason: t("Skip se contato pediu humano"),
       };
   }
 }
 
 export function GuardrailsEditor({ value, onChange, disabled }: Props) {
+  const t = useT();
   const [pendingKind, setPendingKind] = React.useState<GuardrailKind>("regex_output_block");
 
   function update(idx: number, patch: Partial<GuardrailItem>) {
@@ -76,14 +78,14 @@ export function GuardrailsEditor({ value, onChange, disabled }: Props) {
   }
 
   function add() {
-    onChange([...value, defaultForKind(pendingKind)]);
+    onChange([...value, defaultForKind(pendingKind, t)]);
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-end gap-2">
         <div className="flex-1 space-y-1">
-          <Label className="text-xs">Tipo do novo guardrail</Label>
+          <Label className="text-xs">{t("Tipo do novo guardrail")}</Label>
           <Select
             value={pendingKind}
             onValueChange={(v) => setPendingKind(v as GuardrailKind)}
@@ -95,20 +97,20 @@ export function GuardrailsEditor({ value, onChange, disabled }: Props) {
             <SelectContent>
               {(Object.keys(KIND_LABELS) as GuardrailKind[]).map((k) => (
                 <SelectItem key={k} value={k}>
-                  {KIND_LABELS[k]}
+                  {t(KIND_LABELS[k])}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
         <Button type="button" onClick={add} disabled={disabled}>
-          Adicionar guardrail
+          {t("Adicionar guardrail")}
         </Button>
       </div>
 
       {value.length === 0 ? (
         <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-          Nenhum guardrail definido. O agent responde sem restrições adicionais.
+          {t("Nenhum guardrail definido. O agent responde sem restrições adicionais.")}
         </p>
       ) : (
         <ul className="space-y-3">
@@ -122,7 +124,7 @@ export function GuardrailsEditor({ value, onChange, disabled }: Props) {
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {KIND_LABELS[item.kind]}
+                    {t(KIND_LABELS[item.kind])}
                   </span>
                   <Button
                     type="button"
@@ -131,13 +133,13 @@ export function GuardrailsEditor({ value, onChange, disabled }: Props) {
                     onClick={() => remove(idx)}
                     disabled={disabled}
                   >
-                    Remover
+                    {t("Remover")}
                   </Button>
                 </div>
                 <GuardrailFields item={item} onPatch={(p) => update(idx, p)} disabled={disabled} />
                 {invalid && (
                   <p className="mt-2 text-xs text-destructive">
-                    Campos inválidos. Ajuste antes de salvar.
+                    {t("Campos inválidos. Ajuste antes de salvar.")}
                   </p>
                 )}
               </li>
@@ -158,9 +160,10 @@ function GuardrailFields({
   onPatch: (p: Partial<GuardrailItem>) => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   const reasonField = (
     <div className="space-y-1">
-      <Label className="text-xs">Motivo</Label>
+      <Label className="text-xs">{t("Motivo")}</Label>
       <Input
         value={item.reason}
         onChange={(e) => onPatch({ reason: e.target.value } as Partial<GuardrailItem>)}
@@ -199,7 +202,7 @@ function GuardrailFields({
     return (
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div className="space-y-1">
-          <Label className="text-xs">Citações mínimas</Label>
+          <Label className="text-xs">{t("Citações mínimas")}</Label>
           <Input
             type="number"
             min={1}
@@ -222,7 +225,7 @@ function GuardrailFields({
     return (
       <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <div className="space-y-1">
-          <Label className="text-xs">Hora início (0-23)</Label>
+          <Label className="text-xs">{t("Hora início (0-23)")}</Label>
           <Input
             type="number"
             min={0}
@@ -235,7 +238,7 @@ function GuardrailFields({
           />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Hora fim (0-23)</Label>
+          <Label className="text-xs">{t("Hora fim (0-23)")}</Label>
           <Input
             type="number"
             min={0}
@@ -264,7 +267,7 @@ function GuardrailFields({
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
       <div className="space-y-1">
-        <Label className="text-xs">Campo</Label>
+        <Label className="text-xs">{t("Campo")}</Label>
         <Select
           value={item.field}
           onValueChange={(v) =>
@@ -288,7 +291,9 @@ function GuardrailFields({
           onCheckedChange={(v) => onPatch({ expected: v } as Partial<GuardrailItem>)}
           disabled={disabled}
         />
-        <Label className="text-xs">Valor esperado: {item.expected ? "true" : "false"}</Label>
+        <Label className="text-xs">
+          {t("Valor esperado")}: {item.expected ? "true" : "false"}
+        </Label>
       </div>
       <div className="md:col-span-3">{reasonField}</div>
     </div>

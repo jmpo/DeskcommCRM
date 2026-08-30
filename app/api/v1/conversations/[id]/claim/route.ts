@@ -8,11 +8,16 @@
  * G3-01: a mudança de dono acontece via rpc `fn_conversation_assign`
  * (migration 0031), que faz o UPDATE condicional + INSERT do evento em
  * `conversation_assignment_events` (reason='claim') na MESMA transação.
+ *
+ * 0173: essa mesma RPC agora grava `bot_silenced_until='infinity'` — assumir CALA
+ * o atendimento automático. Antes disso o motor moderno nunca soube que alguém
+ * assumiu (ele não lê `assignee_kind`) e os dois atendiam o mesmo cliente.
  */
 import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 
 import { audit } from "@/lib/audit";
+import { registrarTrocaDeComando } from "@/lib/inbox/atividade-de-comando";
 import { ApiError } from "@/lib/api/types";
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
@@ -91,6 +96,19 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
     .then(({ error: emitErr }) => {
       if (emitErr) console.error("[conversation.claim] emit_event failed", emitErr.message);
     });
+
+  // A linha na TELA. O `emit_event` acima e o audit não são lidos por atendente
+  // nenhum; sem esta chamada, assumir uma conversa era invisível na timeline —
+  // grep por atividade nas três rotas de troca de dono devolvia zero.
+  await registrarTrocaDeComando({
+    supabase,
+    organizationId: conv.organization_id,
+    conversationId: conv.id,
+    contactId: conv.contact_id,
+    tipo: "conversation_claimed",
+    actor: { type: "user", id: user.id, role: authz.org.role },
+    motivo: "Assumiu o atendimento desta conversa",
+  });
 
   return ok(conv, { requestId });
 }

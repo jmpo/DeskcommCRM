@@ -1,15 +1,28 @@
 /**
- * Knowledge version lifecycle helpers for the RAG indexer.
+ * Ciclo de vida das versões de índice — agora POR FONTE (migration 0181).
  *
- * All queries use the admin (service-role) client and filter organization_id
- * explicitly — service-role bypasses RLS, so tenant isolation is enforced here.
+ * Antes, a versão era do AGENTE e havia uma ativa por agente. Duas rotinas
+ * indexavam material diferente do mesmo agente e cada uma chamava
+ * `activate_kb_version`, que DESATIVA as outras: a ingestão de conversas
+ * derrubava a FAQ, o worker de FAQ derrubava as conversas, e quem indexou por
+ * último apagava o acervo do outro em silêncio.
+ *
+ * Com a versão por fonte, a competição deixa de existir por construção. Ativar
+ * o índice de um material não toca em nenhum outro.
+ *
+ * Todas as consultas usam o admin (service role) e filtram `organization_id`
+ * explicitamente — service role bypassa RLS, então o isolamento é aqui.
  */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { MODELO_DE_EMBEDDING, DIMENSOES_DO_EMBEDDING } from "@/lib/ai/embeddings/chave";
 
 export interface CreateVersionParams {
-  agentId: string;
   organizationId: string;
+  /** A fonte que esta versão indexa. */
+  knowledgeSourceId: string;
+  /** Histórico: o agente a partir do qual a fonte nasceu (pode ser null). */
+  agentId: string | null;
   sourceType: string;
 }
 
@@ -19,19 +32,21 @@ export interface CreateVersionResult {
 }
 
 /**
- * Creates a new `ai_knowledge_versions` row in `status='building'`.
- * Version number is max+1 for this agent+org pair.
+ * Cria uma `ai_knowledge_versions` em `status='building'` para UMA fonte.
+ *
+ * `version_number` é max+1 dentro da própria fonte — o número volta a significar
+ * "a quantas indexações deste material" em vez de "quantas vezes esta
+ * organização indexou qualquer coisa".
  */
 export async function createKnowledgeVersion(
   params: CreateVersionParams,
 ): Promise<CreateVersionResult> {
   const admin = createAdminClient();
 
-  // Resolve the current max version_number for this agent+org.
   const { data: maxRow, error: maxErr } = await admin
     .from("ai_knowledge_versions")
     .select("version_number")
-    .eq("agent_id", params.agentId)
+    .eq("knowledge_source_id", params.knowledgeSourceId)
     .eq("organization_id", params.organizationId)
     .order("version_number", { ascending: false })
     .limit(1)
@@ -46,12 +61,17 @@ export async function createKnowledgeVersion(
   const { data: inserted, error: insertErr } = await admin
     .from("ai_knowledge_versions")
     .insert({
-      agent_id: params.agentId,
       organization_id: params.organizationId,
+      knowledge_source_id: params.knowledgeSourceId,
+      agent_id: params.agentId,
       version_number: nextVersionNumber,
-      description: `Auto-indexed via ${params.sourceType}`,
+      description: `Indexação de ${params.sourceType}`,
       status: "building",
       is_active: false,
+      // Proveniência: sem ela, "indexado com um modelo e consultado com outro"
+      // é a falha que responde com trecho errado e nota alta.
+      embedding_model: MODELO_DE_EMBEDDING,
+      embedding_dims: DIMENSOES_DO_EMBEDDING,
     })
     .select("id, version_number")
     .single();
@@ -66,9 +86,7 @@ export async function createKnowledgeVersion(
   };
 }
 
-/**
- * Marks a version as `ready` and updates `total_chunks` + `indexed_at`.
- */
+/** Marca a versão como `ready` e grava `total_chunks` + `indexed_at`. */
 export async function markVersionReady(
   versionId: string,
   organizationId: string,
@@ -91,9 +109,7 @@ export async function markVersionReady(
   }
 }
 
-/**
- * Marks a version as `failed` with an error message.
- */
+/** Marca a versão como `failed` com o motivo por escrito. */
 export async function markVersionFailed(
   versionId: string,
   organizationId: string,
@@ -103,10 +119,7 @@ export async function markVersionFailed(
 
   const { error } = await admin
     .from("ai_knowledge_versions")
-    .update({
-      status: "failed",
-      error_message: errorMessage,
-    })
+    .update({ status: "failed", error_message: errorMessage })
     .eq("id", versionId)
     .eq("organization_id", organizationId);
 
@@ -116,22 +129,28 @@ export async function markVersionFailed(
 }
 
 /**
- * Activates a version via the `activate_kb_version` RPC.
- * Pre-checks that the version belongs to the org before calling.
+ * Ativa a versão para a FONTE: aponta `ai_knowledge_sources.active_kb_version_id`
+ * e desativa a anterior daquela fonte.
+ *
+ * Escrito em duas instruções e não numa RPC nova porque a única invariante que
+ * o banco precisa garantir — uma ativa por fonte — já é o índice único
+ * `ai_kbv_uma_ativa_por_fonte`. Desativar a anterior ANTES de ativar a nova é o
+ * que impede o índice de recusar a troca.
  */
 export async function activateVersion(params: {
-  agentId: string;
-  versionId: string;
   organizationId: string;
+  knowledgeSourceId: string;
+  versionId: string;
 }): Promise<void> {
   const admin = createAdminClient();
 
-  // Tenant isolation pre-check: confirm version belongs to this org+agent.
+  // Pré-checagem de tenant: o admin client bypassa RLS, então conferir aqui é
+  // obrigatório e não paranoia.
   const { data: versionRow, error: checkErr } = await admin
     .from("ai_knowledge_versions")
     .select("id")
     .eq("id", params.versionId)
-    .eq("agent_id", params.agentId)
+    .eq("knowledge_source_id", params.knowledgeSourceId)
     .eq("organization_id", params.organizationId)
     .maybeSingle();
 
@@ -140,16 +159,39 @@ export async function activateVersion(params: {
   }
   if (!versionRow) {
     throw new Error(
-      `activateVersion: version ${params.versionId} not found for org ${params.organizationId}`,
+      `activateVersion: versão ${params.versionId} não pertence à fonte ${params.knowledgeSourceId}`,
     );
   }
 
-  const { error: rpcErr } = await admin.rpc("activate_kb_version" as never, {
-    p_agent_id: params.agentId,
-    p_version_id: params.versionId,
-  } as never);
+  const { error: offErr } = await admin
+    .from("ai_knowledge_versions")
+    .update({ is_active: false })
+    .eq("knowledge_source_id", params.knowledgeSourceId)
+    .eq("organization_id", params.organizationId)
+    .neq("id", params.versionId)
+    .eq("is_active", true);
 
-  if (rpcErr) {
-    throw new Error(`activateVersion: RPC failed — ${rpcErr.message}`);
+  if (offErr) {
+    throw new Error(`activateVersion: desativar anterior falhou — ${offErr.message}`);
+  }
+
+  const { error: onErr } = await admin
+    .from("ai_knowledge_versions")
+    .update({ is_active: true, activated_at: new Date().toISOString() })
+    .eq("id", params.versionId)
+    .eq("organization_id", params.organizationId);
+
+  if (onErr) {
+    throw new Error(`activateVersion: ativar falhou — ${onErr.message}`);
+  }
+
+  const { error: ptrErr } = await admin
+    .from("ai_knowledge_sources")
+    .update({ active_kb_version_id: params.versionId })
+    .eq("id", params.knowledgeSourceId)
+    .eq("organization_id", params.organizationId);
+
+  if (ptrErr) {
+    throw new Error(`activateVersion: ponteiro da fonte falhou — ${ptrErr.message}`);
   }
 }

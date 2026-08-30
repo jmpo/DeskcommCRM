@@ -8,6 +8,7 @@ import { showApiError } from "@/components/feedback/ApiErrorToast";
 import { useReplyCase, type CaseHumanAction, type CaseStatus } from "@/hooks/ai/useCases";
 import { CASE_ACTIONS, CASE_REPLY_DISABLED_REASON } from "@/lib/ai/case-copy";
 import { cn } from "@/lib/utils";
+import { useT } from "@/hooks/i18n/useT";
 
 /**
  * As 3 ações do humano sobre um caso aberto (spec 15 §9). Só habilitado em
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
  * o motivo aparece em texto (nunca um botão desabilitado sem explicação).
  */
 export function CaseReplyPanel({ caseId, status }: { caseId: string; status: CaseStatus }) {
+  const t = useT();
   // Sem pré-seleção de propósito: as 3 ações têm efeitos muito diferentes (uma
   // delas FECHA o caso) e não há desfazer. Um default marcado faria quem digitou
   // pensando em "pedir info ao cliente" encerrar o caso sem perceber.
@@ -32,7 +34,7 @@ export function CaseReplyPanel({ caseId, status }: { caseId: string; status: Cas
       { id: caseId, action, body: body.trim() },
       {
         onSuccess: () => {
-          toast.success("Resposta enviada.");
+          toast.success(t("Resposta enviada."));
           setBody("");
           setAction(null);
         },
@@ -43,10 +45,10 @@ export function CaseReplyPanel({ caseId, status }: { caseId: string; status: Cas
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border p-4">
-      <h3 className="text-sm font-semibold">O que você quer fazer?</h3>
-      {disabled ? <p className="text-xs text-muted-foreground">{disabledReason}</p> : null}
+      <h3 className="text-sm font-semibold">{t("O que você quer fazer?")}</h3>
+      {disabled ? <p className="text-xs text-muted-foreground">{disabledReason ? t(disabledReason) : null}</p> : null}
 
-      <div className="flex flex-col gap-2" role="radiogroup" aria-label="O que você quer fazer?">
+      <div className="flex flex-col gap-2" role="radiogroup" aria-label={t("O que você quer fazer?")}>
         {CASE_ACTIONS.map((opt) => (
           <button
             key={opt.action}
@@ -61,8 +63,8 @@ export function CaseReplyPanel({ caseId, status }: { caseId: string; status: Cas
               disabled && "cursor-not-allowed opacity-55",
             )}
           >
-            <p className="text-sm font-medium">{opt.label}</p>
-            <p className="text-xs text-muted-foreground">{opt.help}</p>
+            <p className="text-sm font-medium">{t(opt.label)}</p>
+            <p className="text-xs text-muted-foreground">{t(opt.help)}</p>
           </button>
         ))}
       </div>
@@ -71,14 +73,14 @@ export function CaseReplyPanel({ caseId, status }: { caseId: string; status: Cas
         value={body}
         onChange={(e) => setBody(e.target.value)}
         disabled={disabled}
-        placeholder="Escreva sua resposta para a IA..."
+        placeholder={t("Escreva sua resposta para a IA...")}
         rows={3}
       />
       {!disabled && action === null ? (
-        <p className="text-xs text-muted-foreground">Escolha uma das opções acima para enviar.</p>
+        <p className="text-xs text-muted-foreground">{t("Escolha uma das opções acima para enviar.")}</p>
       ) : null}
       <Button onClick={handleSubmit} disabled={!canSubmit}>
-        {reply.isPending ? "Enviando..." : "Enviar"}
+        {reply.isPending ? t("Enviando...") : t("Enviar")}
       </Button>
     </div>
   );

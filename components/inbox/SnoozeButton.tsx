@@ -1,4 +1,5 @@
 "use client";
+import { useT } from "@/hooks/i18n/useT";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -26,6 +27,7 @@ function isSnoozeActive(snoozeUntil: string | null): boolean {
 }
 
 export function SnoozeButton({ conversationId, snoozeUntil, disabled }: Props) {
+  const t = useT();
   const { snooze, cancel } = useSnoozeConversation();
   const isActive = isSnoozeActive(snoozeUntil);
   const isPending = snooze.isPending || cancel.isPending;
@@ -40,7 +42,7 @@ export function SnoozeButton({ conversationId, snoozeUntil, disabled }: Props) {
           className="flex items-center gap-1"
         >
           <Clock size={12} weight="regular" aria-hidden />
-          {isActive ? "Lembrete ativo" : "Lembrar"}
+          {isActive ? t("Lembrete ativo") : t("Lembrar")}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -48,7 +50,7 @@ export function SnoozeButton({ conversationId, snoozeUntil, disabled }: Props) {
           <DropdownMenuItem
             onClick={() => cancel.mutate({ conversation_id: conversationId })}
           >
-            Cancelar lembrete
+            {t("Cancelar lembrete")}
           </DropdownMenuItem>
         ) : (
           DURATIONS.map((d) => (
@@ -58,7 +60,7 @@ export function SnoozeButton({ conversationId, snoozeUntil, disabled }: Props) {
                 snooze.mutate({ conversation_id: conversationId, duration_hours: d.hours })
               }
             >
-              {d.label}
+              {t(d.label)}
             </DropdownMenuItem>
           ))
         )}

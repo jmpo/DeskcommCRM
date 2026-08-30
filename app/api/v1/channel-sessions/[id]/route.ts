@@ -25,6 +25,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { requireRole } from "@/lib/auth/require-role";
 import { CHANNEL_PROVIDER_WAHA } from "@/lib/channels/capabilities";
+import { numeroObservadoDaSessao } from "@/lib/channels/numero-observado";
 import { isChannelStatus } from "@/lib/schemas/channels";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -166,9 +167,15 @@ export async function GET(
       me?: { id?: string; pushName?: string };
     };
     if (remote.status) liveStatus = remote.status;
-    // WAHA expõe o número (JID `<phone>@c.us`) quando a sessão está WORKING.
-    const jid = remote.me?.id;
-    if (jid && !phoneNumber) phoneNumber = jid.replace(/@.*/, "");
+    // O número vem do JID (`<phone>@c.us`), e a regra de quando ele VALE mora
+    // em `numeroObservadoDaSessao` — inclusive por que não basta gravar sempre.
+    // O que havia aqui só preenchia a coluna VAZIA, então um re-pareamento com
+    // outro aparelho deixava o banco mentindo para sempre.
+    phoneNumber = numeroObservadoDaSessao({
+      jid: remote.me?.id,
+      statusAoVivo: liveStatus,
+      gravado: phoneNumber,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown";
     // 404 no WAHA = sessão não iniciada lá → considera STOPPED.

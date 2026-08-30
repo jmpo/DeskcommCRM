@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { descreveEspera, type TimingPlan } from "@/lib/followup/plano-de-tempo";
 import type { NoDoDossie } from "@/lib/followup/eventos-legiveis";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   plano: TimingPlan | null;
@@ -24,15 +25,16 @@ interface Props {
  * decisão de IA, e um vazio ali sugeriria que houve uma e se perdeu.
  */
 export function PlanoDeTempoBloco({ plano, nos, decididoRelativo }: Props) {
+  const t = useT();
   if (!plano) return null;
   const porId = Object.fromEntries(nos.map((n) => [n.id, n]));
 
   return (
     <section className="rounded-md border border-border p-4" data-testid="dossie-plano-de-tempo">
       <header className="mb-3">
-        <h2 className="text-sm font-medium">O tempo que o agente escolheu</h2>
+        <h2 className="text-sm font-medium">{t("O tempo que o agente escolheu")}</h2>
         <p className="text-xs text-text-muted">
-          Decidido {decididoRelativo ?? "no início do follow-up"}
+          {t("Decidido")} {decididoRelativo ?? t("no início do follow-up")}
           {plano.modelo ? ` · ${plano.modelo}` : ""}
         </p>
       </header>
@@ -43,10 +45,10 @@ export function PlanoDeTempoBloco({ plano, nos, decididoRelativo }: Props) {
             <li key={nodeId} className="flex flex-col gap-0.5" data-testid="dossie-espera">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-text">{porId[nodeId]?.rotulo ?? nodeId}</span>
-                <span className="text-sm font-medium text-text">esperar {d.escolhido}</span>
+                <span className="text-sm font-medium text-text">{t("esperar")} {d.escolhido}</span>
                 {espera.clampado && (
                   <Badge variant="warning" data-testid="dossie-espera-clampada">
-                    bateu no seu limite
+                    {t("bateu no seu limite")}
                   </Badge>
                 )}
               </div>
@@ -58,7 +60,7 @@ export function PlanoDeTempoBloco({ plano, nos, decididoRelativo }: Props) {
               */}
               {d.pedido && (
                 <p className="text-xs text-warning-fg" data-testid="dossie-espera-pedido">
-                  a IA pediu {d.pedido}
+                  {t("a IA pediu")} {d.pedido}
                 </p>
               )}
               <p className="text-xs text-text-muted">{d.motivo}</p>

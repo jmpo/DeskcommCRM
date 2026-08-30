@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { dadosDoPasso } from "@/app/actions/onboarding/montarQuadro";
 import { QuadroClient } from "./_client";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -22,17 +23,21 @@ export default async function FunilPage() {
   const user = await requireAuth();
   const activeOrg = await resolveActiveOrg(user);
   if (!activeOrg) redirect("/login");
+  const idioma = user.idioma;
 
   const { atual, sugestao } = await dadosDoPasso(activeOrg.orgId, activeOrg.name);
 
   return (
     <div className="space-y-6">
       <header>
-        <h2 className="text-2xl font-semibold tracking-tight">Onde ele organiza seus clientes</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          {traduzir("Onde ele organiza seus clientes", idioma)}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          Cada cliente vira um cartão que anda por essas colunas. Ele mesmo move o
-          cartão conforme a conversa avança — por isso cada coluna diz também
-          quando ele deve usá-la.
+          {traduzir(
+            "Cada cliente vira um cartão que anda por essas colunas. Ele mesmo move o cartão conforme a conversa avança — por isso cada coluna diz também quando ele deve usá-la.",
+            idioma,
+          )}
         </p>
       </header>
       <QuadroClient atual={atual} sugestao={sugestao} />

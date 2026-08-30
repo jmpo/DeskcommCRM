@@ -19,6 +19,9 @@ import { isConfigured } from "@/lib/nuvemshop/config";
 import { ConnectButton, DisconnectButton } from "./_components/ConnectButton";
 import { StatusToast } from "./_components/StatusToast";
 import { Suspense } from "react";
+import { tagDeIdioma } from "@/lib/i18n/datas";
+import { normalizarIdioma } from "@/lib/i18n/idiomas";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 interface IntegrationRow {
   id: string;
@@ -44,6 +47,7 @@ export default async function NuvemshopIntegrationPage() {
   const user = await loadAuthUser();
   const activeOrg = user ? await resolveActiveOrg(user) : null;
   const configured = isConfigured();
+  const idioma = normalizarIdioma(user?.locale ?? null);
 
   const integration =
     activeOrg && configured ? await loadIntegration(activeOrg.orgId) : null;
@@ -63,7 +67,7 @@ export default async function NuvemshopIntegrationPage() {
         <div>
           <h1 className="text-xl font-semibold">Nuvemshop</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Sincroniza pedidos, produtos e clientes via OAuth + webhooks.
+            {traduzir("Sincroniza pedidos, produtos e clientes via OAuth + webhooks.", idioma)}
           </p>
         </div>
       </header>
@@ -71,17 +75,20 @@ export default async function NuvemshopIntegrationPage() {
       {!configured ? (
         <Card>
           <CardHeader>
-            <CardTitle>Integração não configurada</CardTitle>
+            <CardTitle>{traduzir("Integração não configurada", idioma)}</CardTitle>
             <CardDescription>
-              Configure <code className="rounded bg-muted px-1 py-0.5 text-xs">NUVEMSHOP_APP_ID</code>,{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">NUVEMSHOP_CLIENT_ID</code> e{" "}
+              {traduzir("Configure", idioma)}{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">NUVEMSHOP_APP_ID</code>,{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">NUVEMSHOP_CLIENT_ID</code>{" "}
+              {traduzir("e", idioma)}{" "}
               <code className="rounded bg-muted px-1 py-0.5 text-xs">NUVEMSHOP_CLIENT_SECRET</code>{" "}
-              em <code className="rounded bg-muted px-1 py-0.5 text-xs">.env.local</code> para
-              ativar a integração.
+              {traduzir("em", idioma)}{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">.env.local</code>{" "}
+              {traduzir("para ativar a integração.", idioma)}
             </CardDescription>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Obtenha as credenciais em{" "}
+            {traduzir("Obtenha as credenciais em", idioma)}{" "}
             <a
               className="underline"
               href="https://partners.tiendanube.com/"
@@ -96,16 +103,16 @@ export default async function NuvemshopIntegrationPage() {
       ) : !integration || integration.status === "disconnected" ? (
         <Card>
           <CardHeader>
-            <CardTitle>Conectar Nuvemshop</CardTitle>
+            <CardTitle>{traduzir("Conectar Nuvemshop", idioma)}</CardTitle>
             <CardDescription>
-              Você será redirecionado para autorizar o app na sua loja.
+              {traduzir("Você será redirecionado para autorizar o app na sua loja.", idioma)}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <ConnectButton disabled={!isAdmin} />
             {!isAdmin ? (
               <p className="text-xs text-muted-foreground">
-                Somente administradores podem conectar integrações.
+                {traduzir("Somente administradores podem conectar integrações.", idioma)}
               </p>
             ) : null}
           </CardContent>
@@ -115,13 +122,14 @@ export default async function NuvemshopIntegrationPage() {
           <CardHeader className="flex flex-row items-start justify-between gap-3">
             <div>
               <CardTitle className="flex items-center gap-2">
-                Conectado
+                {traduzir("Conectado", idioma)}
                 <Badge variant="secondary">{integration.status}</Badge>
               </CardTitle>
               <CardDescription>
-                Loja #{integration.store_metadata?.store_id ?? "—"} · última sync:{" "}
+                {traduzir("Loja", idioma)} #{integration.store_metadata?.store_id ?? "—"} ·{" "}
+                {traduzir("última sync:", idioma)}{" "}
                 {integration.last_sync_at
-                  ? new Date(integration.last_sync_at).toLocaleString("pt-BR")
+                  ? new Date(integration.last_sync_at).toLocaleString(tagDeIdioma(idioma))
                   : "—"}
               </CardDescription>
             </div>
@@ -129,7 +137,7 @@ export default async function NuvemshopIntegrationPage() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div>
-              <span className="font-medium">Escopos:</span>{" "}
+              <span className="font-medium">{traduzir("Escopos:", idioma)}</span>{" "}
               {integration.scopes.length > 0 ? (
                 <span className="text-muted-foreground">{integration.scopes.join(", ")}</span>
               ) : (
@@ -137,7 +145,7 @@ export default async function NuvemshopIntegrationPage() {
               )}
             </div>
             <div>
-              <span className="font-medium">Webhooks registrados:</span>{" "}
+              <span className="font-medium">{traduzir("Webhooks registrados:", idioma)}</span>{" "}
               <span className="text-muted-foreground">
                 {integration.webhook_subscriptions
                   ? Object.entries(integration.webhook_subscriptions).filter(

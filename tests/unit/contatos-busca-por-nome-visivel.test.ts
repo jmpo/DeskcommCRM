@@ -78,4 +78,10 @@ describe("busca de contatos", () => {
     const filtro = await filtroDaBusca("100%");
     expect(filtro).toContain("100\\%");
   });
+
+  it("busca o celular também pela grafia com o nono — senão o cadastro some", async () => {
+    // Quem cola +553284793302 tem que achar o contato gravado como +5532984793302.
+    const filtro = await filtroDaBusca("3284793302");
+    expect(filtro).toContain("phone_number.ilike.%5532984793302%");
+  });
 });

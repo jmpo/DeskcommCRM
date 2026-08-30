@@ -21,8 +21,15 @@
  * configurou nada. A faixa funciona em toda instalação, sem configurar nada.
  * O e-mail é um acréscimo possível depois; a faixa é o que não pode faltar.
  */
+"use client";
+// Client de propósito, e a razão não é interatividade: a faixa é renderizada
+// pelo layout de /app, que é servidor, mas fica DENTRO do `IdiomaProvider`. Um
+// componente de servidor não enxerga contexto de client, então ou ele recebia o
+// idioma por prop — mudando a assinatura e todo chamador — ou passa a ser
+// client e o lê de onde já está. Ele não faz nada de servidor: é Link e prosa.
 import Link from "next/link";
 
+import { useT } from "@/hooks/i18n/useT";
 import type { ConexaoCaida } from "@/lib/channels/health";
 
 /**
@@ -32,6 +39,7 @@ import type { ConexaoCaida } from "@/lib/channels/health";
  * a pessoa perder tempo numa tela que não resolve o problema dela.
  */
 export function ConexaoCaidaBanner({ caidas }: { caidas: ConexaoCaida[] }) {
+  const t = useT();
   if (caidas.length === 0) return null;
 
   const uma = caidas.length === 1 ? caidas[0] : null;
@@ -48,23 +56,25 @@ export function ConexaoCaidaBanner({ caidas }: { caidas: ConexaoCaida[] }) {
         <span>
           {uma ? (
             <>
-              WhatsApp <strong className="font-semibold">{uma.apelido}</strong> está
-              desconectado
+              WhatsApp <strong className="font-semibold">{uma.apelido}</strong>{" "}
+              {t("está desconectado")}
             </>
           ) : (
             <>
-              <strong className="font-semibold">{caidas.length} conexões</strong> de WhatsApp
-              estão desconectadas
+              <strong className="font-semibold">
+                {caidas.length} {t("conexões")}
+              </strong>{" "}
+              {t("de WhatsApp estão desconectadas")}
             </>
           )}
-          {" — nenhuma mensagem entra nem sai."}
+          {` — ${t("nenhuma mensagem entra nem sai.")}`}
         </span>
       </div>
       <Link
         href="/app/connections"
         className="rounded-md border border-red-400 bg-white/70 px-3 py-1 font-medium text-red-950 hover:bg-white dark:border-red-700 dark:bg-red-900/40 dark:text-red-50 dark:hover:bg-red-900/70"
       >
-        {precisaEscanear ? "Escanear o QR" : "Ver conexões"}
+        {precisaEscanear ? t("Escanear o QR") : t("Ver conexões")}
       </Link>
     </div>
   );

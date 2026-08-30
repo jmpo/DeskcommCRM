@@ -28,8 +28,7 @@
  * pertencer a mais de uma organização — a RLS deixaria passar as duas.
  */
 import { fail, ok } from "@/lib/api/wrappers";
-import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
-import { ROLE_RANK } from "@/lib/auth/types";
+import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -38,12 +37,9 @@ export const dynamic = "force-dynamic";
 const DIAS = 30;
 
 export async function GET(): Promise<Response> {
-  const user = await requireAuth();
-  const org = await resolveActiveOrg(user);
-  if (!org) return fail("no_active_org", "nenhuma organização ativa", 400);
-  if (ROLE_RANK[org.role] < ROLE_RANK.manager) {
-    return fail("forbidden", "requer papel de gerente ou superior", 403);
-  }
+  const authz = await requireRole("manager", { resource: "ai_operator_metrics" });
+  if (!authz.ok) return authz.response;
+  const { org } = authz;
 
   const db = await createClient();
   const desde = new Date(Date.now() - DIAS * 24 * 60 * 60 * 1000).toISOString();

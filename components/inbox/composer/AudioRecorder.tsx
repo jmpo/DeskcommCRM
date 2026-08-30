@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useT } from "@/hooks/i18n/useT";
 
 import { Button } from "@/components/ui/button";
 import { Microphone, PaperPlaneTilt, Trash } from "@/lib/ui/icons";
@@ -20,6 +21,7 @@ interface Props {
 
 /** Gravação de voz estilo WhatsApp: mic → timer + cancelar/enviar → PTT. */
 export function AudioRecorder({ conversationId, disabled }: Props) {
+  const t = useT();
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -96,7 +98,7 @@ export function AudioRecorder({ conversationId, disabled }: Props) {
       cleanupStream();
       // permissão negada / sem mic — não gravar é o estado final; toast simples
       const { showApiError } = await import("@/components/feedback/ApiErrorToast");
-      showApiError(new Error("Não consegui acessar o microfone. Verifique a permissão do navegador."));
+      showApiError(new Error(t("Não consegui acessar o microfone. Verifique a permissão do navegador.")));
     } finally {
       startingRef.current = false;
     }
@@ -114,7 +116,7 @@ export function AudioRecorder({ conversationId, disabled }: Props) {
         type="button"
         size="icon"
         className="h-9 w-9 shrink-0"
-        aria-label="Gravar áudio"
+        aria-label={t("Gravar áudio")}
         onClick={start}
         disabled={disabled}
       >
@@ -130,7 +132,7 @@ export function AudioRecorder({ conversationId, disabled }: Props) {
         size="icon"
         variant="ghost"
         className="h-9 w-9 shrink-0 text-destructive"
-        aria-label="Cancelar gravação"
+        aria-label={t("Cancelar gravação")}
         onClick={() => {
           discardRef.current = true;
           stopIfRecording();
@@ -146,7 +148,7 @@ export function AudioRecorder({ conversationId, disabled }: Props) {
         type="button"
         size="icon"
         className="h-9 w-9 shrink-0"
-        aria-label="Enviar áudio"
+        aria-label={t("Enviar áudio")}
         onClick={stopIfRecording}
       >
         <PaperPlaneTilt size={16} weight="fill" aria-hidden />

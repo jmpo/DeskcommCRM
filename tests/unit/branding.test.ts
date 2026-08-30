@@ -245,6 +245,12 @@ const MARCA_CONGELADA: Record<string, EntradaDeMarca> = {
       "User-Agent exigido pela Nuvemshop, que identifica a aplicação registrada na plataforma deles. Trocar pelo nome do revendedor descreveria uma aplicação que não existe lá",
     marcas: ["deskcommcrm"],
   },
+  "lib/agenda/google/evento.ts": {
+    categoria: "PROTOCOLO",
+    motivo:
+      "sufixo do `iCalUID` e prefixo das `extendedProperties` que GRAVAMOS dentro do Google Calendar do cliente. É por essa string que reconhecemos, meses depois, quais eventos daquela agenda vieram do CRM — e é o que impede o laço de eco. Trocar pela marca do revendedor faz todo evento já criado deixar de ser reconhecido, e o sintoma é compromisso fantasma ocupando horário, sem erro nenhum",
+    marcas: ["deskcomm", "deskcomm.app"],
+  },
 
   // ─── INFRA — cookie/storage/contêiner. Renomear desloga ou perde estado. ───
   "app/layout.tsx": {

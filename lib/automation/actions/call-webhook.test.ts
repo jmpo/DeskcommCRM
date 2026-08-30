@@ -9,6 +9,7 @@ function baseCtx(overrides: Partial<ActionCtx["event"]> = {}): ActionCtx {
     admin: {} as ActionCtx["admin"],
     organizationId: "org-1",
     ruleId: "rule-1",
+  ruleName: "Automação de teste",
     requestId: "req-1",
     event: {
       id: "evt-1",

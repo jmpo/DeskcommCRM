@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 
+import { useT } from "@/hooks/i18n/useT";
 import { ArrowRight, ChatCircle } from "@/lib/ui/icons";
 import type { Contact } from "@/lib/types/contacts";
 
@@ -34,6 +35,7 @@ export function ConversaNoDossie({
 }: {
   conversa: Contact["conversa"] | null | undefined;
 }) {
+  const t = useT();
   if (!conversa) return null;
 
   const preview = conversa.preview?.trim();
@@ -45,7 +47,7 @@ export function ConversaNoDossie({
     >
       <ChatCircle size={16} weight="regular" className="shrink-0 text-text-muted" aria-hidden />
       <span className="min-w-0 flex-1">
-        <span className="block text-xs font-medium text-text">Abrir conversa no Inbox</span>
+        <span className="block text-xs font-medium text-text">{t("Abrir conversa no Inbox")}</span>
         {preview && (
           // A última mensagem responde "vale a pena entrar agora?" sem entrar —
           // sem ela o botão é uma aposta, e o dossiê já existe para não obrigar
@@ -58,7 +60,7 @@ export function ConversaNoDossie({
         // diferentes, e um ponto colapsa as duas.
         <span
           className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground tabular-nums"
-          aria-label={`${conversa.unread} sem ler`}
+          aria-label={`${conversa.unread} ${t("sem ler")}`}
         >
           {conversa.unread}
         </span>

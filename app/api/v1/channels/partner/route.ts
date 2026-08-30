@@ -21,8 +21,7 @@ import type { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { fail, ok } from "@/lib/api/wrappers";
-import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
-import { ROLE_RANK } from "@/lib/auth/types";
+import { requireRole } from "@/lib/auth/require-role";
 import {
   PARTNER_CHANNEL_LABEL,
   findPartnerSession,
@@ -40,19 +39,6 @@ const conectarSchema = z.object({
   account_id: z.string().trim().min(1).max(200),
   api_key: z.string().trim().min(8).max(500),
 });
-
-type Gate = { ok: true; orgId: string } | { ok: false; resposta: NextResponse };
-
-async function adminGate(requestId: string): Promise<Gate> {
-  const user = await requireAuth();
-  const org = await resolveActiveOrg(user);
-  // Conectar um canal move dinheiro e expõe a conta da empresa: é decisão de
-  // dono, não de quem atende.
-  if (!org || ROLE_RANK[org.role] < ROLE_RANK.admin) {
-    return { ok: false, resposta: fail("forbidden", "admin_required", 403, { requestId }) };
-  }
-  return { ok: true, orgId: org.orgId };
-}
 
 /**
  * Endereço público desta instalação — é o que o operador cola no provedor.
@@ -81,10 +67,13 @@ function urlDoWebhook(req: NextRequest, token: string): string {
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const requestId = randomUUID();
-  const g = await adminGate(requestId);
-  if (!g.ok) return g.resposta;
+  // Conectar um canal move dinheiro e expõe a conta da empresa: é decisão de
+  // dono, não de quem atende.
+  const authz = await requireRole("admin", { requestId, resource: "channels_partner" });
+  if (!authz.ok) return authz.response;
+  const orgId = authz.org.orgId;
 
-  const sessao = await findPartnerSession(createAdminClient(), g.orgId);
+  const sessao = await findPartnerSession(createAdminClient(), orgId);
   const conectado = !!sessao && !sessao.archivedAt;
 
   return ok(
@@ -106,8 +95,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const requestId = randomUUID();
-  const g = await adminGate(requestId);
-  if (!g.ok) return g.resposta;
+  // Conectar um canal move dinheiro e expõe a conta da empresa: é decisão de
+  // dono, não de quem atende.
+  const authz = await requireRole("admin", { requestId, resource: "channels_partner" });
+  if (!authz.ok) return authz.response;
+  const orgId = authz.org.orgId;
 
   const parsed = conectarSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -139,13 +131,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const existente = await findPartnerSession(admin, g.orgId);
+  const existente = await findPartnerSession(admin, orgId);
   // Reconectar por cima de um canal excluído RESSUSCITA a linha, e o token de
   // webhook é preservado para não invalidar o que já está colado do outro lado.
   const token = existente?.webhookPathToken ?? randomBytes(16).toString("hex");
 
   const { error } = await savePartnerSession(admin, {
-    organizationId: g.orgId,
+    organizationId: orgId,
     existingId: existente?.id ?? null,
     accountId: parsed.data.account_id.trim(),
     apiKeyEncrypted: chaveCifrada,

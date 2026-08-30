@@ -11,6 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useT } from "@/hooks/i18n/useT";
 
 import type { AgentVersionRow } from "@/hooks/ai/useAgentVersions";
 
@@ -37,6 +38,7 @@ export function PublishConfirmDialog({
   onConfirm,
   isPending,
 }: Props) {
+  const t = useT();
   const toolsDiff = diffArr(published?.tool_ids ?? [], draft.tool_ids);
   const promptDeltaChars =
     draft.system_prompt.length - (published?.system_prompt.length ?? 0);
@@ -47,50 +49,54 @@ export function PublishConfirmDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent className="max-w-lg">
         <AlertDialogHeader>
-          <AlertDialogTitle>Publicar v{draft.version_number}?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {t("Publicar v")}
+            {draft.version_number}?
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            Esta versão se tornará a ativa no atendimento. A versão atual ({" "}
-            {published ? `v${published.version_number}` : "nenhuma"}) será marcada como superseded.
+            {t("Esta versão se tornará a ativa no atendimento. A versão atual (")}
+            {published ? `v${published.version_number}` : t("nenhuma")}
+            {t(") será marcada como superseded.")}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
         <div className="space-y-2 rounded-md border border-border/60 p-3 text-xs">
           {providerChanged ? (
             <p>
-              <strong>Provider:</strong>{" "}
+              <strong>{t("Provider:")}</strong>{" "}
               {published ? `${published.provider} → ${draft.provider}` : draft.provider}
             </p>
           ) : null}
           {modelChanged ? (
             <p>
-              <strong>Modelo:</strong>{" "}
+              <strong>{t("Modelo:")}</strong>{" "}
               {published ? `${published.model} → ${draft.model}` : draft.model}
             </p>
           ) : null}
           {toolsDiff.added.length > 0 ? (
             <p>
-              <strong>Tools adicionadas:</strong> {toolsDiff.added.join(", ")}
+              <strong>{t("Tools adicionadas:")}</strong> {toolsDiff.added.join(", ")}
             </p>
           ) : null}
           {toolsDiff.removed.length > 0 ? (
             <p>
-              <strong>Tools removidas:</strong> {toolsDiff.removed.join(", ")}
+              <strong>{t("Tools removidas:")}</strong> {toolsDiff.removed.join(", ")}
             </p>
           ) : null}
           <p>
-            <strong>Prompt:</strong>{" "}
+            <strong>{t("Prompt:")}</strong>{" "}
             {promptDeltaChars > 0
-              ? `+${promptDeltaChars} chars`
+              ? `+${promptDeltaChars} ${t("chars")}`
               : promptDeltaChars < 0
-                ? `${promptDeltaChars} chars`
-                : "sem alteração"}
+                ? `${promptDeltaChars} ${t("chars")}`
+                : t("sem alteração")}
           </p>
         </div>
 
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={isPending}>Cancelar</AlertDialogCancel>
+          <AlertDialogCancel disabled={isPending}>{t("Cancelar")}</AlertDialogCancel>
           <AlertDialogAction onClick={onConfirm} disabled={isPending}>
-            {isPending ? "Publicando…" : `Publicar v${draft.version_number}`}
+            {isPending ? t("Publicando…") : `${t("Publicar v")}${draft.version_number}`}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

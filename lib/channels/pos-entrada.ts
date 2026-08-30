@@ -43,6 +43,7 @@ import { garantirLeadDaConversa } from "@/lib/leads/nascimento-do-lead";
 import { logger } from "@/lib/logger";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { ehPedidoDeOptOut } from "@/lib/opt-out/deteccao";
+import { acelerarPipelineDeEventos } from "@/lib/dev/kick-local-pipeline";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -114,6 +115,15 @@ export async function aplicarEfeitosPosEntrada(
 ): Promise<void> {
   await aplicarOptOut(admin, entrada);
   await abrirDemanda(admin, entrada);
+  // A resposta do lead avança o follow-up AQUI. O despacho do agente (LLM)
+  // vem depois: no Hobby ele estoura o tempo da request e o próximo texto
+  // do fluxo ficava esperando o relógio.
+  await acelerarPipelineDeEventos(admin, {
+    organizationId: entrada.organizationId,
+    contactId: entrada.contactId,
+    messageId: entrada.messageId,
+    texto: entrada.texto,
+  });
   await pedirDespachoDoAgente(admin, entrada);
 }
 

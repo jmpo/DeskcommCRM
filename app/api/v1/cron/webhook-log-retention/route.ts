@@ -17,6 +17,7 @@ import type { NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
 import { LOTE_PADRAO, podarArquivoDeWebhooks } from "@/lib/channels/retencao-do-arquivo";
+import { podarHistoricoDeCaptacao } from "@/lib/webhooks/retencao-da-captacao";
 import { env } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -48,11 +49,27 @@ export async function GET(req: NextRequest): Promise<Response> {
   const lote =
     Number.isFinite(pedido) && pedido > 0 ? Math.min(pedido, LOTE_MAXIMO) : LOTE_PADRAO;
 
-  const resultado = await podarArquivoDeWebhooks(createAdminClient(), {
+  const admin = createAdminClient();
+
+  const resultado = await podarArquivoDeWebhooks(admin, {
     diasComCorpo: env.WEBHOOK_LOG_BODY_RETENTION_DAYS,
     diasParaApagar: env.WEBHOOK_LOG_ROW_RETENTION_DAYS,
     lote,
   });
 
-  return ok(resultado, { requestId });
+  // O HISTÓRICO de captação (`webhook_lead_captures`) roda no MESMO tique, e
+  // não num cron novo: são duas tabelas do mesmo assunto, e uma rota a mais
+  // seria mais uma linha no `entrypoint.sh` do scheduler para alguém esquecer
+  // de agendar — o defeito que já custou meses ao risk-watcher e ao
+  // routing-worker. Horizonte próprio (muito mais longo), porque lá a linha é
+  // despejo de depuração e aqui ela é o produto.
+  const captacao = await podarHistoricoDeCaptacao(admin, {
+    // A STRING crua, e não um número já coagido: quem interpreta é
+    // `lib/retencao/politica.ts`, que sabe resolver lixo para o lado seguro E
+    // devolver a frase de aviso. Coagir antes jogaria o aviso fora.
+    diasBrutos: env.LEAD_CAPTURE_RETENTION_DAYS,
+    lote,
+  });
+
+  return ok({ ...resultado, captacao }, { requestId });
 }
