@@ -164,7 +164,19 @@ export interface ChannelAdapter {
    * porque carregam nome de provider, e o lint da Task 7 proíbe esse nome fora
    * de `lib/channels/`. Quem chama escreve o que o adapter disser.
    */
-  readonly codes: { notConfigured: string; sendFailed: string; unknownError: string };
+  readonly codes: {
+    notConfigured: string;
+    sendFailed: string;
+    unknownError: string;
+    /**
+     * O provedor pediu para DESACELERAR — não é falha da mensagem. O canal
+     * intermediado documenta ~10 msg/min POR DESTINATÁRIO (erro 131056,
+     * changelog de 28/08). Quem chama trata como `queued`, nunca `failed`:
+     * falhar uma mensagem que sairia daqui a um minuto é perder venda por
+     * pressa.
+     */
+    throttled?: string;
+  };
 
   /**
    * URL da foto de perfil do contato, ou null quando não há (sem foto,
@@ -348,9 +360,23 @@ export interface ChannelTemplateOps {
   update(input: ChannelTenantScope & {
     sessionRef: string;
     name: string;
+    /**
+     * OBRIGATÓRIO desde o changelog de 28/08 do provedor: com variantes de
+     * idioma, o PATCH por nome exige `language` no corpo — sem ele a chamada
+     * falha, ou pior, edita a variante errada. Um template sem variantes aceita
+     * o idioma que ele tem, então mandar sempre é o caminho sem armadilha.
+     */
+    language: string;
     patch: Partial<Pick<ChannelTemplateDraft, "components" | "category">>;
   }): Promise<ChannelTemplate>;
+  /**
+   * ⚠️ `language` é OBRIGATÓRIO aqui por segurança, não por exigência da API.
+   * O changelog de 28/08 do provedor tornou o DELETE por nome SEM idioma um
+   * apaga-TODAS-as-variantes. Este método não tem chamador hoje; quando ganhar
+   * um, a assinatura o obriga a dizer QUAL variante morre — apagar todas de uma
+   * vez é decisão que merece um método próprio, não um parâmetro esquecido.
+   */
   remove(
-    input: ChannelTenantScope & { sessionRef: string; name: string; language?: string },
+    input: ChannelTenantScope & { sessionRef: string; name: string; language: string },
   ): Promise<void>;
 }

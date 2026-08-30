@@ -316,6 +316,9 @@ describe("códigos que o handler grava", () => {
       notConfigured: "zernio_not_configured",
       sendFailed: "zernio_error",
       unknownError: "zernio_unknown",
+      // O pedido de DESACELERAR do provedor (131056, changelog 28/08). Código
+      // próprio porque o desfecho é outro: `queued`, nunca `failed`.
+      throttled: "zernio_throttled",
     });
   });
 });

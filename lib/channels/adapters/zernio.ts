@@ -224,6 +224,12 @@ export const zernioAdapter: ChannelAdapter = {
       // distingue "fora da janela" de "número bloqueado" de "conta suspensa", e
       // sem isso o operador vê só "falhou".
       const detalhe = json?.code ? `${json.code}: ${json.error ?? ""}` : (json?.error ?? res.statusText);
+      // 131056 = "pace to ~10/min per recipient" (changelog 28/08). Não é a
+      // mensagem que está errada — é a VELOCIDADE. Código próprio para o
+      // handler traduzir em `queued` em vez de `failed`.
+      if (String(json?.code ?? "") === "131056" || `${detalhe}`.includes("131056")) {
+        throw new Error(`zernio_throttled: ${res.status} ${detalhe}`.trim());
+      }
       throw new Error(`zernio_send_failed: ${res.status} ${detalhe}`.trim());
     }
 
@@ -484,5 +490,6 @@ export const zernioAdapter: ChannelAdapter = {
     notConfigured: "zernio_not_configured",
     sendFailed: "zernio_error",
     unknownError: "zernio_unknown",
+    throttled: "zernio_throttled",
   },
 };
