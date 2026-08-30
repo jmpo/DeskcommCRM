@@ -717,6 +717,25 @@ export async function sendMessageHandler(
       // responder "não configurado" travaria em `queued` um canal que funciona.
       // Quem sabe é `send()`, que pode consultar o banco — então ele lança, e a
       // tradução do desfecho acontece aqui.
+      // O provedor pediu para DESACELERAR (~10 msg/min por destinatário, erro
+      // 131056 — changelog de 28/08). A mensagem não tem nada de errado; falhá-la
+      // seria perder uma venda por pressa. Fica `queued` com o motivo carimbado:
+      // o agent-engine reagenda sem consumir tentativa, e o envio humano tem o
+      // aviso de espera esquecida (recover-stuck) como rede se ninguém retomar.
+      if (adapter.codes.throttled && msg.startsWith(adapter.codes.throttled)) {
+        const { data: emFila } = await supabase
+          .from("messages")
+          .update({
+            status: "queued",
+            metadata: { ...(message.metadata ?? {}), queued_reason: adapter.codes.throttled },
+          })
+          .eq("id", message.id)
+          .select(MSG_COLS)
+          .maybeSingle();
+        if (emFila) message = emFila as unknown as Message;
+        return message;
+      }
+
       if (msg.startsWith(adapter.codes.notConfigured)) {
         const { data: emFila } = await supabase
           .from("messages")
