@@ -1,26 +1,23 @@
 /**
- * Variantes de um número para **BUSCA** de contato — nunca para escrita.
+ * Nono dígito brasileiro: a mesma pessoa chega com 12 ou 13 dígitos.
  *
  * ─── O problema, medido contra a WABA real em 2026-07-29 ─────────────────────
- * A mesma pessoa chega com identificadores diferentes dependendo da direção:
- *
  *   envio (funcionou)        5531998966398   13 dígitos
  *   `wa_id` do inbound        553198966398   12 dígitos, sem o nono
  *
- * É o nono dígito brasileiro: o `wa_id` do WhatsApp para celulares registrados antes
- * da mudança omite o `9`. Sem tratar, o contato que recebe uma mensagem e o contato
- * que responde viram DOIS — conversa partida, histórico do lead fragmentado, e
- * silencioso: ninguém percebe até ver dois cadastros com o mesmo nome.
+ * Sem tratar, o contato que recebe e o que responde viram DOIS — conversa
+ * partida, histórico fragmentado, e silencioso.
  *
- * ─── Por que VARIANTE e não normalização ────────────────────────────────────
- * Normalizar na entrada (todo 12 vira 13) uniformiza o dado e **pode fundir dois
- * contatos reais**: um fixo legítimo de 12 dígitos viraria um celular inexistente, e
- * a fusão não tem volta. Gerar variantes só amplia a BUSCA — nenhuma escrita muda,
- * nenhum dado é reinterpretado, e errar custa no máximo um `select` a mais.
+ * ─── O que o CRM guarda e mostra ────────────────────────────────────────────
+ * Celular BR é sempre a forma COM o nono (`+5532984793302`). É o que o
+ * brasileiro espera ler e copiar. Fixo (local 2–5) e número de outro país
+ * ficam como chegaram — inventar um 9 num fixo fundiria duas pessoas.
  *
- * A regra é conservadora de propósito: só gera variante quando o número tem cara de
- * celular brasileiro. Fixo, número curto e qualquer país que não o Brasil saem com
- * uma variante só — a original.
+ * ─── O que o WhatsApp/WAHA aceitam ──────────────────────────────────────────
+ * O wa_id registrado pode omitir o 9. A busca usa as DUAS grafias
+ * (`phoneLookupVariants`); o envio pergunta ao transporte (`check-exists`)
+ * qual delas existe, em `lib/waha/resolve-contact-whatsapp-id.ts`. Não
+ * adivinhar o formato de envio a partir do cadastro.
  */
 
 /** Só dígitos, sem `+`. */
@@ -68,9 +65,27 @@ export function phoneLookupVariants(raw: string): string[] {
 }
 
 /**
+ * Forma canônica de CRM: celular BR sempre COM o nono dígito.
+ *
+ * Entre as variantes de busca, a mais longa é a que tem o 9. Fixo e estrangeiro
+ * só têm uma variante — devolvem o próprio número.
+ */
+export function canonicalPhoneBR(raw: string): string {
+  const variants = phoneLookupVariants(raw);
+  if (variants.length === 0) return raw.trim();
+  return variants.reduce((a, b) => (digitsOf(a).length >= digitsOf(b).length ? a : b));
+}
+
+/** Exibição: mesma regra da gravação. Vazio continua vazio. */
+export function phoneForDisplay(raw: string | null | undefined): string {
+  if (raw == null || !raw.trim()) return "";
+  return canonicalPhoneBR(raw);
+}
+
+/**
  * Os dois números são a MESMA pessoa, considerando o nono dígito?
  *
- * Útil para asserção e para decidir merge — nunca para reescrever o dado gravado.
+ * Útil para asserção e para decidir merge.
  */
 export function samePhone(a: string, b: string): boolean {
   const va = new Set(phoneLookupVariants(a));

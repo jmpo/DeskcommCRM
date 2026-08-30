@@ -1,9 +1,10 @@
 "use client";
 import { useCallback, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useT } from "@/hooks/i18n/useT";
 import { useBoard } from "@/hooks/kanban/useBoard";
 
-function formatError(err: unknown): string {
+function formatError(err: unknown, t: (texto: string) => string): string {
   if (err instanceof Error) return err.message;
   if (err && typeof err === "object") {
     const obj = err as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown };
@@ -14,7 +15,7 @@ function formatError(err: unknown): string {
     try {
       return JSON.stringify(err);
     } catch {
-      return "Erro desconhecido";
+      return t("Erro desconhecido");
     }
   }
   return String(err);
@@ -35,6 +36,7 @@ export function PipelinePageClient({
   pipelineId: string;
   initialName: string;
 }) {
+  const t = useT();
   const { data, isLoading, error, pulses, realtimeStatus, seguranca } = useBoard(pipelineId);
   const router = useRouter();
   const pathname = usePathname();
@@ -74,12 +76,16 @@ export function PipelinePageClient({
       data-refetch-divergencias={seguranca.divergencias}
       data-refetch-em={seguranca.ultimaVerificacao ?? ""}
     >
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">
+      {/* `flex-col` no mobile: nome de funil comprido (é texto livre, sem
+          limite curto) + botão na mesma linha sem quebra empurrava o botão pra
+          fora da viewport em telas estreitas. De `sm:` pra cima volta a ser
+          uma linha só, como sempre foi. */}
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">
           {data?.pipeline.name ?? initialName}
         </h1>
-        <Button onClick={() => setNewOpen(true)} disabled={!data}>
-          <Plus size={16} className="mr-2" /> Novo Lead
+        <Button onClick={() => setNewOpen(true)} disabled={!data} className="shrink-0">
+          <Plus size={16} className="mr-2" /> {t("Novo Lead")}
         </Button>
       </header>
       {data && (
@@ -93,12 +99,11 @@ export function PipelinePageClient({
       <FilterBar filters={filters} onChange={setFilters} leads={data?.leads ?? []} />
       {error ? (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm">
-          Não consegui carregar este funil:{" "}
-          {formatError(error)}
+          {t("Não consegui carregar este funil:")} {formatError(error, t)}
         </div>
       ) : isLoading || !data ? (
         <div className="flex flex-1 animate-pulse items-center justify-center text-muted-foreground">
-          Carregando…
+          {t("Carregando…")}
         </div>
       ) : (
         <KanbanBoard
@@ -109,6 +114,7 @@ export function PipelinePageClient({
           pipeline={data.pipeline}
           selectedIds={selectedIds}
           onSelectionChange={setSelectedIds}
+          leadInicial={searchParams.get("lead")}
         />
       )}
       <BulkActionBar

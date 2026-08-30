@@ -1,4 +1,6 @@
 "use client";
+
+import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -17,6 +19,7 @@ import {
   type BotaoDaDefinicao,
 } from "@/lib/channels/template-conteudo";
 import { cn } from "@/lib/utils";
+import { useT } from "@/hooks/i18n/useT";
 
 /**
  * As definições aprovadas do canal intermediado.
@@ -57,6 +60,8 @@ const COR_DO_ESTADO: Record<string, string> = {
 };
 
 export function TemplatesParceiroClient() {
+  const tagDoIdioma = useTagDeIdioma();
+  const t = useT();
   const qc = useQueryClient();
   const [criando, setCriando] = useState(false);
   const [nome, setNome] = useState("");
@@ -95,13 +100,13 @@ export function TemplatesParceiroClient() {
       // Invalida também o seletor do inbox: sem isto o operador sincroniza aqui,
       // volta à conversa e o seletor segue dizendo que não há nenhuma.
       qc.invalidateQueries({ queryKey: ["channel-templates"] });
-      toast.success(`${r.data.sincronizadas} de ${r.data.total} sincronizada(s).`);
+      toast.success(`${r.data.sincronizadas} ${t("de")} ${r.data.total} ${t("sincronizada(s).")}`);
       setCriando(false);
       setNome("");
       setCorpo("");
     },
     onError: (e: unknown) =>
-      toast.error(e instanceof Error ? e.message : "Não consegui falar com a plataforma."),
+      toast.error(e instanceof Error ? t(e.message) : t("Não consegui falar com a plataforma.")),
   });
 
   const templates = lista.data?.data.templates ?? [];
@@ -110,8 +115,9 @@ export function TemplatesParceiroClient() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          O que a plataforma aprovou para este número. É daqui que sai a mensagem quando a janela de
-          24h fecha.
+          {t(
+            "O que a plataforma aprovou para este número. É daqui que sai a mensagem quando a janela de 24h fecha.",
+          )}
         </p>
         <div className="flex gap-2">
           <Button
@@ -121,10 +127,10 @@ export function TemplatesParceiroClient() {
             onClick={() => acao.mutate({ acao: "sincronizar" })}
             disabled={acao.isPending}
           >
-            {acao.isPending ? "Sincronizando…" : "Sincronizar"}
+            {acao.isPending ? t("Sincronizando…") : t("Sincronizar")}
           </Button>
           <Button type="button" size="sm" onClick={() => setCriando((v) => !v)}>
-            {criando ? "Cancelar" : "Criar modelo"}
+            {criando ? t("Cancelar") : t("Criar modelo")}
           </Button>
         </div>
       </div>
@@ -137,7 +143,7 @@ export function TemplatesParceiroClient() {
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               placeholder="nome_do_modelo"
-              aria-label="Nome do modelo"
+              aria-label={t("Nome do modelo")}
               className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
             />
             {/* LISTA, e não campo livre. O contrato descreve o formato e não
@@ -147,12 +153,12 @@ export function TemplatesParceiroClient() {
             <select
               value={idioma}
               onChange={(e) => setIdioma(e.target.value)}
-              aria-label="Idioma"
+              aria-label={t("Idioma")}
               className="h-9 w-56 rounded-md border border-input bg-background px-2 text-sm"
             >
               {IDIOMAS_DA_DEFINICAO.map((i) => (
                 <option key={i.codigo} value={i.codigo}>
-                  {i.rotulo} ({i.codigo})
+                  {t(i.rotulo)} ({i.codigo})
                 </option>
               ))}
             </select>
@@ -165,12 +171,14 @@ export function TemplatesParceiroClient() {
           <select
             value={categoria}
             onChange={(e) => setCategoria(e.target.value)}
-            aria-label="Categoria"
+            aria-label={t("Categoria")}
             className="h-9 rounded-md border border-input bg-background px-2 text-sm"
           >
-            <option value="UTILITY">Utilidade — aviso de pedido, agendamento, cobrança</option>
-            <option value="MARKETING">Marketing — promoção, novidade, reengajamento</option>
-            <option value="AUTHENTICATION">Autenticação — código de verificação</option>
+            <option value="UTILITY">
+              {t("Utilidade — aviso de pedido, agendamento, cobrança")}
+            </option>
+            <option value="MARKETING">{t("Marketing — promoção, novidade, reengajamento")}</option>
+            <option value="AUTHENTICATION">{t("Autenticação — código de verificação")}</option>
           </select>
 
           {/* CABEÇALHO opcional: texto OU mídia, nunca os dois — a plataforma
@@ -182,8 +190,8 @@ export function TemplatesParceiroClient() {
                 setCabecalho(e.target.value);
                 if (e.target.value) setMidiaUrl("");
               }}
-              placeholder="Cabeçalho de texto (opcional)"
-              aria-label="Cabeçalho de texto"
+              placeholder={t("Cabeçalho de texto (opcional)")}
+              aria-label={t("Cabeçalho de texto")}
               disabled={!!midiaUrl}
               className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
             />
@@ -197,12 +205,16 @@ export function TemplatesParceiroClient() {
                 cabecalho && "pointer-events-none opacity-50",
               )}
             >
-              {subindo ? "Subindo…" : midiaUrl ? "Trocar imagem" : "Subir imagem (JPG/PNG)"}
+              {subindo
+                ? t("Subindo…")
+                : midiaUrl
+                  ? t("Trocar imagem")
+                  : t("Subir imagem (JPG/PNG)")}
               <input
                 type="file"
                 accept="image/jpeg,image/png"
                 className="hidden"
-                aria-label="Imagem do cabeçalho"
+                aria-label={t("Imagem do cabeçalho")}
                 onChange={async (e) => {
                   const f = e.target.files?.[0];
                   if (!f) return;
@@ -218,7 +230,7 @@ export function TemplatesParceiroClient() {
                     if (!r.ok || !j.data?.url) {
                       // A mensagem da rota CHEGA ao operador: é ela que
                       // distingue "formato" de "tamanho" de "erro nosso".
-                      toast.error(j.error?.message ?? "Não consegui subir a imagem.");
+                      toast.error(t(j.error?.message ?? "Não consegui subir a imagem."));
                       return;
                     }
                     setMidiaUrl(j.data.url);
@@ -236,8 +248,8 @@ export function TemplatesParceiroClient() {
             <textarea
               value={corpo}
               onChange={(e) => setCorpo(e.target.value.slice(0, LIMITE_CORPO))}
-              placeholder="Texto da mensagem. Use {{1}}, {{2}} para os valores que mudam."
-              aria-label="Conteúdo"
+              placeholder={t("Texto da mensagem. Use {{1}}, {{2}} para os valores que mudam.")}
+              aria-label={t("Conteúdo")}
               className="min-h-20 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
             />
             {/* O contador existe porque passar do limite é RECUSA, e a recusa
@@ -251,8 +263,8 @@ export function TemplatesParceiroClient() {
             <input
               value={rodape}
               onChange={(e) => setRodape(e.target.value.slice(0, LIMITE_RODAPE))}
-              placeholder="Rodapé (opcional) — texto pequeno no fim da mensagem"
-              aria-label="Rodapé"
+              placeholder={t("Rodapé (opcional) — texto pequeno no fim da mensagem")}
+              aria-label={t("Rodapé")}
               className="h-9 rounded-md border border-input bg-background px-2 text-sm"
             />
             <span className="self-end text-[10px] text-muted-foreground">
@@ -274,11 +286,15 @@ export function TemplatesParceiroClient() {
                     p[i] = { ...b, tipo: e.target.value as BotaoDaDefinicao["tipo"] };
                     setBotoes(p);
                   }}
-                  aria-label={`Tipo do botão ${i + 1}`}
+                  aria-label={`${t("Tipo do botão")} ${i + 1}`}
                   className="h-8 w-40 rounded-md border border-input bg-background px-2 text-sm"
                 >
-                  <option value="quick_reply">Resposta rápida</option>
-                  <option value="url">Abrir link</option>
+                  <option value="quick_reply">{t("Resposta rápida")}</option>
+                  <option value="url">{t("Abrir link")}</option>
+                  {/* NÃO usar t("Ligar") aqui: essa chave já existe no dicionário
+                      traduzida como "Activar" (o toggle de automações em
+                      RulesTab.tsx) — mesma palavra fonte, sentido diferente
+                      ("Llamar", não "Activar"). Texto puro evita a tradução errada. */}
                   <option value="phone_number">Ligar</option>
                 </select>
                 <input
@@ -288,8 +304,8 @@ export function TemplatesParceiroClient() {
                     p[i] = { ...b, texto: e.target.value };
                     setBotoes(p);
                   }}
-                  placeholder="Texto do botão"
-                  aria-label={`Texto do botão ${i + 1}`}
+                  placeholder={t("Texto do botão")}
+                  aria-label={`${t("Texto do botão")} ${i + 1}`}
                   className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
                 />
                 {b.tipo === "url" && (
@@ -301,7 +317,7 @@ export function TemplatesParceiroClient() {
                       setBotoes(p);
                     }}
                     placeholder="https://…"
-                    aria-label={`URL do botão ${i + 1}`}
+                    aria-label={`${t("URL do botão")} ${i + 1}`}
                     className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
                   />
                 )}
@@ -314,7 +330,7 @@ export function TemplatesParceiroClient() {
                       setBotoes(p);
                     }}
                     placeholder="+595…"
-                    aria-label={`Telefone do botão ${i + 1}`}
+                    aria-label={`${t("Telefone do botão")} ${i + 1}`}
                     className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
                   />
                 )}
@@ -322,9 +338,9 @@ export function TemplatesParceiroClient() {
                   type="button"
                   onClick={() => setBotoes(botoes.filter((_, j) => j !== i))}
                   className="text-xs text-muted-foreground hover:text-destructive"
-                  aria-label={`Remover botão ${i + 1}`}
+                  aria-label={`${t("Remover botão")} ${i + 1}`}
                 >
-                  remover
+                  {t("remover")}
                 </button>
               </div>
             ))}
@@ -334,7 +350,7 @@ export function TemplatesParceiroClient() {
                 onClick={() => setBotoes([...botoes, { tipo: "quick_reply", texto: "" }])}
                 className="self-start text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
               >
-                + Adicionar botão ({botoes.length}/{LIMITE_BOTOES})
+                + {t("Adicionar botão")} ({botoes.length}/{LIMITE_BOTOES})
               </button>
             )}
           </div>
@@ -347,7 +363,7 @@ export function TemplatesParceiroClient() {
                pedia o exemplo. */
             <div className="flex flex-col gap-1.5 rounded-md border border-amber-300 bg-amber-50/50 p-2 dark:border-amber-800/60 dark:bg-amber-950/20">
               <p className="text-[11px] text-amber-900 dark:text-amber-200">
-                A revisão exige um exemplo de cada valor. Sem eles o modelo é recusado.
+                {t("A revisão exige um exemplo de cada valor. Sem eles o modelo é recusado.")}
               </p>
               {Array.from({ length: nVariaveis }, (_, i) => (
                 <div key={i} className="flex items-center gap-2">
@@ -361,8 +377,8 @@ export function TemplatesParceiroClient() {
                       proximo[i] = e.target.value;
                       setExemplos(proximo);
                     }}
-                    placeholder="ex.: María"
-                    aria-label={`Exemplo do valor ${i + 1}`}
+                    placeholder={t("ex.: María")}
+                    aria-label={`${t("Exemplo do valor")} ${i + 1}`}
                     className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
                   />
                 </div>
@@ -374,10 +390,11 @@ export function TemplatesParceiroClient() {
               recusa dela chega inteira ao operador. Repetir a regra aqui a faria
               envelhecer separado da fonte. */}
           <p className="text-[11px] text-muted-foreground">
-            A plataforma revisa antes de aprovar — o modelo nasce pendente e some da lista de
-            envio até ela decidir.
+            {t(
+              "A plataforma revisa antes de aprovar — o modelo nasce pendente e some da lista de envio até ela decidir.",
+            )}
           </p>
-          <div className="flex justify-end">
+          <div className="flex sm:justify-end">
             <Button
               type="button"
               size="sm"
@@ -397,8 +414,9 @@ export function TemplatesParceiroClient() {
                   }),
                 })
               }
+              className="w-full sm:w-auto"
             >
-              Enviar para revisão
+              {t("Enviar para revisão")}
             </Button>
           </div>
           </div>
@@ -418,17 +436,17 @@ export function TemplatesParceiroClient() {
       )}
 
       {lista.isLoading ? (
-        <p className="text-sm text-muted-foreground">Carregando…</p>
+        <p className="text-sm text-muted-foreground">{t("Carregando…")}</p>
       ) : templates.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Nenhum modelo espelhado ainda. Clique em <strong>Sincronizar</strong> para trazer os que
-          já existem na plataforma.
+          {t("Nenhum modelo espelhado ainda. Clique em")} <strong>{t("Sincronizar")}</strong>{" "}
+          {t("para trazer os que já existem na plataforma.")}
         </p>
       ) : (
         <ul className="divide-y divide-border rounded-md border border-border">
-          {templates.map((t) => {
-            const chave = `${t.name}|${t.language}`;
-            const c = lerConteudo(t.components);
+          {templates.map((tpl) => {
+            const chave = `${tpl.name}|${tpl.language}`;
+            const c = lerConteudo(tpl.components);
             const expandido = aberto === chave;
             return (
               <li key={chave} className="px-3 py-2">
@@ -441,48 +459,50 @@ export function TemplatesParceiroClient() {
                   className="flex w-full flex-wrap items-center gap-2 text-left"
                   aria-expanded={expandido}
                 >
-                  <span className="font-mono text-sm">{t.name}</span>
-                  <span className="text-xs text-muted-foreground">{t.language}</span>
-                  {t.category && (
+                  <span className="font-mono text-sm">{tpl.name}</span>
+                  <span className="text-xs text-muted-foreground">{tpl.language}</span>
+                  {tpl.category && (
                     <span className="rounded bg-muted px-1.5 text-[10px] uppercase text-muted-foreground">
-                      {t.category}
+                      {tpl.category}
                     </span>
                   )}
                   {c.variaveis > 0 && (
                     <span className="text-[10px] text-muted-foreground">
-                      {c.variaveis} valor(es)
+                      {c.variaveis} {t("valor(es)")}
                     </span>
                   )}
                   <span
                     className={cn(
                       "ml-auto text-xs font-medium",
-                      COR_DO_ESTADO[t.status?.toUpperCase()] ?? "text-muted-foreground",
+                      COR_DO_ESTADO[tpl.status?.toUpperCase()] ?? "text-muted-foreground",
                     )}
                   >
-                    {t.status}
+                    {tpl.status}
                   </span>
                 </button>
 
                 {/* O motivo da recusa é o que diz o que corrigir, e fica SEMPRE
                     à vista — não escondido atrás do clique: quem precisa dele
                     não sabe que precisa procurar. */}
-                {t.rejectedReason && (
-                  <p className="mt-1 text-[11px] text-destructive">{t.rejectedReason}</p>
+                {tpl.rejectedReason && (
+                  <p className="mt-1 text-[11px] text-destructive">{tpl.rejectedReason}</p>
                 )}
 
                 {expandido && (
                   <div className="mt-2 flex flex-col gap-1.5 rounded-md bg-muted/40 p-2 text-sm">
                     {c.header && (
                       <p className="text-xs">
-                        <span className="text-muted-foreground">Cabeçalho ({c.header.formato}): </span>
-                        {c.header.texto ?? <em className="text-muted-foreground">mídia</em>}
+                        <span className="text-muted-foreground">
+                          {t("Cabeçalho")} ({c.header.formato}):{" "}
+                        </span>
+                        {c.header.texto ?? <em className="text-muted-foreground">{t("mídia")}</em>}
                       </p>
                     )}
                     {c.body ? (
                       <p className="whitespace-pre-wrap">{c.body}</p>
                     ) : (
                       <p className="text-xs text-muted-foreground">
-                        Sem corpo espelhado — sincronize para trazer o conteúdo.
+                        {t("Sem corpo espelhado — sincronize para trazer o conteúdo.")}
                       </p>
                     )}
                     {c.footer && <p className="text-xs text-muted-foreground">{c.footer}</p>}
@@ -496,7 +516,7 @@ export function TemplatesParceiroClient() {
                       </div>
                     )}
                     <p className="text-[10px] text-muted-foreground">
-                      Sincronizado em {new Date(t.syncedAt).toLocaleString("pt-BR")}
+                      {t("Sincronizado em")} {new Date(tpl.syncedAt).toLocaleString(tagDoIdioma)}
                     </p>
                   </div>
                 )}

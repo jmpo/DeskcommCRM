@@ -18,6 +18,7 @@ import * as React from "react";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { useT } from "@/hooks/i18n/useT";
 
 import { useOperatorMetrics } from "@/hooks/ai/useOperatorMetrics";
 
@@ -53,6 +54,7 @@ interface Props {
  * vem com o caminho, não só com a contagem.
  */
 function ComoOPapelEstaIndo() {
+  const t = useT();
   const m = useOperatorMetrics(true);
   if (m.data === undefined) return null;
   const { turnos, agiu, promessas, quisAgirENaoPode, dias } = m.data;
@@ -63,8 +65,8 @@ function ComoOPapelEstaIndo() {
     return (
       <Card className="p-4" data-testid="operador-como-esta-indo">
         <p className="text-xs text-muted-foreground">
-          Nenhuma conversa passou por aqui nos últimos {dias} dias. Assim que o assistente atender
-          alguém, o que ele organizar aparece nesta área.
+          {t("Nenhuma conversa passou por aqui nos últimos")} {dias}{" "}
+          {t("dias. Assim que o assistente atender alguém, o que ele organizar aparece nesta área.")}
         </p>
       </Card>
     );
@@ -72,19 +74,22 @@ function ComoOPapelEstaIndo() {
 
   return (
     <Card className="space-y-2 p-4" data-testid="operador-como-esta-indo">
-      <h4 className="text-sm font-medium">Como está indo (últimos {dias} dias)</h4>
+      <h4 className="text-sm font-medium">
+        {t("Como está indo (últimos")} {dias} {t("dias)")}
+      </h4>
       <p className="text-xs text-muted-foreground" data-testid="operador-metrica-acao">
-        Organizou o sistema em <span className="font-medium text-foreground">{agiu}</span> de{" "}
-        {turnos} conversas.
+        {t("Organizou o sistema em")} <span className="font-medium text-foreground">{agiu}</span>{" "}
+        {t("de")} {turnos} {t("conversas.")}
       </p>
       <p className="text-xs text-muted-foreground" data-testid="operador-metrica-promessas">
-        De {promessas.declaradas} promessas feitas ao cliente,{" "}
-        <span className="font-medium text-foreground">{promessas.assumidas}</span> ficaram com um
-        responsável
+        {t("De")} {promessas.declaradas} {t("promessas feitas ao cliente,")}{" "}
+        <span className="font-medium text-foreground">{promessas.assumidas}</span>{" "}
+        {t("ficaram com um responsável")}
         {promessas.semDono > 0 ? (
           <>
-            {" "}— e <span className="font-medium text-foreground">{promessas.semDono}</span> não.
-            Elas aparecem na Central de avisos, uma por conversa.
+            {t(" — e ")}
+            <span className="font-medium text-foreground">{promessas.semDono}</span>
+            {t(" não.")} {t("Elas aparecem na Central de avisos, uma por conversa.")}
           </>
         ) : (
           "."
@@ -92,9 +97,10 @@ function ComoOPapelEstaIndo() {
       </p>
       {quisAgirENaoPode > 0 ? (
         <p className="text-xs text-muted-foreground" data-testid="operador-metrica-sem-mao">
-          Em <span className="font-medium text-foreground">{quisAgirENaoPode}</span> delas o
-          assistente tinha algo a registrar e nenhuma capacidade marcada para isso — o que resolve é
-          marcar abaixo o que ele pode fazer.
+          {t("Em")} <span className="font-medium text-foreground">{quisAgirENaoPode}</span>{" "}
+          {t(
+            "delas o assistente tinha algo a registrar e nenhuma capacidade marcada para isso — o que resolve é marcar abaixo o que ele pode fazer.",
+          )}
         </p>
       ) : null}
     </Card>
@@ -102,6 +108,7 @@ function ComoOPapelEstaIndo() {
 }
 
 export function PainelDoOperador(props: Props) {
+  const t = useT();
   const desabilitado = props.disabled ?? false;
 
   return (
@@ -118,12 +125,12 @@ export function PainelDoOperador(props: Props) {
           />
           <div className="space-y-1">
             <Label htmlFor="operator_enabled" className="text-sm font-medium">
-              Deixar o agente organizar o sistema depois de cada conversa
+              {t("Deixar o agente organizar o sistema depois de cada conversa")}
             </Label>
             <p className="text-xs text-muted-foreground">
-              Quem conversa com o cliente é uma coisa; quem mantém o sistema em dia é outra.
-              Separar os dois evita que o assistente comente com o cliente o que está fazendo
-              por dentro — e é o que faz ele realmente registrar, em vez de só responder bem.
+              {t(
+                "Quem conversa com o cliente é uma coisa; quem mantém o sistema em dia é outra. Separar os dois evita que o assistente comente com o cliente o que está fazendo por dentro — e é o que faz ele realmente registrar, em vez de só responder bem.",
+              )}
             </p>
           </div>
         </div>
@@ -139,15 +146,17 @@ export function PainelDoOperador(props: Props) {
             data-testid="operador-consequencia"
             className="rounded-md border border-dashed p-3 text-xs text-muted-foreground"
           >
-            <p className="font-medium text-foreground">Com isto desligado:</p>
+            <p className="font-medium text-foreground">{t("Com isto desligado:")}</p>
             <p className="mt-1">
-              o assistente continua atendendo e o básico continua sendo registrado sozinho —
-              a etapa do cliente, o retorno que ele prometeu e o histórico da conversa.
+              {t(
+                "o assistente continua atendendo e o básico continua sendo registrado sozinho — a etapa do cliente, o retorno que ele prometeu e o histórico da conversa.",
+              )}
             </p>
             <p className="mt-1">
-              O que ele deixa de fazer é <strong>decidir sobre a operação</strong>: abrir
-              chamados, distribuir para a pessoa certa, organizar marcadores e etapas.
-              Isso passa a ser trabalho de alguém do time.
+              {t("O que ele deixa de fazer é")} <strong>{t("decidir sobre a operação")}</strong>
+              {t(
+                ": abrir chamados, distribuir para a pessoa certa, organizar marcadores e etapas. Isso passa a ser trabalho de alguém do time.",
+              )}
             </p>
           </div>
         ) : null}
@@ -156,10 +165,11 @@ export function PainelDoOperador(props: Props) {
       {props.enabled ? (
         <>
           <Card className="space-y-2 p-4">
-            <h3 className="text-sm font-medium">A inteligência que ele usa para organizar</h3>
+            <h3 className="text-sm font-medium">{t("A inteligência que ele usa para organizar")}</h3>
             <p className="text-xs text-muted-foreground">
-              Pode ser diferente da que conversa. Organizar o sistema é uma tarefa mais
-              mecânica que atender uma pessoa — costuma sair bem com um modelo mais barato.
+              {t(
+                "Pode ser diferente da que conversa. Organizar o sistema é uma tarefa mais mecânica que atender uma pessoa — costuma sair bem com um modelo mais barato.",
+              )}
             </p>
             <ModelPicker
               provider={props.provider}
@@ -170,8 +180,8 @@ export function PainelDoOperador(props: Props) {
               // "Selecione um modelo" faria parecer pendência o que é escolha.
               placeholder={
                 props.modeloDoConversador === ""
-                  ? "A mesma que conversa"
-                  : `A mesma que conversa (${props.modeloDoConversador})`
+                  ? t("A mesma que conversa")
+                  : `${t("A mesma que conversa")} (${props.modeloDoConversador})`
               }
             />
             {/*
@@ -188,16 +198,17 @@ export function PainelDoOperador(props: Props) {
                 onClick={() => props.onModelChange("")}
                 disabled={desabilitado}
               >
-                Usar a mesma que conversa
+                {t("Usar a mesma que conversa")}
               </button>
             ) : null}
           </Card>
 
           <Card className="space-y-2 p-4">
-            <h3 className="text-sm font-medium">O que ele pode mexer no sistema</h3>
+            <h3 className="text-sm font-medium">{t("O que ele pode mexer no sistema")}</h3>
             <p className="text-xs text-muted-foreground">
-              Esta lista é só deste papel — nada aqui é usado enquanto ele conversa com o
-              cliente. Ligue por jornada de trabalho.
+              {t(
+                "Esta lista é só deste papel — nada aqui é usado enquanto ele conversa com o cliente. Ligue por jornada de trabalho.",
+              )}
             </p>
             <div data-testid="operador-capacidades">
               <ToolPicker
@@ -210,8 +221,9 @@ export function PainelDoOperador(props: Props) {
               // Estado legítimo, mas que precisa ser explicado: sem isto o
               // usuário liga o papel, não escolhe nada, e conclui que quebrou.
               <p data-testid="operador-sem-capacidade" className="text-xs text-muted-foreground">
-                Sem nada marcado, ele ainda avisa você quando o assistente prometer algo a um
-                cliente e ninguém cumprir — mas não consegue resolver sozinho.
+                {t(
+                  "Sem nada marcado, ele ainda avisa você quando o assistente prometer algo a um cliente e ninguém cumprir — mas não consegue resolver sozinho.",
+                )}
               </p>
             ) : null}
           </Card>

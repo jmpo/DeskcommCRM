@@ -327,17 +327,25 @@ const RE_NOMES_DE_TOOL = new RegExp(`\\b(?:${NOMES_DE_TOOL.join('|')})\\b`, 'g')
 /**
  * (A) SNAKE_CASE — a regra de maior alcance e menor falso-positivo. Nenhuma frase
  * natural em pt-BR tem underscore no meio de uma palavra; todo identificador técnico
- * desta base tem. Pega as 43 tools, as ~96 tabelas, colunas e slugs (`em_separacao`).
+ * desta base tem. Pega TODAS as tools, tabelas, colunas e slugs (`em_separacao`) — a
+ * cobertura acompanha o catálogo, não uma contagem escrita aqui.
  *
  * ⚠️ EXIGE MINÚSCULAS, e por isso a varredura desta regra roda sobre o texto com a CAIXA
  * PRESERVADA (as outras rodam sobre o normalizado). É a correção de maior rendimento
  * medido, e não é heurística de gosto — é uma diferença estrutural entre dois mundos:
- *   - identificador técnico desta base é sempre lowercase. VERIFICADO no HEAD, não
- *     deduzido: 31 nomes de tool no `TOOL_CATALOG`, 12 em `AGENT_TOOL_DEFS`, 343 colunas e
- *     59 tabelas em `supabase/baseline.sql` (65 somando `supabase/migrations/`) — ZERO com
- *     maiúscula. Exigir minúsculas não solta nenhuma tool, tabela nem coluna. O que segura
- *     essa premissa contra o futuro é um teste sobre as tools no arquivo de calibração;
- *     tabela/coluna nova em maiúscula quebraria antes o resto do repo.
+ *   - identificador técnico desta base é sempre lowercase, e ZERO tem maiúscula. Esta
+ *     linha já cravou os totais ("31 nomes de tool no `TOOL_CATALOG`") e eles venceram —
+ *     o catálogo cresceu com as capacidades de agenda e ninguém reabriu o comentário. O
+ *     número não era a afirmação; a afirmação é o ZERO, e ela se mede:
+ *
+ *       pnpm exec tsx -e 'import("@/lib/mcp/tools/catalogo").then(({TOOL_CATALOG})=>{
+ *         const n=TOOL_CATALOG.filter(t=>/[A-Z]/.test(t.name));
+ *         console.log("com maiúscula:",n.length,"de",TOOL_CATALOG.length,n.map(t=>t.name))})'
+ *
+ *     O total ao lado é o controle: se vier 0 de 0, o import quebrou e o zero é do
+ *     instrumento, não do mundo. Exigir minúsculas não solta nenhuma tool, tabela nem
+ *     coluna. O que segura a premissa contra o futuro é um teste sobre as tools no arquivo
+ *     de calibração; tabela/coluna nova em maiúscula quebraria antes o resto do repo.
  *   - código de NEGÓCIO é gritado em maiúsculas: `PED_2024_001`, `CUPOM_VERAO10`,
  *     `#BLACK_FRIDAY`. Eram falso-positivo porque a varredura inteira rodava sobre o texto
  *     já em minúsculas — a informação que separa os dois mundos morria antes de ser usada.

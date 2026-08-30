@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 const LIST_COLUMNS = "id, name, status, active_version_id, handoff_policy, updated_at";
 
-export async function GET(): Promise<Response> {
+export async function GET(_req?: NextRequest): Promise<Response> {
   const requestId = randomUUID();
   const authz = await requireRole("viewer", { requestId, resource: "followup_flows" });
   if (!authz.ok) return authz.response;

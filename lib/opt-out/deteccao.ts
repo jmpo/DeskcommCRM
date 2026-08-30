@@ -83,6 +83,18 @@ export const PALAVRAS_DE_OPT_OUT: ReadonlySet<string> = new Set([
   // cai no ambíguo, que é onde deve cair.
   "baja",
   "bajar",
+  // `salir` é o `sair` em espanhol, e `sair` está nesta lista desde sempre —
+  // faltar aqui era assimetria, não decisão. O CHANGELOG da 1.4.0 chegou a
+  // prometer que "`baja`, `salir` e `no quiero recibir` descadastram"; medido
+  // com as funções reais, `baja` e `no quiero recibir` devolviam `true` e
+  // `salir` devolvia `false`. Quem respondesse a palavra solta continuava
+  // recebendo — no idioma em que a plantilla é a fonte do pedido.
+  //
+  // Não alarga a regra: continua valendo só a palavra SOZINHA (mensagem inteira
+  // = a palavra). "Voy a salir ahora" tem três palavras e cai no ambíguo, que é
+  // onde deve cair — a mesma proteção que faz "tem como parar a dor?" não
+  // bloquear paciente de clínica.
+  "salir",
   "desuscribir",
   "desuscribirme",
 ]);

@@ -5,6 +5,7 @@ import { ROLE_RANK } from "@/lib/auth/types";
 import { listSelectableChannels } from "@/lib/channels/selectable";
 import { createClient } from "@/lib/supabase/server";
 import type { RouterListItem } from "@/hooks/ai/useRouters";
+import { traduzir } from "@/lib/i18n/dicionario";
 import { RoutersClient } from "./_client";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ export default async function RoutersPage() {
   const user = await requireAuth();
   const activeOrg = await resolveActiveOrg(user);
   if (!activeOrg) redirect("/app");
+  const idioma = user.idioma;
 
   if (!user.is_platform_admin && ROLE_RANK[activeOrg.role] < ROLE_RANK.manager) {
     redirect("/403");
@@ -43,10 +45,12 @@ export default async function RoutersPage() {
   return (
     <div className="flex h-full flex-col gap-6 p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Roteadores</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{traduzir("Roteadores", idioma)}</h1>
         <p className="text-sm text-muted-foreground">
-          Um roteador entende o que o cliente quer e entrega a conversa para o agente certo —
-          plugado em um número de WhatsApp.
+          {traduzir(
+            "Um roteador entende o que o cliente quer e entrega a conversa para o agente certo — plugado em um número de WhatsApp.",
+            idioma,
+          )}
         </p>
       </header>
       <RoutersClient initialState={{ routers }} channelSessions={channelSessions} />

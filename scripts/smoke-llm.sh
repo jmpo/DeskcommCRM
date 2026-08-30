@@ -11,7 +11,10 @@ IMAGE="pgvector/pgvector:pg17"
 
 [ -n "${ANTHROPIC_API_KEY:-}" ] || { echo "FATAL: exporte ANTHROPIC_API_KEY (o smoke usa o modelo real)" >&2; exit 1; }
 
-cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
+# `-v`: a imagem declara `VOLUME /var/lib/postgresql/data`, então sem ele cada
+# rodada deixa um volume anônimo para trás. Mesmo defeito de `test-db.sh`, mesma
+# imagem — ver o comentário de lá para a medição.
+cleanup() { docker rm -fv "$CONTAINER" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 echo "==> subindo $IMAGE como $CONTAINER (porta $PORT)"

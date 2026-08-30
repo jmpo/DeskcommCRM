@@ -59,6 +59,9 @@ export const KIND_LABEL = {
   // respondendo; confundir os dois faria o dono do negócio correr atrás de uma
   // parada que não houve, ou ignorar a que houve.
   budget_warning: "O gasto de IA passou do aviso que você definiu",
+  // Diz o que ACONTECEU com o material, e nunca "a indexação falhou": quem
+  // subiu um PDF quer saber que o agente ainda não sabe o que está nele.
+  conhecimento_nao_indexado: "Um material que você enviou não entrou na base de conhecimento",
   other: "Aviso do assistente",
 } as const satisfies Record<InboxKind, string>;
 
@@ -74,8 +77,8 @@ export const SEVERITY_LABEL: Record<AgentInboxSeverity, string> = {
  * este build não conhece. O genérico é a defesa para ESSE caso — não para
  * cobrir esquecimento, que agora o compilador pega acima.
  */
-export function kindLabel(kind: string): string {
-  return (KIND_LABEL as Record<string, string>)[kind] ?? "Aviso do assistente";
+export function kindLabel(kind: string, t: (texto: string) => string = (texto) => texto): string {
+  return t((KIND_LABEL as Record<string, string>)[kind] ?? "Aviso do assistente");
 }
 
 /** Por que ninguém ficou responsável — o que muda é a AÇÃO que cabe a quem lê. */

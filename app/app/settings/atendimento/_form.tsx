@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { apiClient } from "@/lib/api/client";
 import type { VisibilityMode } from "@/lib/auth/types";
 import { ROUTING_MODES, VISIBILITY_MODES, type RoutingMode } from "@/lib/schemas/routing";
+import { useT } from "@/hooks/i18n/useT";
 
 export interface AtendimentoConfig {
   mode: RoutingMode;
@@ -105,6 +106,7 @@ function Escolha({
 }
 
 export function AtendimentoForm({ initial }: { initial: AtendimentoConfig }) {
+  const t = useT();
   const [form, setForm] = useState<AtendimentoConfig>(initial);
   const [salvo, setSalvo] = useState<AtendimentoConfig>(initial);
   const [isPending, startTransition] = useTransition();
@@ -124,9 +126,9 @@ export function AtendimentoForm({ initial }: { initial: AtendimentoConfig }) {
       try {
         await apiClient.patch("/api/v1/settings/routing", form);
         setSalvo(form);
-        toast.success("Distribuição de atendimento salva.");
+        toast.success(t("Distribuição de atendimento salva."));
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Não consegui salvar.");
+        toast.error(err instanceof Error ? t(err.message) : t("Não consegui salvar."));
       }
     });
   }
@@ -135,9 +137,9 @@ export function AtendimentoForm({ initial }: { initial: AtendimentoConfig }) {
     <form onSubmit={salvar} className="flex max-w-3xl flex-col gap-6" data-testid="form-atendimento">
       <Card className="space-y-4 p-4">
         <div>
-          <h2 className="text-sm font-semibold">Quem recebe o cliente novo</h2>
+          <h2 className="text-sm font-semibold">{t("Quem recebe o cliente novo")}</h2>
           <p className="text-xs text-muted-foreground">
-            Vale para conversa que chega sem dono.
+            {t("Vale para conversa que chega sem dono.")}
           </p>
         </div>
         <div className="space-y-2">
@@ -147,8 +149,8 @@ export function AtendimentoForm({ initial }: { initial: AtendimentoConfig }) {
               nome="modo"
               valor={m}
               atual={form.mode}
-              titulo={MODO_COPY[m].titulo}
-              corpo={MODO_COPY[m].corpo}
+              titulo={t(MODO_COPY[m].titulo)}
+              corpo={t(MODO_COPY[m].corpo)}
               disabled={isPending}
               onPick={(v) => setForm((f) => ({ ...f, mode: v as RoutingMode }))}
             />
@@ -158,7 +160,7 @@ export function AtendimentoForm({ initial }: { initial: AtendimentoConfig }) {
         {form.mode === "round_robin" ? (
           <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label htmlFor="max_retries">Tentativas antes de desistir</Label>
+              <Label htmlFor="max_retries">{t("Tentativas antes de desistir")}</Label>
               <Input
                 id="max_retries"
                 type="number"
@@ -171,12 +173,15 @@ export function AtendimentoForm({ initial }: { initial: AtendimentoConfig }) {
                 }
               />
               <p className="text-xs text-muted-foreground">
-                Quando não há ninguém disponível, o sistema tenta de novo mais tarde. Ao
-                estourar, a conversa fica na fila esperando alguém.
+                {t(
+                  "Quando não há ninguém disponível, o sistema tenta de novo mais tarde. Ao estourar, a conversa fica na fila esperando alguém.",
+                )}
               </p>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="backoff_seconds">Espera entre tentativas (segundos)</Label>
+              <Label htmlFor="backoff_seconds">
+                {t("Espera entre tentativas (segundos)")}
+              </Label>
               <Input
                 id="backoff_seconds"
                 type="number"
@@ -195,10 +200,10 @@ export function AtendimentoForm({ initial }: { initial: AtendimentoConfig }) {
 
       <Card className="space-y-4 p-4">
         <div>
-          <h2 className="text-sm font-semibold">O que cada atendente enxerga</h2>
+          <h2 className="text-sm font-semibold">{t("O que cada atendente enxerga")}</h2>
           <p className="text-xs text-muted-foreground">
-            Restringe apenas quem tem o papel <strong>Atendente</strong>. Gerente e
-            administrador continuam vendo a operação inteira.
+            {t("Restringe apenas quem tem o papel")} <strong>{t("Atendente")}</strong>.{" "}
+            {t("Gerente e administrador continuam vendo a operação inteira.")}
           </p>
         </div>
         <div className="space-y-2">
@@ -208,8 +213,8 @@ export function AtendimentoForm({ initial }: { initial: AtendimentoConfig }) {
               nome="visibilidade"
               valor={v}
               atual={form.visibility_mode}
-              titulo={VISIBILIDADE_COPY[v].titulo}
-              corpo={VISIBILIDADE_COPY[v].corpo}
+              titulo={t(VISIBILIDADE_COPY[v].titulo)}
+              corpo={t(VISIBILIDADE_COPY[v].corpo)}
               disabled={isPending}
               onPick={(x) => setForm((f) => ({ ...f, visibility_mode: x as VisibilityMode }))}
             />
@@ -221,19 +226,22 @@ export function AtendimentoForm({ initial }: { initial: AtendimentoConfig }) {
             data-testid="aviso-combinacao-morta"
             className="rounded-md border border-amber-500/40 bg-amber-50/60 p-3 text-xs dark:bg-amber-900/10"
           >
-            Com <strong>&ldquo;só os seus&rdquo;</strong> e distribuição manual, ninguém
-            enxerga a fila para pegar — e nenhum cliente é atendido. Ligue o rodízio para que
-            alguém receba.
+            {t("Com")} <strong>&ldquo;{t("só os seus")}&rdquo;</strong>{" "}
+            {t(
+              "e distribuição manual, ninguém enxerga a fila para pegar — e nenhum cliente é atendido. Ligue o rodízio para que alguém receba.",
+            )}
           </p>
         ) : null}
       </Card>
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={isPending || !sujo}>
-          {isPending ? "Salvando…" : "Salvar"}
+          {isPending ? t("Salvando…") : t("Salvar")}
         </Button>
         {sujo ? (
-          <span className="text-xs text-muted-foreground">Há mudanças não salvas.</span>
+          <span className="text-xs text-muted-foreground">
+            {t("Há mudanças não salvas.")}
+          </span>
         ) : null}
       </div>
     </form>

@@ -13,6 +13,12 @@ describe("isPublicPath", () => {
     expect(isPublicPath("/api/v1/system/agent")).toBe(true);
   });
 
+  it("libera o tick do relógio Hobby (bearer, sem cookie)", () => {
+    expect(isPublicPath("/api/v1/system/relogio/tick")).toBe(true);
+    expect(isPublicPath("/api/v1/system/relogio")).toBe(false);
+    expect(isPublicPath("/api/v1/system/relogio/tick/extra")).toBe(false);
+  });
+
   it("a âncora `$` impede que um sub-path passe de carona", () => {
     expect(isPublicPath("/api/v1/system/agent/qualquer")).toBe(false);
   });

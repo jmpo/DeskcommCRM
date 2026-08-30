@@ -7,6 +7,8 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { CONVERSATION_QUEUE_STATUSES } from "@/lib/schemas";
+
 import { loadEligibleAttendants } from "./eligibles";
 
 /**
@@ -34,7 +36,7 @@ export async function getQueueStatus(
     .select("last_inbound_at")
     .eq("organization_id", organizationId)
     .is("assigned_to_user_id", null)
-    .eq("status", "open");
+    .in("status", [...CONVERSATION_QUEUE_STATUSES]);
 
   const rows = (queueRows ?? []) as Array<{ last_inbound_at: string | null }>;
   const queueSize = rows.length;
@@ -73,7 +75,7 @@ export async function getQueuePositions(
     .select("id")
     .eq("organization_id", organizationId)
     .is("assigned_to_user_id", null)
-    .eq("status", "open")
+    .in("status", [...CONVERSATION_QUEUE_STATUSES])
     .order("last_inbound_at", { ascending: true, nullsFirst: false })
     .order("id", { ascending: true });
 
@@ -102,7 +104,7 @@ export async function getQueuePosition(
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId)
     .is("assigned_to_user_id", null)
-    .in("status", ["open", "pending"])
+    .in("status", [...CONVERSATION_QUEUE_STATUSES])
     .lte("last_inbound_at", ref);
   return count ?? 1;
 }

@@ -11,7 +11,33 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { ARCHIVED_AT, queryTolerantToMissingArchived } from "@/lib/channels/archived";
+
 const OPEN_STATUSES = ["open", "pending", "claimed", "ai_handling"];
+
+/** Sessão viva da org: WORKING primeiro; senão qualquer uma não arquivada. */
+export async function sessaoProntaParaEnvio(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<string | null> {
+  const listar = (soWorking: boolean, ignorarArquivadas: boolean) => {
+    let q = supabase
+      .from("channel_sessions")
+      .select("id")
+      .eq("organization_id", organizationId);
+    if (soWorking) q = q.eq("status", "WORKING");
+    if (ignorarArquivadas) q = q.is(ARCHIVED_AT, null);
+    return q.order("created_at", { ascending: true }).limit(1);
+  };
+  const tentar = async (soWorking: boolean) => {
+    const { data } = await queryTolerantToMissingArchived(
+      () => listar(soWorking, true),
+      () => listar(soWorking, false),
+    );
+    return (data as Array<{ id: string }> | null)?.[0]?.id ?? null;
+  };
+  return (await tentar(true)) ?? (await tentar(false));
+}
 
 export async function ensureConversation(
   admin: SupabaseClient,

@@ -58,10 +58,9 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
   // com cara de vivo, que é o desfecho exato que este bloco existe para impedir.
   //
   // Kind entra neste conjunto só DEPOIS de ter motor de enrollment vivo:
-  // `manual` (POST manual), `silence` (silence-sweep), `stage_change`
-  // (gatilho-etapa, consumidor de `lead.stage_changed`) e `case_opened`
-  // (gatilho-caso, consumidor de `ai.case_opened`/`ai.case_closed`).
-  const KINDS_COM_MOTOR = new Set(["manual", "silence", "stage_change", "case_opened"]);
+  // `manual`/`webhook` (POST enroll + ação de regra), `silence` (silence-sweep),
+  // `stage_change` (gatilho-etapa) e `case_opened` (gatilho-caso).
+  const KINDS_COM_MOTOR = new Set(["manual", "webhook", "silence", "stage_change", "case_opened"]);
   const trigger = (pointer.trigger_config ?? { kind: "manual" }) as {
     kind?: string;
     params?: { stage_id?: string };

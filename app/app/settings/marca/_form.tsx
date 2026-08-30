@@ -41,6 +41,7 @@ import {
   type LinhaDaInstalacao,
 } from "@/lib/branding/resolve";
 import { marcaDaOrganizacaoSchema } from "@/lib/schemas/settings";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   /**
@@ -101,10 +102,13 @@ const COR_NEUTRA_DO_SELETOR = "#808080";
  * entre a tabela da instalação e o arquivo do servidor, essa sim, não muda nada
  * para ele e some.
  */
-function origemEmPortugues(origem: string): string {
-  if (origem === "organizacao") return "você definiu aqui";
-  if (origem === "padrao") return "é o padrão do sistema";
-  return "veio de quem instalou o sistema";
+function origemEmPortugues(
+  origem: string,
+  t: (texto: string) => string = (texto) => texto,
+): string {
+  if (origem === "organizacao") return t("você definiu aqui");
+  if (origem === "padrao") return t("é o padrão do sistema");
+  return t("veio de quem instalou o sistema");
 }
 
 function LinhaDeOrigem({ campo, valor }: { campo: string; valor: string }) {
@@ -117,6 +121,7 @@ function LinhaDeOrigem({ campo, valor }: { campo: string; valor: string }) {
 }
 
 export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }: Props) {
+  const t = useT();
   const router = useRouter();
   const [nome, setNome] = useState(gravada.app_name ?? "");
   const [hex, setHex] = useState(gravada.accent_hex ?? "");
@@ -200,15 +205,15 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
     if (!derivada || !degraus) return [];
     return [
       {
-        rotulo: "Sua cor",
+        rotulo: t("Sua cor"),
         hex: derivada.marca,
         indice: degraus.suaCor,
-        nota: degraus.suaCor === null ? "fora da escala — fica só no logo" : undefined,
+        nota: degraus.suaCor === null ? t("fora da escala — fica só no logo") : undefined,
       },
-      { rotulo: "Botões no modo claro", hex: derivada.claro.accent, indice: degraus.claro },
-      { rotulo: "Botões no modo escuro", hex: derivada.escuro.accent, indice: degraus.escuro },
+      { rotulo: t("Botões no modo claro"), hex: derivada.claro.accent, indice: degraus.claro },
+      { rotulo: t("Botões no modo escuro"), hex: derivada.escuro.accent, indice: degraus.escuro },
     ];
-  }, [derivada, degraus]);
+  }, [derivada, degraus, t]);
 
   function handleSubmit(evento: React.FormEvent) {
     evento.preventDefault();
@@ -221,14 +226,14 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
       accent_hex: hexLimpo.length > 0 ? hexLimpo : null,
     });
     if (!lido.success) {
-      toast.error("Confira os campos: algum valor não está no formato esperado.");
+      toast.error(t("Confira os campos: algum valor não está no formato esperado."));
       return;
     }
 
     startTransition(async () => {
       const resultado = await updateMarcaDaOrganizacao(lido.data);
       if (resultado.ok) {
-        toast.success("Marca salva.");
+        toast.success(t("Marca salva."));
         // O bloco de cor e o nome no menu são emitidos pelo LAYOUT de `/app`, e a
         // action já revalidou `/app` como layout. O refresh é o que traz esse
         // render novo para esta aba — sem ele a pessoa salvaria, veria "ok" e
@@ -236,7 +241,7 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
         router.refresh();
         return;
       }
-      toast.error(ERRO_EM_PORTUGUES[resultado.error] ?? "Não consegui salvar a marca agora.");
+      toast.error(t(ERRO_EM_PORTUGUES[resultado.error] ?? "Não consegui salvar a marca agora."));
       // Recusa que esta tela não sabe nomear não pode virar só um toast genérico:
       // o texto cru é o que torna o problema diagnosticável para quem tem acesso
       // ao servidor. Falhar fechado na ação, aberto na informação.
@@ -248,11 +253,11 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
     <form onSubmit={handleSubmit} className="max-w-3xl space-y-6">
       <Card className="space-y-4 p-6">
         <h2 className="text-base font-semibold tracking-tight text-text">
-          Como sua empresa aparece
+          {t("Como sua empresa aparece")}
         </h2>
 
         <div className="space-y-2">
-          <Label htmlFor="org_app_name">Nome da sua empresa</Label>
+          <Label htmlFor="org_app_name">{t("Nome da sua empresa")}</Label>
           <Input
             id="org_app_name"
             value={nome}
@@ -264,13 +269,13 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
             autoComplete="off"
           />
           <p className="text-xs text-text-muted">
-            Aparece no menu lateral, para quem trabalha aqui. Deixe em branco para usar{" "}
+            {t("Aparece no menu lateral, para quem trabalha aqui. Deixe em branco para usar")}{" "}
             {semAOrganizacao.name}.
           </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="org_accent_hex">Cor da sua marca</Label>
+          <Label htmlFor="org_accent_hex">{t("Cor da sua marca")}</Label>
           <div className="flex items-center gap-3">
             {/* Atalho, nunca o controle principal: o seletor do navegador escolhe
                 UM pixel e não mostra o que o sistema faz com ele. Quem ensina é a
@@ -283,7 +288,7 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
                   : COR_NEUTRA_DO_SELETOR,
               }}
             >
-              <span className="sr-only">Escolher a cor visualmente</span>
+              <span className="sr-only">{t("Escolher a cor visualmente")}</span>
               <input
                 type="color"
                 value={ehHexValido(hexLimpo) ? normalizarHex(hexLimpo) : COR_NEUTRA_DO_SELETOR}
@@ -303,27 +308,31 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
               className="w-36 font-mono"
             />
             {hexLimpo.length > 0 && !hexValido ? (
-              <span className="text-sm text-error-fg">Use um código de cor como #7a5cd6.</span>
+              <span className="text-sm text-error-fg">
+                {t("Use um código de cor como #7a5cd6.")}
+              </span>
             ) : null}
           </div>
           <p id="ajuda-da-cor-da-organizacao" className="text-xs text-text-muted">
-            Deixe em branco para voltar à cor que o sistema já usa.
+            {t("Deixe em branco para voltar à cor que o sistema já usa.")}
           </p>
         </div>
 
         {derivada ? (
           <div className="space-y-2">
             <p className="text-sm text-text-muted">
-              A partir da sua cor o sistema monta esta escala e escolhe, dentro dela, o tom que
-              vai nos botões:
+              {t(
+                "A partir da sua cor o sistema monta esta escala e escolhe, dentro dela, o tom que vai nos botões:",
+              )}
             </p>
             <TiraDeTons tons={derivada.rampa} legenda={legenda} />
             {/* Fato de desenho do produto, não diagnóstico desta cor: o modo
                 escuro parte de um tom mais claro da escala por construção. Sem
                 esta linha, ver dois tons marcados na escala parece incoerência. */}
             <p className="text-xs text-text-muted">
-              No modo escuro o sistema usa naturalmente um tom mais claro da escala, para a cor
-              não se perder no fundo escuro.
+              {t(
+                "No modo escuro o sistema usa naturalmente um tom mais claro da escala, para a cor não se perder no fundo escuro.",
+              )}
             </p>
           </div>
         ) : null}
@@ -342,6 +351,8 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
             url: resolvida.origens.logoUrl === "organizacao" ? resolvida.logoUrl : null,
           }}
           logoHerdado={semAOrganizacao.logoUrl}
+          // Texto-fonte cru, não traduzido aqui: CampoDeLogo já chama t()
+          // internamente sobre esta prop (ver componente compartilhado).
           origemDoHerdado="de quem instalou o sistema"
           nomeEmVigor={resolvida.name}
         />
@@ -359,24 +370,30 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
       <Card className="space-y-3 p-6">
         <div>
           <h2 className="text-base font-semibold tracking-tight text-text">
-            De onde vem cada coisa
+            {t("De onde vem cada coisa")}
           </h2>
           <p className="text-sm text-text-muted">
-            Considerando o que está nos campos acima.
+            {t("Considerando o que está nos campos acima.")}
           </p>
         </div>
 
         <div>
-          <LinhaDeOrigem campo="Nome" valor={origemEmPortugues(resolvida.origens.nome)} />
-          <LinhaDeOrigem campo="Cor" valor={origemEmPortugues(resolvida.origens.cor)} />
-          <LinhaDeOrigem campo="Logo" valor={origemEmPortugues(resolvida.origens.logoUrl)} />
+          <LinhaDeOrigem
+            campo={t("Nome")}
+            valor={origemEmPortugues(resolvida.origens.nome, t)}
+          />
+          <LinhaDeOrigem campo={t("Cor")} valor={origemEmPortugues(resolvida.origens.cor, t)} />
+          <LinhaDeOrigem
+            campo={t("Logo")}
+            valor={origemEmPortugues(resolvida.origens.logoUrl, t)}
+          />
         </div>
 
         {avisos.length > 0 ? (
           <ul className="space-y-1.5">
             {avisos.map((aviso) => (
               <li key={aviso.texto} className={`text-sm ${CLASSE_DO_TOM[aviso.tom]}`}>
-                {aviso.texto}
+                {t(aviso.texto)}
               </li>
             ))}
           </ul>
@@ -384,8 +401,9 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
 
         {!serializacao.css && resolvida.cor ? (
           <p className="text-sm text-error-fg">
-            Do jeito que está, esta cor não chegaria à tela: o sistema continuaria com a cor que
-            já usa.
+            {t(
+              "Do jeito que está, esta cor não chegaria à tela: o sistema continuaria com a cor que já usa.",
+            )}
           </p>
         ) : null}
       </Card>
@@ -397,16 +415,18 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
       */}
       <Card className="space-y-2 p-6">
         <h2 className="text-base font-semibold tracking-tight text-text">
-          O que isto ainda não muda
+          {t("O que isto ainda não muda")}
         </h2>
         <ul className="list-disc space-y-1 pl-5 text-sm text-text-muted">
           <li>
-            O título da aba do navegador continua com o nome do sistema, e não com o da sua
-            empresa.
+            {t(
+              "O título da aba do navegador continua com o nome do sistema, e não com o da sua empresa.",
+            )}
           </li>
           <li>
-            A tela de entrada é sempre a do sistema: quando alguém digita a senha, ainda não dá
-            para saber de qual empresa ele é.
+            {t(
+              "A tela de entrada é sempre a do sistema: quando alguém digita a senha, ainda não dá para saber de qual empresa ele é.",
+            )}
           </li>
           {/*
             Este item dizia "os e-mails, o PDF de LGPD e o autenticador também
@@ -417,17 +437,19 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
             papéis num documento com peso legal.
           */}
           <li>
-            Os e-mails que este sistema envia (convite de time, pedidos de LGPD) já saem com o
-            nome da sua empresa.
+            {t(
+              "Os e-mails que este sistema envia (convite de time, pedidos de LGPD) já saem com o nome da sua empresa.",
+            )}
           </li>
           <li>
-            O relatório de LGPD entregue ao cliente traz a RAZÃO SOCIAL da sua empresa, e não o
-            nome aqui de cima — é ela que responde legalmente pelos dados. Confira o campo
-            &quot;Razão social&quot; em Configurações → Organização.
+            {t(
+              'O relatório de LGPD entregue ao cliente traz a RAZÃO SOCIAL da sua empresa, e não o nome aqui de cima — é ela que responde legalmente pelos dados. Confira o campo "Razão social" em Configurações → Organização.',
+            )}
           </li>
           <li>
-            O aplicativo de verificação em duas etapas continua registrando o nome do sistema:
-            o cadastro acontece antes de saber de qual empresa a pessoa é.
+            {t(
+              "O aplicativo de verificação em duas etapas continua registrando o nome do sistema: o cadastro acontece antes de saber de qual empresa a pessoa é.",
+            )}
           </li>
           {/*
             Esta linha dizia "o logo continua sendo o de quem instalou o
@@ -436,9 +458,9 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
             frase ausente, porque quem a lê para de procurar o campo.
           */}
           <li>
-            O logo que você subir aqui aparece no menu lateral, para quem trabalha nesta
-            empresa. A tela de entrada continua com o logo de quem instalou o sistema: ali
-            ainda não dá para saber de qual empresa a pessoa é.
+            {t(
+              "O logo que você subir aqui aparece no menu lateral, para quem trabalha nesta empresa. A tela de entrada continua com o logo de quem instalou o sistema: ali ainda não dá para saber de qual empresa a pessoa é.",
+            )}
           </li>
         </ul>
       </Card>
@@ -448,7 +470,7 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
           <span className="font-mono text-xs text-text-muted">{erroTecnico}</span>
         ) : null}
         <Button type="submit" disabled={isPending || !hexValido}>
-          {isPending ? "Salvando…" : "Salvar"}
+          {isPending ? t("Salvando…") : t("Salvar")}
         </Button>
       </div>
     </form>

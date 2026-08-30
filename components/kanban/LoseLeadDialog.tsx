@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useT } from "@/hooks/i18n/useT";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +41,7 @@ export function LoseLeadDialog({
   leadId,
   pipelineId,
 }: LoseLeadDialogProps) {
+  const t = useT();
   const [reasonCode, setReasonCode] = useState<string>("");
   const [otherText, setOtherText] = useState("");
   const mutation = useLoseLead(pipelineId);
@@ -63,14 +65,14 @@ export function LoseLeadDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Marcar como perdido</DialogTitle>
+          <DialogTitle>{t("Marcar como perdido")}</DialogTitle>
           <DialogDescription>
-            Informe o motivo. Essa informação ajuda a melhorar o funil.
+            {t("Informe o motivo. Essa informação ajuda a melhorar o funil.")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3">
-          <Label>Motivo</Label>
+          <Label>{t("Motivo")}</Label>
           <div className="grid grid-cols-1 gap-1.5">
             {CANONICAL_LOST_REASONS.map((code) => (
               <label
@@ -84,18 +86,18 @@ export function LoseLeadDialog({
                   checked={reasonCode === code}
                   onChange={(e) => setReasonCode(e.target.value)}
                 />
-                <span>{REASON_LABELS[code]}</span>
+                <span>{t(REASON_LABELS[code])}</span>
               </label>
             ))}
           </div>
           {reasonCode === "other" && (
             <div className="grid gap-1.5">
-              <Label htmlFor="lost-reason-other">Detalhe (opcional)</Label>
+              <Label htmlFor="lost-reason-other">{t("Detalhe (opcional)")}</Label>
               <Textarea
                 id="lost-reason-other"
                 value={otherText}
                 onChange={(e) => setOtherText(e.target.value)}
-                placeholder="Ex: Cliente desistiu por X motivo"
+                placeholder={t("Ex: Cliente desistiu por X motivo")}
                 maxLength={MAX_LEN}
                 rows={3}
               />
@@ -112,10 +114,10 @@ export function LoseLeadDialog({
             onClick={() => onOpenChange(false)}
             disabled={mutation.isPending}
           >
-            Cancelar
+            {t("Cancelar")}
           </Button>
           <Button onClick={handleSubmit} disabled={disabled}>
-            {mutation.isPending ? "Salvando..." : "Confirmar"}
+            {mutation.isPending ? t("Salvando...") : t("Confirmar")}
           </Button>
         </DialogFooter>
       </DialogContent>

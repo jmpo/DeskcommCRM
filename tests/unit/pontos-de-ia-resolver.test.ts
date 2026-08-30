@@ -11,6 +11,9 @@
  * lugar. Um teste que só olhasse `modelId` passaria com a credencial errada
  * viajando junto — que foi exatamente o defeito que matou turnos em produção.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -19,6 +22,7 @@ import {
   PONTOS_DO_AGENTE_PUBLICADO,
   type AgentePublicado,
   type EntradaDaDecisao,
+  type OrigemDaEscolha,
   type LinhaDeBinding,
 } from "@/lib/ai/pontos/resolver";
 
@@ -172,14 +176,22 @@ describe("modelo e credencial vêm do MESMO lugar (PR #151)", () => {
 
 describe("a decisão explica a si mesma", () => {
   it("toda origem possível tem explicação escrita para o usuário", () => {
-    const origens = [
-      "agente_publicado",
-      "binding",
-      "variavel_de_ambiente",
-      "padrao_da_organizacao",
-    ] as const;
+    // A lista sai do FONTE, não de um array copiado aqui. Ela era fixa com
+    // quatro nomes, e uma lista fixa não sabe quando o union cresce: a origem
+    // `herdado_de_quem_chamou` nasceu depois e este gate teria ficado verde sem
+    // olhar para ela. `Record<OrigemDaEscolha, string>` obriga a ENTRADA a
+    // existir em compile time; o que só o runtime vê é se o texto está vazio —
+    // e é exatamente isso que aqui se mede, sobre TODOS os membros.
+    const fonte = readFileSync(
+      join(process.cwd(), "lib/ai/pontos/resolver.ts"),
+      "utf-8",
+    );
+    const union = /export type OrigemDaEscolha =([^;]+);/.exec(fonte)?.[1] ?? "";
+    const origens = [...union.matchAll(/"([a-z_]+)"/g)].map((m) => m[1] as OrigemDaEscolha);
+
+    expect(origens.length).toBeGreaterThanOrEqual(5);
     for (const o of origens) {
-      expect(EXPLICACAO_DA_ORIGEM[o]?.trim().length ?? 0).toBeGreaterThan(0);
+      expect(EXPLICACAO_DA_ORIGEM[o]?.trim().length ?? 0, `origem sem explicação: ${o}`).toBeGreaterThan(0);
     }
   });
 

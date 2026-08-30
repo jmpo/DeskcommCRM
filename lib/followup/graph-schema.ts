@@ -10,6 +10,8 @@ export const NODE_TYPES = [
   'wait',
   'condition',
   'ai_classify',
+  'match_reply',
+  'repeat',
   'action',
   'end',
 ] as const;
@@ -42,6 +44,10 @@ export const NO_REPLY_BRANCH_ID = 'no_reply';
 /** The two outputs of a `condition` node evaluating its checks together (`branching: 'combined'`). */
 export const CONDITION_TRUE_BRANCH_ID = 'true';
 export const CONDITION_FALSE_BRANCH_ID = 'false';
+/** Saída do `repeat` enquanto ainda faltam voltas. */
+export const REPEAT_BODY_BRANCH_ID = 'body';
+/** Saída do `repeat` quando o contador chegou a zero. */
+export const REPEAT_DONE_BRANCH_ID = 'done';
 
 /** Branch ids the contract owns — a user-declared branch may not claim one. */
 export const RESERVED_BRANCH_IDS = [
@@ -49,6 +55,8 @@ export const RESERVED_BRANCH_IDS = [
   NO_REPLY_BRANCH_ID,
   CONDITION_TRUE_BRANCH_ID,
   CONDITION_FALSE_BRANCH_ID,
+  REPEAT_BODY_BRANCH_ID,
+  REPEAT_DONE_BRANCH_ID,
 ] as const;
 
 /** Id of a branch the user declared (a check, an AI class) — opaque, stable across renames. */
@@ -101,6 +109,62 @@ export const aiClassBranchSchema = z.strictObject({
 
 export type AiClassBranch = z.infer<typeof aiClassBranchSchema>;
 
+/** Declared output of a `match_reply` node: opaque id + the text rule (no LLM). */
+export const matchReplyBranchSchema = z.strictObject({
+  id: declaredBranchIdSchema,
+  label: z.string().min(1).max(40),
+  op: z.enum(['eq', 'contains']),
+  pattern: z.string().min(1).max(200),
+});
+
+export type MatchReplyBranch = z.infer<typeof matchReplyBranchSchema>;
+
+/**
+ * Where to write the contact's reply. `{{volta}}` in a custom key is replaced
+ * with the current `repeat` index when the node sits inside a loop.
+ */
+export const replySaveToSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('contact_name') }),
+  z.strictObject({
+    kind: z.literal('lead_custom'),
+    key: z
+      .string()
+      .min(1)
+      .max(60)
+      .regex(/^[a-z][a-z0-9_{}]*$/i, 'Use letras, números, underscore ou {{volta}}'),
+  }),
+]);
+export type ReplySaveTo = z.infer<typeof replySaveToSchema>;
+
+/** O que fazer quando o destino de `save_to` já tem valor (captação, ficha…). */
+export const ifExistsSchema = z.enum(["skip", "overwrite", "confirm"]);
+export type IfExists = z.infer<typeof ifExistsSchema>;
+
+/**
+ * Text-match node: parks in `waiting_reply` like `ai_classify`, then routes on
+ * the last inbound body without calling a model. v2 `branches` only.
+ */
+export const matchReplyConfigSchema = z
+  .strictObject({
+    branches: z.array(matchReplyBranchSchema).min(1).max(8),
+    grace_timeout_ms: z.number().int().min(900_000),
+    save_to: replySaveToSchema.optional(),
+    if_exists: ifExistsSchema.optional(),
+  })
+  .refine((c) => new Set(c.branches.map((b) => b.id)).size === c.branches.length, {
+    message: "branches[].id must be unique within the node",
+    path: ["branches"],
+  });
+
+/**
+ * Repete o caminho `body` N vezes, onde N vem da última resposta do contato
+ * (um número, ou palavras tipo "nenhum"/"dois"), limitado por `max_count`.
+ * Estado mora nos eventos do enrollment — voltar ao nó não relê a resposta.
+ */
+export const repeatConfigSchema = z.strictObject({
+  max_count: z.number().int().min(1).max(20),
+});
+
 /**
  * AI classification node configuration.
  * Classifies incoming messages into one of several predefined classes.
@@ -141,11 +205,15 @@ export const aiClassifyConfigSchema = z
 
 /**
  * Action node configuration schema.
- * Supports two modes:
+ * - text: send this body as-is (no model)
  * - ai_message: generate a message using AI with a prompt hint
- * - template: send a predefined template message
+ * - template: send a canned message from Ajustes → Modelos
  */
 export const actionConfigSchema = z.discriminatedUnion('mode', [
+  z.strictObject({
+    mode: z.literal('text'),
+    body: z.string().min(1).max(4000),
+  }),
   z.strictObject({
     mode: z.literal('ai_message'),
     prompt_hint: z.string().min(1).max(1000),
@@ -263,6 +331,26 @@ export const flowNodeSchema = z.discriminatedUnion('type', [
       y: z.number(),
     }),
     config: aiClassifyConfigSchema,
+  }),
+  z.strictObject({
+    id: z.string().min(1),
+    type: z.literal('match_reply'),
+    label: z.string().min(1).max(60),
+    position: z.strictObject({
+      x: z.number(),
+      y: z.number(),
+    }),
+    config: matchReplyConfigSchema,
+  }),
+  z.strictObject({
+    id: z.string().min(1),
+    type: z.literal('repeat'),
+    label: z.string().min(1).max(60),
+    position: z.strictObject({
+      x: z.number(),
+      y: z.number(),
+    }),
+    config: repeatConfigSchema,
   }),
   // Action node: sends a message
   z.strictObject({
@@ -481,6 +569,46 @@ export function nodeBranches(node: BranchableNode): FlowBranch[] {
         fallbackBranch(FALLBACK_ALWAYS_LABEL),
       ];
     }
+
+    case 'match_reply': {
+      const classBranches: FlowBranch[] = node.config.branches.map((b) => ({
+        id: b.id,
+        label: b.label,
+        check: null,
+        kind: 'match' as const,
+        condition: { type: 'branch' as const, branch_id: b.id },
+      }));
+      return [
+        ...classBranches,
+        {
+          id: NO_REPLY_BRANCH_ID,
+          label: NO_REPLY_LABEL,
+          check: null,
+          kind: 'match',
+          condition: { type: 'branch', branch_id: NO_REPLY_BRANCH_ID },
+        },
+        fallbackBranch(FALLBACK_ALWAYS_LABEL),
+      ];
+    }
+
+    case 'repeat':
+      return [
+        {
+          id: REPEAT_BODY_BRANCH_ID,
+          label: 'Próxima volta',
+          check: null,
+          kind: 'match',
+          condition: { type: 'branch', branch_id: REPEAT_BODY_BRANCH_ID },
+        },
+        {
+          id: REPEAT_DONE_BRANCH_ID,
+          label: 'Acabou',
+          check: null,
+          kind: 'match',
+          condition: { type: 'branch', branch_id: REPEAT_DONE_BRANCH_ID },
+        },
+        fallbackBranch(FALLBACK_ALWAYS_LABEL),
+      ];
 
     default:
       return [fallbackBranch(FALLBACK_ALWAYS_LABEL)];

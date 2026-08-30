@@ -20,7 +20,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 import { ApiError } from "@/lib/api/types";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
-import { ROLE_RANK } from "@/lib/auth/types";
+import { roleAtLeast } from "@/lib/auth/types";
 import { availabilityPatchSchema, validateRequest } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
 
@@ -41,7 +41,7 @@ export async function PATCH(
   const { user: authUser, org: activeOrg } = authz;
 
   const isSelf = targetUserId === authUser.id;
-  const isManager = ROLE_RANK[activeOrg.role] >= ROLE_RANK.manager;
+  const isManager = roleAtLeast(activeOrg.role, "manager");
   if (!isSelf && !isManager) {
     return fail(
       "forbidden_role",

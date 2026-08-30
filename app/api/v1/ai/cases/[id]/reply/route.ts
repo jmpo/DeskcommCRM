@@ -32,6 +32,8 @@ import {
   buildCaseSummary,
 } from "@/lib/agent-engine/agent/human-cases";
 import { performHumanHandoff } from "@/lib/agent-engine/agent/human-handoff";
+import { avisarLeadDoCrm } from "@/lib/ai/handoff/aviso-ao-lead";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getRequestPool } from "@/lib/agent-engine/db/request-pool";
 import { createLogger } from "@/lib/agent-engine/obs/logger";
 import { enqueueJob } from "@/lib/agent-engine/queue/queue";
@@ -124,6 +126,25 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
   const { conversation_id: conversationId, contact_id: contactId } = caseRow;
 
   if (action === "escalate") {
+    // AVISA O LEAD ANTES DE SILENCIAR.
+    //
+    // Até aqui o automático estava CONVERSANDO com o cliente — abrir um caso não
+    // silencia ninguém (`CASES_SYSTEM_BLOCK`: "você CONTINUA conversando"). O
+    // `performHumanHandoff` da linha seguinte é que corta, e corta de vez. Sem
+    // esta mensagem, do lado de fora, o atendimento simplesmente para no meio.
+    //
+    // Emissor do lado do CRM (`avisarLeadDoCrm`), e não o do motor: aqui não há
+    // job da fila, e `runBeforeSend` grava o ledger por `(job_id, seq)`. Forjar
+    // um job para mandar uma frase seria pior que perder os gates de pacing —
+    // que, neste caminho, protegem contra um risco que não existe: é UMA
+    // mensagem, disparada por um clique humano, dentro de uma conversa aberta.
+    const aviso = await avisarLeadDoCrm(createAdminClient(), {
+      organizationId: org.orgId,
+      conversationId,
+      contactId,
+      reason: body,
+    });
+
     // O handoff roda ANTES de fechar o caso, e nesta ordem de propósito: ele é
     // idempotente (re-executar é no-op) e recebe um pg.Pool próprio, então não
     // entra na transação abaixo. Se ele falhar, o caso continua `awaiting_human`
@@ -135,6 +156,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
       {
         reason: body,
         conversationSummary: buildCaseSummary(caseRow),
+        avisoAoLead: aviso,
         log: createLogger(),
       },
     );

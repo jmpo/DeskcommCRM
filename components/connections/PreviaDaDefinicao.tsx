@@ -2,6 +2,7 @@
 import Image from "next/image";
 
 import { contarVariaveis, type BotaoDaDefinicao } from "@/lib/channels/template-conteudo";
+import { useT } from "@/hooks/i18n/useT";
 
 /**
  * Como a mensagem vai chegar ao cliente.
@@ -35,6 +36,7 @@ export function PreviaDaDefinicao({
   rodape: string;
   botoes: BotaoDaDefinicao[];
 }) {
+  const t = useT();
   const vazia = !cabecalho && !midiaUrl && !corpo && !rodape && botoes.length === 0;
   const buracos = corpo ? contarVariaveis(corpo) : 0;
   // `{{3}}` sem `{{1}}` é recusado — a numeração é posicional e a lista de
@@ -45,12 +47,12 @@ export function PreviaDaDefinicao({
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs font-medium text-muted-foreground">Como o cliente vai ver</p>
+      <p className="text-xs font-medium text-muted-foreground">{t("Como o cliente vai ver")}</p>
 
       <div className="rounded-lg bg-muted/60 p-3">
         {vazia ? (
           <p className="text-xs italic text-muted-foreground">
-            Preencha o texto para ver a prévia.
+            {t("Preencha o texto para ver a prévia.")}
           </p>
         ) : (
           <div className="max-w-[22rem] rounded-lg rounded-tl-sm bg-background p-2.5 shadow-sm">
@@ -59,7 +61,7 @@ export function PreviaDaDefinicao({
               // Next a buscaria de novo depois de ela expirar.
               <Image
                 src={midiaUrl}
-                alt="Cabeçalho"
+                alt={t("Cabeçalho")}
                 width={320}
                 height={180}
                 unoptimized
@@ -87,8 +89,8 @@ export function PreviaDaDefinicao({
 
       {faltando.length > 0 && (
         <p className="text-[11px] text-destructive">
-          Falta {faltando.map((n) => `{{${n}}}`).join(", ")} no texto. A numeração é sequencial e a
-          plataforma recusa quando há buraco.
+          {t("Falta")} {faltando.map((n) => `{{${n}}}`).join(", ")} {t("no texto.")}{" "}
+          {t("A numeração é sequencial e a plataforma recusa quando há buraco.")}
         </p>
       )}
     </div>

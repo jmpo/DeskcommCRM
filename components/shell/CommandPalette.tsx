@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/auth/AuthProvider";
+import { useT } from "@/hooks/i18n/useT";
 import { MagnifyingGlass } from "@/lib/ui/icons";
 import { NAV_GROUPS, searchable, type NavDestination } from "@/lib/navigation/registry";
 import { cn } from "@/lib/utils";
@@ -35,10 +36,11 @@ export function CommandPalette({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const t = useT();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="top-[15%] max-w-xl translate-y-0 gap-0 p-0">
-        <DialogTitle className="sr-only">Buscar telas</DialogTitle>
+        <DialogTitle className="sr-only">{t("Buscar telas")}</DialogTitle>
         {/* O miolo é um componente à parte porque o Radix o DESMONTA ao fechar:
             busca e destaque nascem zerados na próxima abertura por construção,
             sem um efeito de reset para manter em sincronia. */}
@@ -49,6 +51,7 @@ export function CommandPalette({
 }
 
 function Resultados({ aoEscolher }: { aoEscolher: () => void }) {
+  const t = useT();
   const router = useRouter();
   const { user, activeOrg } = useAuth();
   const [busca, setBusca] = useState("");
@@ -109,20 +112,20 @@ function Resultados({ aoEscolher }: { aoEscolher: () => void }) {
           value={busca}
           onChange={(e) => aoDigitar(e.target.value)}
           onKeyDown={aoTeclar}
-          placeholder="Buscar telas do sistema…"
+          placeholder={t("Buscar telas do sistema…")}
           className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
       </div>
 
       {resultados.length === 0 ? (
         <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-          Nada encontrado para “{busca}”.
+          {t("Nada encontrado para")} “{busca}”.
         </p>
       ) : (
         <ul
           id="palette-resultados"
           role="listbox"
-          aria-label="Telas"
+          aria-label={t("Telas")}
           className="max-h-80 overflow-y-auto p-2"
         >
           {resultados.map((d, i) => {
@@ -145,12 +148,12 @@ function Resultados({ aoEscolher }: { aoEscolher: () => void }) {
                 <Icon size={18} aria-hidden className="mt-0.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-sm font-medium">{d.label}</span>
+                    <span className="text-sm font-medium">{t(d.label)}</span>
                     <span className="truncate text-[11px] uppercase tracking-wider text-muted-foreground/70">
-                      {ROTULO_GRUPO.get(d.group)}
+                      {t(ROTULO_GRUPO.get(d.group) ?? "")}
                     </span>
                   </div>
-                  <p className="truncate text-xs text-muted-foreground">{d.description}</p>
+                  <p className="truncate text-xs text-muted-foreground">{t(d.description)}</p>
                 </div>
               </li>
             );

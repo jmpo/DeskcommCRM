@@ -1,4 +1,5 @@
 "use client";
+import { useT } from "@/hooks/i18n/useT";
 import type { MessageTemplate } from "@/hooks/inbox/useMessageTemplates";
 
 /** Estado do slash-menu a partir do texto do composer. Puro (testável). */
@@ -18,29 +19,30 @@ interface Props {
 }
 
 export function TemplateMenu({ open, query, templates, onPick, onClose: _onClose }: Props) {
+  const t = useT();
   if (!open) return null;
   const q = query.toLowerCase();
   const filtered = templates.filter(
-    (t) => t.title.toLowerCase().includes(q) || (t.shortcut ?? "").toLowerCase().includes(q),
+    (tpl) => tpl.title.toLowerCase().includes(q) || (tpl.shortcut ?? "").toLowerCase().includes(q),
   );
   return (
     <div
       className="absolute bottom-14 left-3 z-20 max-h-64 w-80 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
       role="listbox"
-      aria-label="Templates de script"
+      aria-label={t("Templates de script")}
     >
       {filtered.length === 0 ? (
-        <div className="px-3 py-2 text-xs text-muted-foreground">Nenhum template. Crie em Configurações.</div>
+        <div className="px-3 py-2 text-xs text-muted-foreground">{t("Nenhum template. Crie em Configurações.")}</div>
       ) : (
-        filtered.map((t) => (
+        filtered.map((tpl) => (
           <button
-            key={t.id}
+            key={tpl.id}
             type="button"
             className="flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left hover:bg-muted"
-            onClick={() => onPick(t)}
+            onClick={() => onPick(tpl)}
           >
-            <span className="text-sm font-medium">{t.title}</span>
-            <span className="line-clamp-1 text-xs text-muted-foreground">{t.body}</span>
+            <span className="text-sm font-medium">{tpl.title}</span>
+            <span className="line-clamp-1 text-xs text-muted-foreground">{tpl.body}</span>
           </button>
         ))
       )}

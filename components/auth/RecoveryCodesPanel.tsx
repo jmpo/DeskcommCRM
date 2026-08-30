@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { useT } from "@/hooks/i18n/useT";
 import { Button } from "@/components/ui/button";
 import { useMarcaDaInstalacao } from "@/lib/branding/contexto";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -43,6 +44,7 @@ export function prefixoDoArquivo(nome: string): string {
  * + download options.
  */
 export function RecoveryCodesPanel({ codes, onAcknowledge }: RecoveryCodesPanelProps) {
+  const t = useT();
   const [acked, setAcked] = useState(false);
   // A marca vem por PROP do servidor (`lib/branding/contexto.tsx`), não de
   // `branding()`: aquela função lê fontes diferentes no servidor e no navegador,
@@ -54,8 +56,8 @@ export function RecoveryCodesPanel({ codes, onAcknowledge }: RecoveryCodesPanelP
 
   const handleCopy = async () => {
     const ok = await copyToClipboard(codes.join("\n"));
-    if (ok) toast.success("Códigos copiados para a área de transferência.");
-    else toast.error("Não foi possível copiar. Selecione e copie manualmente.");
+    if (ok) toast.success(t("Códigos copiados para a área de transferência."));
+    else toast.error(t("Não foi possível copiar. Selecione e copie manualmente."));
   };
 
   const handleDownload = () => {
@@ -68,16 +70,16 @@ export function RecoveryCodesPanel({ codes, onAcknowledge }: RecoveryCodesPanelP
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast.success("Arquivo baixado.");
+    toast.success(t("Arquivo baixado."));
   };
 
   return (
     <div className="space-y-4">
       <div className="rounded-md border border-border bg-muted/40 p-4">
         <p className="mb-3 text-sm text-muted-foreground">
-          Salve esses 10 códigos em um local seguro. Cada um pode ser usado{" "}
-          <strong>uma única vez</strong> para entrar caso você perca acesso ao autenticador.
-          Eles <strong>não serão mostrados novamente</strong>.
+          {t("Salve esses 10 códigos em um local seguro. Cada um pode ser usado")}{" "}
+          <strong>{t("uma única vez")}</strong> {t("para entrar caso você perca acesso ao autenticador.")}{" "}
+          {t("Eles")} <strong>{t("não serão mostrados novamente")}</strong>.
         </p>
         <div className="grid grid-cols-2 gap-2">
           {codes.map((c, i) => (
@@ -93,10 +95,10 @@ export function RecoveryCodesPanel({ codes, onAcknowledge }: RecoveryCodesPanelP
 
       <div className="flex gap-2">
         <Button type="button" variant="outline" className="flex-1" onClick={handleCopy}>
-          Copiar todos
+          {t("Copiar todos")}
         </Button>
         <Button type="button" variant="outline" className="flex-1" onClick={handleDownload}>
-          Baixar .txt
+          {t("Baixar .txt")}
         </Button>
       </div>
 
@@ -107,7 +109,7 @@ export function RecoveryCodesPanel({ codes, onAcknowledge }: RecoveryCodesPanelP
           onChange={(e) => setAcked(e.target.checked)}
           className="mt-0.5 h-4 w-4 rounded border-border"
         />
-        <span>Salvei meus códigos em local seguro.</span>
+        <span>{t("Salvei meus códigos em local seguro.")}</span>
       </label>
 
       <Button
@@ -116,7 +118,7 @@ export function RecoveryCodesPanel({ codes, onAcknowledge }: RecoveryCodesPanelP
         disabled={!acked}
         onClick={onAcknowledge}
       >
-        Concluir
+        {t("Concluir")}
       </Button>
     </div>
   );

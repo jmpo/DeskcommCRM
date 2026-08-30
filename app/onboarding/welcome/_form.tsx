@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { useT } from "@/hooks/i18n/useT";
 
 import { acceptWelcome } from "@/app/actions/onboarding/acceptWelcome";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ const FUSOS: { id: string; cidade: string }[] = [
 ];
 
 export function WelcomeForm({ defaultOrgName }: { defaultOrgName: string }) {
+  const t = useT();
   const [displayName, setDisplayName] = useState(defaultOrgName);
   const [oQueFaz, setOQueFaz] = useState("");
   const [timezone, setTimezone] = useState("America/Sao_Paulo");
@@ -47,7 +49,7 @@ export function WelcomeForm({ defaultOrgName }: { defaultOrgName: string }) {
       className="space-y-5 rounded-lg border bg-background p-6"
       action={(formData) => {
         if (!accepted) {
-          toast.error("Aceite os termos para continuar.");
+          toast.error(t("Aceite os termos para continuar."));
           return;
         }
         startTransition(async () => {
@@ -59,7 +61,7 @@ export function WelcomeForm({ defaultOrgName }: { defaultOrgName: string }) {
       }}
     >
       <div className="space-y-2">
-        <Label htmlFor="display_name">Como se chama o seu negócio?</Label>
+        <Label htmlFor="display_name">{t("Como se chama o seu negócio?")}</Label>
         <Input
           id="display_name"
           name="display_name"
@@ -70,8 +72,7 @@ export function WelcomeForm({ defaultOrgName }: { defaultOrgName: string }) {
           required
         />
         <p className="text-xs text-muted-foreground">
-          É o nome que aparece para o seu time e nos relatórios. Pode ser clínica,
-          loja, escritório — o que for seu.
+          {t("É o nome que aparece para o seu time e nos relatórios. Pode ser clínica, loja, escritório — o que for seu.")}
         </p>
       </div>
 
@@ -83,23 +84,24 @@ export function WelcomeForm({ defaultOrgName }: { defaultOrgName: string }) {
         uma instalação que nunca pergunta em que ramo entrou.
       */}
       <div className="space-y-2">
-        <Label htmlFor="o_que_faz">O que vocês fazem?</Label>
+        <Label htmlFor="o_que_faz">{t("O que vocês fazem?")}</Label>
         <Input
           id="o_que_faz"
           name="o_que_faz"
           value={oQueFaz}
           onChange={(e) => setOQueFaz(e.target.value)}
           maxLength={280}
-          placeholder="Ex.: clínica odontológica, ou venda de roupa fitness pelo WhatsApp"
+          placeholder={t("Ex.: clínica odontológica, ou venda de roupa fitness pelo WhatsApp")}
         />
         <p className="text-xs text-muted-foreground">
-          Uma linha basta. É com isso que seu funcionário aprende com quem ele
-          está falando — e que a gente monta o quadro de clientes do seu jeito.
+          {t(
+            "Uma linha basta. É com isso que seu funcionário aprende com quem ele está falando — e que a gente monta o quadro de clientes do seu jeito.",
+          )}
         </p>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="timezone">Onde você atende</Label>
+        <Label htmlFor="timezone">{t("Onde você atende")}</Label>
         <Select value={timezone} onValueChange={setTimezone}>
           <SelectTrigger id="timezone">
             <SelectValue />
@@ -107,14 +109,14 @@ export function WelcomeForm({ defaultOrgName }: { defaultOrgName: string }) {
           <SelectContent>
             {FUSOS.map((f) => (
               <SelectItem key={f.id} value={f.id}>
-                {f.cidade}
+                {t(f.cidade)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <input type="hidden" name="timezone" value={timezone} />
         <p className="text-xs text-muted-foreground">
-          Decide o horário em que seu funcionário pode falar com clientes.
+          {t("Decide o horário em que seu funcionário pode falar com clientes.")}
         </p>
       </div>
 
@@ -127,21 +129,21 @@ export function WelcomeForm({ defaultOrgName }: { defaultOrgName: string }) {
           required
         />
         <span>
-          Li e aceito os{" "}
+          {t("Li e aceito os")}{" "}
           <a className="underline" href="/legal/terms" target="_blank" rel="noreferrer">
-            Termos de Uso
+            {t("Termos de Uso")}
           </a>{" "}
-          e a{" "}
+          {t("e a")}{" "}
           <a className="underline" href="/legal/privacy" target="_blank" rel="noreferrer">
-            Política de Privacidade
+            {t("Política de Privacidade")}
           </a>
           .
         </span>
       </label>
 
-      <div className="flex justify-end">
-        <Button type="submit" disabled={pending || !accepted}>
-          {pending ? "Salvando..." : "Continuar"}
+      <div className="flex sm:justify-end">
+        <Button type="submit" disabled={pending || !accepted} className="w-full sm:w-auto">
+          {pending ? t("Salvando...") : t("Continuar")}
         </Button>
       </div>
     </form>

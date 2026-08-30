@@ -29,6 +29,7 @@ import {
 import { usePipelines, usePipelineStages } from "@/hooks/webhooks/useWebhookSources";
 import { TRIGGER_LABELS, ACTION_LABELS, type TriggerEvent, type ActionType } from "./labels";
 import { ActionConfigForm, defaultActionConfig, type ActionItem } from "./ActionConfigForm";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   open: boolean;
@@ -92,6 +93,7 @@ function emptyCondition(): ConditionRow {
 }
 
 export function RuleEditor({ open, onOpenChange, rule }: Props) {
+  const t = useT();
   const isEdit = !!rule;
   const [name, setName] = React.useState("");
   const [triggerEvent, setTriggerEvent] = React.useState<TriggerEvent | "">("");
@@ -167,16 +169,16 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
     };
     const parsed = createAutomationRuleSchema.safeParse(payload);
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Revise os campos da automação.");
+      toast.error(t(parsed.error.issues[0]?.message ?? "Revise os campos da automação."));
       return;
     }
     try {
       if (rule) {
         await update.mutateAsync({ id: rule.id, ...parsed.data });
-        toast.success("Automação atualizada.");
+        toast.success(t("Automação atualizada."));
       } else {
         await create.mutateAsync(parsed.data);
-        toast.success("Automação criada — ligue quando estiver pronta.");
+        toast.success(t("Automação criada — ligue quando estiver pronta."));
       }
       onOpenChange(false);
     } catch {
@@ -188,27 +190,28 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-3xl">
         <SheetHeader>
-          <SheetTitle>{isEdit ? "Editar automação" : "Nova automação"}</SheetTitle>
+          <SheetTitle>{isEdit ? t("Editar automação") : t("Nova automação")}</SheetTitle>
           <SheetDescription>
-            Monte a regra em três passos: quando algo acontece, opcionalmente confira uma
-            condição, e então dispare uma ou mais ações.
+            {t(
+              "Monte a regra em três passos: quando algo acontece, opcionalmente confira uma condição, e então dispare uma ou mais ações.",
+            )}
           </SheetDescription>
         </SheetHeader>
 
         <div className="mt-6 space-y-8">
           <div className="space-y-2">
-            <Label htmlFor="rule-name">Nome da automação</Label>
+            <Label htmlFor="rule-name">{t("Nome da automação")}</Label>
             <Input
               id="rule-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Boas-vindas a contato novo"
+              placeholder={t("Boas-vindas a contato novo")}
               maxLength={120}
             />
           </div>
 
           <section className="space-y-2">
-            <h3 className="text-lg font-semibold text-text">QUANDO</h3>
+            <h3 className="text-lg font-semibold text-text">{t("QUANDO")}</h3>
             <Select
               value={triggerEvent}
               onValueChange={(v) => {
@@ -218,12 +221,12 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
               }}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Escolha o gatilho" />
+                <SelectValue placeholder={t("Escolha o gatilho")} />
               </SelectTrigger>
               <SelectContent>
                 {TRIGGER_EVENTS.map((ev) => (
                   <SelectItem key={ev} value={ev}>
-                    {TRIGGER_LABELS[ev]}
+                    {t(TRIGGER_LABELS[ev])}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -231,7 +234,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
           </section>
 
           <section className="space-y-3">
-            <h3 className="text-lg font-semibold text-text">SE (opcional)</h3>
+            <h3 className="text-lg font-semibold text-text">{t("SE (opcional)")}</h3>
             {conditions.map((cond, idx) => {
               // Linha nova (campo vazio) começa no modo curado — o avançado é
               // escape p/ quem sabe o path; só cai nele sozinho ao EDITAR uma
@@ -248,7 +251,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                         className="flex-1 basis-40"
                         value={cond.field}
                         onChange={(e) => updateCondition(idx, { field: e.target.value })}
-                        placeholder="ex: lead.custom_fields.minha_chave"
+                        placeholder={t("ex: lead.custom_fields.minha_chave")}
                       />
                     ) : (
                       <Select
@@ -259,12 +262,12 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                         }}
                       >
                         <SelectTrigger className="flex-1 basis-40">
-                          <SelectValue placeholder="Campo" />
+                          <SelectValue placeholder={t("Campo")} />
                         </SelectTrigger>
                         <SelectContent>
                           {curatedFields.map((f) => (
                             <SelectItem key={f.value} value={f.value}>
-                              {f.label}
+                              {t(f.label)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -280,7 +283,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                       <SelectContent>
                         {(Object.keys(OP_LABELS) as Op[]).map((op) => (
                           <SelectItem key={op} value={op}>
-                            {OP_LABELS[op]}
+                            {t(OP_LABELS[op])}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -291,7 +294,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                         onValueChange={(v) => updateCondition(idx, { value: v })}
                       >
                         <SelectTrigger className="flex-1 basis-40">
-                          <SelectValue placeholder="Etapa" />
+                          <SelectValue placeholder={t("Etapa")} />
                         </SelectTrigger>
                         <SelectContent>
                           {stages.map((s) => (
@@ -306,7 +309,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                         className="flex-1 basis-40"
                         value={cond.value}
                         onChange={(e) => updateCondition(idx, { value: e.target.value })}
-                        placeholder="Valor"
+                        placeholder={t("Valor")}
                       />
                     )}
                     <Button
@@ -314,7 +317,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                       variant="ghost"
                       size="icon"
                       onClick={() => removeCondition(idx)}
-                      aria-label="Remover condição"
+                      aria-label={t("Remover condição")}
                     >
                       <Trash />
                     </Button>
@@ -326,7 +329,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                       setAdvancedRows((prev) => ({ ...prev, [idx]: !isAdvanced }))
                     }
                   >
-                    {isAdvanced ? "usar campo da lista" : "usar campo avançado"}
+                    {isAdvanced ? t("usar campo da lista") : t("usar campo avançado")}
                   </button>
                 </div>
               );
@@ -337,16 +340,16 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
               onClick={addCondition}
               disabled={!triggerEvent || conditions.length >= 10}
             >
-              <Plus /> Adicionar condição
+              <Plus /> {t("Adicionar condição")}
             </Button>
           </section>
 
           <section className="space-y-3">
-            <h3 className="text-lg font-semibold text-text">ENTÃO</h3>
+            <h3 className="text-lg font-semibold text-text">{t("ENTÃO")}</h3>
             {actions.map((action, idx) => (
               <div key={idx} className="space-y-3 rounded-sm border border-border p-3">
                 <div className="flex items-center justify-between">
-                  <p className="font-medium text-text">{ACTION_LABELS[action.type]}</p>
+                  <p className="font-medium text-text">{t(ACTION_LABELS[action.type])}</p>
                   <div className="flex items-center gap-1">
                     <Button
                       type="button"
@@ -354,7 +357,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                       size="icon"
                       disabled={idx === 0}
                       onClick={() => moveAction(idx, -1)}
-                      aria-label="Mover ação para cima"
+                      aria-label={t("Mover ação para cima")}
                     >
                       <CaretUp />
                     </Button>
@@ -364,7 +367,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                       size="icon"
                       disabled={idx === actions.length - 1}
                       onClick={() => moveAction(idx, 1)}
-                      aria-label="Mover ação para baixo"
+                      aria-label={t("Mover ação para baixo")}
                     >
                       <CaretDown />
                     </Button>
@@ -373,7 +376,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                       variant="ghost"
                       size="icon"
                       onClick={() => removeAction(idx)}
-                      aria-label="Remover ação"
+                      aria-label={t("Remover ação")}
                     >
                       <Trash />
                     </Button>
@@ -393,12 +396,12 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
               disabled={actions.length >= 10}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Adicionar ação" />
+                <SelectValue placeholder={t("Adicionar ação")} />
               </SelectTrigger>
               <SelectContent>
-                {(Object.keys(ACTION_LABELS) as ActionType[]).map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {ACTION_LABELS[t]}
+                {(Object.keys(ACTION_LABELS) as ActionType[]).map((actionType) => (
+                  <SelectItem key={actionType} value={actionType}>
+                    {t(ACTION_LABELS[actionType])}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -407,16 +410,16 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
 
           {!isEdit ? (
             <p className="rounded-sm border border-border bg-muted p-3 text-sm text-muted-foreground">
-              A automação nasce pausada. Revise e ligue quando estiver pronta.
+              {t("A automação nasce pausada. Revise e ligue quando estiver pronta.")}
             </p>
           ) : null}
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancelar
+              {t("Cancelar")}
             </Button>
             <Button type="button" onClick={onSubmit} disabled={saving}>
-              {saving ? "Salvando…" : isEdit ? "Salvar alterações" : "Criar automação"}
+              {saving ? t("Salvando…") : isEdit ? t("Salvar alterações") : t("Criar automação")}
             </Button>
           </div>
         </div>

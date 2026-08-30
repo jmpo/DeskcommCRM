@@ -77,12 +77,27 @@ describe("os elos que somem sem barulho", () => {
     expect(readFileSync("lib/auth/server.ts", "utf8")).toMatch(
       /user\.user_metadata\?\.locale as string \| undefined/,
     );
+    // E a CADEIA: preferência da pessoa → idioma da ORGANIZAÇÃO → padrão.
+    //
+    // O elo do meio é o que costuma sumir: `organizations.locale` tinha
+    // seletor na tela, era gravado no banco e não era lido por NINGUÉM —
+    // medido por varredura, as únicas referências eram a escrita e a releitura
+    // para preencher o próprio formulário. Sem este caso, ele volta a ser
+    // decorativo no dia em que alguém "simplificar" o resolvedor.
+    const servidor = readFileSync("lib/auth/server.ts", "utf8");
+    expect(servidor, "a membership deixou de trazer o idioma da organização").toMatch(
+      /organizations\(display_name, locale\)/,
+    );
+    expect(servidor, "o idioma da sessão parou de cair na organização").toMatch(
+      /locale \?\? \(await localeDaOrgAtiva\(memberships\)\)/,
+    );
+    expect(readFileSync("lib/auth/types.ts", "utf8")).toMatch(/idioma: Idioma/);
     // E o provider de idioma é SEPARADO do de autenticação. A primeira versão
     // lia o idioma do `AuthProvider` e derrubou 32 casos: dezenas de testes
     // fazem `vi.mock` daquele módulo, e um RÓTULO passou a depender de quem
     // sabe permissão. Traduzir é apresentação.
     const layout = readFileSync("app/app/layout.tsx", "utf8");
-    expect(layout).toMatch(/<IdiomaProvider locale=\{user\.locale\}>/);
+    expect(layout).toMatch(/<IdiomaProvider locale=\{user\.idioma\}>/);
     // O IMPORT, não a palavra: o cabeçalho do arquivo EXPLICA por que não
     // depende da autenticação, e a primeira versão deste caso ficava vermelha
     // por causa do próprio comentário que documenta a decisão.

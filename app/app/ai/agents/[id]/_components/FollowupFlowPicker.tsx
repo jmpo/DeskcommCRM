@@ -10,6 +10,7 @@ import * as React from "react";
 import Link from "next/link";
 
 import { useFollowupFlows } from "@/hooks/followup/useFollowupFlows";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   value: string[];
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export function FollowupFlowPicker({ value, onChange, disabled }: Props) {
+  const t = useT();
   const query = useFollowupFlows();
 
   const publishedFlows = React.useMemo(
@@ -31,19 +33,19 @@ export function FollowupFlowPicker({ value, onChange, disabled }: Props) {
   }
 
   if (query.isLoading) {
-    return <p className="text-sm text-muted-foreground">Carregando fluxos publicados…</p>;
+    return <p className="text-sm text-muted-foreground">{t("Carregando fluxos publicados…")}</p>;
   }
   if (query.isError) {
-    return <p className="text-sm text-destructive">Erro ao carregar fluxos.</p>;
+    return <p className="text-sm text-destructive">{t("Erro ao carregar fluxos.")}</p>;
   }
   if (publishedFlows.length === 0) {
     return (
       <p className="text-xs text-muted-foreground">
-        Nenhum fluxo publicado ainda.{" "}
+        {t("Nenhum fluxo publicado ainda.")}{" "}
         <Link href="/app/ai/followups" className="underline underline-offset-2 hover:text-foreground">
-          Publique um fluxo de follow-up
+          {t("Publique um fluxo de follow-up")}
         </Link>{" "}
-        para vinculá-lo.
+        {t("para vinculá-lo.")}
       </p>
     );
   }
@@ -51,7 +53,7 @@ export function FollowupFlowPicker({ value, onChange, disabled }: Props) {
   return (
     <fieldset className="space-y-2 rounded-md border border-border/60 p-3">
       <legend className="px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Fluxos publicados
+        {t("Fluxos publicados")}
       </legend>
       {publishedFlows.map((f) => {
         const checked = value.includes(f.id);
@@ -73,7 +75,7 @@ export function FollowupFlowPicker({ value, onChange, disabled }: Props) {
         );
       })}
       {value.length > 20 ? (
-        <p className="text-xs text-destructive">Máximo de 20 fluxos por agent.</p>
+        <p className="text-xs text-destructive">{t("Máximo de 20 fluxos por agent.")}</p>
       ) : null}
     </fieldset>
   );

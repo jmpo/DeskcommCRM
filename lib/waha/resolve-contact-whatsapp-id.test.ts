@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { wahaContactPayload } from "@/lib/waha/contact-card";
 import {
+  resolveCanonicalCusChatId,
   resolveWhatsappIdForContactCard,
+  sendChatIdFromCheckResult,
   whatsappIdFromCheckResult,
 } from "@/lib/waha/resolve-contact-whatsapp-id";
 
@@ -24,6 +26,18 @@ describe("whatsappIdFromCheckResult", () => {
         chatId: "5531998966398@c.us",
       }),
     ).toBe("5531998966398");
+  });
+});
+
+describe("sendChatIdFromCheckResult", () => {
+  it("envia para o @lid que o WAHA devolveu, não para o telefone @c.us", () => {
+    expect(
+      sendChatIdFromCheckResult({
+        numberExists: true,
+        chatId: "23423462304912@lid",
+        pn: "5532984793302@c.us",
+      }),
+    ).toBe("23423462304912@lid");
   });
 });
 
@@ -58,6 +72,56 @@ describe("resolveWhatsappIdForContactCard", () => {
     );
 
     expect(id).toBeNull();
+  });
+});
+
+describe("resolveCanonicalCusChatId", () => {
+  it("não consulta lid nem grupo", async () => {
+    const client = { checkContactExists: vi.fn() };
+    await expect(
+      resolveCanonicalCusChatId(client as never, "s", "12345@lid"),
+    ).resolves.toBe("12345@lid");
+    await expect(
+      resolveCanonicalCusChatId(client as never, "s", "x@g.us"),
+    ).resolves.toBe("x@g.us");
+    expect(client.checkContactExists).not.toHaveBeenCalled();
+  });
+
+  it("troca o chatId quando o WhatsApp só conhece a variante sem o nono", async () => {
+    const client = {
+      checkContactExists: vi
+        .fn()
+        .mockResolvedValueOnce({ numberExists: false })
+        .mockResolvedValueOnce({ numberExists: true, pn: "553198966398@c.us" }),
+    };
+    await expect(
+      resolveCanonicalCusChatId(client as never, "s", "5531998966398@c.us"),
+    ).resolves.toBe("553198966398@c.us");
+  });
+
+  it("troca o chatId quando o WhatsApp só conhece a variante COM o nono", async () => {
+    const client = {
+      checkContactExists: vi
+        .fn()
+        .mockResolvedValueOnce({ numberExists: false })
+        .mockResolvedValueOnce({ numberExists: true, chatId: "5531998966398@c.us" }),
+    };
+    await expect(
+      resolveCanonicalCusChatId(client as never, "s", "553198966398@c.us"),
+    ).resolves.toBe("5531998966398@c.us");
+  });
+
+  it("lead novo: usa o @lid do check-exists (caso +5532984793302)", async () => {
+    const client = {
+      checkContactExists: vi.fn().mockResolvedValue({
+        numberExists: true,
+        chatId: "23423462304912@lid",
+        pn: "5532984793302@c.us",
+      }),
+    };
+    await expect(
+      resolveCanonicalCusChatId(client as never, "s", "5532984793302@c.us"),
+    ).resolves.toBe("23423462304912@lid");
   });
 });
 

@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 
 import { fail, ok } from "@/lib/api/wrappers";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
-import { CONVERSATION_TERMINAL_STATUSES } from "@/lib/schemas";
+import { CONVERSATION_QUEUE_STATUSES, CONVERSATION_TERMINAL_STATUSES } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +47,11 @@ export async function GET(): Promise<Response> {
   // espelhamento é o ponto: um badge que conta o que a aba não mostra é pior
   // que badge nenhum — manda o atendente procurar um trabalho que não existe.
   const [unassigned, mine, all] = await Promise.all([
-    countExact().is("assigned_to_user_id", null).eq("status", "open"),
+    // `in(FILA)` e não `eq('open')`: a conversa que o automático escalou é
+    // `pending`, e o badge que a ignorava mandava o atendente procurar um
+    // trabalho que a aba mostraria — ou, pior, não mostrava nem uma coisa nem
+    // outra. A constante é a mesma que a aba e o painel do gerente usam.
+    countExact().is("assigned_to_user_id", null).in("status", [...CONVERSATION_QUEUE_STATUSES]),
     countExact()
       .eq("assigned_to_user_id", user.id)
       .not("status", "in", `(${CONVERSATION_TERMINAL_STATUSES.join(",")})`),

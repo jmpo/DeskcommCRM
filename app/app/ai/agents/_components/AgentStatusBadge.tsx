@@ -1,31 +1,45 @@
 "use client";
 import { Badge } from "@/components/ui/badge";
+import { estadoDoAgente } from "@/lib/ai/agents/no-ar";
 import type { AgentRow } from "@/hooks/ai/useAgent";
 
 export type AgentStatus = "published" | "draft" | "paused" | "archived" | "invalid";
 
 /**
- * "Publicado" tem que significar "está no ar", e quem decide isso é o runtime:
- * tanto o dispatcher do CRM quanto o agent-engine só enxergam o agente pelo
- * `join ai_agent_versions on v.id = a.published_version_id`. Sem versão
- * publicada, o agente não responde a nada.
+ * "Publicado" tem que significar "está no ar", e quem decide isso é o runtime.
  *
- * Antes, para os agentes que não são `mcp_agent`, o badge saía apenas de
- * `is_active` — e o agente criado no onboarding (ativo, sem versão) aparecia
- * como "Publicado" enquanto era invisível para os dois runtimes. O dono do CRM
- * terminava a instalação achando que tinha um atendente de IA no ar.
+ * A régua mora em `lib/ai/agents/no-ar.ts` e é a MESMA que os workers e as
+ * rotas de picker importam. Ela morava aqui, e enquanto morou aqui foi copiada
+ * errado três vezes — a cópia do `ai-response-worker` (`.eq("is_active", true)`
+ * e nada mais) chegou a responder ao cliente por um agente que esta função
+ * rotulava "Rascunho".
+ *
+ * Duas coisas que este badge já afirmou e que foram MEDIDAS como falsas:
+ *
+ *   1. "o agente ativo sem versão é invisível para os dois runtimes" — ele é
+ *      visível para um terceiro, `workers/ai-response-worker.ts`, que responde
+ *      ao cliente por ele. Um `rag_bot` legado ativo e sem versão está NO AR, e
+ *      chamá-lo de "Rascunho" era a tela escondendo quem atende. O caso que
+ *      motivou aquele texto — o agente do onboarding — não regride: hoje
+ *      `createDefaultAgent.ts` grava `kind: "mcp_agent"`, e `mcp_agent` sem
+ *      ponteiro continua "Rascunho", porque a config dele vive na versão.
+ *   2. "com versão publicada e inativo é Pausado" — nem o agent-engine
+ *      (`loadPublishedAgentConfig`) nem o dispatcher leem `is_active`. Com
+ *      versão publicada o agente responde, e o rótulo honesto é "Publicado".
+ *
+ * `paused` continua no vocabulário do componente porque `AgentRowMenu` e os
+ * filtros da lista o consomem; ele deixou de ter emissor aqui.
  */
 export function deriveAgentStatus(agent: AgentRow): AgentStatus {
-  if (agent.archived_at) return "archived";
-  if (!agent.published_version_id) return "draft";
-  // `is_active` só tem semântica no rag_bot legado. Para mcp_agent, "no ar" é
-  // published_version_id + não arquivado — é assim que o dispatcher do CRM e o
-  // agent-engine escolhem o agente, e nenhum dos dois lê a coluna. Consultá-la
-  // aqui marcava como "Pausado" um agente que está respondendo, sem saída pela
-  // UI: "Despausar" fica disabled para mcp_agent, unpauseAgentAction recusa com
-  // publish_required, e republicar não mexe em is_active.
-  if (agent.kind === "mcp_agent") return "published";
-  return agent.is_active ? "published" : "paused";
+  switch (estadoDoAgente(agent)) {
+    case "arquivado":
+      return "archived";
+    case "no_ar":
+    case "no_ar_legado":
+      return "published";
+    case "parado":
+      return "draft";
+  }
 }
 
 const LABEL: Record<AgentStatus, string> = {

@@ -40,6 +40,22 @@ SEGREDO_SEGURO="$(printf '%s' "$INTERNAL_SECRET" | sed "s/'/'\\\\''/g")"
 # tests/unit/cron-routes-scheduled.test.ts (e mais dois) leem por grep — esse
 # teste compara a lista com o diretório app/api/v1/cron, e rota criada sem
 # agendamento reprova o CI.
+# A agenda do Google entra com DUAS cadências, e elas são diferentes de propósito.
+#
+# RENOVAÇÃO a cada 10 min: o access_token do Google expira em cerca de 1h, e a
+# rodada só renova quem está a menos de 15 min do vencimento. Dez minutos deixa
+# pelo menos uma tentativa de folga dentro da janela — a 15 min, um tick atrasado
+# já deixaria o token vencer. É barata: só toca conexão perto de expirar, e
+# rodada vazia não audita.
+#
+# SYNC a cada 15 min, e NÃO na mesma cadência. Os custos são diferentes: renovar
+# é uma requisição por conexão que está vencendo; sincronizar é uma por
+# calendário, sempre. Colar as duas obrigaria a escolher entre renovar raro
+# demais (e a agenda morre) ou sincronizar caro demais (e gasta cota do cliente).
+#
+# ⚠️ E o comentário fica AQUI, fora da string: dentro de CRONS= ele não seria
+# comentário, seria DADO — e crase em prosa dentro de aspas duplas o shell
+# EXECUTA. Foi o que quebrou o entrypoint na primeira tentativa desta linha.
 CRONS="
 * * * * *|25|api/v1/cron/agent-dispatcher
 * * * * *|25|api/v1/cron/followup-flow-worker
@@ -52,6 +68,13 @@ CRONS="
 */5 * * * *|60|api/v1/cron/webhook-log-retention
 */5 * * * *|45|api/v1/cron/channel-health
 */10 * * * *|60|api/v1/cron/contact-avatars
+*/10 * * * *|60|api/v1/cron/agenda-google-refresh
+*/15 * * * *|90|api/v1/cron/agenda-google-sync
+# A IDA. Cadência mais curta que a volta de propósito: quem marcou pela tela
+# espera ver o compromisso no celular dele em minutos, e a ida é barata (só
+# manda o que mudou). A volta é cara — varre calendário inteiro — e por isso
+# roda a cada 15.
+*/5 * * * *|60|api/v1/cron/agenda-google-push
 */15 * * * *|60|api/v1/cron/risk-watcher
 */30 * * * *|60|api/v1/cron/contact-phones
 17 * * * *|60|api/v1/cron/contact-proposals-watcher

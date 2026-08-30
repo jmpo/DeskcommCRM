@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it } from "vitest";
  * filtrar por organização parece certo até haver dois números ligados.
  */
 import {
+  DETALHE_CREDENCIAL_RECUSADA,
   STATUS_QUE_AVISAM,
   avisoDaConexao,
   sincronizarSaudeDaConexao,
@@ -72,6 +73,31 @@ describe("quando avisar", () => {
     expect(a?.title).not.toMatch(/QR/);
     expect(a?.body).toBe("ECONNREFUSED");
     expect(a?.episodio).toBe("UNREACHABLE");
+  });
+
+  it("credencial RECUSADA é crítica, e diz que o QR não resolve", () => {
+    // O irmão do caso acima, e o que ele custou: os dois entram por
+    // `reachable: false`, mas pedem ações opostas. Numa VPS real a chave do
+    // WAHA foi trocada por uma segunda cópia do repo; tudo parou; e por TRÊS
+    // DIAS a Central mostrou só o `warn` de "não foi possível verificar" — a
+    // frase de uma oscilação passageira. Quem lê "conexão caída" corre atrás do
+    // QR, e o QR não conserta chave errada.
+    const a = avisoDaConexao(
+      { reachable: false, status: null, detail: DETALHE_CREDENCIAL_RECUSADA },
+      "Vendas",
+    );
+    expect(a?.severity).toBe("critical");
+    expect(a?.episodio).toBe("CREDENCIAL_RECUSADA");
+    expect(a?.title).toContain("Vendas");
+    expect(a?.body).toMatch(/QR não resolve/i);
+    // Episódio PRÓPRIO: se dividisse "UNREACHABLE" com o caso acima, a troca de
+    // um pelo outro não abriria aviso nenhum — o dedup por episódio veria o
+    // mesmo valor e ficaria calado justamente na piora.
+    const oscilacao = avisoDaConexao(
+      { reachable: false, status: null, detail: "ECONNREFUSED" },
+      "Vendas",
+    );
+    expect(a?.episodio).not.toBe(oscilacao?.episodio);
   });
 
   it("estado desconhecido não vira aviso — o vocabulário é do transporte", () => {

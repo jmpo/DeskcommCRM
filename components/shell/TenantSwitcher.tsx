@@ -21,7 +21,7 @@ export function TenantSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" disabled={isPending} className="gap-2">
+        <Button variant="ghost" size="sm" disabled={isPending} className="gap-2" data-testid="tenant-switcher">
           <Storefront size={16} weight="duotone" aria-hidden />
           <span className="max-w-[160px] truncate">{active?.name ?? "Selecionar org"}</span>
           <CaretDown size={12} aria-hidden />
@@ -31,6 +31,7 @@ export function TenantSwitcher() {
         {user.organizations.map((org) => (
           <DropdownMenuItem
             key={org.organization_id}
+            data-testid={`tenant-switcher-item-${org.organization_id}`}
             onClick={() => startTransition(async () => { await setActiveOrg(org.organization_id); })}
             className="flex items-center justify-between"
           >

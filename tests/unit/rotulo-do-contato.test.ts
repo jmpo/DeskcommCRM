@@ -65,6 +65,12 @@ describe("rotuloDoContato", () => {
     );
   });
 
+  it("celular BR sem o nono aparece COM o 9", () => {
+    expect(rotuloDoContato({ display_name: null, name: null, phone_number: "+553284793302" })).toBe(
+      "+5532984793302",
+    );
+  });
+
   it("sem nada apresentável, UM literal — não quatro", () => {
     expect(rotuloDoContato({ display_name: null, name: null, phone_number: null })).toBe(SEM_NOME);
     expect(rotuloDoContato({ display_name: "   ", name: "", phone_number: "" })).toBe(SEM_NOME);

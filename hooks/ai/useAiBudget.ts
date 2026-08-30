@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
+import { useT } from "@/hooks/i18n/useT";
 import type { BudgetStatus } from "@/lib/ai/budget/check";
 
 export type { BudgetStatus };
@@ -45,6 +46,7 @@ export function useAiBudget(opts?: { initialData?: BudgetStatus }) {
 
 export function useUpdateBudget() {
   const qc = useQueryClient();
+  const t = useT();
   return useMutation({
     mutationKey: ["ai", "budget", "update"],
     mutationFn: async (patch: BudgetPatch) => {
@@ -82,7 +84,7 @@ export function useUpdateBudget() {
     },
     onSuccess: (data) => {
       qc.setQueryData(aiBudgetQueryKey, data);
-      toast.success("Orçamento atualizado");
+      toast.success(t("Orçamento atualizado"));
     },
   });
 }

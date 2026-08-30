@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-import { extractChangelogSection, markdownParaTextoSimples } from "./changelog";
+import { extractChangelogRange, extractChangelogSection, markdownParaTextoSimples } from "./changelog";
 
 const CHANGELOG = `# Changelog
 
@@ -191,5 +191,87 @@ describe("markdownParaTextoSimples", () => {
     expect(markdownParaTextoSimples("isso é _importante_ para todos")).toBe(
       "isso é importante para todos",
     );
+  });
+});
+
+describe("extractChangelogRange — todas as seções entre a instalada e a alvo", () => {
+  const TRES = [
+    "# Changelog",
+    "",
+    "## [Não lançado]",
+    "",
+    "## [1.2.0] — 2026-08-03",
+    "",
+    "### Adicionado",
+    "",
+    "- coisa nova",
+    "",
+    "## [1.1.0] — 2026-08-02",
+    "",
+    "### ⚠️ Requer atenção",
+    "",
+    "- reconecte o número depois de atualizar",
+    "",
+    "### Corrigido",
+    "",
+    "- conserto do meio",
+    "",
+    "## [1.0.0] — 2026-08-01",
+    "",
+    "- primeira",
+    "",
+  ].join("\n");
+
+  it("devolve da mais nova para a mais antiga, sem incluir a instalada", () => {
+    const f = extractChangelogRange(TRES, "1.2.0", "1.0.0");
+    expect(f.secoes.map((s) => s.version)).toEqual(["1.2.0", "1.1.0"]);
+    expect(f.completa).toBe(true);
+  });
+
+  it("o aviso da versão do MEIO sobrevive — é o defeito que esta função existe para corrigir", () => {
+    // Quem pulava versões via só a seção-alvo, e o aviso de ação manual da
+    // versão intermediária desaparecia (commit ac9472c5).
+    const f = extractChangelogRange(TRES, "1.2.0", "1.0.0");
+    const comAviso = f.secoes.filter((s) => s.requiresAttention);
+    expect(comAviso.map((s) => s.version)).toEqual(["1.1.0"]);
+    expect(comAviso[0]?.requiresAttention).toContain("reconecte o número");
+  });
+
+  it("não afirma completude quando a instalada é um SHA (instalação fora de release)", () => {
+    const f = extractChangelogRange(TRES, "1.2.0", "abc1234");
+    expect(f.completa).toBe(false);
+    expect(f.secoes.length).toBeGreaterThan(0);
+  });
+
+  it("não afirma completude quando o texto chegou cortado antes da instalada", () => {
+    const cortado = TRES.slice(0, TRES.indexOf("## [1.0.0]"));
+    expect(extractChangelogRange(cortado, "1.2.0", "1.0.0").completa).toBe(false);
+  });
+
+  it("em dia: nada entre as duas, e isso NÃO é incompletude", () => {
+    expect(extractChangelogRange(TRES, "1.2.0", "1.2.0")).toEqual({ secoes: [], completa: true });
+  });
+
+  it("instalada mais nova que a alvo devolve a seção-alvo, nunca uma lista vazia dizendo-se completa", () => {
+    // Um `slice(iAlvo, iInst)` ingênuo devolveria [] com completa=true aqui: a
+    // tela ficaria sem corpo nenhum afirmando estar inteira.
+    const f = extractChangelogRange(TRES, "1.0.0", "1.2.0");
+    expect(f.secoes.map((s) => s.version)).toEqual(["1.0.0"]);
+    expect(f.secoes[0]?.body).toContain("primeira");
+  });
+
+  it("alvo que não existe no texto devolve vazio e incompleto", () => {
+    expect(extractChangelogRange(TRES, "9.9.9", "1.0.0")).toEqual({ secoes: [], completa: false });
+  });
+
+  it("faixa de uma versão só é igual à seção única — as duas leituras não podem divergir", () => {
+    const pelaFaixa = extractChangelogRange(TRES, "1.2.0", "1.1.0").secoes[0];
+    const pelaSecao = extractChangelogSection(TRES, "1.2.0");
+    expect(pelaFaixa).toEqual(pelaSecao);
+  });
+
+  it("`[Não lançado]` nunca entra na faixa", () => {
+    const f = extractChangelogRange(TRES, "1.2.0", "1.0.0");
+    expect(f.secoes.map((s) => s.version)).not.toContain("Não lançado");
   });
 });

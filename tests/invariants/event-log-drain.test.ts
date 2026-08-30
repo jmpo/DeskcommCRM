@@ -30,7 +30,7 @@ function sqlLiteral(v: unknown): string {
   return sqlString(String(v));
 }
 
-type FilterOp = "eq" | "lte" | "in" | "or";
+type FilterOp = "eq" | "lte" | "lt" | "in" | "or";
 interface Filter {
   op: FilterOp;
   col?: string;
@@ -77,6 +77,18 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: { message: string
     return this;
   }
 
+  /**
+   * `lt` entrou quando o dreno passou a devolver evento preso em `processing`
+   * (`.lt("updated_at", agora - 10min)`). Sem este método o dublê estoura com
+   * "lt is not a function" e `drainEventLog` aborta ANTES de fazer qualquer
+   * coisa — os casos abaixo reprovam todos, acusando a lógica do dreno por um
+   * buraco do instrumento. Foi exatamente assim que a regressão apareceu.
+   */
+  lt(col: string, val: unknown): this {
+    this.filters.push({ op: "lt", col, val });
+    return this;
+  }
+
   in(col: string, val: unknown[]): this {
     this.filters.push({ op: "in", col, val });
     return this;
@@ -103,6 +115,7 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: { message: string
     const clauses = this.filters.map((f) => {
       if (f.op === "eq") return `${f.col} = ${sqlLiteral(f.val)}`;
       if (f.op === "lte") return `${f.col} <= ${sqlLiteral(f.val)}`;
+      if (f.op === "lt") return `${f.col} < ${sqlLiteral(f.val)}`;
       if (f.op === "in") return `${f.col} in (${(f.val as unknown[]).map(sqlLiteral).join(",")})`;
       if (f.op === "or") {
         // Parses PostgREST-style "col.is.null,col.lte.<iso>" (the only shape drain.ts emits).
@@ -350,5 +363,54 @@ describe("drainEventLog — cron driver genérico do event_log (migration 0037)"
     expect(row.attempts).toBe(0);
     expect(row.next_attempt_at).not.toBeNull();
     expect(new Date(row.next_attempt_at!).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  /**
+   * A linha é marcada `processing` ANTES de o handler rodar, e nada no produto
+   * a devolvia: handler que não retorna — processo derrubado, OOM, ida a
+   * serviço externo sem timeout — deixava o evento preso para SEMPRE.
+   * `job_queue` tem reaper desde sempre; o `event_log` não tinha. Medido em
+   * 2026-08-26 com o Redis do debounce inalcançável: `status=processing`,
+   * `attempts=0`, `consumed_by` vazio, material do tenant nunca preparado.
+   */
+  it("caso 9 — evento preso em `processing` há mais de 10 min volta para `pending`", async () => {
+    const preso = emitDrainCase("ok");
+    // O TRIGGER `trg_event_log_touch` (BEFORE UPDATE) reescreve `updated_at =
+    // now()` em TODA atualização — é exatamente ele que torna a janela do
+    // reaper confiável em produção (a linha carrega o instante do claim), e é
+    // ele que impede envelhecer a linha aqui pelo caminho normal. Sem
+    // desligá-lo, o UPDATE abaixo grava `now()` e o reaper não acha órfão
+    // nenhum: o teste reprovaria o produto por causa do instrumento.
+    sql(`
+      alter table public.event_log disable trigger trg_event_log_touch;
+      update public.event_log
+         set status = 'processing', updated_at = now() - interval '30 minutes'
+       where id = '${preso}';
+      alter table public.event_log enable trigger trg_event_log_touch;
+    `);
+
+    await drainEventLog(fakeAdminClient(), { limit: 50 });
+
+    const row = rowState(preso);
+    // Voltou para a fila E foi processado no MESMO tique: reclamar depois da
+    // seleção faria o evento esperar o próximo, e a espera é o defeito.
+    expect(row.status, "o órfão não voltou para a fila").toBe("done");
+  });
+
+  it("caso 10 — CONTROLE: `processing` RECENTE não é reclamado", async () => {
+    // Sem esta metade, o caso 9 passaria com o dreno reclamando TUDO que está
+    // em `processing` — inclusive o evento que outro worker está processando
+    // agora, produzindo efeito em dobro no lugar de evento parado.
+    const emCurso = emitDrainCase("ok");
+    // Aqui o trigger pode agir à vontade: o que se quer É o instante de agora.
+    sql(`
+      update public.event_log
+         set status = 'processing'
+       where id = '${emCurso}';
+    `);
+
+    await drainEventLog(fakeAdminClient(), { limit: 50 });
+
+    expect(rowState(emCurso).status, "reclamou um evento que estava em curso").toBe("processing");
   });
 });

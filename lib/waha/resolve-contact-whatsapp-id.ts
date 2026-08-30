@@ -27,12 +27,26 @@ export function whatsappIdFromCheckResult(r: WahaCheckExistsResult): string | nu
   return digits.length >= 8 && digits.length <= 15 ? digits : null;
 }
 
-/** Consulta WAHA; null = não achou ou falhou (caller usa fallback). */
-export async function resolveWhatsappIdForContactCard(
+/**
+ * Endereço de ENVIO que o WAHA devolveu. A doc manda usar `chatId` cru:
+ * hoje costuma ser `@lid`, e mandar `pn@c.us` no lugar não entrega — o caso
+ * de lead novo só com telefone, inclusive o nono dígito BR.
+ */
+export function sendChatIdFromCheckResult(r: WahaCheckExistsResult): string | null {
+  if (!r.numberExists) return null;
+  const jid = r.chatId?.trim() ?? "";
+  if (jid.endsWith("@lid") || jid.endsWith("@c.us") || jid.endsWith("@s.whatsapp.net")) {
+    return jid;
+  }
+  const id = whatsappIdFromCheckResult(r);
+  return id ? `${id}@c.us` : null;
+}
+
+async function firstExistingOnWhatsapp(
   client: WahaClient,
   session: string,
   phone: string,
-): Promise<string | null> {
+): Promise<WahaCheckExistsResult | null> {
   const tried = new Set<string>();
   for (const variant of phoneLookupVariants(phone)) {
     const digits = variant.replace(/\D/g, "");
@@ -40,13 +54,44 @@ export async function resolveWhatsappIdForContactCard(
     tried.add(digits);
     try {
       const r = await client.checkContactExists(session, digits);
-      if (r.numberExists) {
-        const id = whatsappIdFromCheckResult(r);
-        if (id) return id;
+      if (r.numberExists && (sendChatIdFromCheckResult(r) || whatsappIdFromCheckResult(r))) {
+        return r;
       }
     } catch {
       // ponytail: falha na consulta não bloqueia envio — adapter cai no wa_id bruto
     }
   }
   return null;
+}
+
+/** Consulta WAHA; null = não achou ou falhou (caller usa fallback). */
+export async function resolveWhatsappIdForContactCard(
+  client: WahaClient,
+  session: string,
+  phone: string,
+): Promise<string | null> {
+  const r = await firstExistingOnWhatsapp(client, session, phone);
+  return r ? whatsappIdFromCheckResult(r) : null;
+}
+
+/**
+ * Destino de envio alinhado ao que o WhatsApp realmente endereça.
+ *
+ * Lead cadastrado só com telefone sai como `…@c.us`. O check-exists do WAHA
+ * devolve o JID certo (nono dígito e, quando o número está em modo privacidade,
+ * `@lid`). Grupo/`@lid` já resolvidos passam intactos.
+ */
+export async function resolveCanonicalCusChatId(
+  client: WahaClient,
+  session: string,
+  chatId: string,
+): Promise<string> {
+  if (!chatId.endsWith("@c.us")) return chatId;
+  const digits = chatId.slice(0, -"@c.us".length).replace(/\D/g, "");
+  const variants = phoneLookupVariants(digits).length;
+  if (variants < 2) {
+    return chatId;
+  }
+  const r = await firstExistingOnWhatsapp(client, session, digits);
+  return (r && sendChatIdFromCheckResult(r)) || chatId;
 }

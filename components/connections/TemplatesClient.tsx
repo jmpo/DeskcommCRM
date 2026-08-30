@@ -9,6 +9,7 @@ import {
   useTemplates,
   type TemplatePreview,
 } from "@/hooks/channels/useTemplates";
+import { useT } from "@/hooks/i18n/useT";
 
 /** Só APPROVED pode ser disparado — o resto é informação, não opção. */
 function statusTone(status: string): "default" | "secondary" | "destructive" | "outline" {
@@ -28,11 +29,12 @@ function statusTone(status: string): "default" | "secondary" | "destructive" | "
  * vizinho cru, o que é tecnicamente correto e ilegível.
  */
 function Preview({ preview }: { preview: TemplatePreview }) {
+  const t = useT();
   const partes = preview.text.split(/(\{\{\w+\}\})/g);
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-xs uppercase tracking-wide text-muted-foreground">
-        {preview.onde}
+        {t(preview.onde)}
       </span>
       <p className="whitespace-pre-wrap text-sm leading-relaxed">
         {partes.map((parte, i) =>
@@ -55,6 +57,7 @@ function Preview({ preview }: { preview: TemplatePreview }) {
 }
 
 export function TemplatesClient() {
+  const t = useT();
   const { data, isPending } = useTemplates();
   const sync = useSyncTemplates();
 
@@ -65,12 +68,12 @@ export function TemplatesClient() {
     const res = await sync.mutateAsync();
     const { inserted, updated, disabled } = res.data;
     toast.success(
-      `Sincronizado: ${inserted} novo(s), ${updated} atualizado(s), ${disabled} desativado(s).`,
+      `${t("Sincronizado:")} ${inserted} ${t("novo(s),")} ${updated} ${t("atualizado(s),")} ${disabled} ${t("desativado(s).")}`,
     );
   }
 
   if (isPending || templates === null) {
-    return <p className="text-sm text-muted-foreground">Carregando…</p>;
+    return <p className="text-sm text-muted-foreground">{t("Carregando…")}</p>;
   }
 
   // Estado vazio que ENSINA — distinguir "canal não conectado" de "conectado sem
@@ -78,11 +81,10 @@ export function TemplatesClient() {
   if (!waba) {
     return (
       <Card className="p-6">
-        <h2 className="font-medium">Canal oficial não conectado</h2>
+        <h2 className="font-medium">{t("Canal oficial não conectado")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Os templates vivem na sua conta do WhatsApp Business (Meta) — esta tela é um espelho
-          deles. Conecte o canal oficial em <strong>Conexões WhatsApp</strong> para começar a
-          sincronizar.
+          {t("Os templates vivem na sua conta do WhatsApp Business (Meta) — esta tela é um espelho deles. Conecte o canal oficial em")}{" "}
+          <strong>{t("Conexões WhatsApp")}</strong> {t("para começar a sincronizar.")}
         </p>
       </Card>
     );
@@ -92,65 +94,67 @@ export function TemplatesClient() {
     <div className="flex flex-col gap-4" data-testid="templates-root">
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          Espelho da conta <span className="font-mono text-xs">{waba}</span> ·{" "}
-          {templates.length} template(s)
+          {t("Espelho da conta")} <span className="font-mono text-xs">{waba}</span> ·{" "}
+          {templates.length} {t("template(s)")}
         </p>
         <Button onClick={sincronizar} disabled={sync.isPending} data-testid="btn-sync">
-          {sync.isPending ? "Sincronizando…" : "Sincronizar com a Meta"}
+          {sync.isPending ? t("Sincronizando…") : t("Sincronizar com a Meta")}
         </Button>
       </div>
 
       {templates.length === 0 ? (
         <Card className="p-6">
-          <h2 className="font-medium">Nenhum template ainda</h2>
+          <h2 className="font-medium">{t("Nenhum template ainda")}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Crie templates no Gerenciador do WhatsApp e clique em{" "}
-            <strong>Sincronizar com a Meta</strong>. Só templates aprovados podem ser enviados
-            fora da janela de 24 horas.
+            {t("Crie templates no Gerenciador do WhatsApp e clique em")}{" "}
+            <strong>{t("Sincronizar com a Meta")}</strong>.{" "}
+            {t("Só templates aprovados podem ser enviados fora da janela de 24 horas.")}
           </p>
         </Card>
       ) : (
         <div className="flex flex-col gap-3">
-          {templates.map((t) => (
-            <Card key={`${t.name}:${t.language}`} className="p-4" data-testid="template-card">
+          {templates.map((tpl) => (
+            <Card key={`${tpl.name}:${tpl.language}`} className="p-4" data-testid="template-card">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{t.name}</span>
+                <span className="font-medium">{tpl.name}</span>
                 <Badge variant="outline" className="font-mono text-xs">
-                  {t.language}
+                  {tpl.language}
                 </Badge>
-                <Badge variant={statusTone(t.status)}>{t.status}</Badge>
-                {t.category ? (
+                <Badge variant={statusTone(tpl.status)}>{tpl.status}</Badge>
+                {tpl.category ? (
                   <Badge variant="outline" className="text-xs">
-                    {t.category}
+                    {tpl.category}
                   </Badge>
                 ) : null}
                 <span className="ml-auto text-xs text-muted-foreground">
-                  {t.slots.length === 0
-                    ? "sem parâmetros"
-                    : `${t.slots.length} parâmetro(s)`}
+                  {tpl.slots.length === 0
+                    ? t("sem parâmetros")
+                    : `${tpl.slots.length} ${t("parâmetro(s)")}`}
                 </span>
               </div>
 
-              {t.rejectedReason ? (
-                <p className="mt-2 text-sm text-destructive">Recusado: {t.rejectedReason}</p>
+              {tpl.rejectedReason ? (
+                <p className="mt-2 text-sm text-destructive">
+                  {t("Recusado:")} {tpl.rejectedReason}
+                </p>
               ) : null}
 
-              {t.previews.length > 0 || t.slots.length > 0 ? (
+              {tpl.previews.length > 0 || tpl.slots.length > 0 ? (
                 <div className="mt-3 flex flex-col gap-3 border-l-2 border-muted pl-3">
-                  {t.previews.map((p, i) => (
+                  {tpl.previews.map((p, i) => (
                     <Preview key={`${p.onde}:${i}`} preview={p} />
                   ))}
                   {/* Slots SEM texto ao redor: header de mídia. É justamente o
                       parâmetro que contar `{{n}}` não enxerga. */}
-                  {t.slots
+                  {tpl.slots
                     .filter((s) => s.expects !== "text")
                     .map((s, i) => (
                       <div key={`m:${s.onde}:${i}`} className="flex flex-col gap-0.5">
                         <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                          {s.onde} · {s.expects}
+                          {t(s.onde)} · {s.expects}
                         </span>
                         <span className="text-sm text-muted-foreground">
-                          arquivo de {s.expects} enviado no disparo
+                          {t("arquivo de")} {s.expects} {t("enviado no disparo")}
                         </span>
                       </div>
                     ))}

@@ -1,4 +1,6 @@
 import type { RetratoDaInstalacao } from "@/lib/instalacao/retrato";
+import type { Idioma } from "@/lib/i18n/idiomas";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 /**
  * A primeira coisa que a pessoa lê no wizard: o que ela JÁ tem.
@@ -14,11 +16,18 @@ import type { RetratoDaInstalacao } from "@/lib/instalacao/retrato";
  * verificar se existe chave — a frase que tranquiliza enquanto o funcionário
  * está mudo.
  */
-export function JaEstaPronto({ retrato }: { retrato: RetratoDaInstalacao }) {
+export function JaEstaPronto({
+  retrato,
+  idioma,
+}: {
+  retrato: RetratoDaInstalacao;
+  idioma: Idioma;
+}) {
+  const t = (texto: string) => traduzir(texto, idioma);
   const itens: { pronto: boolean; texto: string }[] = [
     {
       pronto: true,
-      texto: "Servidor no ar e banco de dados instalado",
+      texto: t("Servidor no ar e banco de dados instalado"),
     },
     {
       // Três estados, não dois: cadastrada-e-confirmada, cadastrada-e-sendo-
@@ -28,22 +37,22 @@ export function JaEstaPronto({ retrato }: { retrato: RetratoDaInstalacao }) {
       pronto: retrato.inteligencia.origemDaChave !== "nenhuma",
       texto:
         retrato.inteligencia.origemDaChave !== "nenhuma"
-          ? `Inteligência contratada: ${retrato.inteligencia.rotulo}`
+          ? `${t("Inteligência contratada:")} ${retrato.inteligencia.rotulo}`
           : retrato.inteligencia.chaveEmVerificacao
-            ? "Chave cadastrada — conferindo com a empresa de IA"
-            : "Falta a chave da inteligência artificial",
+            ? t("Chave cadastrada — conferindo com a empresa de IA")
+            : t("Falta a chave da inteligência artificial"),
     },
     {
       pronto: retrato.whatsapp.transporteApontado,
       texto: retrato.whatsapp.transporteApontado
-        ? "WhatsApp pronto para conectar seu número"
-        : "O WhatsApp desta instalação ainda não subiu",
+        ? t("WhatsApp pronto para conectar seu número")
+        : t("O WhatsApp desta instalação ainda não subiu"),
     },
     {
       pronto: Boolean(retrato.funil),
       texto: retrato.funil
-        ? `Funil de vendas criado: ${retrato.funil.nome}`
-        : "Nenhum funil de vendas ainda",
+        ? `${t("Funil de vendas criado:")} ${retrato.funil.nome}`
+        : t("Nenhum funil de vendas ainda"),
     },
   ];
 
@@ -55,7 +64,7 @@ export function JaEstaPronto({ retrato }: { retrato: RetratoDaInstalacao }) {
       className="rounded-lg border bg-background p-5"
     >
       <h3 id="ja-pronto" className="text-sm font-medium">
-        Você já instalou o sistema. Isto aqui já está de pé:
+        {t("Você já instalou o sistema. Isto aqui já está de pé:")}
       </h3>
       <ul className="mt-3 space-y-1.5 text-sm">
         {itens.map((it) => (
@@ -73,8 +82,8 @@ export function JaEstaPronto({ retrato }: { retrato: RetratoDaInstalacao }) {
       </ul>
       <p className="mt-3 text-xs text-muted-foreground">
         {faltando === 0
-          ? "Agora é montar quem vai atender por você."
-          : "O que falta a gente resolve nos próximos passos."}
+          ? t("Agora é montar quem vai atender por você.")
+          : t("O que falta a gente resolve nos próximos passos.")}
       </p>
     </section>
   );

@@ -136,6 +136,13 @@ function makeAdminStub(confidenceThreshold: number) {
                 active_kb_version_id: "99999999-9999-4999-8999-999999999999",
                 is_active: true,
                 is_default: true,
+                // O banco tem `kind` NOT NULL DEFAULT 'rag_bot' e os dois ponteiros:
+                // sem eles o dublê descreveria uma linha que não existe, e a régua
+                // de `lib/ai/agents/no-ar.ts` — que falha FECHADA quando o select
+                // não trouxe `kind` — recusaria o agente pelo motivo errado.
+                kind: "rag_bot",
+                published_version_id: null,
+                archived_at: null,
               }
             : null; // ai_budgets sem linha = sem throttle; crm_leads sem lead
 
@@ -192,7 +199,12 @@ function makeAdminStub(confidenceThreshold: number) {
                     created_at: new Date().toISOString(),
                   },
                 ]
-              : [],
+              // A seleção de agente do worker legado é uma LISTA (ele filtra os
+              // candidatos pela régua de `lib/ai/agents/no-ar.ts` em vez de cortar
+              // com `.limit(1)` antes de saber quem serve). O dublê acompanha.
+              : table === "ai_agents"
+                ? (single ? [single] : [])
+                : [],
           error: null,
         }).then(resolve),
     };
@@ -234,7 +246,16 @@ function prepararWorker(confidenceThreshold: number): LinhaInserida[] {
 
 function mensagemOutbound(inserted: LinhaInserida[]): Record<string, unknown> {
   const linhas = inserted.filter(
-    (i) => i.table === "messages" && i.row["direction"] === "outbound",
+    (i) =>
+      i.table === "messages" &&
+      i.row["direction"] === "outbound" &&
+      // O AVISO DE ESCALAÇÃO não é rascunho do bot: é texto de sistema que
+      // `triggerHandoff` manda ao lead ao tirar a IA de campo, e ele nasce
+      // marcado (`metadata.aviso_de_escalacao`). Sem este corte, o caso de
+      // handoff G3 passa a ver DUAS linhas outbound e a guarda anti-vacuidade
+      // abaixo reprova por um motivo que não é o deste arquivo — que é o
+      // `sent_via` do RASCUNHO caber na constraint do banco.
+      (i.row["metadata"] as Record<string, unknown> | null)?.["aviso_de_escalacao"] !== true,
   );
   // Anti-vacuidade: se o pipeline desviou antes do insert, não há o que
   // asseverar e o teste passaria à toa.

@@ -33,8 +33,15 @@ const buscarInputShape = {
   assistente_id: z.string().uuid().optional(),
 };
 
-/** Limiar de similaridade do repo (mesmo default da RPC `retrieve_top_k_chunks`). */
-const LIMIAR_PADRAO = 0.72;
+/**
+ * Limiar de similaridade — o MESMO default do banco desde a migration 0097.
+ *
+ * Era 0.72 aqui, e o produto tinha TRÊS limiares para o mesmo acervo: 0.40 na
+ * RPC, 0.72 no turno do agente e 0.72 nesta capacidade. Duas pessoas
+ * perguntando a mesma coisa pelo mesmo material recebiam respostas diferentes
+ * conforme a porta por onde entraram.
+ */
+const LIMIAR_PADRAO = 0.4;
 
 export const crmSearchKnowledge: McpToolDefinition<typeof buscarInputShape> = {
   name: "crm_search_knowledge",
@@ -58,8 +65,8 @@ export const crmSearchKnowledge: McpToolDefinition<typeof buscarInputShape> = {
       };
     }
 
-    const kbVersionId = await resolverAcervoDoAgente(ctx.supabase, ctx.organizationId, agentId);
-    if (!kbVersionId) {
+    const fontes = await resolverAcervoDoAgente(ctx.supabase, ctx.organizationId, agentId);
+    if (fontes.length === 0) {
       // Nao e erro: e um estado legitimo e acionavel — o assistente ainda nao
       // tem material publicado. Devolver como falha faria o modelo tratar como
       // bug e tentar de novo em vez de dizer que nao sabe.
@@ -72,7 +79,7 @@ export const crmSearchKnowledge: McpToolDefinition<typeof buscarInputShape> = {
 
     const resultado = await buscarConhecimento(ctx.supabase, {
       organizationId: ctx.organizationId,
-      kbVersionId,
+      knowledgeSourceIds: fontes,
       pergunta: input.pergunta,
       topK: input.quantidade,
       limiar: LIMIAR_PADRAO,

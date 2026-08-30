@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { phoneLookupVariants, samePhone } from "@/lib/channels/phone-variants";
+import { canonicalPhoneBR, phoneForDisplay, phoneLookupVariants, samePhone } from "@/lib/channels/phone-variants";
 
 /** Payloads REAIS capturados da WABA de teste em 2026-07-29. */
 const INBOUND = JSON.parse(
@@ -85,6 +85,35 @@ describe("phoneLookupVariants", () => {
   it("13 dígitos que NÃO começam em 9 no local ficam sozinhos", () => {
     // Não é o padrão de celular brasileiro; remover o primeiro dígito seria chute.
     expect(phoneLookupVariants("5531812345678")).toEqual(["+5531812345678"]);
+  });
+});
+
+describe("canonicalPhoneBR — o CRM guarda e mostra COM o nono", () => {
+  it("o caso que o operador lê como dois números é um só, com o 9", () => {
+    expect(canonicalPhoneBR("+553284793302")).toBe("+5532984793302");
+    expect(canonicalPhoneBR("+5532984793302")).toBe("+5532984793302");
+    expect(samePhone("+553284793302", "+5532984793302")).toBe(true);
+  });
+
+  it("celular de 12 dígitos ganha o nono; o de 13 já está canônico", () => {
+    expect(canonicalPhoneBR("553198966398")).toBe("+5531998966398");
+    expect(canonicalPhoneBR("+55 (31) 99896-6398")).toBe("+5531998966398");
+  });
+
+  it("FIXO não ganha 9 — fundir com um celular inventado não tem volta", () => {
+    expect(canonicalPhoneBR("553132345678")).toBe("+553132345678");
+    expect(canonicalPhoneBR("551123456789")).toBe("+551123456789");
+  });
+
+  it("fora do Brasil não inventa regra", () => {
+    expect(canonicalPhoneBR("+595991733685")).toBe("+595991733685");
+    expect(canonicalPhoneBR("15556320979")).toBe("+15556320979");
+  });
+
+  it("phoneForDisplay vazio continua vazio", () => {
+    expect(phoneForDisplay(null)).toBe("");
+    expect(phoneForDisplay("  ")).toBe("");
+    expect(phoneForDisplay("+553284793302")).toBe("+5532984793302");
   });
 });
 

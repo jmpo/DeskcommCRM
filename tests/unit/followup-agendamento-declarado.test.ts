@@ -58,6 +58,10 @@ const DIR = join(process.cwd(), "lib", "followup");
  * `agenda` = 'nenhum' → menciona a coluna sem agendar (leitura, tradução).
  */
 const ESCRITORES: Record<string, { agenda: "agora" | "futuro" | "nenhum"; nota: string }> = {
+  "enroll.ts": {
+    agenda: "agora",
+    nota: "o enrollment nasce vencido — o insert omite next_eval_at e o default now() do banco decide (0147).",
+  },
   "gatilho-etapa.ts": {
     agenda: "agora",
     nota: "o enrollment nasce vencido — o insert omite a coluna e o default now() do banco decide (0147).",
@@ -72,6 +76,15 @@ const ESCRITORES: Record<string, { agenda: "agora" | "futuro" | "nenhum"; nota: 
       "O INSERT omite a coluna (default now() do banco, igual ao gatilho de etapa). A única " +
       "menção é `next_eval_at: null` no cancelamento por caso fechado — desagendar não é agendar, " +
       "e `null` não tem relógio para escolher errado.",
+  },
+  "aplicar-inbound.ts": {
+    agenda: "nenhum",
+    nota:
+      "NÃO escreve: a única menção é `.lte('next_eval_at', agora)`, um FILTRO para pegar os " +
+      "enrollments já vencidos. O `agora` é o relógio do processo, e aqui isso é aceitável de " +
+      "propósito — num filtro, relógio adiantado pega um enrollment alguns segundos cedo e " +
+      "atrasado o deixa para o tique seguinte; nenhum dos dois grava data errada, que é o que " +
+      "a 0147 existe para impedir.",
   },
   "reactivity.ts": {
     agenda: "agora",

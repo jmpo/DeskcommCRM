@@ -1,0 +1,228 @@
+name: release
+
+# Os dois atos do ciclo, e nenhum deles cria tag na máquina de ninguém.
+#
+#   1. VOCÊ dispara "Run workflow" → ele lê `.changes/`, calcula o número, monta
+#      a seção do CHANGELOG e abre um PR de release em português dizendo o que
+#      vai sair. Nada é publicado ainda.
+#   2. VOCÊ faz merge desse PR → ele cria a tag `vX.Y.Z`, e é a tag que faz o
+#      `publish-image.yml` publicar as três imagens que a VPS puxa.
+#
+# Quem escreve (branch, PR, tag) é o token de um GitHub App, NUNCA o
+# GITHUB_TOKEN. A razão é uma armadilha documentada pelo próprio GitHub: evento
+# disparado com o GITHUB_TOKEN não cria novo workflow run. Se a tag nascesse
+# dele, o `publish-image.yml` jamais rodaria — a tag existiria, ninguém veria
+# erro, e NENHUMA VPS receberia a atualização. Falha silenciosa, descoberta só
+# quando um cliente tentasse atualizar.
+#
+# Por isso o ato 2 não confia: ele espera a publicação e CONFERE as três imagens
+# no registro, falhando alto se não aparecerem.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+
+# O GITHUB_TOKEN aqui só clona e lê. Todo escopo de escrita vem do App, o que
+# mantém `tests/unit/workflows-tem-permissions.test.ts` sem entrada nova.
+permissions:
+  contents: read
+
+jobs:
+  abrir-pr-de-release:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v7
+        with:
+          # `fetch-depth: 0` porque o corte compara com as tags, e o checkout
+          # raso padrão não traz nenhuma.
+          fetch-depth: 0
+          token: ${{ steps.token.outputs.token }}
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Calcular o número e montar a seção
+        id: corte
+        run: |
+          set -euo pipefail
+          pnpm exec tsx scripts/cortar-release.ts --escrever | tee /tmp/corte.txt
+          versao=$(pnpm exec tsx scripts/cortar-release.ts --versao-do-changelog)
+          echo "versao=${versao}" >> "$GITHUB_OUTPUT"
+
+      - name: Abrir o PR
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          VERSAO: ${{ steps.corte.outputs.versao }}
+        run: |
+          set -euo pipefail
+          git config user.name  'deskcomm-release[bot]'
+          git config user.email '${{ steps.token.outputs.app-slug }}[bot]@users.noreply.github.com'
+          git checkout -b "release/${VERSAO}"
+          git add CHANGELOG.md .changes
+          git commit -m "release(${VERSAO}): a versão montada a partir dos fragmentos declarados"
+          git push origin "release/${VERSAO}"
+          {
+            echo "Esta versão sai como **${VERSAO}**, e o número foi CALCULADO a partir do que cada PR declarou — ninguém digitou."
+            echo
+            echo '```'
+            cat /tmp/corte.txt
+            echo '```'
+            echo
+            echo "Ao fazer merge deste PR, a tag \`v${VERSAO}\` é criada automaticamente e as três imagens são publicadas."
+            echo "Se algo aqui estiver errado, **feche o PR** em vez de editar o número: corrija o fragmento e dispare o workflow de novo."
+          } > /tmp/corpo.md
+          gh pr create --base main --head "release/${VERSAO}" \
+            --title "Release ${VERSAO}" --body-file /tmp/corpo.md
+
+  cortar-tag:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ steps.token.outputs.token }}
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Este push foi um corte de release?
+        id: pendente
+        run: |
+          set -euo pipefail
+
+          # DUAS condições, e a segunda é a que importa. Só a primeira ("o
+          # CHANGELOG anuncia versão que não tem tag") deixaria QUALQUER PR
+          # cortar a release: bastaria escrever `## [1.7.0]` no CHANGELOG à mão
+          # e a tag nasceria no merge dele, pulando o PR de release inteiro —
+          # e com ela as três imagens e o canal `stable`.
+          #
+          # Isso não é hipótese: medido em 2026-08-27, o PR #354 (RAG) já
+          # trazia uma seção de versão escrita à mão no CHANGELOG.
+          #
+          # A segunda condição é a ASSINATURA do corte, e um PR comum não a
+          # produz nem por engano: o commit CONSUMIU fragmentos — havia
+          # `.changes/*.md` antes e não há depois. PR comum ACRESCENTA
+          # fragmento; só o corte esvazia o diretório.
+          versao=$(pnpm exec tsx scripts/cortar-release.ts --versao-do-changelog)
+
+          antes=$(git ls-tree -r --name-only HEAD^ -- .changes/ | grep -c '\.md$' || true)
+          depois=$(git ls-tree -r --name-only HEAD  -- .changes/ | grep -c '\.md$' || true)
+          echo "fragmentos em .changes/: antes=${antes} depois=${depois}"
+
+          if git rev-parse -q --verify "refs/tags/v${versao}" >/dev/null; then
+            echo "v${versao} já existe — nada a cortar"
+            echo "cortar=nao" >> "$GITHUB_OUTPUT"
+          elif [ "${antes}" -eq 0 ] || [ "${depois}" -ne 0 ]; then
+            echo "::notice::O CHANGELOG anuncia ${versao} sem tag, mas este push NÃO consumiu fragmentos."
+            echo "::notice::Tag não criada. Uma release sai do workflow 'release' (Run workflow), nunca de um merge comum."
+            echo "cortar=nao" >> "$GITHUB_OUTPUT"
+          else
+            echo "corte de release: ${antes} fragmento(s) consumido(s), v${versao} ainda não existe"
+            echo "cortar=sim"       >> "$GITHUB_OUTPUT"
+            echo "versao=${versao}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Criar e empurrar a tag
+        if: steps.pendente.outputs.cortar == 'sim'
+        env:
+          VERSAO: ${{ steps.pendente.outputs.versao }}
+        run: |
+          set -euo pipefail
+          git config user.name  'deskcomm-release[bot]'
+          git config user.email '${{ steps.token.outputs.app-slug }}[bot]@users.noreply.github.com'
+          # Tag ANOTADA: guarda autor e data, e é o que `git describe
+          # --exact-match` do agent.sh espera encontrar na VPS.
+          git tag -a "v${VERSAO}" -m "v${VERSAO}"
+          git push origin "v${VERSAO}"
+
+      # A tag basta para a VPS (o `agent.sh` faz `git fetch --tags`), mas não
+      # para quem chega pelo GitHub: sem a release publicada, a página do
+      # projeto continua anunciando a versão anterior como a mais recente.
+      # Medido em 2026-08-27: a v1.7.0 nasceu como tag e o `gh release list`
+      # seguiu mostrando a v1.6.0 como Latest até alguém publicar à mão.
+      #
+      # Publicar a release NÃO reconstrói imagem: `publish-image.yml` reage a
+      # `push: tags`, e o gatilho `release:` é proibido lá por teste — ele já
+      # esteve, e o efeito medido na v1.3.0 foi o mesmo commit construído duas
+      # vezes, movendo uma tag de versão já publicada.
+      - name: Publicar a release no GitHub
+        if: steps.pendente.outputs.cortar == 'sim'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          VERSAO: ${{ steps.pendente.outputs.versao }}
+        run: |
+          set -euo pipefail
+          pnpm exec tsx -e '
+            import fs from "node:fs";
+            import { extractChangelogSection } from "./lib/system/changelog";
+            const v = process.env.VERSAO ?? "";
+            const s = extractChangelogSection(fs.readFileSync("CHANGELOG.md", "utf8"), v);
+            if (!s) { console.error(`seção [${v}] não achada no CHANGELOG`); process.exit(1); }
+            const atencao = s.requiresAttention ? `### ⚠️ Requer atenção\n\n${s.requiresAttention}\n\n` : "";
+            fs.writeFileSync("/tmp/notas.md", atencao + s.body);
+          '
+          gh release create "v${VERSAO}" --title "v${VERSAO}" --notes-file /tmp/notas.md
+
+      # A falha desta cadeia é silenciosa por natureza — a tag existe e ninguém
+      # vê erro —, então o workflow prova a CONSEQUÊNCIA em vez de supô-la.
+      - name: As três imagens existem nesta versão?
+        if: steps.pendente.outputs.cortar == 'sim'
+        env:
+          VERSAO: ${{ steps.pendente.outputs.versao }}
+        run: |
+          set -euo pipefail
+          # A mesma sonda do runbook (docs/runbooks/ativar-packaging.md): token
+          # anônimo de pull do próprio registro. Não usa o GITHUB_TOKEN de
+          # propósito — o que interessa provar é que a imagem está alcançável
+          # para QUEM INSTALA, e quem instala não tem credencial nossa.
+          ghcr_status() {
+            local t
+            t=$(curl -s "https://ghcr.io/token?scope=repository:${GITHUB_REPOSITORY_OWNER}/$1:pull&service=ghcr.io" \
+                | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+            curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $t" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json' \
+              "https://ghcr.io/v2/${GITHUB_REPOSITORY_OWNER}/$1/manifests/$2"
+          }
+          echo "esperando a publicação de v${VERSAO}…"
+          for _ in $(seq 1 60); do
+            faltando=""
+            for img in deskcommcrm deskcomm-worker deskcomm-scheduler; do
+              [ "$(ghcr_status "$img" "${VERSAO}")" = "200" ] || faltando="${faltando} ${img}"
+            done
+            if [ -z "$faltando" ]; then
+              echo "as três imagens respondem em ${VERSAO}"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::A tag v${VERSAO} foi criada, mas as imagens não apareceram:${faltando}"
+          echo "::error::O parque instalado NÃO consegue atualizar para esta versão."
+          echo "::error::Confira o run de publish-image.yml para a tag v${VERSAO}."
+          exit 1

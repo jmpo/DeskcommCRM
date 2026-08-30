@@ -55,6 +55,11 @@ export type InboxKind =
   // `budget_exceeded` porque diz coisa diferente: um relata que algo
   // ACONTECEU e a IA segue; o outro, que ela parou. Severity 'warn'.
   | 'budget_warning'
+  // (migration 0181) O material que a pessoa enviou não entrou na base de
+  // conhecimento: falta chave de embedding, a extração do arquivo falhou, ou
+  // nenhum trecho foi gravado. UM kind e não dois, porque quem lê a Central
+  // quer saber que o material não entrou — o porquê é o corpo do aviso.
+  | 'conhecimento_nao_indexado'
   | 'other';
 
 export interface InboxItemRow {

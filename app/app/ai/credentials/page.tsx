@@ -4,6 +4,7 @@ import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
 import { createClient } from "@/lib/supabase/server";
 import type { CredentialRow } from "@/hooks/ai/useCredentials";
+import { traduzir } from "@/lib/i18n/dicionario";
 import { CredentialsList } from "./_components/CredentialsList";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ export default async function CredentialsPage() {
   const user = await requireAuth();
   const activeOrg = await resolveActiveOrg(user);
   if (!activeOrg) redirect("/app");
+  const idioma = user.idioma;
   if (ROLE_RANK[activeOrg.role] < ROLE_RANK.manager) {
     redirect("/403");
   }
@@ -61,11 +63,12 @@ export default async function CredentialsPage() {
   return (
     <div className="flex h-full flex-col gap-6 p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Chaves de acesso à IA</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{traduzir("Chaves de acesso à IA", idioma)}</h1>
         <p className="text-sm text-muted-foreground">
-          A conta de inteligência artificial é sua: você contrata direto na Anthropic,
-          OpenAI ou Google e cola a chave aqui. Ela é guardada criptografada e nunca
-          mais aparece na tela depois de salva — nem para você.
+          {traduzir(
+            "A conta de inteligência artificial é sua: você contrata direto na Anthropic, OpenAI ou Google e cola a chave aqui. Ela é guardada criptografada e nunca mais aparece na tela depois de salva — nem para você.",
+            idioma,
+          )}
         </p>
       </header>
       <CredentialsList

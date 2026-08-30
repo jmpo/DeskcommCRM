@@ -41,7 +41,7 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /**
  * Teto de eventos lidos. O motor escreve ~1 por passo e para em `MAX_STEPS`
- * (30); reactivity e intervenção manual somam poucos. 500 cobre o pior caso com
+ * (80); reactivity e intervenção manual somam poucos. 500 cobre o pior caso com
  * folga — e o `truncado` abaixo existe para que, se algum dia não cobrir, a tela
  * DIGA que está mostrando um pedaço, em vez de mentir por omissão.
  */
@@ -73,7 +73,11 @@ export interface DossieDoEnrollment {
   max_attempts: number;
   steps_taken: number;
   contact: { id: string; name: string };
-  flow: { pointer_id: string; name: string | null; version_id: string };
+  flow: {
+    pointer_id: string;
+    name: string | null;
+    version_id: string;
+  };
   agent_name: string | null;
   no_atual: NoDoDossie | null;
   nos: NoDoDossie[];
@@ -197,7 +201,12 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
       | Array<{ id: string; name: string | null; display_name: string | null; phone_number: string | null }>
       | null,
   );
-  const pointer = embedded(row.followup_flow_pointers as { name: string } | { name: string }[] | null);
+  const pointer = embedded(
+    row.followup_flow_pointers as
+      | { name: string }
+      | { name: string }[]
+      | null,
+  );
   const agente = embedded(row.ai_agents as { name: string } | { name: string }[] | null);
 
   const dossie: DossieDoEnrollment = {
@@ -220,7 +229,11 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
       id: row.contact_id,
       name: contato ? rotuloDoContato(contato) : "Contato removido",
     },
-    flow: { pointer_id: row.pointer_id, name: pointer?.name ?? null, version_id: row.version_id },
+    flow: {
+      pointer_id: row.pointer_id,
+      name: pointer?.name ?? null,
+      version_id: row.version_id,
+    },
     agent_name: agente?.name ?? null,
     no_atual: porId.get(row.current_node_id) ?? null,
     nos,

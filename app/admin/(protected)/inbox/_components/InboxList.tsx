@@ -1,4 +1,8 @@
 "use client";
+
+import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
+
+import type { Locale } from "date-fns";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAdminInbox, type AdminConversationRow } from "@/hooks/useAdminInbox";
@@ -16,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { CircleNotch, MagnifyingGlass } from "@/lib/ui/icons";
 import { cn } from "@/lib/utils";
 import { format, formatDistanceToNowStrict } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { useT } from "@/hooks/i18n/useT";
 
 function useDebounced<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState<T>(value);
@@ -35,18 +39,18 @@ function useDebounced<T>(value: T, delay: number): T {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function relativeTime(iso: string | null): string {
+function relativeTime(iso: string | null, locale: Locale): string {
   if (!iso) return "";
   const d = new Date(iso);
   const now = new Date();
   if (d.toDateString() === now.toDateString()) return format(d, "HH:mm");
   const diff = (now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24);
-  if (diff < 7) return formatDistanceToNowStrict(d, { addSuffix: false, locale: ptBR });
+  if (diff < 7) return formatDistanceToNowStrict(d, { addSuffix: false, locale: locale });
   return format(d, "dd/MM");
 }
 
-function contactName(row: AdminConversationRow): string {
-  return row.contacts?.name?.trim() || row.contacts?.phone_number || "Sem nome";
+function contactName(row: AdminConversationRow, t: (texto: string) => string): string {
+  return row.contacts?.name?.trim() || row.contacts?.phone_number || t("Sem nome");
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +69,8 @@ const STATUS_OPTIONS = [
 // ---------------------------------------------------------------------------
 
 export function InboxList() {
+  const localeDaData = useLocaleDeData();
+  const t = useT();
   const router = useRouter();
   const params = useParams();
   const selectedId = params?.conversationId as string | undefined;
@@ -115,7 +121,7 @@ export function InboxList() {
           <Input
             value={rawSearch}
             onChange={(e) => setRawSearch(e.target.value)}
-            placeholder="Buscar mensagem..."
+            placeholder={t("Buscar mensagem...")}
             className="h-8 pl-8 text-xs"
           />
         </div>
@@ -131,7 +137,7 @@ export function InboxList() {
           <SelectContent>
             {STATUS_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                {opt.label}
+                {t(opt.label)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -142,29 +148,29 @@ export function InboxList() {
       <div className="flex-1 overflow-y-auto">
         {isLoading && (
           <div className="flex items-center justify-center py-8 text-muted-foreground">
-            <CircleNotch size={20} className="animate-spin" aria-label="Carregando" />
+            <CircleNotch size={20} className="animate-spin" aria-label={t("Carregando")} />
           </div>
         )}
 
         {isError && (
           <p className="p-4 text-center text-xs text-destructive">
-            Falha ao carregar conversas.
+            {t("Falha ao carregar conversas.")}
           </p>
         )}
 
         {!isLoading && rows.length === 0 && (
           <p className="p-4 text-center text-xs text-muted-foreground">
-            Nenhuma conversa encontrada.
+            {t("Nenhuma conversa encontrada.")}
           </p>
         )}
 
         {rows.map((row) => {
           const isSelected = selectedId === row.id;
-          const name = contactName(row);
+          const name = contactName(row, t);
           const org = row.organizations;
           const unread = row.unread_count_for_assignee ?? 0;
-          const preview = row.last_message_preview?.trim() || "Sem mensagens";
-          const time = relativeTime(row.last_message_at);
+          const preview = row.last_message_preview?.trim() || t("Sem mensagens");
+          const time = relativeTime(row.last_message_at, localeDaData);
 
           return (
             <button
@@ -208,7 +214,7 @@ export function InboxList() {
               disabled={isFetchingNextPage}
               className="text-xs text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
             >
-              {isFetchingNextPage ? "Carregando…" : "Carregar mais"}
+              {isFetchingNextPage ? t("Carregando…") : t("Carregar mais")}
             </button>
           </div>
         )}

@@ -1,4 +1,5 @@
 "use client";
+import { useT } from "@/hooks/i18n/useT";
 import { Button } from "@/components/ui/button";
 import { Sparkle } from "@/lib/ui/icons";
 import { useDraftReply } from "@/hooks/inbox/useDraftReply";
@@ -11,6 +12,7 @@ interface Props {
 
 /** Onda 5.1: botão "Sugerir resposta" — gera rascunho via agente publicado, sem enviar. */
 export function DraftReplyButton({ conversationId, onDraft, disabled }: Props) {
+  const t = useT();
   const mutation = useDraftReply();
 
   return (
@@ -19,7 +21,7 @@ export function DraftReplyButton({ conversationId, onDraft, disabled }: Props) {
       size="icon"
       variant="ghost"
       className="h-9 w-9 shrink-0"
-      aria-label="Sugerir resposta"
+      aria-label={t("Sugerir resposta")}
       aria-busy={mutation.isPending}
       disabled={disabled || mutation.isPending}
       onClick={() => {

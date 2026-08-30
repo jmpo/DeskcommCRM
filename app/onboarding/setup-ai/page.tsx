@@ -8,6 +8,7 @@ import { InteligenciaDele } from "./_inteligencia";
 import { capacidadesPadraoDoOnboarding } from "@/lib/ai/agents/capacidades-padrao";
 import { TOOL_CATALOG } from "@/lib/mcp/tools/catalog";
 import { CONFERENCIAS_DE_SAIDA } from "@/lib/ai/guardrails/lista-de-conferencia";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export default async function SetupAiPage() {
   const user = await requireAuth();
   const activeOrg = await resolveActiveOrg(user);
   if (!activeOrg) redirect("/login");
+  const idioma = user.idioma;
 
   const supabase = await createClient();
   const retrato = await lerRetratoDaInstalacao({ supabase, orgId: activeOrg.orgId });
@@ -36,16 +38,17 @@ export default async function SetupAiPage() {
   const porNome = new Map(TOOL_CATALOG.map((c) => [c.name, c]));
   const capacidades = capacidadesPadraoDoOnboarding()
     .map((id) => porNome.get(id)?.rotulo)
-    .filter((r): r is string => Boolean(r));
+    .filter((r): r is string => Boolean(r))
+    .map((r) => traduzir(r, idioma));
 
-  const conferencias = CONFERENCIAS_DE_SAIDA.map((c) => c.rotulo);
+  const conferencias = CONFERENCIAS_DE_SAIDA.map((c) => traduzir(c.rotulo, idioma));
 
   return (
     <div className="space-y-6">
       <header>
-        <h2 className="text-2xl font-semibold tracking-tight">Treine seu funcionário</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">{traduzir("Treine seu funcionário", idioma)}</h2>
         <p className="text-sm text-muted-foreground">
-          Quem ele é, como fala e o que pode prometer. Dá para mudar tudo depois.
+          {traduzir("Quem ele é, como fala e o que pode prometer. Dá para mudar tudo depois.", idioma)}
         </p>
       </header>
       {/*

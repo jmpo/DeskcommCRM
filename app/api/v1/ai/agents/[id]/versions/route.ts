@@ -14,13 +14,14 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/ai/agents/escopo";
 import { versionCreateSchema } from "@/lib/ai/agents/validation";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 
 export const dynamic = "force-dynamic";
 
 const VERSION_COLUMNS =
-  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids";
+  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids";
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -119,6 +120,18 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
       );
     }
 
+    // O escopo aponta para coisas que EXISTEM nesta organização. Sem esta
+    // conferência, um id de outra organização (ou de um material apagado) entra
+    // no array, a versão é publicada, e o assistente não acha nada — sem erro,
+    // com a tela mostrando a marcação como se estivesse valendo.
+    const escopo = await validarEscopoDaVersao(admin, activeOrg.orgId, {
+      pipeline_ids: v.pipeline_ids,
+      knowledge_source_ids: v.knowledge_source_ids,
+    });
+    if (!escopo.ok) {
+      return fail("validation_failed", mensagemDoEscopo(escopo), 422, { requestId });
+    }
+
     const nextNumber = (maxRow?.version_number ?? 0) + 1;
 
     const { data, error } = await admin
@@ -145,6 +158,14 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
         split_messages: v.split_messages,
         split_max_chars: v.split_max_chars,
         followup: v.followup,
+        // Mesmo descarte silencioso da rota de criação de agente: o corpo aceita
+        // e o INSERT ignorava. Criar uma versão nova pela API com escopo ou
+        // acervo produzia uma versão vazia, com 201.
+        operator_enabled: v.operator_enabled,
+        operator_model: v.operator_model,
+        operator_tool_ids: v.operator_tool_ids,
+        pipeline_ids: v.pipeline_ids,
+        knowledge_source_ids: v.knowledge_source_ids,
         status: "draft",
         created_by: authUser.id,
       })

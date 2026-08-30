@@ -2,15 +2,24 @@
  * POST /api/v1/ai/knowledge/sources — o que a rota responde quando o banco
  * recusa, e o que ela faz com conteúdo que não sabe ingerir (issue #265).
  *
- * O índice `ai_knowledge_sources_unique_per_agent` (agent_id, source_type)
- * WHERE is_active deixa UMA fonte ativa de cada tipo por agente. A segunda
- * tentativa volta 23505 do Postgres, e isso saía como
- * `500 internal_error "Erro ao criar fonte de conhecimento."` — quem reportou a
- * issue não tinha como descobrir que o motivo era a fonte que já existia.
+ * A colisão do índice único saía como `500 internal_error` — quem reportou a
+ * issue não tinha como descobrir que o motivo era o material que já existia. E
+ * `items`/`markdown_blob` mandados para um tipo preenchido por rotina eram
+ * ACEITOS e descartados em silêncio, criando material vazio com 201.
  *
- * A outra metade: `items`/`markdown_blob` mandados para um tipo que esta rota
- * não ingere (`catalog`, `conversations` — preenchidos por pipeline) eram
- * ACEITOS e descartados em silêncio, criando fonte vazia com 201.
+ * ## O que mudou na 0181 (e o que NÃO mudou)
+ *
+ * O índice que colide passou a ser por NOME
+ * (`ai_knowledge_sources_nome_unico_por_org`) e não mais por
+ * `(agent_id, source_type)`: o acervo é da organização, e ela pode ter cinco
+ * FAQs — o que ela não pode é ter duas com o mesmo nome, porque o nome é como a
+ * pessoa as distingue na tela e no seletor do assistente.
+ *
+ * O tipo passa a ser CANONIZADO na borda: os nomes legados (`policy`,
+ * `catalog`, `conversations`) continuam aceitos de quem integrou por API e
+ * chegam ao banco como `documento`, `catalogo`, `conversas`. **A invariante da
+ * issue #265 sobrevive inteira**: o tipo que a pessoa pediu é o tipo que é
+ * gravado — um pedido de catálogo NUNCA vira `faq`, que era o defeito.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
@@ -105,7 +114,7 @@ describe("POST /api/v1/ai/knowledge/sources — colisão do índice único", () 
       erroDoInsert: {
         code: "23505",
         message:
-          'duplicate key value violates unique constraint "ai_knowledge_sources_unique_per_agent"',
+          'duplicate key value violates unique constraint "ai_knowledge_sources_nome_unico_por_org"',
       },
     });
     const { POST } = await import("@/app/api/v1/ai/knowledge/sources/route");
@@ -115,10 +124,10 @@ describe("POST /api/v1/ai/knowledge/sources — colisão do índice único", () 
 
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: { code: string; message: string } };
-    expect(body.error.code).toBe("knowledge_source_type_in_use");
-    expect(body.error.message).toContain("FAQ");
+    expect(body.error.code).toBe("knowledge_source_name_in_use");
+    expect(body.error.message).toContain("FAQ da loja");
     // Sem esta metade, um 500 devolvendo a mensagem crua do Postgres também
-    // citaria "FAQ" (está no nome da constraint) e passaria.
+    // citaria o nome e passaria.
     expect(body.error.message).not.toContain("unique");
     expect(body.error.message).not.toContain("constraint");
     expect(body.error.message).not.toContain("duplicate");
@@ -141,20 +150,46 @@ describe("POST /api/v1/ai/knowledge/sources — colisão do índice único", () 
 });
 
 describe("POST /api/v1/ai/knowledge/sources — tipo pedido é o tipo gravado", () => {
-  it("grava o source_type que veio no corpo, sem reescrever", async () => {
+  it("grava o tipo PEDIDO (canonizado), nunca outro", async () => {
     sessaoOk();
     const { escritas } = dublarBanco();
     const { POST } = await import("@/app/api/v1/ai/knowledge/sources/route");
     const res = await POST(
-      req({ agent_id: AGENT_ID, source_type: "policy", name: "Política de troca", markdown_blob: MARKDOWN }),
+      req({ agent_id: AGENT_ID, source_type: "faq", name: "FAQ da loja", markdown_blob: MARKDOWN }),
     );
 
     expect(res.status).toBe(201);
     expect(escritas[0]).toMatchObject({
       tabela: "ai_knowledge_sources",
-      linhas: { source_type: "policy", organization_id: ORG_ID, agent_id: AGENT_ID },
+      linhas: { source_type: "faq", organization_id: ORG_ID, agent_id: AGENT_ID },
     });
     expect(escritas[1]?.tabela).toBe("ai_faq_items");
+  });
+
+  it("nome legado é traduzido, e não silenciosamente trocado por outro tipo", async () => {
+    sessaoOk();
+    const { escritas } = dublarBanco();
+    const { POST } = await import("@/app/api/v1/ai/knowledge/sources/route");
+    const res = await POST(
+      req({ agent_id: AGENT_ID, source_type: "conversations", name: "Conversas" }),
+    );
+
+    expect(res.status).toBe(201);
+    // `conversations` → `conversas`. O que NÃO pode acontecer é virar `faq`,
+    // que é o defeito da #265 e o motivo deste arquivo existir.
+    expect(escritas[0]).toMatchObject({ linhas: { source_type: "conversas" } });
+  });
+
+  it("tipo desconhecido é RECUSADO com a lista do que existe, não convertido", async () => {
+    sessaoOk();
+    const { escritas } = dublarBanco();
+    const { POST } = await import("@/app/api/v1/ai/knowledge/sources/route");
+    const res = await POST(req({ source_type: "planilha", name: "Tabela de preços" }));
+
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain("faq");
+    expect(escritas).toHaveLength(0);
   });
 
   it("tipo sem ingestão de texto + conteúdo colado → 422, e NADA é gravado", async () => {
@@ -168,7 +203,7 @@ describe("POST /api/v1/ai/knowledge/sources — tipo pedido é o tipo gravado", 
     expect(res.status).toBe(422);
     const body = (await res.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe("unprocessable_entity");
-    expect(body.error.message).toContain("catálogo");
+    expect(body.error.message.toLowerCase()).toContain("catálogo");
     // O defeito antigo era 201 com fonte vazia: recusar sem gravar é o ponto.
     expect(escritas).toHaveLength(0);
   });
@@ -180,6 +215,6 @@ describe("POST /api/v1/ai/knowledge/sources — tipo pedido é o tipo gravado", 
     const res = await POST(req({ agent_id: AGENT_ID, source_type: "catalog", name: "Catálogo" }));
 
     expect(res.status).toBe(201);
-    expect(escritas[0]).toMatchObject({ linhas: { source_type: "catalog" } });
+    expect(escritas[0]).toMatchObject({ linhas: { source_type: "catalogo" } });
   });
 });

@@ -1,4 +1,6 @@
 "use client";
+
+import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 import {
   ResponsiveContainer,
   LineChart,
@@ -11,14 +13,15 @@ import {
 } from "recharts";
 import type { UsagePayload } from "@/lib/ai/usage/aggregate";
 import { formatCentsUSD } from "@/lib/money";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   payload: UsagePayload;
 }
 
-function formatDateTick(s: string): string {
+function formatDateTick(s: string, idioma: string): string {
   const d = new Date(`${s}T00:00:00Z`);
-  return d.toLocaleDateString("pt-BR", {
+  return d.toLocaleDateString(idioma, {
     day: "2-digit",
     month: "2-digit",
     timeZone: "UTC",
@@ -45,9 +48,10 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
 }
 
 function EmptyChart() {
+  const t = useT();
   return (
     <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-      Sem dados no período
+      {t("Sem dados no período")}
     </div>
   );
 }
@@ -60,6 +64,8 @@ const tooltipStyle = {
 };
 
 export function UsageChart({ payload }: Props) {
+  const tagDoIdioma = useTagDeIdioma();
+  const t = useT();
   const { series } = payload;
 
   // Pre-build merged latency dataset for the dual-line chart.
@@ -81,7 +87,7 @@ export function UsageChart({ payload }: Props) {
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <ChartCard title="Quanto gastou por dia (R$)">
+      <ChartCard title={t("Quanto gastou por dia (R$)")}>
         {!hasCost ? (
           <EmptyChart />
         ) : (
@@ -93,7 +99,7 @@ export function UsageChart({ payload }: Props) {
               <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
               <XAxis
                 dataKey="day"
-                tickFormatter={formatDateTick}
+                tickFormatter={(v) => formatDateTick(v, tagDoIdioma)}
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
@@ -107,8 +113,8 @@ export function UsageChart({ payload }: Props) {
                 width={70}
               />
               <Tooltip
-                formatter={(value) => [formatCentsUSD(Number(value)), "Custo"]}
-                labelFormatter={(label) => formatDateTick(String(label))}
+                formatter={(value) => [formatCentsUSD(Number(value)), t("Custo")]}
+                labelFormatter={(label) => formatDateTick(String(label), tagDoIdioma)}
                 contentStyle={tooltipStyle}
               />
               <Line
@@ -123,7 +129,7 @@ export function UsageChart({ payload }: Props) {
         )}
       </ChartCard>
 
-      <ChartCard title="Volume de texto processado por dia">
+      <ChartCard title={t("Volume de texto processado por dia")}>
         {!hasTokens ? (
           <EmptyChart />
         ) : (
@@ -135,7 +141,7 @@ export function UsageChart({ payload }: Props) {
               <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
               <XAxis
                 dataKey="day"
-                tickFormatter={formatDateTick}
+                tickFormatter={(v) => formatDateTick(v, tagDoIdioma)}
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
@@ -149,8 +155,8 @@ export function UsageChart({ payload }: Props) {
                 width={50}
               />
               <Tooltip
-                formatter={(value) => [formatNumber(Number(value)), "Tokens"]}
-                labelFormatter={(label) => formatDateTick(String(label))}
+                formatter={(value) => [formatNumber(Number(value)), t("Tokens")]}
+                labelFormatter={(label) => formatDateTick(String(label), tagDoIdioma)}
                 contentStyle={tooltipStyle}
               />
               <Line
@@ -165,7 +171,7 @@ export function UsageChart({ payload }: Props) {
         )}
       </ChartCard>
 
-      <ChartCard title="Tempo de resposta por dia (segundos)">
+      <ChartCard title={t("Tempo de resposta por dia (segundos)")}>
         {!hasLatency ? (
           <EmptyChart />
         ) : (
@@ -177,7 +183,7 @@ export function UsageChart({ payload }: Props) {
               <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
               <XAxis
                 dataKey="day"
-                tickFormatter={formatDateTick}
+                tickFormatter={(v) => formatDateTick(v, tagDoIdioma)}
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
@@ -202,14 +208,14 @@ export function UsageChart({ payload }: Props) {
                   `${(Number(value) / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} s`,
                   name,
                 ]}
-                labelFormatter={(label) => formatDateTick(String(label))}
+                labelFormatter={(label) => formatDateTick(String(label), tagDoIdioma)}
                 contentStyle={tooltipStyle}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Line
                 type="monotone"
                 dataKey="p50"
-                name="a maioria responde em"
+                name={t("a maioria responde em")}
                 stroke="hsl(199 89% 48%)"
                 strokeWidth={2}
                 dot={false}
@@ -217,7 +223,7 @@ export function UsageChart({ payload }: Props) {
               <Line
                 type="monotone"
                 dataKey="p95"
-                name="pior caso comum"
+                name={t("pior caso comum")}
                 stroke="hsl(0 84% 60%)"
                 strokeWidth={2}
                 dot={false}
@@ -227,7 +233,7 @@ export function UsageChart({ payload }: Props) {
         )}
       </ChartCard>
 
-      <ChartCard title="Quanto foi para uma pessoa (%)">
+      <ChartCard title={t("Quanto foi para uma pessoa (%)")}>
         {!hasHandoff ? (
           <EmptyChart />
         ) : (
@@ -239,7 +245,7 @@ export function UsageChart({ payload }: Props) {
               <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
               <XAxis
                 dataKey="day"
-                tickFormatter={formatDateTick}
+                tickFormatter={(v) => formatDateTick(v, tagDoIdioma)}
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
@@ -253,8 +259,8 @@ export function UsageChart({ payload }: Props) {
                 width={45}
               />
               <Tooltip
-                formatter={(value) => [`${Number(value).toFixed(2)}%`, "Handoff"]}
-                labelFormatter={(label) => formatDateTick(String(label))}
+                formatter={(value) => [`${Number(value).toFixed(2)}%`, t("Handoff")]}
+                labelFormatter={(label) => formatDateTick(String(label), tagDoIdioma)}
                 contentStyle={tooltipStyle}
               />
               <Line

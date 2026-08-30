@@ -67,6 +67,10 @@ export function toFlowNode(n: RFNode): FlowNode {
       return { ...shared, type, config: n.data.config as ConfigOf<"condition"> };
     case "ai_classify":
       return { ...shared, type, config: n.data.config as ConfigOf<"ai_classify"> };
+    case "match_reply":
+      return { ...shared, type, config: n.data.config as ConfigOf<"match_reply"> };
+    case "repeat":
+      return { ...shared, type, config: n.data.config as ConfigOf<"repeat"> };
     case "action":
       return { ...shared, type, config: n.data.config as ConfigOf<"action"> };
     case "end":

@@ -6,6 +6,7 @@ import {
   BookOpen,
   Brain,
   Buildings,
+  CalendarBlank,
   ChartBar,
   ChartLineUp,
   ClipboardText,
@@ -152,6 +153,26 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     sidebar: true,
   },
   {
+    // Entra em "atendimento", e não em "organizacao", porque a Agenda é onde o
+    // dia acontece e não onde ele se configura: quem atende abre isto de manhã
+    // junto com o Inbox. Os TIPOS de agendamento — que são configuração de
+    // verdade — foram para Configurações, como este comentário previa: ver
+    // `/app/settings/tenant/agenda` no grupo "organizacao".
+    //
+    // ⚠️ ESTA FRASE ESTAVA VENCIDA: dizia "a disponibilidade ainda não tem tela",
+    // e tem — é a aba "Atendimento" de `/app/team`, com editor de fuso e janelas
+    // (`app/app/team/_components/AttendantsClient.tsx`). Ela chegou a custar uma
+    // investigação inteira: quem leu isto aqui concluiu que faltava construir a
+    // tela, quando o que faltava era o CAMINHO até ela. O aviso da Agenda agora
+    // aponta para `/app/team?aba=atendimento`.
+    href: "/app/agenda",
+    label: "Agenda",
+    description: "O que está marcado, com quem, e quem atende — seu e da equipe.",
+    icon: CalendarBlank,
+    group: "atendimento",
+    sidebar: true,
+  },
+  {
     // Renomeado de "Templates": estes são scripts do atendente, consumidos pelo
     // Composer do inbox. O nome "Templates" fica livre para os da Meta (HSM),
     // onde é o termo técnico correto.
@@ -189,6 +210,29 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     icon: Users,
     group: "crm",
     sidebar: true,
+  },
+  {
+    // A promessa que o comentário da Agenda fazia desde que ela nasceu. Aqui se
+    // decide O QUE se pode marcar, quanto dura e quem atende — e é isto que a
+    // tela de marcar e o agente de IA oferecem ao cliente.
+    //
+    // Nasceu porque a `calendar_event_types` tinha dez categorias no CHECK,
+    // duração, buffers e antecedência mínima, e NÃO havia como criar ou editar
+    // um tipo por lugar nenhum: a organização recebia três semeados e ficava com
+    // eles para sempre.
+    href: "/app/settings/tenant/agenda",
+    label: "Tipos de agendamento",
+    description: "O que se pode marcar, quanto dura, onde acontece e quem atende.",
+    icon: CalendarBlank,
+    group: "organizacao",
+    // "Sua empresa", junto de Atendimento e Empresa: é configuração do NEGÓCIO,
+    // não da conta de quem está logado. O gate `navegacao-registry` cobra a
+    // seção em todo grupo que tem hub, e sem ela o destino não aparece no hub.
+    section: "Sua empresa",
+    // SEM `sidebar`, como as outras DEZ entradas de "organizacao": este grupo
+    // tem hub, e se chega às telas dele por "Configurações". Eu tinha posto
+    // `sidebar: true` e a cerca reprovou dizendo "a tela existe e não tem porta
+    // na navegação" — a porta existia, era outra.
   },
   {
     // Estava enterrado em Configurações e ninguém sabia que existia — o achado

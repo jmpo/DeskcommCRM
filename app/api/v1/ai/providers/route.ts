@@ -16,12 +16,13 @@ import { z } from "zod";
 
 import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
-import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
-import { ROLE_RANK } from "@/lib/auth/types";
+import { requireRole } from "@/lib/auth/require-role";
+import { roleAtLeast } from "@/lib/auth/types";
 import {
   decidirBinding,
   EXPLICACAO_DA_ORIGEM,
   PONTOS_DO_AGENTE_PUBLICADO,
+  PONTOS_QUE_HERDAM_DO_AGENTE,
   type LinhaDeBinding,
 } from "@/lib/ai/pontos/resolver";
 import { PAPEIS, PONTOS_DE_IA, PONTO_POR_ID } from "@/lib/ai/pontos/registro";
@@ -43,12 +44,9 @@ interface ModeloDoCatalogo {
 }
 
 export async function GET(): Promise<Response> {
-  const user = await requireAuth();
-  const org = await resolveActiveOrg(user);
-  if (!org) return fail("no_active_org", "nenhuma organização ativa", 400);
-  if (ROLE_RANK[org.role] < ROLE_RANK.manager) {
-    return fail("forbidden", "requer papel de gerente ou superior", 403);
-  }
+  const authz = await requireRole("manager", { resource: "ai_providers" });
+  if (!authz.ok) return authz.response;
+  const { org } = authz;
 
   const db = await createClient();
 
@@ -107,7 +105,15 @@ export async function GET(): Promise<Response> {
     const decisao = decidirBinding({
       pontoId: ponto.id,
       binding: bindings.get(ponto.id) ?? null,
-      agentePublicado,
+      // Só os pontos que de fato consomem o agente. Em runtime quem sinaliza a
+      // herança é a PRESENÇA do `llmOverride`, e esta tela não tem esse sinal:
+      // passar o agente para todo ponto faria a coluna "está usando" anunciar o
+      // modelo do agente em ponto que nunca o herda — a mesma tela que mente,
+      // virada do avesso.
+      agentePublicado:
+        PONTOS_DO_AGENTE_PUBLICADO.has(ponto.id) || PONTOS_QUE_HERDAM_DO_AGENTE.has(ponto.id)
+          ? agentePublicado
+          : null,
       // DÍVIDA, não impossibilidade. A justificativa aqui dizia "o servidor web
       // não enxerga o env do worker", e isso é falso: `docker-compose.prod.yml`
       // dá o MESMO `env_file: .env` ao serviço `app` e ao `worker`. O que de
@@ -169,7 +175,7 @@ export async function GET(): Promise<Response> {
     provedores: PROVEDORES,
     credenciais: credsRes.data ?? [],
     modelos,
-    podeEditar: ROLE_RANK[org.role] >= ROLE_RANK.admin,
+    podeEditar: roleAtLeast(org.role, "admin"),
   });
 }
 
@@ -195,12 +201,9 @@ const corpoDoPut = z.object({
 });
 
 export async function PUT(req: NextRequest): Promise<Response> {
-  const user = await requireAuth();
-  const org = await resolveActiveOrg(user);
-  if (!org) return fail("no_active_org", "nenhuma organização ativa", 400);
-  if (ROLE_RANK[org.role] < ROLE_RANK.admin) {
-    return fail("forbidden", "requer papel de administrador", 403);
-  }
+  const authz = await requireRole("admin", { resource: "ai_providers" });
+  if (!authz.ok) return authz.response;
+  const { user, org } = authz;
 
   const parsed = corpoDoPut.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {

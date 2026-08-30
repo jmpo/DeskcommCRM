@@ -4,6 +4,8 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { canonicalPhoneBR } from "@/lib/channels/phone-variants";
+
 export interface FieldMap {
   name?: string[];
   phone?: string[];
@@ -24,22 +26,19 @@ export interface MappedLead {
   source_metadata: Record<string, string>;
 }
 
-/** Normaliza telefone BR para E.164. ponytail: heurística BR-only (público-alvo); internacional entra quando houver demanda. */
+/** Normaliza telefone BR para E.164 com o nono dígito no celular. */
 export function normalizePhoneBR(raw: unknown): string | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
   const digits = raw.replace(/\D/g, "");
+  let e164: string | null = null;
   if (raw.trim().startsWith("+")) {
-    return /^\d{8,15}$/.test(digits) ? `+${digits}` : null;
+    e164 = /^\d{8,15}$/.test(digits) ? `+${digits}` : null;
+  } else if (digits.length === 12 || digits.length === 13) {
+    e164 = digits.startsWith("55") ? `+${digits}` : null;
+  } else if (digits.length === 10 || digits.length === 11) {
+    e164 = `+55${digits}`;
   }
-  if (digits.length === 12 || digits.length === 13) {
-    // 55 + DDD + numero
-    return digits.startsWith("55") ? `+${digits}` : null;
-  }
-  if (digits.length === 10 || digits.length === 11) {
-    // DDD + numero (fixo ou celular)
-    return `+55${digits}`;
-  }
-  return null;
+  return e164 ? canonicalPhoneBR(e164) : null;
 }
 
 function firstMatch(payload: Record<string, unknown>, aliases: string[]): { key: string; value: string } | null {

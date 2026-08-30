@@ -4,11 +4,25 @@ import { env } from "@/lib/env";
 /**
  * Injeta a config pública do Supabase em runtime, antes do JS da app rodar.
  *
- * Por que existe: numa imagem Docker genérica (self-host), as NEXT_PUBLIC_* NÃO
- * são queimadas no bundle — este componente lê os valores REAIS do projeto do
- * usuário (via `env`, que parseia process.env inteiro em runtime no servidor) e
- * os entrega ao browser em `window.__PUBLIC_ENV__`. `lib/supabase/browser.ts`
- * lê dali.
+ * Por que existe: numa imagem Docker genérica (self-host) as NEXT_PUBLIC_* **SÃO**
+ * queimadas no bundle com o valor do BUILD — que no `Dockerfile` é
+ * `https://placeholder.supabase.co`. Este componente lê os valores REAIS do
+ * projeto do usuário (via `env`, que parseia `process.env` INTEIRO em runtime no
+ * servidor) e os entrega ao browser em `window.__PUBLIC_ENV__`.
+ * `lib/supabase/browser.ts` lê dali.
+ *
+ * ⚠️ ESTE PARÁGRAFO AFIRMAVA O CONTRÁRIO ("NÃO são queimadas"), e a frase errada
+ * é o que escondeu um bug por meses. Medido no build de produção deste repo
+ * (Next 16.3.1, Turbopack): `lib/branding/logo.ts` acessava
+ * `process.env.NEXT_PUBLIC_SUPABASE_URL` de forma ESTÁTICA e o compilador dobrou
+ * a função inteira em `function n(){return"https://placeholder.supabase.co".trim()}`.
+ * Toda instalação Docker que subisse um logo recebia `<img>` quebrado — na barra
+ * lateral, na fachada do `/login` e no e-mail de convite.
+ *
+ * O que salva o RESTO do app não é ausência de queima: é `lib/env.ts` fazer
+ * `schema.safeParse(process.env)` sobre o OBJETO INTEIRO, que a substituição do
+ * compilador não alcança. Quem escrever `process.env.NEXT_PUBLIC_ALGO` direto
+ * volta a queimar. Vigiado por `tests/unit/marca-nao-pode-assar-o-dominio.test.ts`.
  *
  * `await headers()` força render dinâmico: garante que o script use o env de
  * runtime, nunca o placeholder embutido durante `next build`.

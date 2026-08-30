@@ -53,6 +53,9 @@ function chain(tabela: string, op: string, payload?: unknown): Record<string, un
           if (tabela === "conversations" && op === "select") {
             return async () => ({ data: conversaExistente, error: null });
           }
+          if (tabela === "contacts" && op === "select") {
+            return async () => ({ data: null, error: null });
+          }
           return async () =>
             insertErro ? { data: null, error: insertErro } : { data: { id: "msg-1" }, error: null };
         }
@@ -224,6 +227,7 @@ describe("o que a ingestão GRAVA", () => {
     // E a âncora segue sendo o BSUID: é a que sobrevive a trocar de número.
     const rpc = ops.find((o) => o.op === "fn_upsert_wa_contact");
     expect((rpc?.payload as Record<string, unknown>).p_lid).toBe("PY.853");
+    expect((rpc?.payload as Record<string, unknown>).p_phone).toBe("+595991733685");
   });
 
   it("reusa a RPC do canal por QR para o contato — a corrida já está resolvida lá", async () => {

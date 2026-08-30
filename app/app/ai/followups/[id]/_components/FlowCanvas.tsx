@@ -37,6 +37,10 @@ import {
 } from "@/lib/followup/graph-schema";
 import { rotuloDoRamo } from "@/lib/followup/rotulo-do-ramo";
 import { useFollowupFlow, type FollowupFlowDetailRow } from "@/hooks/followup/useFollowupFlow";
+import { useT } from "@/hooks/i18n/useT";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Plus, X } from "@/lib/ui/icons";
 import { NodeConfigPanel } from "./NodeConfigPanel";
 import { EdgeConfigPanel } from "./EdgeConfigPanel";
 import { NodePalette } from "./NodePalette";
@@ -46,6 +50,8 @@ import { TriggerNode } from "./nodes/TriggerNode";
 import { WaitNode } from "./nodes/WaitNode";
 import { ConditionNode } from "./nodes/ConditionNode";
 import { ClassifyNode } from "./nodes/ClassifyNode";
+import { MatchReplyNode } from "./nodes/MatchReplyNode";
+import { RepeatNode } from "./nodes/RepeatNode";
 import { ActionNode } from "./nodes/ActionNode";
 import { EndNode } from "./nodes/EndNode";
 
@@ -59,6 +65,8 @@ const nodeTypes: NodeTypes = {
   wait: WaitNode,
   condition: ConditionNode,
   ai_classify: ClassifyNode,
+  match_reply: MatchReplyNode,
+  repeat: RepeatNode,
   action: ActionNode,
   end: EndNode,
 };
@@ -69,6 +77,7 @@ interface Props {
 }
 
 function FlowCanvasInner({ flowId, initialData }: Props) {
+  const t = useT();
   const { data: flow } = useFollowupFlow(flowId, { initialData });
   // `initial` seeds React Flow state ONCE on mount — it must NOT react to
   // `flow` changing on every refetch (that would clobber in-progress edits).
@@ -85,6 +94,7 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
   const { screenToFlowPosition } = useReactFlow();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const liveGraph = useMemo(() => fromReactFlow(nodes, edges), [nodes, edges]);
   const dirty = useMemo(() => !graphsEqual(liveGraph, savedGraph), [liveGraph, savedGraph]);
@@ -150,11 +160,11 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
           : undefined;
         return {
           ...e,
-          label: branch ? rotuloDoRamo(branch) : conditionLabel(condition),
+          label: branch ? t(rotuloDoRamo(branch)) : t(conditionLabel(condition)),
           selected: e.id === selectedEdgeId,
         };
       }),
-    [edges, nodes, selectedEdgeId],
+    [edges, nodes, selectedEdgeId, t],
   );
 
   // Quais saídas do nó selecionado já têm aresta. Quem sabe isso é o canvas —
@@ -201,11 +211,11 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
         id,
         type,
         position,
-        data: { label: visual.defaultLabel, config: visual.defaultConfig() },
+        data: { label: t(visual.defaultLabel), config: visual.defaultConfig() },
       };
       setNodes((nds) => nds.concat(newNode));
     },
-    [setNodes],
+    [setNodes, t],
   );
 
   const onPaletteAdd = useCallback(
@@ -247,6 +257,21 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
       )}
       <div className="flex flex-1 overflow-hidden">
         <NodePalette onAdd={onPaletteAdd} />
+        {/* Abaixo de `lg` a paleta fixa de 224px não cabe do lado do canvas —
+            vira um drawer, disparado por este botão flutuante. */}
+        <Sheet open={paletteOpen} onOpenChange={setPaletteOpen}>
+          <SheetContent side="left" className="w-72 max-w-[85vw] gap-0 p-0 lg:hidden">
+            <SheetTitle className="sr-only">{t("Adicionar nó")}</SheetTitle>
+            <NodePalette
+              variant="mobile"
+              onAdd={(type) => {
+                onPaletteAdd(type);
+                setPaletteOpen(false);
+              }}
+            />
+          </SheetContent>
+        </Sheet>
+
         <div className="relative h-full flex-1" data-testid="flow-canvas" onDragOver={onDragOver} onDrop={onDrop}>
           <ReactFlow
             nodes={nodes}
@@ -263,36 +288,81 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
             <Background />
             <Controls />
           </ReactFlow>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="absolute bottom-4 left-4 z-10 shadow-md lg:hidden"
+            onClick={() => setPaletteOpen(true)}
+          >
+            <Plus size={14} aria-hidden /> {t("Adicionar nó")}
+          </Button>
         </div>
 
+        {/*
+          Docked panel em telas grandes (`lg:`) — NÃO é overlay ali: o canvas
+          continua clicável, então trocar de nó/aresta selecionado funciona com
+          o painel aberto. Abaixo de `lg` os 384px (`w-96`) sozinhos já passavam
+          da largura de QUALQUER celular, e como o pai é `overflow-hidden`, o
+          painel não ganhava scroll — ficava certo, cortado, inacessível. Vira
+          bottom sheet (`fixed`, ancorado embaixo, com teto de altura e X pra
+          fechar) só nesse intervalo de tela.
+        */}
         {selectedNode && (
-          // Docked panel, NOT a modal overlay — the canvas stays fully clickable
-          // so switching node selection (or dragging edges) works while it's open.
           <aside
-            className="h-full w-96 shrink-0 overflow-y-auto border-l border-border bg-surface p-4"
+            className="fixed inset-x-0 bottom-0 z-40 flex max-h-[75vh] flex-col overflow-hidden rounded-t-lg border-t border-border bg-surface shadow-lg lg:static lg:z-auto lg:h-full lg:w-96 lg:max-h-none lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none"
             data-testid="node-config-sheet"
           >
-            <NodeConfigPanel
-              key={selectedNode.id}
-              node={selectedNode}
-              onChange={(patch) => updateNodeData(selectedNode.id, patch)}
-              ramosLigados={ramosLigadosDoSelecionado}
-            />
+            {/* Barra própria pro X, não sobreposta ao conteúdo — um botão
+                flutuante por cima do cabeçalho do painel colidiria com rótulo
+                comprido (texto sobre texto). */}
+            <div className="flex shrink-0 justify-end p-2 lg:hidden">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setSelectedNodeId(null)}
+                aria-label={t("Fechar")}
+              >
+                <X size={16} aria-hidden />
+              </Button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 pt-0 lg:pt-4">
+              <NodeConfigPanel
+                key={selectedNode.id}
+                node={selectedNode}
+                onChange={(patch) => updateNodeData(selectedNode.id, patch)}
+                ramosLigados={ramosLigadosDoSelecionado}
+              />
+            </div>
           </aside>
         )}
 
         {selectedEdge && (
           <aside
-            className="h-full w-96 shrink-0 overflow-y-auto border-l border-border bg-surface p-4"
+            className="fixed inset-x-0 bottom-0 z-40 flex max-h-[75vh] flex-col overflow-hidden rounded-t-lg border-t border-border bg-surface shadow-lg lg:static lg:z-auto lg:h-full lg:w-96 lg:max-h-none lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none"
             data-testid="edge-config-sheet"
           >
-            <EdgeConfigPanel
-              key={selectedEdge.id}
-              sourceNode={selectedEdgeSource ? toFlowNode(selectedEdgeSource) : undefined}
-              targetNode={selectedEdgeTarget ? toFlowNode(selectedEdgeTarget) : undefined}
-              condition={selectedEdge.data?.condition ?? { type: "always" }}
-              onChange={(condition) => updateEdgeCondition(selectedEdge.id, condition)}
-            />
+            <div className="flex shrink-0 justify-end p-2 lg:hidden">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setSelectedEdgeId(null)}
+                aria-label={t("Fechar")}
+              >
+                <X size={16} aria-hidden />
+              </Button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 pt-0 lg:pt-4">
+              <EdgeConfigPanel
+                key={selectedEdge.id}
+                sourceNode={selectedEdgeSource ? toFlowNode(selectedEdgeSource) : undefined}
+                targetNode={selectedEdgeTarget ? toFlowNode(selectedEdgeTarget) : undefined}
+                condition={selectedEdge.data?.condition ?? { type: "always" }}
+                onChange={(condition) => updateEdgeCondition(selectedEdge.id, condition)}
+              />
+            </div>
           </aside>
         )}
       </div>

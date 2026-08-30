@@ -1,4 +1,6 @@
 "use client";
+
+import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -10,14 +12,15 @@ import {
 } from "recharts";
 import type { UsageSeries } from "@/app/api/v1/admin/usage/route";
 import { formatCentsUSD } from "@/lib/money";
+import { useT } from "@/hooks/i18n/useT";
 
 interface UsageChartsProps {
   series: UsageSeries;
 }
 
-function formatDateTick(date: string): string {
+function formatDateTick(date: string, idioma: string): string {
   const d = new Date(date + "T00:00:00");
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return d.toLocaleDateString(idioma, { day: "2-digit", month: "2-digit" });
 }
 
 // DÓLAR: o número é `llm_calls.cost_cents`, e `pricing.ts` cota o provedor em USD.
@@ -28,9 +31,10 @@ function formatNumber(n: number): string {
 }
 
 function EmptyChart() {
+  const t = useT();
   return (
     <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-      Sem dados no período
+      {t("Sem dados no período")}
     </div>
   );
 }
@@ -50,6 +54,8 @@ function ChartCard({ title, children }: ChartCardProps) {
 }
 
 export function UsageCharts({ series }: UsageChartsProps) {
+  const tagDoIdioma = useTagDeIdioma();
+  const t = useT();
   const hasMessages = series.messages.some((p) => p.count > 0);
   const hasCost = series.ai_cost.some((p) => p.cents > 0);
   const hasTokens = series.ai_tokens.some((p) => p.tokens > 0);
@@ -57,7 +63,7 @@ export function UsageCharts({ series }: UsageChartsProps) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       {/* Messages per day */}
-      <ChartCard title="Mensagens / dia">
+      <ChartCard title={t("Mensagens / dia")}>
         {!hasMessages ? (
           <EmptyChart />
         ) : (
@@ -75,7 +81,7 @@ export function UsageCharts({ series }: UsageChartsProps) {
               <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
               <XAxis
                 dataKey="date"
-                tickFormatter={formatDateTick}
+                tickFormatter={(v) => formatDateTick(v, tagDoIdioma)}
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
@@ -89,8 +95,8 @@ export function UsageCharts({ series }: UsageChartsProps) {
                 width={45}
               />
               <Tooltip
-                formatter={(value) => [formatNumber(Number(value)), "Mensagens"]}
-                labelFormatter={(label) => formatDateTick(String(label))}
+                formatter={(value) => [formatNumber(Number(value)), t("Mensagens")]}
+                labelFormatter={(label) => formatDateTick(String(label), tagDoIdioma)}
                 contentStyle={{
                   borderRadius: "8px",
                   fontSize: "12px",
@@ -110,7 +116,7 @@ export function UsageCharts({ series }: UsageChartsProps) {
       </ChartCard>
 
       {/* AI Cost per day */}
-      <ChartCard title="Custo AI / dia (R$)">
+      <ChartCard title={t("Custo AI / dia (R$)")}>
         {!hasCost ? (
           <EmptyChart />
         ) : (
@@ -128,7 +134,7 @@ export function UsageCharts({ series }: UsageChartsProps) {
               <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
               <XAxis
                 dataKey="date"
-                tickFormatter={formatDateTick}
+                tickFormatter={(v) => formatDateTick(v, tagDoIdioma)}
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
@@ -144,8 +150,8 @@ export function UsageCharts({ series }: UsageChartsProps) {
                 width={70}
               />
               <Tooltip
-                formatter={(value) => [formatCurrency(Number(value)), "Custo"]}
-                labelFormatter={(label) => formatDateTick(String(label))}
+                formatter={(value) => [formatCurrency(Number(value)), t("Custo")]}
+                labelFormatter={(label) => formatDateTick(String(label), tagDoIdioma)}
                 contentStyle={{
                   borderRadius: "8px",
                   fontSize: "12px",
@@ -166,7 +172,7 @@ export function UsageCharts({ series }: UsageChartsProps) {
 
       {/* AI Tokens per day — full width */}
       <div className="md:col-span-2">
-        <ChartCard title="AI Tokens / dia">
+        <ChartCard title={t("AI Tokens / dia")}>
           {!hasTokens ? (
             <EmptyChart />
           ) : (
@@ -184,7 +190,7 @@ export function UsageCharts({ series }: UsageChartsProps) {
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                 <XAxis
                   dataKey="date"
-                  tickFormatter={formatDateTick}
+                  tickFormatter={(v) => formatDateTick(v, tagDoIdioma)}
                   tick={{ fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
@@ -203,7 +209,7 @@ export function UsageCharts({ series }: UsageChartsProps) {
                 />
                 <Tooltip
                   formatter={(value) => [formatNumber(Number(value)), "Tokens"]}
-                  labelFormatter={(label) => formatDateTick(String(label))}
+                  labelFormatter={(label) => formatDateTick(String(label), tagDoIdioma)}
                   contentStyle={{
                     borderRadius: "8px",
                     fontSize: "12px",

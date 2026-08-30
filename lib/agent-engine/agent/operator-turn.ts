@@ -423,7 +423,20 @@ export function createOperatorTurnHandler(deps: InboundTurnDeps) {
             messages: [{ role: 'user', content: renderBriefingDoOperador(declaracao, promessas) }],
             tools: mcp.tools,
             maxSteps: agentConfig.maxSteps,
-            ...(agentConfig.operatorModel !== null ? { model: agentConfig.operatorModel } : {}),
+            // O modelo E o provider/credencial, sempre juntos — a regra do PR
+            // #151 (`aux-model-args.ts`). Este era o último call site que
+            // mandava só a string: com o Operador publicado em OpenAI e a org
+            // em Anthropic, o id ia para o endpoint errado e o papel morria.
+            //
+            // E `operatorModel` vazio significa "a mesma que conversa" — é o
+            // que a tela escreve no campo (`PainelDoOperador.tsx`: "A mesma
+            // que conversa (…)"). Sem o `??`, vazio caía no `default_model` da
+            // organização: o controle mostrava uma promessa e entregava outra.
+            model: agentConfig.operatorModel ?? agentConfig.model,
+            llmOverride: {
+              provider: agentConfig.provider,
+              credentialId: agentConfig.credentialId,
+            },
           },
           { ...(deps.registry !== undefined ? { registry: deps.registry } : {}), log },
         );

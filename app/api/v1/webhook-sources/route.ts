@@ -79,7 +79,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (secretEncrypted === null) {
       return fail(
         "encryption_unavailable",
-        "Não foi possível guardar o segredo com segurança. Configure NUVEMSHOP_OAUTH_ENCRYPTION_KEY (chave de cifra do banco) e tente de novo — ou crie a fonte sem segredo.",
+        "Não foi possível guardar o segredo com segurança: a chave de cifra desta instalação não está ativa. Quem administra o servidor resolve rodando o update.sh, que gera e ativa a chave. Enquanto isso, você pode criar a fonte sem segredo.",
         422,
         { requestId },
       );

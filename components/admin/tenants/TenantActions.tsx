@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { SuspendDialog } from "./SuspendDialog";
 import { ReactivateDialog } from "./ReactivateDialog";
 import { ImpersonateButton } from "@/components/admin/ImpersonateButton";
+import { useT } from "@/hooks/i18n/useT";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -24,6 +25,7 @@ export function TenantActions({
   status,
   displayName,
 }: TenantActionsProps) {
+  const t = useT();
   const [suspendOpen, setSuspendOpen] = useState(false);
   const [reactivateOpen, setReactivateOpen] = useState(false);
 
@@ -35,7 +37,7 @@ export function TenantActions({
     <>
       <div className="rounded-lg border bg-card p-5 space-y-4">
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-          Ações
+          {t("Ações")}
         </h2>
 
         {/* Impersonate (S-11.07) */}
@@ -44,7 +46,7 @@ export function TenantActions({
           displayName={displayName}
           disabled={isRedacted}
           disabledReason={
-            isRedacted ? "Tenant redigido — ação não disponível" : undefined
+            isRedacted ? t("Tenant redigido — ação não disponível") : undefined
           }
         />
 
@@ -54,9 +56,9 @@ export function TenantActions({
             className="w-full"
             variant="destructive"
             onClick={() => setSuspendOpen(true)}
-            aria-label="Suspender tenant"
+            aria-label={t("Suspender tenant")}
           >
-            Suspender tenant
+            {t("Suspender tenant")}
           </Button>
         )}
 
@@ -66,15 +68,15 @@ export function TenantActions({
             className="w-full"
             variant="outline"
             onClick={() => setReactivateOpen(true)}
-            aria-label="Reativar tenant"
+            aria-label={t("Reativar tenant")}
           >
-            Reativar tenant
+            {t("Reativar tenant")}
           </Button>
         )}
 
         {isRedacted && (
           <p className="text-xs text-muted-foreground text-center py-2">
-            Tenant redigido — ações de gestão não disponíveis.
+            {t("Tenant redigido — ações de gestão não disponíveis.")}
           </p>
         )}
       </div>

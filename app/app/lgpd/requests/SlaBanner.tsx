@@ -1,5 +1,6 @@
 "use client";
 import { Warning } from "@/lib/ui/icons";
+import { useT } from "@/hooks/i18n/useT";
 import type { LgpdRequest } from "@/hooks/useLgpdRequests";
 
 const TERMINAL_STATUSES = new Set(["completed", "failed"]);
@@ -9,6 +10,7 @@ interface SlaBannerProps {
 }
 
 export function SlaBanner({ requests }: SlaBannerProps) {
+  const t = useT();
   const active = requests.filter((r) => !TERMINAL_STATUSES.has(r.status));
 
   const critical = active.filter(
@@ -25,8 +27,8 @@ export function SlaBanner({ requests }: SlaBannerProps) {
         <Warning size={18} weight="fill" className="shrink-0 text-red-600 dark:text-red-400" aria-hidden />
         <span>
           <strong>{critical.length}</strong>{" "}
-          {critical.length === 1 ? "solicitação crítica" : "solicitações críticas"} —
-          SLA vencido ou inferior a 2 dias. Ação imediata requerida.
+          {t(critical.length === 1 ? "solicitação crítica" : "solicitações críticas")} —{" "}
+          {t("SLA vencido ou inferior a 2 dias. Ação imediata requerida.")}
         </span>
       </div>
     );
@@ -41,8 +43,8 @@ export function SlaBanner({ requests }: SlaBannerProps) {
         <Warning size={18} weight="fill" className="shrink-0 text-yellow-600 dark:text-yellow-400" aria-hidden />
         <span>
           <strong>{warning.length}</strong>{" "}
-          {warning.length === 1 ? "solicitação em alerta" : "solicitações em alerta"} —
-          mais de 50% do prazo consumido.
+          {t(warning.length === 1 ? "solicitação em alerta" : "solicitações em alerta")} —{" "}
+          {t("mais de 50% do prazo consumido.")}
         </span>
       </div>
     );

@@ -160,7 +160,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // O idioma envolve a árvore inteira e recebe o código PRONTO — ele não
     // pergunta quem está logado. Ver `lib/i18n/IdiomaProvider`: foi o
     // acoplamento com a autenticação que derrubou 32 casos.
-    <IdiomaProvider locale={user.locale}>
+    <IdiomaProvider locale={user.idioma}>
     <AuthProvider user={user} activeOrg={activeOrg}>
       {/*
         O MARCADOR da marca da organização — o elemento cuja existência define o

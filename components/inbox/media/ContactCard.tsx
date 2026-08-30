@@ -8,11 +8,12 @@ import { useState } from "react";
 
 import { toast } from "sonner";
 
-
+import { useT } from "@/hooks/i18n/useT";
 
 import { UserCircle } from "@/lib/ui/icons";
 
 import { resolveSharedContact } from "@/lib/messaging/contact-card";
+import { phoneForDisplay } from "@/lib/channels/phone-variants";
 
 import type { Message } from "@/lib/types/messaging";
 
@@ -32,6 +33,8 @@ interface Props {
 
 export function ContactCard({ message }: Props) {
 
+  const t = useT();
+
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
@@ -46,7 +49,7 @@ export function ContactCard({ message }: Props) {
 
       <div className="rounded-lg border border-current/20 bg-background/10 px-3 py-2 text-xs opacity-80">
 
-        Contato
+        {t("Contato")}
 
       </div>
 
@@ -98,7 +101,7 @@ export function ContactCard({ message }: Props) {
 
       if (!res.ok || !json.data?.conversation_id) {
 
-        throw new Error(json.error?.message ?? "Não foi possível abrir a conversa.");
+        throw new Error(json.error?.message ?? t("Não foi possível abrir a conversa."));
 
       }
 
@@ -106,7 +109,7 @@ export function ContactCard({ message }: Props) {
 
     } catch (err) {
 
-      toast.error(err instanceof Error ? err.message : "Não foi possível abrir a conversa.");
+      toast.error(err instanceof Error ? t(err.message) : t("Não foi possível abrir a conversa."));
 
     } finally {
 
@@ -128,7 +131,7 @@ export function ContactCard({ message }: Props) {
 
       onClick={handleOpen}
 
-      title={canOpen ? "Abrir conversa com este contato" : undefined}
+      title={canOpen ? t("Abrir conversa com este contato") : undefined}
 
       className={cn(
 
@@ -154,7 +157,7 @@ export function ContactCard({ message }: Props) {
 
         {contact.phone_number ? (
 
-          <span className="block truncate text-xs opacity-80">{contact.phone_number}</span>
+          <span className="block truncate text-xs opacity-80">{phoneForDisplay(contact.phone_number)}</span>
 
         ) : null}
 

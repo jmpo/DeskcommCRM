@@ -1,7 +1,10 @@
 "use client";
+
+import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { useT } from "@/hooks/i18n/useT";
 import { useTeamMembers, type TeamMember } from "@/hooks/team/useTeamMembers";
 import { useChangeRole } from "@/hooks/team/useChangeRole";
 import { useRevokeMember } from "@/hooks/team/useRevokeMember";
@@ -45,6 +48,8 @@ interface Props {
 }
 
 export function TeamMembersClient({ currentUserId, canManage }: Props) {
+  const tagDoIdioma = useTagDeIdioma();
+  const t = useT();
   const { data, isLoading, isError } = useTeamMembers();
   const changeRole = useChangeRole();
   const revoke = useRevokeMember();
@@ -52,14 +57,14 @@ export function TeamMembersClient({ currentUserId, canManage }: Props) {
   const [revokeDialog, setRevokeDialog] = useState<TeamMember | null>(null);
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Carregando…</p>;
+    return <p className="text-sm text-muted-foreground">{t("Carregando…")}</p>;
   }
   if (isError) {
-    return <p className="text-sm text-destructive">Erro ao carregar membros.</p>;
+    return <p className="text-sm text-destructive">{t("Erro ao carregar membros.")}</p>;
   }
   const members = data?.data ?? [];
   if (members.length === 0) {
-    return <p className="text-sm text-muted-foreground">Nenhum membro ativo.</p>;
+    return <p className="text-sm text-muted-foreground">{t("Nenhum membro ativo.")}</p>;
   }
 
   return (
@@ -68,10 +73,10 @@ export function TeamMembersClient({ currentUserId, canManage }: Props) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Membro</TableHead>
+              <TableHead>{t("Membro")}</TableHead>
               <TableHead>Role</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Última atividade</TableHead>
+              <TableHead>{t("Status")}</TableHead>
+              <TableHead>{t("Última atividade")}</TableHead>
               {canManage ? <TableHead className="w-[80px]" /> : null}
             </TableRow>
           </TableHeader>
@@ -94,7 +99,7 @@ export function TeamMembersClient({ currentUserId, canManage }: Props) {
                     >
                       <SelectTrigger
                         className="w-[130px]"
-                        aria-label={`Papel de ${m.full_name ?? m.email ?? m.user_id}`}
+                        aria-label={`${t("Papel de")} ${m.full_name ?? m.email ?? m.user_id}`}
                       >
                         <SelectValue />
                       </SelectTrigger>
@@ -112,14 +117,14 @@ export function TeamMembersClient({ currentUserId, canManage }: Props) {
                 </TableCell>
                 <TableCell>
                   {m.accepted_at ? (
-                    <Badge variant="default">Aceito</Badge>
+                    <Badge variant="default">{t("Aceito")}</Badge>
                   ) : (
-                    <Badge variant="outline">Pendente</Badge>
+                    <Badge variant="outline">{t("Pendente")}</Badge>
                   )}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {m.last_sign_in_at
-                    ? new Date(m.last_sign_in_at).toLocaleString("pt-BR")
+                    ? new Date(m.last_sign_in_at).toLocaleString(tagDoIdioma)
                     : "—"}
                 </TableCell>
                 {canManage ? (
@@ -127,7 +132,7 @@ export function TeamMembersClient({ currentUserId, canManage }: Props) {
                     {m.user_id !== currentUserId ? (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" aria-label="Ações">
+                          <Button variant="ghost" size="icon" aria-label={t("Ações")}>
                             <DotsThree size={20} />
                           </Button>
                         </DropdownMenuTrigger>
@@ -136,12 +141,12 @@ export function TeamMembersClient({ currentUserId, canManage }: Props) {
                             className="text-destructive focus:text-destructive"
                             onClick={() => setRevokeDialog(m)}
                           >
-                            Revogar acesso
+                            {t("Revogar acesso")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     ) : (
-                      <span className="text-xs text-muted-foreground">você</span>
+                      <span className="text-xs text-muted-foreground">{t("você")}</span>
                     )}
                   </TableCell>
                 ) : null}
@@ -154,15 +159,14 @@ export function TeamMembersClient({ currentUserId, canManage }: Props) {
       <Dialog open={!!revokeDialog} onOpenChange={(o) => !o && setRevokeDialog(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Revogar acesso</DialogTitle>
+            <DialogTitle>{t("Revogar acesso")}</DialogTitle>
             <DialogDescription>
-              {revokeDialog?.email ?? revokeDialog?.user_id} perderá acesso ao tenant. Esta ação
-              pode ser desfeita reconvidando o membro.
+              {revokeDialog?.email ?? revokeDialog?.user_id} {t("perderá acesso ao tenant. Esta ação pode ser desfeita reconvidando o membro.")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRevokeDialog(null)}>
-              Cancelar
+              {t("Cancelar")}
             </Button>
             <Button
               variant="destructive"
@@ -171,14 +175,14 @@ export function TeamMembersClient({ currentUserId, canManage }: Props) {
                 if (!revokeDialog) return;
                 try {
                   await revoke.mutateAsync(revokeDialog.user_id);
-                  toast.success("Acesso revogado.");
+                  toast.success(t("Acesso revogado."));
                   setRevokeDialog(null);
                 } catch {
                   /* showApiError already triggered by the hook */
                 }
               }}
             >
-              Revogar
+              {t("Revogar")}
             </Button>
           </DialogFooter>
         </DialogContent>

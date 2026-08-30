@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { SYSTEM_PROMPT_PLACEHOLDERS } from "@/lib/ai/guardrails-schema";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   value: string;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export function SystemPromptEditor({ value, onChange, disabled }: Props) {
+  const t = useT();
   const ref = React.useRef<HTMLTextAreaElement | null>(null);
 
   function insertPlaceholder(token: string) {
@@ -35,7 +37,7 @@ export function SystemPromptEditor({ value, onChange, disabled }: Props) {
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_280px]">
       <div className="space-y-2">
-        <Label htmlFor="system_prompt">System prompt</Label>
+        <Label htmlFor="system_prompt">{t("System prompt")}</Label>
         <Textarea
           id="system_prompt"
           ref={ref}
@@ -44,16 +46,16 @@ export function SystemPromptEditor({ value, onChange, disabled }: Props) {
           disabled={disabled}
           rows={18}
           className="font-mono text-sm"
-          placeholder="Você é um assistente da loja. Responda com clareza e cordialidade…"
+          placeholder={t("Você é um assistente da loja. Responda com clareza e cordialidade…")}
         />
         <p className="text-xs text-muted-foreground">
-          Mínimo 20 caracteres, máximo 10.000. Use placeholders para injetar contexto dinâmico.
+          {t("Mínimo 20 caracteres, máximo 10.000. Use placeholders para injetar contexto dinâmico.")}
         </p>
       </div>
 
       <aside className="space-y-2 rounded-md border bg-muted/30 p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Placeholders
+          {t("Placeholders")}
         </p>
         <ul className="space-y-1.5">
           {SYSTEM_PROMPT_PLACEHOLDERS.map((p) => (
@@ -68,10 +70,10 @@ export function SystemPromptEditor({ value, onChange, disabled }: Props) {
                   onClick={() => insertPlaceholder(p.token)}
                   disabled={disabled}
                 >
-                  Inserir
+                  {t("Inserir")}
                 </Button>
               </div>
-              <span className="text-[11px] text-muted-foreground">{p.description}</span>
+              <span className="text-[11px] text-muted-foreground">{t(p.description)}</span>
             </li>
           ))}
         </ul>

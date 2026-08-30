@@ -13,17 +13,32 @@ import {
 } from "@/app/api/v1/conversations/_handler";
 import { listMessagesHandler } from "@/app/api/v1/messages/_handler";
 import { getQueuePositions } from "@/lib/routing/queue";
+import { CONVERSATION_QUEUE_STATUSES } from "@/lib/schemas";
 import { resolveUserNames } from "./_users";
 import type { McpToolDefinition } from "../types";
 
-/** Conversa está na fila (visível/atribuível) = sem dono ∧ status='open'. */
+/**
+ * Conversa está na fila = sem dono ∧ status de espera.
+ *
+ * A lista de status vem da constante compartilhada, e não de um literal: era
+ * `=== "open"` aqui, `in ('open','pending')` no trigger de roteamento, e as duas
+ * coisas ao mesmo tempo dentro de `lib/routing/queue.ts`. O que a IA lia pela
+ * tool e o que a pessoa via na tela não eram a mesma fila.
+ */
 function isInQueue(c: { assigned_to_user_id: string | null; status: string }): boolean {
-  return c.assigned_to_user_id === null && c.status === "open";
+  return (
+    c.assigned_to_user_id === null &&
+    (CONVERSATION_QUEUE_STATUSES as readonly string[]).includes(c.status)
+  );
 }
 
 const listInputShape = {
   contact_id: z.string().uuid().optional(),
-  status: z.enum(["open", "claimed", "ai_handling", "closed", "archived"]).optional(),
+  // `pending` entra: é o estado da conversa que o próprio agente escalou, e sem
+  // ele a IA não conseguia listar o que ela mesma passou para uma pessoa.
+  status: z
+    .enum(["open", "pending", "claimed", "ai_handling", "closed", "archived"])
+    .optional(),
   limit: z.number().int().min(1).max(50).default(10),
   cursor: z.string().optional(),
 };
@@ -46,7 +61,8 @@ export const crmListConversations: McpToolDefinition<typeof listInputShape> = {
         requestId: ctx.requestId,
       },
       {
-        status: input.status,
+        // O handler espera LISTA desde que o filtro passou a aceitar vários.
+        status: input.status ? [input.status] : undefined,
         limit: input.limit,
         cursor: input.cursor,
       },

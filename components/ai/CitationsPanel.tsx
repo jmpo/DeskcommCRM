@@ -7,6 +7,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   open: boolean;
@@ -30,29 +31,29 @@ export function CitationsPanel({
   citations,
   messageId,
 }: Props) {
+  const t = useT();
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-md">
         <SheetHeader>
-          <SheetTitle>Citações da resposta IA</SheetTitle>
+          <SheetTitle>{t("Citações da resposta IA")}</SheetTitle>
         </SheetHeader>
         <div className="mt-4 space-y-4 overflow-y-auto pr-2">
           {citations.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Resposta sem RAG hits — modelo respondeu sem usar a base de
-              conhecimento.
+              {t("Resposta sem RAG hits — modelo respondeu sem usar a base de conhecimento.")}
             </p>
           ) : (
-            citations.map((c, i) => (
+            citations.map((c, i) => {
+              const sourceLabel = c.source_type ? SOURCE_LABEL[c.source_type] : undefined;
+              return (
               <div
                 key={c.chunk_id ?? `cit-${i}`}
                 className="rounded-md border p-3 text-sm"
               >
                 <div className="mb-1 flex items-center justify-between">
                   <Badge variant="secondary">
-                    {SOURCE_LABEL[c.source_type ?? ""] ??
-                      c.source_type ??
-                      "Fonte"}
+                    {sourceLabel ? t(sourceLabel) : (c.source_type ?? t("Fonte"))}
                   </Badge>
                   {typeof c.score === "number" && (
                     <span className="text-xs text-muted-foreground">
@@ -71,7 +72,8 @@ export function CitationsPanel({
                   </p>
                 )}
               </div>
-            ))
+              );
+            })
           )}
           {messageId && (
             <p className="pt-2 text-[10px] text-muted-foreground">

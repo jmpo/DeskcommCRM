@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { Warning } from "@/lib/ui/icons";
 import type { AdminLgpdRequest } from "@/hooks/useAdminLGPDRequests";
+import { useT } from "@/hooks/i18n/useT";
 
 interface LgpdRiskBannerProps {
   requests: AdminLgpdRequest[];
@@ -10,6 +11,7 @@ interface LgpdRiskBannerProps {
 const TERMINAL_STATUSES = new Set(["completed", "failed"]);
 
 export function LgpdRiskBanner({ requests }: LgpdRiskBannerProps) {
+  const t = useT();
   const active = requests.filter((r) => !TERMINAL_STATUSES.has(r.status));
   const critical = active.filter(
     (r) => r.risk_level === "expired" || r.risk_level === "at_risk",
@@ -33,15 +35,18 @@ export function LgpdRiskBanner({ requests }: LgpdRiskBannerProps) {
         />
         <span>
           <strong>{count}</strong>{" "}
-          {count === 1 ? "solicitação vencendo" : "solicitações vencendo"} em menos de 24h
-          ou já vencida{count !== 1 ? "s" : ""} — ação imediata requerida.
+          {count === 1
+            ? t("solicitação vencendo em menos de 24h ou já vencida")
+            : t("solicitações vencendo em menos de 24h ou já vencidas")}
+          {" — "}
+          {t("ação imediata requerida.")}
         </span>
       </div>
       <Link
         href="/admin/lgpd?risk_level=expired"
         className="shrink-0 text-xs font-medium underline underline-offset-2 hover:opacity-80"
       >
-        Ver detalhes
+        {t("Ver detalhes")}
       </Link>
     </div>
   );

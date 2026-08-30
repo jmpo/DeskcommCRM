@@ -108,3 +108,6 @@ evidence/.sonda-score-residuo.json
 
 # sessão reusada pelas jornadas (contém tokens)
 .auth/
+
+# QA em VPS: guarda segredo TOTP da conta de teste (repo e publico)
+.qa-vps/

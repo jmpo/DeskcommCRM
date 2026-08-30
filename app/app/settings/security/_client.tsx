@@ -12,6 +12,7 @@ import {
   definirExigenciaDeMfa,
   desativarMfaDaConta,
 } from "@/app/actions/auth/politicaDeMfa";
+import { useT } from "@/hooks/i18n/useT";
 
 export function SecurityClient({
   mfaEnrolled,
@@ -26,6 +27,7 @@ export function SecurityClient({
   podeExigirDaEquipe: boolean;
   empresaExige: boolean;
 }) {
+  const t = useT();
   const [codes, setCodes] = useState<string[] | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isSigningOut, startSignOut] = useTransition();
@@ -35,7 +37,7 @@ export function SecurityClient({
   function handleRegenerate() {
     if (
       !confirm(
-        "Gerar novos códigos invalida TODOS os atuais. Tem certeza?",
+        t("Gerar novos códigos invalida TODOS os atuais. Tem certeza?"),
       )
     ) {
       return;
@@ -44,15 +46,20 @@ export function SecurityClient({
       const r = await regenerateRecoveryCodes();
       if (r.ok) {
         setCodes(r.recovery_codes);
-        toast.success("Novos códigos gerados.");
+        toast.success(t("Novos códigos gerados."));
       } else {
-        toast.error(`Erro: ${r.error}`);
+        toast.error(`${t("Erro:")} ${r.error}`);
       }
     });
   }
 
   function handleSignOutAll() {
-    if (!confirm("Sair de TODOS os dispositivos? Você precisará fazer login de novo.")) return;
+    if (
+      !confirm(
+        t("Sair de TODOS os dispositivos? Você precisará fazer login de novo."),
+      )
+    )
+      return;
     startSignOut(async () => {
       await signOutEverywhere();
     });
@@ -67,10 +74,11 @@ export function SecurityClient({
       <Card className="space-y-3 p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-sm font-semibold">Verificação em duas etapas</h2>
+            <h2 className="text-sm font-semibold">{t("Verificação em duas etapas")}</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Além da senha, o sistema pede um código de 6 dígitos que só existe no
-              seu celular. É a proteção que segura uma senha vazada.
+              {t(
+                "Além da senha, o sistema pede um código de 6 dígitos que só existe no seu celular. É a proteção que segura uma senha vazada.",
+              )}
             </p>
           </div>
           <span
@@ -81,7 +89,7 @@ export function SecurityClient({
                 : "bg-muted text-muted-foreground")
             }
           >
-            {mfaEnrolled ? "Ativada" : "Desativada"}
+            {mfaEnrolled ? t("Ativada") : t("Desativada")}
           </span>
         </div>
 
@@ -89,8 +97,9 @@ export function SecurityClient({
           <div className="space-y-2">
             {obrigatorio ? (
               <p className="text-xs text-muted-foreground">
-                Ela é obrigatória para administradores desta empresa, então não dá
-                para desligar aqui. Um administrador pode mudar essa regra abaixo.
+                {t(
+                  "Ela é obrigatória para administradores desta empresa, então não dá para desligar aqui. Um administrador pode mudar essa regra abaixo.",
+                )}
               </p>
             ) : (
               <Button
@@ -98,32 +107,33 @@ export function SecurityClient({
                 size="sm"
                 disabled={mexendo}
                 onClick={() => {
-                  if (!confirm("Desligar a verificação em duas etapas desta conta?")) return;
+                  if (!confirm(t("Desligar a verificação em duas etapas desta conta?")))
+                    return;
                   startMexer(async () => {
                     const r = await desativarMfaDaConta();
                     if (!r.ok) {
-                      toast.error(r.erro);
+                      toast.error(t(r.erro));
                       return;
                     }
-                    toast.success("Verificação desligada.");
+                    toast.success(t("Verificação desligada."));
                     window.location.reload();
                   });
                 }}
               >
-                {mexendo ? "Desligando…" : "Desligar"}
+                {mexendo ? t("Desligando…") : t("Desligar")}
               </Button>
             )}
           </div>
         ) : (
           <Button size="sm" onClick={() => setAtivando(true)}>
-            Ativar
+            {t("Ativar")}
           </Button>
         )}
       </Card>
 
       {podeExigirDaEquipe ? (
         <Card className="space-y-3 p-6">
-          <h2 className="text-sm font-semibold">Exigir de quem administra</h2>
+          <h2 className="text-sm font-semibold">{t("Exigir de quem administra")}</h2>
           <label className="flex items-start gap-2 text-sm">
             <input
               type="checkbox"
@@ -135,26 +145,26 @@ export function SecurityClient({
                 startMexer(async () => {
                   const r = await definirExigenciaDeMfa(marcar);
                   if (!r.ok) {
-                    toast.error(r.erro);
+                    toast.error(t(r.erro));
                     return;
                   }
                   toast.success(
                     marcar
-                      ? "Agora os administradores precisam da verificação."
-                      : "A verificação deixou de ser obrigatória.",
+                      ? t("Agora os administradores precisam da verificação.")
+                      : t("A verificação deixou de ser obrigatória."),
                   );
                   window.location.reload();
                 });
               }}
             />
             <span>
-              Todo administrador desta empresa precisa configurar a verificação em
-              duas etapas.
+              {t(
+                "Todo administrador desta empresa precisa configurar a verificação em duas etapas.",
+              )}
               <span className="mt-1 block text-xs text-muted-foreground">
-                Quando ligado, quem administra vê uma tela pedindo a configuração
-                antes de usar o sistema. Ligue se a sua equipe mexe com dados de
-                clientes — é a diferença entre uma senha vazada virar um susto ou
-                virar um vazamento.
+                {t(
+                  "Quando ligado, quem administra vê uma tela pedindo a configuração antes de usar o sistema. Ligue se a sua equipe mexe com dados de clientes — é a diferença entre uma senha vazada virar um susto ou virar um vazamento.",
+                )}
               </span>
             </span>
           </label>
@@ -162,9 +172,9 @@ export function SecurityClient({
       ) : null}
 
       <Card className="space-y-3 p-6">
-        <h2 className="text-sm font-semibold">Códigos de recuperação</h2>
+        <h2 className="text-sm font-semibold">{t("Códigos de recuperação")}</h2>
         <p className="text-xs text-muted-foreground">
-          Use se perder acesso ao autenticador. Cada código é de uso único.
+          {t("Use se perder acesso ao autenticador. Cada código é de uso único.")}
         </p>
         {codes ? (
           <RecoveryCodesPanel codes={codes} onAcknowledge={() => setCodes(null)} />
@@ -174,27 +184,27 @@ export function SecurityClient({
             disabled={!mfaEnrolled || isPending}
             onClick={handleRegenerate}
           >
-            {isPending ? "Gerando…" : "Regenerar códigos de recuperação"}
+            {isPending ? t("Gerando…") : t("Regenerar códigos de recuperação")}
           </Button>
         )}
         {!mfaEnrolled && (
           <p className="text-xs text-muted-foreground">
-            Habilite MFA antes de gerar códigos.
+            {t("Habilite MFA antes de gerar códigos.")}
           </p>
         )}
       </Card>
 
       <Card className="space-y-3 p-6">
-        <h2 className="text-sm font-semibold">Sessões ativas</h2>
+        <h2 className="text-sm font-semibold">{t("Sessões ativas")}</h2>
         <p className="text-xs text-muted-foreground">
-          Listagem de sessões — em breve. Por enquanto, deslogue todos os dispositivos:
+          {t("Listagem de sessões — em breve. Por enquanto, deslogue todos os dispositivos:")}
         </p>
         <Button
           variant="outline"
           disabled={isSigningOut}
           onClick={handleSignOutAll}
         >
-          {isSigningOut ? "Saindo…" : "Sair de todos os dispositivos"}
+          {isSigningOut ? t("Saindo…") : t("Sair de todos os dispositivos")}
         </Button>
       </Card>
     </div>

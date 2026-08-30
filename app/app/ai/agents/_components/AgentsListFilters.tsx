@@ -7,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useT } from "@/hooks/i18n/useT";
 import type { AgentStatus } from "./AgentStatusBadge";
 
 export type StatusFilter = AgentStatus | "all";
@@ -28,24 +29,25 @@ export function AgentsListFilters({
   showArchived,
   onShowArchivedChange,
 }: Props) {
+  const t = useT();
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Input
-        placeholder="Buscar por nome…"
+        placeholder={t("Buscar por nome…")}
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
-        className="w-64"
-        aria-label="Buscar agents"
+        className="w-full sm:w-64"
+        aria-label={t("Buscar agents")}
       />
       <Select value={status} onValueChange={(v) => onStatusChange(v as StatusFilter)}>
-        <SelectTrigger className="w-44" aria-label="Filtrar por status">
-          <SelectValue placeholder="Status" />
+        <SelectTrigger className="w-44" aria-label={t("Filtrar por status")}>
+          <SelectValue placeholder={t("Status")} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="all">Todos</SelectItem>
-          <SelectItem value="published">Publicado</SelectItem>
-          <SelectItem value="paused">Pausado</SelectItem>
-          <SelectItem value="archived">Arquivado</SelectItem>
+          <SelectItem value="all">{t("Todos")}</SelectItem>
+          <SelectItem value="published">{t("Publicado")}</SelectItem>
+          <SelectItem value="paused">{t("Pausado")}</SelectItem>
+          <SelectItem value="archived">{t("Arquivado")}</SelectItem>
         </SelectContent>
       </Select>
       <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -55,7 +57,7 @@ export function AgentsListFilters({
           onChange={(e) => onShowArchivedChange(e.target.checked)}
           className="size-4"
         />
-        Incluir arquivados
+        {t("Incluir arquivados")}
       </label>
     </div>
   );

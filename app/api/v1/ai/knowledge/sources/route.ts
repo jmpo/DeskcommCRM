@@ -1,9 +1,14 @@
 /**
- * GET  /api/v1/ai/knowledge/sources  — list knowledge sources for active org
- * POST /api/v1/ai/knowledge/sources  — create a knowledge source (optionally with FAQ items)
+ * GET  /api/v1/ai/knowledge/sources — os materiais da organização
+ * POST /api/v1/ai/knowledge/sources — cadastra um material
  *
- * Auth: cookie session. Role >= manager required for POST.
- * organization_id is ALWAYS resolved from the authenticated session — never from body.
+ * Desde a 0181 o acervo é da ORGANIZAÇÃO, não de um agente. `agent_id` continua
+ * aceito e vira registro histórico de onde o material nasceu; quem lê o quê é
+ * escolha da versão publicada de cada assistente
+ * (`ai_agent_versions.knowledge_source_ids`).
+ *
+ * Auth: sessão por cookie, papel >= manager para escrever.
+ * `organization_id` SEMPRE sai da sessão autenticada — nunca do corpo.
  */
 
 import { randomUUID } from "node:crypto";
@@ -15,11 +20,19 @@ import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseFaqMarkdown } from "@/lib/ai/rag/ingest/faq";
+import { temChaveDeEmbedding } from "@/lib/ai/embeddings/chave";
+import {
+  aceitaTextoColado,
+  canonizarTipoDeFonte,
+  ePerguntaEResposta,
+  rotuloDoTipo,
+} from "@/lib/ai/rag/tipos-de-fonte";
+import { BUCKET_DE_CONHECIMENTO } from "@/lib/ai/rag/ingest/documento";
 
 export const dynamic = "force-dynamic";
 
 // ---------------------------------------------------------------------------
-// Zod schemas
+// Zod
 // ---------------------------------------------------------------------------
 
 const faqItemSchema = z.object({
@@ -29,47 +42,31 @@ const faqItemSchema = z.object({
   locale: z.string().optional().default("pt-BR"),
 });
 
-const sourceTypeEnum = z.enum([
-  "faq",
-  "policy",
-  "conversation",
-  "conversations",
-  "catalog",
-  "nuvemshop_catalog",
-]);
-
-type SourceType = z.infer<typeof sourceTypeEnum>;
-
 /**
- * Tipos cujo conteúdo colado (`items` / `markdown_blob`) esta rota realmente
- * ingere. Os outros valores existem no CHECK do banco, mas são preenchidos por
- * pipeline: `conversations` nasce da ingestão anonimizada
- * (`lib/ai/rag/ingest/conversations.ts`, via cron `kb-conversations-batch`) e
- * `catalog` vem da sincronização do e-commerce.
+ * O tipo chega como texto livre e é CANONIZADO na borda.
+ *
+ * Um `z.enum` aqui recusaria os nomes legados (`policy`, `conversations`) que
+ * quem integrou por API ainda manda — e o CHECK do banco saiu justamente para o
+ * vocabulário poder crescer sem migration. `canonizarTipoDeFonte` traduz; o que
+ * não traduzir é recusado com a lista do que existe.
  */
-const TIPOS_QUE_INGEREM_TEXTO: ReadonlySet<SourceType> = new Set<SourceType>(["faq", "policy"]);
-
-/** Nome do tipo em português, para mensagem de erro que alguém lê na tela. */
-const ROTULO_DO_TIPO: Record<SourceType, string> = {
-  faq: "FAQ",
-  policy: "política",
-  conversation: "conversas",
-  conversations: "conversas",
-  catalog: "catálogo",
-  nuvemshop_catalog: "catálogo",
-};
-
 const createSourceSchema = z.object({
-  agent_id: z.string().uuid(),
-  source_type: sourceTypeEnum,
-  name: z.string().min(2).max(120),
+  /** Opcional desde a 0181: o material é da organização. */
+  agent_id: z.string().uuid().optional(),
+  source_type: z.string().min(1),
+  name: z.string().trim().min(2).max(120),
   items: z.array(faqItemSchema).optional(),
   markdown_blob: z.string().optional(),
   source_metadata: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
+const SELECT_COLUNAS =
+  "id, agent_id, organization_id, source_type, name, status, last_index_status, " +
+  "last_index_error, last_indexed_at, chunks_count, is_active, source_metadata, " +
+  "active_kb_version_id, ingested_at, created_at, updated_at";
+
 // ---------------------------------------------------------------------------
-// GET — list knowledge sources
+// GET
 // ---------------------------------------------------------------------------
 
 export async function GET(_req: NextRequest): Promise<Response> {
@@ -87,25 +84,22 @@ export async function GET(_req: NextRequest): Promise<Response> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("ai_knowledge_sources")
-    .select(
-      "id, agent_id, organization_id, source_type, name, status, last_index_status, last_index_error, last_indexed_at, chunks_count, is_active, source_metadata, ingested_at, created_at, updated_at",
-    )
+    .select(SELECT_COLUNAS)
     .eq("organization_id", activeOrg.orgId)
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("[ai-knowledge-sources] GET list failed:", error.message);
-    return fail("internal_error", "Erro ao listar fontes de conhecimento.", 500, { requestId });
+    console.error("[ai-knowledge-sources] GET falhou:", error.message);
+    return fail("internal_error", "Erro ao listar os materiais.", 500, { requestId });
   }
 
   // `ok()` já embrulha em `{ data }`. Com `{ data: data ?? [] }` o corpo saía
-  // `{ data: { data: [...] } }` e o hook fazia `.filter` sobre o envelope —
-  // TypeError, lista de fontes só aparecia pelo SSR e nunca atualizava.
+  // `{ data: { data: [...] } }` e o hook fazia `.filter` sobre o envelope.
   return ok(data ?? [], { requestId });
 }
 
 // ---------------------------------------------------------------------------
-// POST — create knowledge source
+// POST
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -115,7 +109,6 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!authz.ok) return authz.response;
   const { org: activeOrg } = authz;
 
-  // Parse + validate body.
   let rawBody: unknown;
   try {
     rawBody = await req.json();
@@ -132,47 +125,55 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const input = parsed.data;
-
-  // Conteúdo mandado para um tipo que esta rota não ingere era ACEITO e
-  // descartado em silêncio: a fonte nascia vazia, com 201, e ninguém entendia
-  // por que o agente não sabia nada dali. Recusar alto é a única resposta
-  // honesta — o mesmo defeito que o bloco de `policy` abaixo já pagou uma vez.
-  const temConteudo =
-    (input.items?.length ?? 0) > 0 || (input.markdown_blob?.trim().length ?? 0) > 0;
-  if (temConteudo && !TIPOS_QUE_INGEREM_TEXTO.has(input.source_type)) {
+  const tipo = canonizarTipoDeFonte(input.source_type);
+  if (tipo === null) {
     return fail(
-      "unprocessable_entity",
-      `Fonte de ${ROTULO_DO_TIPO[input.source_type]} não recebe conteúdo colado — ela é preenchida automaticamente.`,
+      "validation_failed",
+      `Tipo de material desconhecido: "${input.source_type}". Use faq, documento, conversas ou catalogo.`,
       422,
       { requestId },
     );
   }
 
-  // Validate agent_id belongs to org (using user-scoped client — RLS enforces tenant).
+  // Conteúdo mandado para um tipo que esta rota não ingere era ACEITO e
+  // descartado em silêncio: a fonte nascia vazia, com 201, e ninguém entendia
+  // por que o agente não sabia nada dali. Recusar alto é a única resposta honesta.
+  const temConteudo =
+    (input.items?.length ?? 0) > 0 || (input.markdown_blob?.trim().length ?? 0) > 0;
+  if (temConteudo && !aceitaTextoColado(tipo)) {
+    return fail(
+      "unprocessable_entity",
+      `Material de ${rotuloDoTipo(tipo).toLowerCase()} não recebe conteúdo colado — ` +
+        "ele é preenchido automaticamente.",
+      422,
+      { requestId },
+    );
+  }
+
   const supabase = await createClient();
-  const { data: agent, error: agentErr } = await supabase
-    .from("ai_agents")
-    .select("id")
-    .eq("id", input.agent_id)
-    .eq("organization_id", activeOrg.orgId)
-    .maybeSingle();
 
-  if (agentErr) {
-    console.error("[ai-knowledge-sources] agent lookup failed:", agentErr.message);
-    return fail("internal_error", "Erro ao validar agent_id.", 500, { requestId });
-  }
-  if (!agent) {
-    return fail("not_found", "Agent não encontrado nesta organização.", 404, { requestId });
+  // `agent_id` é HISTÓRICO. Continua validado — mandar o id de um agente de
+  // outra organização tem de doer — mas não decide mais quem lê o material.
+  if (input.agent_id) {
+    const { data: agent, error: agentErr } = await supabase
+      .from("ai_agents")
+      .select("id")
+      .eq("id", input.agent_id)
+      .eq("organization_id", activeOrg.orgId)
+      .maybeSingle();
+
+    if (agentErr) {
+      console.error("[ai-knowledge-sources] validação do agente falhou:", agentErr.message);
+      return fail("internal_error", "Erro ao validar agent_id.", 500, { requestId });
+    }
+    if (!agent) {
+      return fail("not_found", "Assistente não encontrado nesta organização.", 404, { requestId });
+    }
   }
 
-  // Itens de conteúdo: valem para 'faq' E 'policy'. Antes só 'faq' era tratado,
-  // e uma política enviada com markdown_blob era ACEITA e descartada em
-  // silêncio — a fonte nascia vazia, sem erro, e o indexador depois a marcava
-  // como falha sem que ninguém entendesse por quê. Os dois tipos guardam
-  // pergunta/resposta na mesma tabela.
   let faqItems: Array<{ question: string; answer: string; tags: string[]; locale: string }> = [];
 
-  if (input.source_type === "faq" || input.source_type === "policy") {
+  if (ePerguntaEResposta(tipo)) {
     if (input.items && input.items.length > 0) {
       faqItems = input.items.map((it) => ({
         question: it.question,
@@ -185,53 +186,85 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (faqItems.length === 0) {
         return fail(
           "invalid_request",
-          "markdown_blob não contém itens FAQ válidos. Use seções ## Pergunta: / ## Resposta:.",
+          "Não achei nenhum par pergunta/resposta no texto. Use uma linha ## Pergunta: e uma ## Resposta: por item.",
           400,
           { requestId },
         );
       }
+    } else {
+      return fail("invalid_request", "Cole o conteúdo do material antes de criar.", 400, {
+        requestId,
+      });
     }
+  } else if (tipo === "documento" && !input.markdown_blob?.trim()) {
+    return fail(
+      "invalid_request",
+      "Cole o texto do documento, ou envie o arquivo em /api/v1/ai/knowledge/sources/upload.",
+      400,
+      { requestId },
+    );
   }
 
-  // Insert ai_knowledge_sources — use admin client (service role) with explicit
-  // organization_id filter (RLS bypass path, org resolved from JWT above).
   const admin = createAdminClient();
+
+  // TEXTO COLADO DE DOCUMENTO VIRA ARQUIVO.
+  //
+  // Um documento não é uma lista de pergunta/resposta: é texto corrido, e não
+  // havia onde guardá-lo — o indexador só sabia ler `ai_faq_items`, e era por
+  // isso que colar uma política produzia uma fonte que nunca indexava nada.
+  //
+  // Em vez de uma tabela nova para "texto que não é P/R", o texto é guardado
+  // como `.md` no mesmo bucket dos arquivos e segue exatamente a mesma rota de
+  // extração. Um destino, um caminho, um lugar para consertar.
+  let metadata: Record<string, unknown> = { ...(input.source_metadata ?? {}) };
+  if (tipo === "documento" && input.markdown_blob) {
+    const blobPath = `${activeOrg.orgId}/${randomUUID()}.md`;
+    const { error: upErr } = await admin.storage
+      .from(BUCKET_DE_CONHECIMENTO)
+      .upload(blobPath, Buffer.from(input.markdown_blob, "utf8"), {
+        contentType: "text/markdown",
+        upsert: false,
+      });
+    if (upErr) {
+      console.error("[ai-knowledge-sources] guardar o texto falhou:", upErr.message);
+      return fail("internal_error", "Erro ao guardar o conteúdo do material.", 500, { requestId });
+    }
+    metadata = { ...metadata, blob_path: blobPath, ext: "md", origem: "texto_colado" };
+  }
 
   const { data: ks, error: ksErr } = await admin
     .from("ai_knowledge_sources")
     .insert({
       organization_id: activeOrg.orgId,
-      agent_id: input.agent_id,
-      source_type: input.source_type,
+      agent_id: input.agent_id ?? null,
+      source_type: tipo,
       name: input.name,
       status: "ready",
-      source_metadata: input.source_metadata ?? {},
+      is_active: true,
+      source_metadata: metadata,
       ingested_at: new Date().toISOString(),
     })
     .select("id")
     .single();
 
   if (ksErr || !ks) {
-    // `ai_knowledge_sources_unique_per_agent` (agent_id, source_type) WHERE
-    // is_active: UMA fonte ativa de cada tipo por agente. Sem esta tradução o
-    // 23505 saía como 500 "Erro ao criar fonte de conhecimento." — quem tentou
-    // cadastrar a segunda não tinha como descobrir que o motivo era a primeira.
+    // `ai_knowledge_sources_nome_unico_por_org`: dois materiais ativos não podem
+    // ter o mesmo nome — é por ele que a pessoa os distingue na tela e no
+    // seletor do assistente. Sem esta tradução o 23505 saía como 500.
     if (ksErr?.code === "23505") {
       return fail(
-        "knowledge_source_type_in_use",
-        `Já existe uma fonte de ${ROTULO_DO_TIPO[input.source_type]} ativa para este agente. ` +
-          `Edite ou arquive a existente em vez de criar outra.`,
+        "knowledge_source_name_in_use",
+        `Já existe um material chamado "${input.name}". Escolha outro nome.`,
         409,
         { requestId },
       );
     }
-    console.error("[ai-knowledge-sources] insert knowledge source failed:", ksErr?.message);
-    return fail("internal_error", "Erro ao criar fonte de conhecimento.", 500, { requestId });
+    console.error("[ai-knowledge-sources] insert falhou:", ksErr?.message);
+    return fail("internal_error", "Erro ao criar o material.", 500, { requestId });
   }
 
   const ksId: string = (ks as { id: string }).id;
 
-  // Insert FAQ items if present.
   let itemsCount = 0;
   if (faqItems.length > 0) {
     const rows = faqItems.map((item, idx) => ({
@@ -247,33 +280,38 @@ export async function POST(req: NextRequest): Promise<Response> {
     const { error: itemsErr } = await admin.from("ai_faq_items").insert(rows);
 
     if (itemsErr) {
-      console.error("[ai-knowledge-sources] insert faq items failed:", itemsErr.message);
-      // Best-effort: source was created; log error but don't roll back.
-      console.warn(
-        "[ai-knowledge-sources] knowledge source created but FAQ items failed — ks id:",
-        ksId,
-      );
-    } else {
-      itemsCount = rows.length;
+      // Fonte sem item nenhum é fonte vazia: melhor desfazer do que deixar uma
+      // linha que promete conteúdo e nunca vai indexar nada.
+      await admin.from("ai_knowledge_sources").delete().eq("id", ksId);
+      console.error("[ai-knowledge-sources] insert dos itens falhou:", itemsErr.message);
+      return fail("internal_error", "Erro ao gravar o conteúdo do material.", 500, { requestId });
     }
+    itemsCount = rows.length;
   }
 
-  // Emit knowledge_source.updated event (fire-and-forget via DB RPC).
   const { error: emitErr } = await admin.rpc("emit_event" as never, {
     p_event_type: "knowledge_source.updated",
     p_entity_kind: "ai_knowledge_source",
     p_entity_id: ksId,
     p_payload: {
       knowledge_source_id: ksId,
-      agent_id: input.agent_id,
-      source_type: input.source_type,
+      agent_id: input.agent_id ?? null,
+      source_type: tipo,
     },
     p_organization_id: activeOrg.orgId,
   } as never);
 
   if (emitErr) {
-    console.warn("[ai-knowledge-sources] emit_event failed (non-blocking):", emitErr.message);
+    console.warn("[ai-knowledge-sources] emit_event falhou (não bloqueia):", emitErr.message);
   }
 
-  return ok({ id: ksId, items_count: itemsCount }, { status: 201, requestId });
+  // A resposta DIZ se a indexação vai acontecer. Sem isto a tela prometia
+  // "começa em instantes" para uma organização sem chave de embedding, e o
+  // material ficava parado sem que nada na tela mudasse.
+  const temChave = await temChaveDeEmbedding(activeOrg.orgId);
+
+  return ok(
+    { id: ksId, items_count: itemsCount, indexacao_habilitada: temChave },
+    { status: 201, requestId },
+  );
 }

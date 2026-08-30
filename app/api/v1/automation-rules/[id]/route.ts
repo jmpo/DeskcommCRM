@@ -66,7 +66,7 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
     if (safeActions === null) {
       return fail(
         "encryption_unavailable",
-        "Não foi possível guardar o segredo do webhook com segurança. Configure NUVEMSHOP_OAUTH_ENCRYPTION_KEY e tente de novo.",
+        "Não foi possível guardar o segredo do webhook com segurança: a chave de cifra desta instalação não está ativa. Quem administra o servidor resolve rodando o update.sh, que gera e ativa a chave.",
         422,
         { requestId },
       );

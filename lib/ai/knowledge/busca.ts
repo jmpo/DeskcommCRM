@@ -7,18 +7,22 @@
  * "a base nao tem essa informacao" — e o sistema passaria a responder diferente
  * para a IA e para o humano sobre o MESMO acervo.
  *
- * O motor de similaridade continua sendo a RPC `retrieve_top_k_chunks`, que e
- * SECURITY DEFINER e filtra por organizacao dentro do banco. O contrato dela
- * exige que quem chama valide o tenant: aqui `organizationId` SEMPRE vem de
- * fonte confiavel (token/cookie), nunca do corpo da requisicao.
+ * Desde a 0181 o motor e a RPC `fn_buscar_trechos_das_fontes`, que recebe a
+ * LISTA de materiais que o agente pode ler. Ela e SECURITY DEFINER e filtra por
+ * organizacao dentro do banco; o contrato exige que quem chama valide o tenant,
+ * e aqui `organizationId` SEMPRE vem de fonte confiavel (token/cookie), nunca do
+ * corpo da requisicao.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { embedText } from "@/lib/ai/embed";
+import { MODELO_DE_EMBEDDING } from "@/lib/ai/embeddings/chave";
 
 export interface TrechoEncontrado {
   chunk_id: string;
   knowledge_source_id: string | null;
+  /** Nome do material de onde o trecho saiu — a resposta cita a origem. */
+  source_name?: string | null;
   content: string;
   similarity: number;
 }
@@ -38,7 +42,8 @@ export interface ResultadoDaBusca {
 
 export interface ParametrosDaBusca {
   organizationId: string;
-  kbVersionId: string;
+  /** Materiais que quem pergunta pode ler. */
+  knowledgeSourceIds: string[];
   pergunta: string;
   topK: number;
   limiar: number;
@@ -47,6 +52,7 @@ export interface ParametrosDaBusca {
 interface LinhaDaRpc {
   chunk_id: string;
   knowledge_source_id: string | null;
+  source_name: string | null;
   content: string;
   similarity: number;
 }
@@ -56,8 +62,15 @@ export async function buscarConhecimento(
   p: ParametrosDaBusca,
   deps?: { embed?: typeof embedText },
 ): Promise<ResultadoDaBusca> {
+  if (p.knowledgeSourceIds.length === 0) {
+    return { trechos: [], melhorSimilaridade: null };
+  }
+
   const embed = deps?.embed ?? embedText;
-  const { embedding } = await embed(p.pergunta, { organizationId: p.organizationId });
+  const { embedding } = await embed(p.pergunta, {
+    organizationId: p.organizationId,
+    ponto: "embedding_consultar",
+  });
 
   // Piso real da similaridade de cosseno (1 - distancia, distancia em [0,2]).
   // Pedimos SEM limiar e cortamos aqui para conseguir enxergar o melhor
@@ -65,12 +78,13 @@ export async function buscarConhecimento(
   // se faltou pouco ou se nao ha nada parecido no acervo.
   const PISO = -1;
 
-  const { data, error } = await supabase.rpc("retrieve_top_k_chunks", {
+  const { data, error } = await supabase.rpc("fn_buscar_trechos_das_fontes", {
     p_organization_id: p.organizationId,
-    p_kb_version_id: p.kbVersionId,
+    p_source_ids: p.knowledgeSourceIds,
     p_embedding: `[${embedding.join(",")}]`,
     p_k: p.topK,
     p_threshold: PISO,
+    p_embedding_model: MODELO_DE_EMBEDDING,
   });
 
   if (error) {
@@ -86,6 +100,7 @@ export async function buscarConhecimento(
       .map((l) => ({
         chunk_id: l.chunk_id,
         knowledge_source_id: l.knowledge_source_id,
+        source_name: l.source_name,
         content: l.content,
         similarity: l.similarity,
       })),
@@ -94,26 +109,56 @@ export async function buscarConhecimento(
 }
 
 /**
- * Resolve qual acervo consultar.
+ * Resolve QUAIS materiais o agente pode consultar.
  *
- * A base ativa e por AGENTE (`ai_agents.active_kb_version_id`), nao por
- * organizacao — dois agentes da mesma empresa podem responder por acervos
- * diferentes. Quando quem chama e o proprio agente, `ctx.actor.id` ja e o id
- * dele e nao ha o que perguntar; quando e uma pessoa (cliente MCP externo),
- * ela precisa dizer por qual assistente quer buscar.
+ * Ate a 0181 isto era um ponteiro escalar na tabela do agente
+ * (`active_kb_version_id`). Agora e a escolha da VERSAO PUBLICADA
+ * (`ai_agent_versions.knowledge_source_ids`) — dois agentes da mesma empresa
+ * podem ler acervos diferentes, e o mesmo manual pode servir aos dois sem ser
+ * cadastrado duas vezes.
+ *
+ * Quando o agente nao tem versao publicada com materiais, cai no ponteiro
+ * legado: o clone que ainda nao aplicou a migration continua respondendo com o
+ * acervo antigo em vez de emudecer.
  */
 export async function resolverAcervoDoAgente(
   supabase: SupabaseClient,
   organizationId: string,
   agentId: string,
-): Promise<string | null> {
+): Promise<string[]> {
   const { data, error } = await supabase
     .from("ai_agents")
-    .select("active_kb_version_id")
+    .select("active_kb_version_id, published_version_id")
     .eq("id", agentId)
     .eq("organization_id", organizationId)
     .maybeSingle();
 
   if (error) throw new Error(`acervo_do_agente_falhou: ${error.message}`);
-  return (data?.active_kb_version_id as string | null) ?? null;
+  if (!data) return [];
+
+  const publishedVersionId = (data as { published_version_id: string | null }).published_version_id;
+  if (publishedVersionId) {
+    const { data: versao } = await supabase
+      .from("ai_agent_versions")
+      .select("knowledge_source_ids")
+      .eq("id", publishedVersionId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    const fontes = (versao as { knowledge_source_ids: string[] | null } | null)
+      ?.knowledge_source_ids;
+    if (fontes && fontes.length > 0) return fontes;
+  }
+
+  // Reserva legada: os materiais que ainda apontam para a versao ativa do agente.
+  const kbVersionId = (data as { active_kb_version_id: string | null }).active_kb_version_id;
+  if (!kbVersionId) return [];
+
+  const { data: fontesLegadas } = await supabase
+    .from("ai_knowledge_sources")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("active_kb_version_id", kbVersionId)
+    .eq("is_active", true);
+
+  return ((fontesLegadas ?? []) as Array<{ id: string }>).map((f) => f.id);
 }

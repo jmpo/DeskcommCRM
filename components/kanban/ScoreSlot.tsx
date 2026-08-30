@@ -1,6 +1,7 @@
 "use client";
 import { useState, type MouseEvent } from "react";
 
+import { useT } from "@/hooks/i18n/useT";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { bandLabel, type ScoreBand } from "@/lib/kanban/score-band";
@@ -33,6 +34,7 @@ interface ScoreSlotProps {
  * coerência não alcança.
  */
 export function ScoreSlot({ probability, band, reason, factors }: ScoreSlotProps) {
+  const t = useT();
   const [aberto, setAberto] = useState(false);
 
   const pare = (e: MouseEvent) => {
@@ -53,7 +55,7 @@ export function ScoreSlot({ probability, band, reason, factors }: ScoreSlotProps
           onMouseLeave={() => setAberto(false)}
           // O rótulo acessível carrega o número E a faixa: "72%" lido sozinho
           // não diz se é bom ou ruim para quem não vê a barra.
-          aria-label={`Probabilidade ${probability}%, ${bandLabel(band)}. Ver o porquê.`}
+          aria-label={`${t("Probabilidade")} ${probability}%, ${bandLabel(band, t)}. ${t("Ver o porquê.")}`}
           className="flex min-w-0 items-center gap-2 rounded text-left"
         >
           <span
@@ -80,7 +82,7 @@ export function ScoreSlot({ probability, band, reason, factors }: ScoreSlotProps
         onClick={pare}
         data-testid="score-evidencias"
       >
-        <p className="font-medium text-text">{bandLabel(band)} · {probability}%</p>
+        <p className="font-medium text-text">{bandLabel(band, t)} · {probability}%</p>
         {reason !== "" && <p className="mt-1 text-text-muted">{reason}</p>}
 
         {factors.length > 0 ? (
@@ -104,7 +106,7 @@ export function ScoreSlot({ probability, band, reason, factors }: ScoreSlotProps
                       pior que âncora nenhuma. */}
                   {f.ancora && (
                     <span className="ml-1 text-text-muted">
-                      ({f.ancora.kind === "message" ? "ver a mensagem" : "registro que sustenta"})
+                      ({f.ancora.kind === "message" ? t("ver a mensagem") : t("registro que sustenta")})
                     </span>
                   )}
                 </span>
@@ -114,7 +116,7 @@ export function ScoreSlot({ probability, band, reason, factors }: ScoreSlotProps
         ) : (
           // Vazio com DESENHO PRÓPRIO: não há evidência a mostrar, e dizer isso
           // é melhor que deixar um espaço que parece defeito de carregamento.
-          <p className="mt-2 text-text-muted">Sem evidências registradas.</p>
+          <p className="mt-2 text-text-muted">{t("Sem evidências registradas.")}</p>
         )}
       </PopoverContent>
     </Popover>

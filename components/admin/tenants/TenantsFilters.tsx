@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { AdminTenantsFilters } from "@/hooks/useAdminTenants";
+import { useT } from "@/hooks/i18n/useT";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -24,6 +25,7 @@ interface TenantsFiltersProps {
 // ---------------------------------------------------------------------------
 
 export function TenantsFilters({ filters, onChange }: TenantsFiltersProps) {
+  const t = useT();
   const [inputValue, setInputValue] = useState(filters.q ?? "");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -51,25 +53,25 @@ export function TenantsFilters({ filters, onChange }: TenantsFiltersProps) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
       <Input
-        placeholder="Buscar por nome, slug ou CNPJ..."
+        placeholder={t("Buscar por nome, slug ou CNPJ...")}
         value={inputValue}
         onChange={(e) => handleSearch(e.target.value)}
         className="sm:w-80"
-        aria-label="Buscar tenants"
+        aria-label={t("Buscar tenants")}
       />
       <Select
         value={filters.status ?? "all"}
         onValueChange={handleStatus}
       >
-        <SelectTrigger className="sm:w-44" aria-label="Filtrar por status">
-          <SelectValue placeholder="Status" />
+        <SelectTrigger className="sm:w-44" aria-label={t("Filtrar por status")}>
+          <SelectValue placeholder={t("Status")} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="all">Todos os status</SelectItem>
-          <SelectItem value="active">Ativo</SelectItem>
-          <SelectItem value="onboarding">Onboarding</SelectItem>
-          <SelectItem value="suspended">Suspenso</SelectItem>
-          <SelectItem value="redacted">Redigido</SelectItem>
+          <SelectItem value="all">{t("Todos os status")}</SelectItem>
+          <SelectItem value="active">{t("Ativo")}</SelectItem>
+          <SelectItem value="onboarding">{t("Onboarding")}</SelectItem>
+          <SelectItem value="suspended">{t("Suspenso")}</SelectItem>
+          <SelectItem value="redacted">{t("Redigido")}</SelectItem>
         </SelectContent>
       </Select>
     </div>

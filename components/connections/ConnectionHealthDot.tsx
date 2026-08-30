@@ -5,6 +5,7 @@ import {
   deriveOverallHealth,
   type ConnectionHealth,
 } from "@/hooks/channels/useChannelSessions";
+import { useT } from "@/hooks/i18n/useT";
 
 const DOT_COLOR: Record<ConnectionHealth, string> = {
   connected: "bg-success",
@@ -27,6 +28,7 @@ const DOT_LABEL: Record<ConnectionHealth, string> = {
  * (30s) para o usuário ver de relance quando um número cai — sem precisar abrir nada.
  */
 export function ConnectionHealthDot({ className }: { className?: string }) {
+  const t = useT();
   const { data, isError } = useChannelSessions({ refetchInterval: 30_000 });
   // Listagem que falhou não vira "Nenhuma conexão": a bolinha é o único sinal
   // ambiente de canal caído, e dizer "nenhuma" a quem tem número ligado é o
@@ -40,8 +42,8 @@ export function ConnectionHealthDot({ className }: { className?: string }) {
         health === "down" && "animate-pulse",
         className,
       )}
-      title={DOT_LABEL[health]}
-      aria-label={DOT_LABEL[health]}
+      title={t(DOT_LABEL[health])}
+      aria-label={t(DOT_LABEL[health])}
     />
   );
 }

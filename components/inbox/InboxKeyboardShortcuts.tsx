@@ -1,5 +1,6 @@
 "use client";
 import { useHotkeys } from "react-hotkeys-hook";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   /** Currently visible conversation ids in the list (for j/k nav). */
@@ -23,6 +24,7 @@ export function InboxKeyboardShortcuts({
   onToggleHelp,
   enabled = true,
 }: Props) {
+  const t = useT();
   function step(delta: number) {
     if (visibleIds.length === 0) return;
     const idx = selectedId ? visibleIds.indexOf(selectedId) : -1;
@@ -47,7 +49,7 @@ export function InboxKeyboardShortcuts({
   useHotkeys(
     "e",
     () => {
-      if (confirm("Fechar conversa?")) onClose();
+      if (confirm(t("Fechar conversa?"))) onClose();
     },
     { enabled, preventDefault: true },
   );

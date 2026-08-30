@@ -1,6 +1,9 @@
 "use client";
+
+import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
+
+import type { Locale } from "date-fns";
 import { formatDistanceToNow } from "date-fns";
-import { ptBR } from "date-fns/locale";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -18,14 +21,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { PlatformAdminEntry } from "@/hooks/useAdminPlatformAdmins";
+import { useT } from "@/hooks/i18n/useT";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function relativeDate(iso: string): string {
+function relativeDate(iso: string, locale: Locale): string {
   try {
-    return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: ptBR });
+    return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: locale });
   } catch {
     return iso;
   }
@@ -44,12 +48,13 @@ function shortEmail(email: string | null): string {
 // ---------------------------------------------------------------------------
 
 export function PlatformAdminsTableSkeleton() {
+  const t = useT();
   return (
     <div className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
-            {["Usuário", "Concedido em", "Concedido por", "Scope", "MFA", "Status", "Motivo"].map(
+            {[t("Usuário"), t("Concedido em"), t("Concedido por"), "Scope", "MFA", t("Status"), t("Motivo")].map(
               (h) => (
                 <TableHead key={h}>{h}</TableHead>
               ),
@@ -77,13 +82,14 @@ export function PlatformAdminsTableSkeleton() {
 // ---------------------------------------------------------------------------
 
 function EmptyState() {
+  const t = useT();
   return (
     <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16 text-center">
       <p className="text-sm font-medium text-muted-foreground">
-        Nenhum platform admin encontrado
+        {t("Nenhum platform admin encontrado")}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
-        Platform admins são configurados exclusivamente via DBA.
+        {t("Platform admins são configurados exclusivamente via DBA.")}
       </p>
     </div>
   );
@@ -122,6 +128,8 @@ interface PlatformAdminsTableProps {
 }
 
 export function PlatformAdminsTable({ data }: PlatformAdminsTableProps) {
+  const localeDaData = useLocaleDeData();
+  const t = useT();
   if (data.length === 0) return <EmptyState />;
 
   return (
@@ -129,13 +137,13 @@ export function PlatformAdminsTable({ data }: PlatformAdminsTableProps) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="min-w-[200px]">Usuário</TableHead>
-            <TableHead className="w-[140px]">Concedido em</TableHead>
-            <TableHead className="w-[160px]">Concedido por</TableHead>
+            <TableHead className="min-w-[200px]">{t("Usuário")}</TableHead>
+            <TableHead className="w-[140px]">{t("Concedido em")}</TableHead>
+            <TableHead className="w-[160px]">{t("Concedido por")}</TableHead>
             <TableHead className="w-[120px]">Scope</TableHead>
             <TableHead className="w-[60px]">MFA</TableHead>
-            <TableHead className="w-[90px]">Status</TableHead>
-            <TableHead>Motivo</TableHead>
+            <TableHead className="w-[90px]">{t("Status")}</TableHead>
+            <TableHead>{t("Motivo")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -161,7 +169,7 @@ export function PlatformAdminsTable({ data }: PlatformAdminsTableProps) {
 
                 {/* Granted At */}
                 <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                  {relativeDate(row.granted_at)}
+                  {relativeDate(row.granted_at, localeDaData)}
                 </TableCell>
 
                 {/* Granted By */}
@@ -180,11 +188,11 @@ export function PlatformAdminsTable({ data }: PlatformAdminsTableProps) {
                 <TableCell>
                   {row.mfa_required ? (
                     <Badge variant="default" className="text-[10px]">
-                      Sim
+                      {t("Sim")}
                     </Badge>
                   ) : (
                     <Badge variant="secondary" className="text-[10px]">
-                      Não
+                      {t("Não")}
                     </Badge>
                   )}
                 </TableCell>
@@ -193,14 +201,14 @@ export function PlatformAdminsTable({ data }: PlatformAdminsTableProps) {
                 <TableCell>
                   {isRevoked ? (
                     <Badge variant="destructive" className="text-[10px]">
-                      Revogado
+                      {t("Revogado")}
                     </Badge>
                   ) : (
                     <Badge
                       variant="outline"
                       className="border-green-500 text-[10px] text-green-700"
                     >
-                      Ativo
+                      {t("Ativo")}
                     </Badge>
                   )}
                 </TableCell>

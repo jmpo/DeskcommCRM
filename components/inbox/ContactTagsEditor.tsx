@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useT } from "@/hooks/i18n/useT";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,7 @@ interface Props {
 /** Edita as tags do CONTATO (distinto de ConversationTagsEditor, que edita as
  * tags da conversa) — aberto pelo botão "Tag" do painel do Inbox. */
 export function ContactTagsEditor({ contactId, tags }: Props) {
+  const t = useT();
   const [draft, setDraft] = useState("");
   const mutation = useUpdateContact(contactId);
 
@@ -29,21 +31,21 @@ export function ContactTagsEditor({ contactId, tags }: Props) {
   }
 
   function remove(tag: string) {
-    apply(tags.filter((t) => t !== tag));
+    apply(tags.filter((v) => v !== tag));
   }
 
   return (
     <div className="mt-2 space-y-2 rounded-md border border-border p-2">
       <div className="flex flex-wrap gap-1">
         {tags.length > 0 ? (
-          tags.map((t) => (
-            <Badge key={t} variant="secondary" className="h-5 gap-1 px-1.5 text-[10px]">
-              {t}
+          tags.map((tag) => (
+            <Badge key={tag} variant="secondary" className="h-5 gap-1 px-1.5 text-[10px]">
+              {tag}
               <button
                 type="button"
-                onClick={() => remove(t)}
+                onClick={() => remove(tag)}
                 disabled={mutation.isPending}
-                aria-label={`Remover tag ${t}`}
+                aria-label={`${t("Remover tag")} ${tag}`}
                 className="rounded-sm hover:text-destructive"
               >
                 <X size={10} weight="bold" aria-hidden />
@@ -51,7 +53,7 @@ export function ContactTagsEditor({ contactId, tags }: Props) {
             </Badge>
           ))
         ) : (
-          <span className="text-xs text-muted-foreground">Sem tags no contato.</span>
+          <span className="text-xs text-muted-foreground">{t("Sem tags no contato.")}</span>
         )}
       </div>
 
@@ -65,19 +67,19 @@ export function ContactTagsEditor({ contactId, tags }: Props) {
               add(draft);
             }
           }}
-          placeholder="Nova tag…"
+          placeholder={t("Nova tag…")}
           maxLength={40}
           disabled={mutation.isPending || tags.length >= 20}
-          className="h-7 [@media(hover:none)]:h-9 text-xs"
-          aria-label="Adicionar tag ao contato"
+          className="h-7 text-xs"
+          aria-label={t("Adicionar tag ao contato")}
         />
         <Button
           size="sm"
           variant="outline"
-          className="h-7 [@media(hover:none)]:h-9 px-2"
+          className="h-7 px-2"
           onClick={() => add(draft)}
           disabled={mutation.isPending || !draft.trim() || tags.length >= 20}
-          aria-label="Adicionar tag"
+          aria-label={t("Adicionar tag")}
         >
           <Plus size={12} weight="regular" aria-hidden />
         </Button>

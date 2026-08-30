@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useT } from "@/hooks/i18n/useT";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -40,6 +41,7 @@ const ROLE_LABEL: Record<string, string> = {
  * auditável em conversation_assignment_events.
  */
 export function ReassignDialog({ conversationId, open, onOpenChange }: Props) {
+  const t = useT();
   const { user } = useAuth();
   const members = useAssignableMembers(open);
   const transfer = useTransferConversation();
@@ -60,28 +62,29 @@ export function ReassignDialog({ conversationId, open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Transferir conversa</DialogTitle>
+          <DialogTitle>{t("Transferir conversa")}</DialogTitle>
           <DialogDescription>
-            A transferência é imediata: o atendente escolhido vira o responsável agora e a mudança
-            fica registrada no histórico.
+            {t(
+              "A transferência é imediata: o atendente escolhido vira o responsável agora e a mudança fica registrada no histórico.",
+            )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="reassign-target">Transferir para</Label>
+            <Label htmlFor="reassign-target">{t("Transferir para")}</Label>
             <Select value={toUserId} onValueChange={setToUserId}>
               <SelectTrigger id="reassign-target" className="w-full">
                 <SelectValue
-                  placeholder={members.isLoading ? "Carregando atendentes…" : "Escolha o atendente"}
+                  placeholder={members.isLoading ? t("Carregando atendentes…") : t("Escolha o atendente")}
                 />
               </SelectTrigger>
               <SelectContent>
                 {options.map((m) => (
                   <SelectItem key={m.user_id} value={m.user_id}>
-                    {m.full_name ?? `Atendente ${m.user_id.slice(0, 8)}`}
+                    {m.full_name ?? `${t("Atendente")} ${m.user_id.slice(0, 8)}`}
                     <span className="ml-1 text-muted-foreground">
-                      · {ROLE_LABEL[m.role] ?? m.role}
+                      · {t(ROLE_LABEL[m.role] ?? m.role)}
                     </span>
                   </SelectItem>
                 ))}
@@ -89,18 +92,18 @@ export function ReassignDialog({ conversationId, open, onOpenChange }: Props) {
             </Select>
             {!members.isLoading && options.length === 0 && (
               <p className="text-xs text-muted-foreground">
-                Nenhum outro atendente disponível nesta organização.
+                {t("Nenhum outro atendente disponível nesta organização.")}
               </p>
             )}
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="reassign-reason">Motivo (opcional)</Label>
+            <Label htmlFor="reassign-reason">{t("Motivo (opcional)")}</Label>
             <Textarea
               id="reassign-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Ex.: cliente pediu falar com o financeiro"
+              placeholder={t("Ex.: cliente pediu falar com o financeiro")}
               maxLength={500}
               rows={2}
             />
@@ -109,7 +112,7 @@ export function ReassignDialog({ conversationId, open, onOpenChange }: Props) {
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => close(false)}>
-            Cancelar
+            {t("Cancelar")}
           </Button>
           <Button
             disabled={!toUserId || transfer.isPending}
@@ -124,7 +127,7 @@ export function ReassignDialog({ conversationId, open, onOpenChange }: Props) {
               )
             }
           >
-            {transfer.isPending ? "Transferindo…" : "Transferir"}
+            {transfer.isPending ? t("Transferindo…") : t("Transferir")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 
+import { useT } from "@/hooks/i18n/useT";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +13,7 @@ interface RecoveryFormProps {
 }
 
 export function RecoveryForm({ next }: RecoveryFormProps) {
+  const t = useT();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -22,16 +24,16 @@ export function RecoveryForm({ next }: RecoveryFormProps) {
     setError(null);
     const normalizedCode = code.trim().toUpperCase();
     if (!/^[A-Z0-9]{8}$/.test(normalizedCode)) {
-      setError("Código inválido ou já utilizado.");
+      setError(t("Código inválido ou já utilizado."));
       return;
     }
     startTransition(async () => {
       const res = await submitRecoveryCode({ email, code: normalizedCode }, next);
       if (!res) return; // server-side redirect on success
       if (res.error === "service_unavailable") {
-        setError("Serviço de recuperação indisponível. Contate o administrador.");
+        setError(t("Serviço de recuperação indisponível. Contate o administrador."));
       } else {
-        setError("Código inválido ou já utilizado.");
+        setError(t("Código inválido ou já utilizado."));
       }
     });
   };
@@ -51,7 +53,7 @@ export function RecoveryForm({ next }: RecoveryFormProps) {
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="recovery-code">Código de recuperação</Label>
+        <Label htmlFor="recovery-code">{t("Código de recuperação")}</Label>
         <Input
           id="recovery-code"
           inputMode="text"
@@ -64,7 +66,7 @@ export function RecoveryForm({ next }: RecoveryFormProps) {
           onChange={(e) => setCode(e.target.value.toUpperCase())}
         />
         <p className="text-xs text-muted-foreground">
-          Use um dos 10 códigos que você salvou ao configurar a verificação em duas etapas.
+          {t("Use um dos 10 códigos que você salvou ao configurar a verificação em duas etapas.")}
         </p>
       </div>
 
@@ -78,7 +80,7 @@ export function RecoveryForm({ next }: RecoveryFormProps) {
       )}
 
       <Button type="submit" className="w-full" disabled={isPending}>
-        {isPending ? "Validando..." : "Recuperar acesso"}
+        {isPending ? t("Validando...") : t("Recuperar acesso")}
       </Button>
     </form>
   );

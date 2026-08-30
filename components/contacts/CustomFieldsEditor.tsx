@@ -1,11 +1,8 @@
 "use client";
 /**
- * CustomFieldsEditor — scaffolded for EPIC-09/10 follow-ups.
- *
- * Reads `crm_pipelines.settings.fields[]` declarative schema and renders the
- * appropriate input per field type. NOT WIRED to any page yet — the consumer
- * (lead detail / contact detail) plugs it in once pipelines have published
- * field schemas.
+ * CustomFieldsEditor — lê `crm_pipelines.settings.fields[]` e renderiza o
+ * input certo por tipo. Usado pelo dossiê e pelo painel do inbox, via
+ * `LeadFieldsForm`.
  */
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { useT } from "@/hooks/i18n/useT";
+import { cn } from "@/lib/utils";
 
 export type CustomFieldType =
   | "text"
@@ -45,15 +44,17 @@ interface Props {
   onChange: (next: Record<string, unknown>) => void;
   mode: "lead" | "contact";
   disabled?: boolean;
+  className?: string;
 }
 
-export function CustomFieldsEditor({ fields, value, onChange, disabled }: Props) {
+export function CustomFieldsEditor({ fields, value, onChange, disabled, className }: Props) {
+  const t = useT();
   function set(key: string, v: unknown) {
     onChange({ ...value, [key]: v });
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+    <div className={cn("grid grid-cols-1 gap-4 md:grid-cols-2", className)}>
       {fields.map((f) => {
         const v = value[f.key];
         const id = `cf-${f.key}`;

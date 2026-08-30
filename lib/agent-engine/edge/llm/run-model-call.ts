@@ -323,12 +323,21 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
     padraoDaOrganizacao: { provider: padrao.provider, defaultModel: padrao.defaultModel },
   }, deps.log ? { log: deps.log } : {});
 
-  // Só re-resolve a credencial quando o painel apontou para OUTRA que não a já
+  // Só re-resolve a credencial quando a decisão aponta para OUTRA que não a já
   // carregada — decifrar duas vezes a mesma chave é custo puro no caminho
   // quente, e cada decifragem é mais um instante com plaintext em memória.
+  //
+  // A condição olha para o QUE FOI DECIDIDO, nunca para o rótulo da origem. Ela
+  // já foi `decisao.origem === 'binding' && (…)`, e amarrar a correção a um
+  // rótulo é o que permite decisão e execução divergirem: qualquer ramo que
+  // devolvesse um provider fora do já resolvido saía com a chave do outro —
+  // silenciosamente, porque `factory` usa `config.provider` e não
+  // `decisao.provider`. `padrao` foi resolvido com `input.llmOverride`, então
+  // comparar contra ele é comparar contra o que de fato está carregado.
+  const credencialJaCarregada = input.llmOverride?.credentialId ?? null;
   const precisaOutraCredencial =
-    decisao.origem === 'binding' &&
-    (decisao.provider !== padrao.provider || decisao.credentialId !== null);
+    decisao.provider !== padrao.provider ||
+    (decisao.credentialId !== null && decisao.credentialId !== credencialJaCarregada);
 
   const config = precisaOutraCredencial
     ? await resolveOrgLlmConfig(db, cfg, input.tenantId, {

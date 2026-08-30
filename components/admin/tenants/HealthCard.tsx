@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import type { HealthStatus } from "@/app/api/v1/admin/tenants/[id]/health/route";
+import { useT } from "@/hooks/i18n/useT";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,6 +62,7 @@ export function HealthCard({
   details,
   lastUpdated,
 }: HealthCardProps) {
+  const t = useT();
   const isCritical = status === "critical";
 
   return (
@@ -105,7 +107,7 @@ export function HealthCard({
               STATUS_BADGE_BG[status],
             ].join(" ")}
           >
-            {STATUS_LABEL[status]}
+            {t(STATUS_LABEL[status])}
           </span>
         </div>
       </div>

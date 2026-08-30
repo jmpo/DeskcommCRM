@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
+import { useT } from "@/hooks/i18n/useT";
 import type { Conversation } from "@/lib/types/messaging";
 
 interface TransferArgs {
@@ -14,6 +15,7 @@ interface TransferArgs {
 /** G3-01: transferência imediata (decisão G1-06d) — POST /transfer grava o evento auditável. */
 export function useTransferConversation() {
   const qc = useQueryClient();
+  const t = useT();
 
   return useMutation({
     mutationFn: async (args: TransferArgs) =>
@@ -29,7 +31,7 @@ export function useTransferConversation() {
     onSuccess: (_data, args) => {
       qc.invalidateQueries({ queryKey: ["conversations"] });
       qc.invalidateQueries({ queryKey: ["conversation", args.conversation_id] });
-      toast.success("Conversa transferida.");
+      toast.success(t("Conversa transferida."));
     },
   });
 }

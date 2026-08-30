@@ -540,3 +540,100 @@ describe('validateFlowForPublish — cobertura por ramo num ai_classify migrado'
     expect(result.errors.some((e) => e.branch_id === 'no_reply')).toBe(true);
   });
 });
+
+describe('validateFlowForPublish — cobertura por ramo num match_reply', () => {
+  const RAMOS = [
+    { id: 'br_sim', label: 'Sim', op: 'eq' as const, pattern: 'sim' },
+    { id: 'br_nao', label: 'Não', op: 'contains' as const, pattern: 'nao' },
+  ];
+  const branch = (branchId: string): FlowEdge['condition'] => ({ type: 'branch', branch_id: branchId });
+
+  function matchV2(id: string): FlowNode {
+    return {
+      id,
+      type: 'match_reply',
+      label: id,
+      position: pos,
+      config: { branches: RAMOS, grace_timeout_ms: 900_000 },
+    };
+  }
+
+  function grafo(saidas: FlowEdge[]): FlowGraph {
+    return graph(
+      [trigger('t1'), matchV2('mr1'), end('fim')],
+      [edge('t1', 'mr1', always()), ...saidas]
+    );
+  }
+
+  it('publica com uma aresta por ramo + no_reply + always', () => {
+    const result = validateFlowForPublish(
+      grafo([
+        edge('mr1', 'fim', branch('br_sim')),
+        edge('mr1', 'fim', branch('br_nao')),
+        edge('mr1', 'fim', branch('no_reply')),
+        edge('mr1', 'fim', always()),
+      ])
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('reprova ramo declarado sem saída', () => {
+    const result = validateFlowForPublish(
+      grafo([
+        edge('mr1', 'fim', branch('br_sim')),
+        edge('mr1', 'fim', branch('no_reply')),
+        edge('mr1', 'fim', always()),
+      ])
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    const semSaida = result.errors.filter((e) => e.code === 'missing_branch_edge');
+    expect(semSaida).toHaveLength(1);
+    expect(semSaida[0]!.branch_id).toBe('br_nao');
+  });
+});
+
+describe('validateFlowForPublish — cobertura por ramo num repeat', () => {
+  const branch = (branchId: string): FlowEdge['condition'] => ({ type: 'branch', branch_id: branchId });
+
+  function repeatNode(id: string): FlowNode {
+    return { id, type: 'repeat', label: id, position: pos, config: { max_count: 12 } };
+  }
+
+  it('publica com body + done + always e um wait no ciclo', () => {
+    const result = validateFlowForPublish(
+      graph(
+        [
+          trigger('t1'),
+          repeatNode('rp1'),
+          wait('w1', { mode: 'fixed', duration_ms: 300_000 }),
+          end('fim'),
+        ],
+        [
+          edge('t1', 'rp1', always()),
+          edge('rp1', 'w1', branch('body')),
+          edge('rp1', 'fim', branch('done')),
+          edge('rp1', 'fim', always()),
+          edge('w1', 'rp1', always()),
+        ]
+      )
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('reprova sem a saída de próxima volta', () => {
+    const result = validateFlowForPublish(
+      graph(
+        [trigger('t1'), repeatNode('rp1'), end('fim')],
+        [
+          edge('t1', 'rp1', always()),
+          edge('rp1', 'fim', branch('done')),
+          edge('rp1', 'fim', always()),
+        ]
+      )
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => e.branch_id === 'body')).toBe(true);
+  });
+});

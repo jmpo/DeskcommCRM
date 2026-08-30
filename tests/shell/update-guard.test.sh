@@ -24,6 +24,27 @@
 #      isolam cada uma, provado por sabotagem cirúrgica de cada linha.
 set -uo pipefail
 
+# O namespace das imagens publicadas, lido da FONTE (hostgator-setup-kit/_common.sh)
+# em vez de repetido aqui. Este arquivo tinha o literal em 29 lugares — fixtures e
+# asserções —, o que amarrava a suíte a UM publicador: um fork que publica as
+# próprias imagens fica vermelho sem ter quebrado nada. O que estes casos provam é
+# que as três imagens andam na MESMA versão, e isso independe de quem publica.
+#
+# O CUSTO DE DERIVAR, e onde ele é pago. Enquanto o literal estava aqui, este
+# arquivo era a única canária do repo contra um IMG_NS errado: um valor trocado
+# reprovava 4 casos (medido). Derivando, ele deixa de reprovar — os testes
+# passam a concordar entre si sobre o valor errado, que é a família do teste que
+# mede a si mesmo. A proteção não sumiu: mudou de lugar, para
+# `tests/unit/namespace-das-imagens.test.ts`, que assere o literal UMA vez e
+# confere que o compose, o `.env` de exemplo e o workflow de publicação dizem o
+# mesmo. Se você veio parar aqui procurando a guarda do namespace, é lá.
+NS="$(sed -n 's/^IMG_NS="\(.*\)"$/\1/p' "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../hostgator-setup-kit" && pwd)/_common.sh" | head -1)"
+[ -n "$NS" ] || { echo "não consegui ler IMG_NS de _common.sh"; exit 1; }
+# Exportado porque o dublê de `docker` (escrito mais abaixo num heredoc quoted)
+# resolve $NS em tempo de execução, já dentro de outro processo.
+export NS
+
+
 # Capturado ANTES de qualquer `cd`: o script muda de diretório várias vezes, e
 # `${BASH_SOURCE[0]}` é relativo ao cwd de quem invocou. Resolvê-lo lá embaixo
 # devolvia string vazia, e o `.` virava `/_common.sh`.
@@ -132,7 +153,7 @@ STUB
 printf 'services:\n  app:\n    image: \${APP_IMAGE:-x}\n' > "$PROJ/docker-compose.prod.yml"
 printf 'select 1;\n' > "$PROJ/supabase/baseline.sql"
 cat > "$PROJ/.env" <<ENV
-APP_IMAGE=ghcr.io/jmpo/deskcommcrm:latest
+APP_IMAGE=${NS}/deskcommcrm:latest
 APP_PULL_POLICY=always
 SUPABASE_DB_URL=postgresql://x/y
 NEXT_PUBLIC_APP_URL=https://crm.exemplo.com.br
@@ -185,7 +206,7 @@ echo nova > nova.txt; git add -A; git commit --quiet -m "v1.1.0"; git tag v1.1.0
 git checkout --quiet v0.9.0
 run_update --to v1.1.0
 check "a atualização termina com sucesso" test "$RC" -eq 0
-check ".env aponta para a imagem da versão instalada" grep -q '^APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.1.0$' .env
+check ".env aponta para a imagem da versão instalada" grep -q "^APP_IMAGE=${NS}/deskcommcrm:1.1.0$" .env
 check "a chave APP_IMAGE não duplicou" test "$(grep -c '^APP_IMAGE=' .env)" -eq 1
 run_update --to v1.1.0 --force
 check "segunda execução também não duplica" test "$(grep -c '^APP_IMAGE=' .env)" -eq 1
@@ -215,9 +236,9 @@ echo "── 4b. As três imagens sobem juntas, na mesma versão"
 # runtime do agente de IA — ficava congelado no código do dia da instalação.
 # Se estas três linhas voltarem a divergir, o defeito voltou.
 check "o worker é pinado na MESMA versão do app" \
-  grep -q '^WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:1.1.0$' .env
+  grep -q "^WORKER_IMAGE=${NS}/deskcomm-worker:1.1.0$" .env
 check "o scheduler é pinado na MESMA versão do app" \
-  grep -q '^SCHEDULER_IMAGE=ghcr.io/jmpo/deskcomm-scheduler:1.1.0$' .env
+  grep -q "^SCHEDULER_IMAGE=${NS}/deskcomm-scheduler:1.1.0$" .env
 check "o worker herda a política da tag imutável" \
   grep -q '^WORKER_PULL_POLICY=missing$' .env
 check "o scheduler herda a política da tag imutável" \
@@ -246,7 +267,7 @@ echo topo > topo.txt; git add -A; git commit --quiet -m "main, depois da release
 clona_raso() {  # clona_raso <destino> — igual ao install.sh: --depth 1
   git clone --depth 1 --quiet "file://$SRC" "$1"
   cat > "$1/.env" <<ENV
-APP_IMAGE=ghcr.io/jmpo/deskcommcrm:latest
+APP_IMAGE=${NS}/deskcommcrm:latest
 APP_PULL_POLICY=always
 SUPABASE_DB_URL=postgresql://x/y
 NEXT_PUBLIC_APP_URL=https://crm.exemplo.com.br
@@ -268,7 +289,7 @@ check "aborta com o código de recusa (3), não com falha genérica" test "$RC" 
 check "explica em português que é retrocesso" grep -q "ANTERIOR à que já está instalada" "$OUTFILE"
 check "não chegou a rodar o backup" test ! -f "$BACKUP_MARK"
 check "NÃO rebobinou: o HEAD é o mesmo de antes" test "$(git rev-parse HEAD)" = "$HEAD_ANTES"
-check "a imagem do .env continua intacta" grep -q '^APP_IMAGE=ghcr.io/jmpo/deskcommcrm:latest$' .env
+check "a imagem do .env continua intacta" grep -q "^APP_IMAGE=${NS}/deskcommcrm:latest$" .env
 check "completou a história para poder decidir (deixou de ser raso)" \
   test "$(git rev-parse --is-shallow-repository)" = "false"
 
@@ -297,7 +318,7 @@ bash hostgator-setup-kit/agent.sh > "$WORK/agente.out" 2>&1
 check "o agente chegou a executar o update (o app de mentira pediu)" \
   grep -q '"kind":"run_progress"\|"kind":"run_result"' "$CURL_LOG"
 check "NÃO reiniciou o container" test -z "$(grep -F 'up -d app' "$DOCKER_LOG" || true)"
-check "NÃO reescreveu a imagem do .env" grep -q '^APP_IMAGE=ghcr.io/jmpo/deskcommcrm:latest$' .env
+check "NÃO reescreveu a imagem do .env" grep -q "^APP_IMAGE=${NS}/deskcommcrm:latest$" .env
 check "reportou 'failed', não 'failed_rolled_back'" \
   test -n "$(grep -F '"status":"failed"' "$CURL_LOG" || true)"
 check "não reportou rollback nenhum" test -z "$(grep -F 'failed_rolled_back' "$CURL_LOG" || true)"
@@ -368,21 +389,26 @@ pin_caso() {  # pin_caso <descrição> <conteúdo do .env> <esperado>
   check "$d" test "$r" = "$esperado"
 }
 pin_caso "app pinado + worker/scheduler AUSENTES → acusa os dois" \
-  "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0" "worker scheduler"
+  "APP_IMAGE=${NS}/deskcommcrm:1.3.0" "worker scheduler"
 pin_caso "app pinado + worker em canal móvel → acusa" \
-  "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0
-WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:stable
-SCHEDULER_IMAGE=ghcr.io/jmpo/deskcomm-scheduler:1.3.0" "worker"
+  "APP_IMAGE=${NS}/deskcommcrm:1.3.0
+WORKER_IMAGE=${NS}/deskcomm-worker:stable
+SCHEDULER_IMAGE=${NS}/deskcomm-scheduler:1.3.0" "worker"
 pin_caso "as três na mesma versão → silêncio" \
-  "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0
-WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:1.3.0
-SCHEDULER_IMAGE=ghcr.io/jmpo/deskcomm-scheduler:1.3.0" ""
+  "APP_IMAGE=${NS}/deskcommcrm:1.3.0
+WORKER_IMAGE=${NS}/deskcomm-worker:1.3.0
+SCHEDULER_IMAGE=${NS}/deskcomm-scheduler:1.3.0" ""
 pin_caso "app num canal deliberado (:latest) → não é 'metade', silêncio" \
-  "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:latest" ""
+  "APP_IMAGE=${NS}/deskcommcrm:latest" ""
+# As aspas SIMPLES são o objeto deste caso — o `install.sh` grava assim. Elas
+# ficam literais porque estão DENTRO da string de aspas duplas; trocá-las por
+# duplas FECHA a string, e o conteúdo sai sem aspa nenhuma. Medido: nessa forma
+# o caso vira byte-a-byte igual ao "as três na mesma versão" logo acima, e o
+# rótulo passa a mentir sobre o que está sendo exercitado.
 pin_caso "valores entre aspas, como o install grava → silêncio" \
-  "APP_IMAGE='ghcr.io/jmpo/deskcommcrm:1.3.0'
-WORKER_IMAGE='ghcr.io/jmpo/deskcomm-worker:1.3.0'
-SCHEDULER_IMAGE='ghcr.io/jmpo/deskcomm-scheduler:1.3.0'" ""
+  "APP_IMAGE='${NS}/deskcommcrm:1.3.0'
+WORKER_IMAGE='${NS}/deskcomm-worker:1.3.0'
+SCHEDULER_IMAGE='${NS}/deskcomm-scheduler:1.3.0'" ""
 rm -f "$PROJ/.env.pin"
 
 
@@ -401,8 +427,13 @@ cat > "$PIN_DIR/bin/docker" <<'STUBDOCKER'
 #!/usr/bin/env bash
 # inspect de contêiner → devolve o nome da imagem; de imagem → devolve a versão
 case "$*" in
-  *"Config.Image"*)  printf 'ghcr.io/jmpo/deskcomm-worker:stable
-' ;;
+  # O heredoc é quoted ('STUBDOCKER') para proteger $* e $DUBLE_VERSION, então
+  # $NS NÃO é expandido na escrita: ele chega literal aqui e é resolvido quando o
+  # dublê RODA, lendo do ambiente (por isso o `export NS` lá em cima). Sem essa
+  # resolução o dublê devolvia a string `${NS}/deskcomm-worker:stable` — uma
+  # fixture que não representa instalação nenhuma. O `:?` faz o dublê morrer alto
+  # se a variável não vier, em vez de devolver um nome começando em "/".
+  *"Config.Image"*)  printf '%s/deskcomm-worker:stable\n' "${NS:?dublê de docker sem NS no ambiente}" ;;
   *"image.version"*) printf '%s
 ' "${DUBLE_VERSION:-1.3.0}" ;;
   *) exit 1 ;;
@@ -417,10 +448,10 @@ autopin() {  # autopin <conteúdo do .env> → ecoa o que a função corrigiu
       ". '$KIT_DIR_TESTE/_common.sh'; completar_pin_ausente .env" 2>/dev/null ) || true
 }
 
-R="$(autopin "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0")"
+R="$(autopin "APP_IMAGE=${NS}/deskcommcrm:1.3.0")"
 check "chave AUSENTE → preenche os dois" test "$R" = "worker scheduler"
 check "  e grava a versão da imagem em execução, não um canal" \
-  grep -q "^WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:1.3.0$" "$PIN_DIR/.env"
+  grep -q "^WORKER_IMAGE=${NS}/deskcomm-worker:1.3.0$" "$PIN_DIR/.env"
 check "  com pull_policy de tag imutável" \
   grep -q "^WORKER_PULL_POLICY=missing$" "$PIN_DIR/.env"
 
@@ -432,21 +463,21 @@ check "  e não altera um byte do .env" test "$ANTES_MD5" = "$(md5sum "$PIN_DIR/
 
 # A REGRA QUE PROTEGE O OPERADOR. Se esta cair, o cron passa a sobrescrever
 # escolha explícita — e a decisão de implementar a autocorreção deixa de valer.
-R="$(autopin "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0
-WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:stable
-SCHEDULER_IMAGE=ghcr.io/jmpo/deskcomm-scheduler:stable")"
+R="$(autopin "APP_IMAGE=${NS}/deskcommcrm:1.3.0
+WORKER_IMAGE=${NS}/deskcomm-worker:stable
+SCHEDULER_IMAGE=${NS}/deskcomm-scheduler:stable")"
 check "canal móvel EXPLÍCITO → não toca (é decisão de quem opera)" test -z "$R"
 check "  o :stable escolhido continua lá, intacto" \
-  grep -q "^WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:stable$" "$PIN_DIR/.env"
+  grep -q "^WORKER_IMAGE=${NS}/deskcomm-worker:stable$" "$PIN_DIR/.env"
 
-R="$(autopin "APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0
-WORKER_IMAGE=ghcr.io/jmpo/deskcomm-worker:1.3.0
-SCHEDULER_IMAGE=ghcr.io/jmpo/deskcomm-scheduler:1.3.0")"
+R="$(autopin "APP_IMAGE=${NS}/deskcommcrm:1.3.0
+WORKER_IMAGE=${NS}/deskcomm-worker:1.3.0
+SCHEDULER_IMAGE=${NS}/deskcomm-scheduler:1.3.0")"
 check "já pinada → silêncio" test -z "$R"
 
 # Imagem sem o label (build local): não há versão para gravar, e inventar uma
 # seria pior que não fazer nada.
-R="$( printf 'APP_IMAGE=ghcr.io/jmpo/deskcommcrm:1.3.0\n' > "$PIN_DIR/.env"
+R="$( printf "APP_IMAGE=${NS}/deskcommcrm:1.3.0\n" > "$PIN_DIR/.env"
       cd "$PIN_DIR" && PATH="$PIN_DIR/bin:$PATH" DUBLE_VERSION="<no value>" bash -c \
         ". '$KIT_DIR_TESTE/_common.sh'; completar_pin_ausente .env" 2>/dev/null || true )"
 check "imagem sem label de versão → não inventa pin" test -z "$R"

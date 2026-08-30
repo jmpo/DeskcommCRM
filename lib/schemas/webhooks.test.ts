@@ -61,6 +61,7 @@ describe("createAutomationRuleSchema", () => {
       { type: "add_tag", config: { tags: ["vip"] } },
       { type: "assign_owner", config: { user_id: UUID } },
       { type: "call_webhook", config: { url: "https://example.com/hook" } },
+      { type: "start_message_flow", config: { flow_pointer_id: UUID } },
     ];
     for (const action of actionCases) {
       const r = createAutomationRuleSchema.safeParse({ ...base, actions: [action] });
@@ -82,6 +83,15 @@ describe("createAutomationRuleSchema", () => {
       name: "Regra",
       trigger_event: "lead.created",
       actions: [],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects start_message_flow without uuid pointer", () => {
+    const r = createAutomationRuleSchema.safeParse({
+      name: "Regra",
+      trigger_event: "lead.created",
+      actions: [{ type: "start_message_flow", config: { flow_pointer_id: "not-uuid" } }],
     });
     expect(r.success).toBe(false);
   });

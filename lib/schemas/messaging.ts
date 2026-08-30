@@ -7,8 +7,32 @@
  */
 import { z } from "zod";
 
+/**
+ * O que a API aceita ESCREVER. Cinco valores, e a ausência de `pending`/`resolved`
+ * é deliberada: quem escreve esses dois é o MOTOR (`performHumanHandoff` grava
+ * `pending` ao escalar), e deixar um cliente REST gravá-los seria deixá-lo fingir
+ * uma escalação que nunca aconteceu.
+ */
 export const conversationStatusSchema = z.enum([
   "open",
+  "claimed",
+  "ai_handling",
+  "closed",
+  "archived",
+]);
+
+/**
+ * O que a API aceita FILTRAR. Sete — o vocabulário inteiro do CHECK do banco.
+ *
+ * Ler e escrever são perguntas diferentes, e tratá-las como uma só deixava
+ * `pending` — o estado da conversa que o automático escalou — inalcançável por
+ * qualquer filtro da API. Não havia como pedir "as conversas que a IA passou para
+ * uma pessoa e ninguém pegou", que é a pergunta mais urgente do inbox.
+ */
+export const conversationStatusFiltroSchema = z.enum([
+  "open",
+  "pending",
+  "resolved",
   "claimed",
   "ai_handling",
   "closed",
@@ -143,7 +167,7 @@ export type PatchConversationInput = z.infer<typeof patchConversationSchema>;
 /** POST /conversations/open-with-contact — abrir inbox a partir de cartão de contato. */
 export const openConversationWithContactSchema = z
   .object({
-    channel_session_id: z.string().uuid(),
+    channel_session_id: z.string().uuid().optional(),
     contact_id: z.string().uuid().optional(),
     phone_number: z.string().min(8).max(32).optional(),
     name: z.string().trim().min(1).max(200).optional(),
@@ -163,8 +187,73 @@ export type OpenConversationWithContactInput = z.infer<typeof openConversationWi
  */
 export const CONVERSATION_TERMINAL_STATUSES = ["closed", "archived"] as const;
 
+/**
+ * OS STATUS EM QUE UMA CONVERSA SEM DONO ESTÁ ESPERANDO UMA PESSOA.
+ *
+ * Existe pela MESMA razão do irmão acima — "está na fila" é decisão de produto e
+ * precisa de um lugar só — e nasce de uma divergência medida: a definição estava
+ * copiada em CINCO sítios e eles não concordavam entre si.
+ *
+ *   `supabase/baseline.sql` (trg_conversation_routing_requested)  open+pending
+ *   `lib/routing/queue.ts` getQueuePosition  (o nº que o CLIENTE ouve)  open+pending
+ *   `lib/routing/queue.ts` getQueuePositions (o nº que a TELA mostra)   open
+ *   `lib/routing/queue.ts` getQueueStatus    (o painel do gerente)      open
+ *   `app/api/v1/conversations/counts`        (o badge da aba)           open
+ *   `components/inbox/InboxLayout` tabToFilter (a aba Fila)             open
+ *
+ * Duas consequências, as duas do produto e não de estilo:
+ *
+ *   1. A conversa que o automático ESCALOU fica em `status='pending'`
+ *      (`performHumanHandoff`), então ela sumia da aba Fila, do badge e do painel
+ *      do gerente — exatamente a conversa que mais precisa de uma pessoa era a
+ *      única invisível. O trigger de roteamento, esse, sempre a enfileirou: é por
+ *      isso que o rodízio a atribuía enquanto a tela jurava que ela não existia.
+ *   2. Duas funções VIZINHAS no mesmo arquivo davam números diferentes: o "você é
+ *      o 5º da fila" que o cliente recebe pelo WhatsApp contava `pending`, e o
+ *      "3º" que o atendente lê na tela não. A promessa feita ao cliente e o que a
+ *      equipe via eram calculados por réguas diferentes.
+ *
+ * `claimed` não entra (tem dono), `ai_handling` não entra (o automático está
+ * cuidando — é a aba IA), terminais não entram.
+ */
+export const CONVERSATION_QUEUE_STATUSES = ["open", "pending"] as const;
+
 export const listConversationsQuerySchema = z.object({
-  status: conversationStatusSchema.optional(),
+  /**
+   * Um status, ou vários separados por vírgula (`?status=open,pending`).
+   *
+   * ADITIVO: `?status=open` continua valendo e continua devolvendo o mesmo — a
+   * saída é sempre normalizada para lista, e uma lista de um elemento produz o
+   * mesmo SQL que a igualdade produzia. A forma plural existe porque a aba Fila
+   * precisa de DOIS estados (ver `CONVERSATION_QUEUE_STATUSES`) e, sem ela, a
+   * única saída seria a tela filtrar em memória o que a página já truncou.
+   */
+  status: z
+    .union([conversationStatusFiltroSchema, z.string()])
+    .optional()
+    .transform((v, ctx) => {
+      if (v === undefined) return undefined;
+      const itens = v
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const validos: Array<z.infer<typeof conversationStatusFiltroSchema>> = [];
+      for (const item of itens) {
+        const r = conversationStatusFiltroSchema.safeParse(item);
+        if (!r.success) {
+          // Recusa em vez de ignorar: filtro com valor desconhecido devolveria
+          // uma lista MENOR sem nada dizendo por quê — e uma lista curta parece
+          // resposta, não erro.
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `status inválido: ${item}`,
+          });
+          return z.NEVER;
+        }
+        validos.push(r.data);
+      }
+      return validos.length > 0 ? validos : undefined;
+    }),
   /**
    * Esconde as conversas terminais (fechada/arquivada).
    *

@@ -81,11 +81,24 @@ describe("GET /api/v1/conversations — o `tag` da query string chega ao handler
    * estaria no dublê e não na rota — é o controle positivo do arquivo.
    */
   it("controle positivo: `?status=open` continua chegando", async () => {
-    expect((await queryRecebidaCom("?status=open")).status).toBe("open");
+    // Chega como LISTA de um desde que o filtro passou a aceitar vários
+    // (`?status=open,pending`, que é o que a aba Fila pede). A mudança é aditiva:
+    // a forma antiga continua válida e o SQL que ela produz é equivalente.
+    expect((await queryRecebidaCom("?status=open")).status).toEqual(["open"]);
+  });
+
+  it("a forma PLURAL chega inteira — `?status=open,pending`", async () => {
+    // A razão de o filtro ter deixado de ser um valor só: a conversa que o
+    // automático escalou é `pending`, e sem os dois estados numa consulta a aba
+    // Fila teria de filtrar em memória o que a página já truncou.
+    expect((await queryRecebidaCom("?status=open,pending")).status).toEqual([
+      "open",
+      "pending",
+    ]);
   });
 
   it("os dois juntos convivem — `?status=open&tag=vip`", async () => {
     const q = await queryRecebidaCom("?status=open&tag=vip");
-    expect([q.status, q.tag]).toEqual(["open", "vip"]);
+    expect([q.status, q.tag]).toEqual([["open"], "vip"]);
   });
 });

@@ -1,12 +1,19 @@
 "use client";
+
+import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
+
+import type { Locale } from "date-fns";
 import { format, formatDistanceToNowStrict } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { useT } from "@/hooks/i18n/useT";
 import { Phone, Robot } from "@/lib/ui/icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { OwnerBadge } from "@/components/kanban/OwnerBadge";
+import { comandoDaConversa } from "@/lib/inbox/comando-da-conversa";
 import { cn } from "@/lib/utils";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import { phoneForDisplay } from "@/lib/channels/phone-variants";
 
 interface Props {
   conversation: ConversationWithContact;
@@ -22,6 +29,23 @@ interface Props {
    * onde vivem os avisos que importam (bloqueado, tags).
    */
   mostrarCanal?: boolean;
+  /**
+   * Mostrar QUEM está no comando de cada conversa.
+   *
+   * Mesma regra do canal, e pelo mesmo motivo: só quando o rótulo DISCRIMINA. Nas
+   * abas "Fila" (todas sem dono), "Minhas" (todas do mesmo dono) e "IA" o badge
+   * seria a mesma palavra em toda linha — ruído que ensina o olho a ignorar a
+   * área onde vivem os avisos que importam. Quem decide é a lista, que é quem
+   * sabe quantos donos distintos ela tem.
+   */
+  mostrarAtendente?: boolean;
+  /**
+   * A org tem atendimento automático de pé? Vem por PROP e não por hook: um hook
+   * por linha faria 50 assinaturas de query na mesma lista para responder a MESMA
+   * pergunta org-wide. `undefined` = "não sei", e a função trata isso como "não
+   * afirme nada".
+   */
+  automaticoDaOrg?: boolean;
 }
 
 const STATUS_DOT: Record<string, string> = {
@@ -43,22 +67,25 @@ function initials(name: string | null | undefined, fallback: string): string {
   return (first + last).toUpperCase();
 }
 
-function relativeTime(iso: string | null): string {
+function relativeTime(iso: string | null, locale: Locale): string {
   if (!iso) return "";
   const d = new Date(iso);
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
   if (sameDay) return format(d, "HH:mm");
   const diff = (now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24);
-  if (diff < 7) return formatDistanceToNowStrict(d, { addSuffix: false, locale: ptBR });
+  if (diff < 7) return formatDistanceToNowStrict(d, { addSuffix: false, locale: locale });
   return format(d, "dd/MM");
 }
 
 /** "Aguardando há 5 min" — desde a última mensagem do cliente (fallback: criação). */
-function waitingLabel(conversation: ConversationWithContact): string {
+function waitingLabel(
+  conversation: ConversationWithContact,
+  t: (texto: string) => string = (texto) => texto, locale: Locale,
+): string {
   const since = conversation.last_inbound_at ?? conversation.created_at;
-  if (!since) return "Aguardando";
-  return `Aguardando ${formatDistanceToNowStrict(new Date(since), { addSuffix: true, locale: ptBR })}`;
+  if (!since) return t("Aguardando");
+  return `${t("Aguardando")} ${formatDistanceToNowStrict(new Date(since), { addSuffix: true, locale: locale })}`;
 }
 
 export function ConversationListItem({
@@ -67,19 +94,41 @@ export function ConversationListItem({
   onSelect,
   queuePosition,
   mostrarCanal,
+  mostrarAtendente,
+  automaticoDaOrg,
 }: Props) {
+  const localeDaData = useLocaleDeData();
+  const t = useT();
   const c = conversation.contacts ?? null;
   const displayName = rotuloDoContato(c);
-  const phoneFallback = c?.phone_number ?? "??";
+  const phoneFallback = c?.phone_number ? phoneForDisplay(c.phone_number) : "??";
   const tags = c?.tags ?? [];
   const visibleTags = tags.slice(0, 2);
   const overflow = tags.length - visibleTags.length;
-  const preview = conversation.last_message_preview?.trim() || "Sem mensagens";
+  const preview = conversation.last_message_preview?.trim() || t("Sem mensagens");
   const truncated = preview.length > 60 ? `${preview.slice(0, 60)}…` : preview;
-  const time = relativeTime(conversation.last_message_at);
+  const time = relativeTime(conversation.last_message_at, localeDaData);
   const unread = conversation.unread_count_for_assignee ?? 0;
   const dot = STATUS_DOT[conversation.status] ?? STATUS_DOT.open;
-  const isAi = conversation.status === "ai_handling";
+
+  /**
+   * Quem manda, pela MESMA regra do cabeçalho.
+   *
+   * `status === 'ai_handling'` era um proxy ruim e foi medido: o único escritor
+   * desse status em produção é o botão "Devolver ao automático", então o ícone de
+   * robô aparecia só em conversa que já tinha sido escalada E devolvida — nunca
+   * na que o automático atendeu do começo ao fim, que é a maioria.
+   */
+  const { comando } = comandoDaConversa({
+    status: conversation.status,
+    assigned_to_user_id: conversation.assigned_to_user_id,
+    assigned_to_user_name: conversation.assigned_to_user_name ?? null,
+    assignee_kind: conversation.assignee_kind ?? null,
+    bot_silenced_until: conversation.bot_silenced_until ?? null,
+    force_human: c?.force_human ?? null,
+    automaticoDaOrg,
+  });
+  const isAi = comando.quem === "automatico";
 
   // O número DA EMPRESA por onde esta conversa chegou — não o do cliente. Com
   // dois canais é o que decide o tom da resposta e qual número a pessoa vê
@@ -90,6 +139,7 @@ export function ConversationListItem({
   return (
     <button
       type="button"
+      data-conversation-id={conversation.id}
       onClick={() => onSelect(conversation.id)}
       className={cn(
         "group flex w-full items-start gap-3 border-b border-border px-3 py-3 text-left transition-colors hover:bg-accent/40",
@@ -128,12 +178,12 @@ export function ConversationListItem({
           <div className="mb-1 flex items-center gap-1.5">
             <span
               className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/10 px-1 text-[10px] font-medium tabular-nums text-primary"
-              aria-label={`Posição ${queuePosition} na fila`}
+              aria-label={`${t("Posição")} ${queuePosition} ${t("na fila")}`}
             >
               {queuePosition}º
             </span>
             <span className="text-[10px] text-muted-foreground">
-              {waitingLabel(conversation)}
+              {waitingLabel(conversation, t, localeDaData)}
             </span>
           </div>
         )}
@@ -165,11 +215,14 @@ export function ConversationListItem({
           {overflow > 0 && (
             <span className="text-[10px] text-muted-foreground">+{overflow}</span>
           )}
+          {mostrarAtendente && comando.quem === "humano" && (
+            <OwnerBadge ownerKind="user" ownerName={comando.nome ?? t("Atendente")} compacto />
+          )}
           {mostrarCanal && rotuloCanal && (
             <Badge
               variant="outline"
               className="h-4 gap-1 px-1.5 text-[10px] font-normal text-muted-foreground"
-              title={`Entrou por ${rotuloCanal}`}
+              title={`${t("Entrou por")} ${rotuloCanal}`}
             >
               <Phone size={9} weight="regular" aria-hidden />
               {rotuloCanal}
@@ -177,12 +230,12 @@ export function ConversationListItem({
           )}
           {c?.is_blocked && (
             <Badge variant="destructive" className="h-4 px-1.5 text-[10px]">
-              Bloqueado
+              {t("Bloqueado")}
             </Badge>
           )}
           {c?.is_anonymized && (
             <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
-              Anonimizado
+              {t("Anonimizado")}
             </Badge>
           )}
           {unread > 0 && (

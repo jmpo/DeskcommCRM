@@ -31,6 +31,20 @@ export const ApiErrorCodes = {
   // 404
   not_found: "not_found",
 
+  // ⚠️ AGENDA — declarados AQUI, e não no `fail()`, porque `fail()` NÃO protege.
+  //
+  // A assinatura é `code: ApiErrorCode | (string & {})`, e o segundo ramo aceita
+  // qualquer string: um `"slot_taken"` inventado no call site vira contrato de
+  // wire sem passar por lista nenhuma, e o consumidor do outro lado nunca sabe
+  // que ele existe. Quem confia que a união protege está lendo o arquivo errado.
+  agenda_horario_indisponivel: "agenda_horario_indisponivel",
+  agenda_fora_da_jornada: "agenda_fora_da_jornada",
+  agenda_tipo_desativado: "agenda_tipo_desativado",
+  agenda_sem_responsavel: "agenda_sem_responsavel",
+  agenda_disponibilidade_invalida: "agenda_disponibilidade_invalida",
+  agenda_ja_cancelado: "agenda_ja_cancelado",
+  agenda_listagem_sem_recorte: "agenda_listagem_sem_recorte",
+
   // 409 — conflito
   idempotency_conflict: "idempotency_conflict",
   state_conflict: "state_conflict",
@@ -38,6 +52,7 @@ export const ApiErrorCodes = {
   tenant_already_exists: "tenant_already_exists",
   duplicate_external_id: "duplicate_external_id",
   event_gone: "event_gone", // resend de run cujo event_log original foi apagado (on delete set null)
+  no_actions_to_resend: "no_actions_to_resend", // resend de regra que não tem mais nenhuma ação de webhook — reenviar nada não é sucesso
   next_action_absent: "next_action_absent", // decisão sobre proposta que não existe (mais) [wave 4]
   next_action_changed: "next_action_changed", // o agente reescreveu a proposta entre o render e o clique
   channel_archived: "channel_archived", // ação sobre canal que o usuário excluiu (a linha só sobrevive como âncora das FKs)

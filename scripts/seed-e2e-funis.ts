@@ -67,6 +67,35 @@ async function main(): Promise<void> {
 
   let segundaOrgId = (existente as { id: string } | null)?.id ?? null;
 
+  /**
+   * ⚠️ O SEED GARANTE O FIXTURE QUE ELE DECLARA — inclusive na org que reencontra.
+   *
+   * Esta organização existe **sem `onboarded_at`** de propósito (ver o `insert`
+   * abaixo): depois da separação dos slugs ela é o único lugar do harness com
+   * uma organização legitimamente não configurada, e é dela que
+   * `troca-de-organizacao-tem-volta.spec.ts` precisa para provar a saída do
+   * wizard.
+   *
+   * Só que "criar sem a coluna" não é o mesmo que "garantir sem a coluna". Num
+   * banco onde outro seed carimbou a linha primeiro — foi o que aconteceu no
+   * ambiente do autor da spec de escopo, com `onboarded_at` de 27/08 21:40 —
+   * este seed rodava, não olhava o estado, e a spec da saída quebrava com um
+   * `page.waitForURL` estourando por 60s: mensagem opaca, causa invisível.
+   *
+   * É a MESMA classe que `tests/unit/seeds-nao-disputam-organizacao.test.ts`
+   * fecha do lado de quem cria, reaparecendo do lado de quem reusa. A regra que
+   * vale para os dois: o seed é dono do estado que ele promete, não só da
+   * primeira escrita dele.
+   */
+  if (segundaOrgId) {
+    const { error: fixErr } = await admin
+      .from("organizations")
+      .update({ onboarded_at: null })
+      .eq("id", segundaOrgId)
+      .not("onboarded_at", "is", null);
+    if (fixErr) throw new Error(`garantir a org NÃO configurada: ${fixErr.message}`);
+  }
+
   if (!segundaOrgId) {
     const { data, error } = await admin
       .from("organizations")
@@ -74,6 +103,17 @@ async function main(): Promise<void> {
         slug: SEGUNDA_SLUG,
         legal_name: "E2E Segunda Org LTDA",
         display_name: "E2E Segunda Org",
+        // ⚠️ SEM `onboarded_at` DE PROPÓSITO — e agora isso é o fixture, não um
+        // descuido.
+        //
+        // Esta org existe para o caso do funil homônimo, e ficou sem onboarding
+        // por omissão. Enquanto ela dividia o slug com o seed de duas
+        // organizações, essa omissão vazava para uma spec que não a pediu e
+        // derrubava o CI (ver o cabeçalho de `seed-e2e-duas-organizacoes.ts`).
+        // Com os slugs separados, ela passa a ser o único lugar do harness com
+        // uma organização legitimamente NÃO configurada — que é exatamente o
+        // estado de que `troca-de-organizacao-tem-volta.spec.ts` precisa para
+        // provar que dá para sair do wizard.
       })
       .select("id")
       .single();

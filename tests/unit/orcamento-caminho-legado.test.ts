@@ -147,6 +147,13 @@ function makeAdminStub(
                 active_kb_version_id: "99999999-9999-4999-8999-999999999999",
                 is_active: true,
                 is_default: true,
+                // O banco tem `kind` NOT NULL DEFAULT 'rag_bot' e os dois ponteiros:
+                // sem eles o dublê descreveria uma linha que não existe, e a régua
+                // de `lib/ai/agents/no-ar.ts` — que falha FECHADA quando o select
+                // não trouxe `kind` — recusaria o agente pelo motivo errado.
+                kind: "rag_bot",
+                published_version_id: null,
+                archived_at: null,
               }
             : null;
 
@@ -194,7 +201,12 @@ function makeAdminStub(
                     created_at: new Date().toISOString(),
                   },
                 ]
-              : [],
+              // A seleção de agente do worker legado é uma LISTA (ele filtra os
+              // candidatos pela régua de `lib/ai/agents/no-ar.ts` em vez de cortar
+              // com `.limit(1)` antes de saber quem serve). O dublê acompanha.
+              : table === "ai_agents"
+                ? (single ? [single] : [])
+                : [],
           count,
           error: null,
         }).then(resolve);
@@ -242,8 +254,24 @@ function montar(
   return { operacoes, tabelasConsultadas };
 }
 
+/**
+ * Os itens da Central que são DESTE assunto.
+ *
+ * ⚠️ A versão anterior filtrava só por TABELA, e o nome mentia: qualquer item de
+ * qualquer assunto entrava na conta. O defeito ficou visível quando
+ * `triggerHandoff` passou a abrir o seu próprio item (`kind='handoff'`) — três
+ * casos deste arquivo vermelharam sem que nada de orçamento tivesse mudado.
+ * Régua que mede o vizinho reprova por motivo alheio.
+ *
+ * O `kind` só existe no INSERT (o UPDATE do retrato carrega `{status}` e a
+ * identidade está no filtro, não na linha), então o corte é: item da Central que
+ * NÃO declara um kind de outro assunto.
+ */
+const KINDS_DE_OUTROS_ASSUNTOS = new Set(["handoff", "qr_rescan", "job_dead", "event_dead"]);
 const itensDeOrcamento = (operacoes: Operacao[]) =>
-  operacoes.filter((o) => o.table === "agent_inbox_items");
+  operacoes.filter(
+    (o) => o.table === "agent_inbox_items" && !KINDS_DE_OUTROS_ASSUNTOS.has(String(o.row.kind)),
+  );
 
 beforeEach(() => {
   vi.clearAllMocks();

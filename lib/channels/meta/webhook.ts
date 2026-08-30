@@ -22,6 +22,37 @@ import type { SharedContact } from "@/lib/messaging/contact-card";
 import type { MetaWebhookEnvelope } from "./envelope";
 
 /** Assinatura da Meta: `sha256=<hex>` no header `X-Hub-Signature-256`. */
+/**
+ * A instalação consegue RECEBER pelo canal oficial? — as duas metades.
+ *
+ * São dois segredos com papéis diferentes, e conferir só um produz o pior tipo
+ * de tela: a que diz "pronto" sobre algo que não funciona.
+ *
+ *   META_WEBHOOK_VERIFY_TOKEN → responde o handshake GET, em que a Meta valida
+ *                               o endereço. Sem ele o webhook nem é aceito.
+ *   META_APP_SECRET           → valida a ASSINATURA de cada mensagem que chega
+ *                               (`verifyMetaSignature`, logo abaixo). Sem ele,
+ *                               o handshake passa e TODO POST assinado morre em
+ *                               401 `invalid_signature` — o número envia e
+ *                               nunca recebe, sem erro em lugar nenhum.
+ *
+ * Nenhum dos dois é escrito pelo `install.sh` (`git grep 'META_' -- '*.sh'`
+ * devolve vazio): numa instalação recém-feita os dois estão ausentes, que é
+ * exatamente quando o aviso precisa aparecer.
+ *
+ * `.trim() !== ""` e não `Boolean()`: o contrato do `.env` deste projeto é que
+ * vazio é ausente — o template gera `CHAVE=` e é assim que `preenchida()` em
+ * `lib/instalacao/ambiente.ts:61` já decide.
+ */
+// O mesmo tipo que `lib/instalacao/ambiente.ts` usa para ler `.env`:
+// `NodeJS.ProcessEnv` exige `NODE_ENV` e obrigaria todo teste a montá-lo.
+export function metaPodeReceber(
+  source: Record<string, string | undefined> = process.env,
+): boolean {
+  const cheia = (nome: string): boolean => (source[nome] ?? "").trim() !== "";
+  return cheia("META_WEBHOOK_VERIFY_TOKEN") && cheia("META_APP_SECRET");
+}
+
 export function verifyMetaSignature(
   rawBody: string,
   signatureHeader: string | null,

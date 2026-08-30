@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { toast } from "sonner";
+import { useT } from "@/hooks/i18n/useT";
 
 import { Button } from "@/components/ui/button";
 import { connectNuvemshop } from "@/app/actions/integrations/connectNuvemshop";
@@ -12,6 +13,7 @@ import {
 import { useMarcaDaInstalacao } from "@/lib/branding/contexto";
 
 export function ConnectNuvemshopClient() {
+  const t = useT();
   const [pending, startTransition] = useTransition();
   // Por PROP do servidor, nunca `branding()`: no navegador aquela função lê
   // `window.__PUBLIC_ENV__` (a marca do BANCO) e no SSR lê `process.env` (só o
@@ -22,8 +24,8 @@ export function ConnectNuvemshopClient() {
   return (
     <div className="space-y-4 rounded-lg border bg-background p-6">
       <p className="text-sm">
-        Ao clicar em <strong>Conectar</strong>, você será redirecionado para autorizar o
-        {marca.name} na sua conta Nuvemshop.
+        {t("Ao clicar em")} <strong>{t("Conectar")}</strong> {t("você será redirecionado para autorizar o")}{" "}
+        {marca.name} {t("na sua conta Nuvemshop.")}
       </p>
 
       <div className="flex flex-wrap gap-2">
@@ -35,17 +37,17 @@ export function ConnectNuvemshopClient() {
               const res = await connectNuvemshop();
               if (res && !res.ok) {
                 if (res.error === "not_configured") {
-                  toast.message("Nuvemshop ainda não configurado neste ambiente.", {
-                    description: "Pule por enquanto e configure depois em Integrações.",
+                  toast.message(t("Nuvemshop ainda não configurado neste ambiente."), {
+                    description: t("Pule por enquanto e configure depois em Integrações."),
                   });
                 } else {
-                  toast.error(`Erro: ${res.error}`);
+                  toast.error(`${t("Erro:")} ${res.error}`);
                 }
               }
             })
           }
         >
-          Conectar
+          {t("Conectar")}
         </Button>
         <Button
           type="button"
@@ -53,7 +55,7 @@ export function ConnectNuvemshopClient() {
           disabled={pending}
           onClick={() => startTransition(() => void markNuvemshopConfigured())}
         >
-          Já conectei
+          {t("Já conectei")}
         </Button>
         <Button
           type="button"
@@ -61,7 +63,7 @@ export function ConnectNuvemshopClient() {
           disabled={pending}
           onClick={() => startTransition(() => void skipNuvemshop())}
         >
-          Pular por enquanto
+          {t("Pular por enquanto")}
         </Button>
       </div>
     </div>

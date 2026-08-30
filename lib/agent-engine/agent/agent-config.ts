@@ -15,6 +15,8 @@
  */
 import type pg from 'pg';
 
+import { lerJanelaDeAtendimento, type JanelaDeAtendimento } from './janela-de-atendimento';
+
 export interface PublishedAgentConfig {
   agentId: string;
   versionId: string;
@@ -36,9 +38,20 @@ export interface PublishedAgentConfig {
   casesEnabled: boolean;
   /** tool_ids do catálogo MCP habilitadas na tela (2B-tools). */
   toolIds: string[];
-  /** KB ativa do agente (ai_agents.active_kb_version_id) — null = sem RAG. */
+  /**
+   * Materiais que ESTE agente consulta (`ai_agent_versions.knowledge_source_ids`).
+   * Vazio = NENHUM: a ferramenta de busca some do turno.
+   */
+  knowledgeSourceIds: string[];
+  /**
+   * LEGADO: a KB ativa do agente (`ai_agents.active_kb_version_id`).
+   *
+   * Só é usada quando `knowledgeSourceIds` vem vazio — o clone que ainda não
+   * aplicou a 0181. A direção segura aqui é continuar respondendo com o acervo
+   * antigo em vez de emudecer a busca por causa de um schema desatualizado.
+   */
   activeKbVersionId: string | null;
-  /** knobs de RAG do ai_agents.config (defaults do guardrails-schema: 5 / 0.72). */
+  /** knobs de RAG do ai_agents.config (defaults calibrados na 0097: 5 / 0.40). */
   ragTopK: number;
   ragSimilarityThreshold: number;
   /**
@@ -62,6 +75,13 @@ export interface PublishedAgentConfig {
    * Lido pelo gate em `lib/leads/escopo-de-funil.ts`.
    */
   pipelineIds: string[];
+  /**
+   * Horário de funcionamento declarado na tela (`trigger_config.filters.business_hours`).
+   * `null` = atende a qualquer hora. Quem obedece é o turno inbound, adiando o
+   * job para a abertura — ver `janela-de-atendimento.ts` para o defeito que isto
+   * conserta (o campo existia na tela e nenhum leitor vivo o consultava).
+   */
+  janelaDeAtendimento: JanelaDeAtendimento | null;
   /** criadores (p/ mint do token efêmero de audit — padrão do runtime nativo). */
   versionCreatedBy: string | null;
   agentCreatedBy: string | null;
@@ -91,6 +111,8 @@ interface Row {
   operator_model: string | null;
   operator_tool_ids: string[] | null;
   pipeline_ids: string[] | null;
+  knowledge_source_ids: string[] | null;
+  trigger_config: unknown;
   version_created_by: string | null;
   agent_created_by: string | null;
 }
@@ -118,6 +140,8 @@ const SELECT_AGENT_CONFIG_COLUMNS = `a.id as agent_id,
             v.operator_model,
             v.operator_tool_ids,
             v.pipeline_ids,
+            v.knowledge_source_ids,
+            v.trigger_config,
             v.created_by as version_created_by,
             a.created_by as agent_created_by`;
 
@@ -132,7 +156,10 @@ function mapAgentConfigRow(r: Row): PublishedAgentConfig {
   const ragSimilarityThreshold =
     typeof cfg.rag_similarity_threshold === 'number' && cfg.rag_similarity_threshold >= 0 && cfg.rag_similarity_threshold <= 1
       ? cfg.rag_similarity_threshold
-      : 0.72;
+      // 0.40 e nao 0.72: o valor foi CALIBRADO com medicao na migration 0097 (pergunta literal 0.849, parafrase 0.49-0.65, irrelevante 0.27).
+      // Com 0.72 toda parafrase — que e como o cliente escreve — era descartada, e o RAG parecia quebrado funcionando.
+      // O banco moveu o default; estes tres sitios de codigo ficaram para tras e venciam o banco, porque quem corta pelo limiar e o TypeScript.
+      : 0.4;
 
   return {
     agentId: r.agent_id,
@@ -152,6 +179,9 @@ function mapAgentConfigRow(r: Row): PublishedAgentConfig {
     multimodalInput: r.multimodal_input,
     casesEnabled: r.cases_enabled,
     toolIds: r.tool_ids ?? [],
+    // `?? []` cobre o clone sem a 0181: sem a coluna, o agente cai no ponteiro
+    // legado abaixo em vez de ficar sem material nenhum.
+    knowledgeSourceIds: r.knowledge_source_ids ?? [],
     activeKbVersionId: r.active_kb_version_id,
     ragTopK,
     ragSimilarityThreshold,
@@ -166,6 +196,9 @@ function mapAgentConfigRow(r: Row): PublishedAgentConfig {
     // `?? []` = NENHUM funil. O clone que ainda não aplicou a 0125 nasce
     // fechado — a direção segura é agir de menos (mesma decisão da linha acima).
     pipelineIds: r.pipeline_ids ?? [],
+    // Leitura DEFENSIVA e que falha ABERTA: jsonb livre com shape estranho vira
+    // `null` (sem janela ⇒ atende sempre), nunca uma mordaça acidental.
+    janelaDeAtendimento: lerJanelaDeAtendimento(r.trigger_config),
     versionCreatedBy: r.version_created_by,
     agentCreatedBy: r.agent_created_by,
   };

@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTransition, useState } from "react";
 
+import { useT } from "@/hooks/i18n/useT";
 import { resetPasswordSchema, type ResetPasswordInput } from "@/lib/auth/schemas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { updatePassword } from "@/app/actions/auth/updatePassword";
 
 export function ResetPasswordForm() {
+  const t = useT();
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
   const [needsMfa, setNeedsMfa] = useState(false);
@@ -33,21 +35,23 @@ export function ResetPasswordForm() {
       if (res.error === "mfa_required") {
         setNeedsMfa(true);
         setServerError(
-          "Sua conta tem verificação em duas etapas. Digite o código de 6 dígitos do seu app autenticador para concluir.",
+          t(
+            "Sua conta tem verificação em duas etapas. Digite o código de 6 dígitos do seu app autenticador para concluir.",
+          ),
         );
       } else if (res.error === "mfa_invalid") {
         setNeedsMfa(true);
-        setServerError("Código de verificação inválido. Tente de novo.");
+        setServerError(t("Código de verificação inválido. Tente de novo."));
       } else if (res.error === "session_expired") {
         setServerError(
-          "Sessão de redefinição expirada. Peça um novo link em Recuperar senha.",
+          t("Sessão de redefinição expirada. Peça um novo link em Recuperar senha."),
         );
       } else if (res.error === "same_password") {
-        setServerError("A nova senha precisa ser diferente da atual.");
+        setServerError(t("A nova senha precisa ser diferente da atual."));
       } else if (res.error === "validation_error") {
-        setServerError("Dados inválidos. Confira os campos.");
+        setServerError(t("Dados inválidos. Confira os campos."));
       } else {
-        setServerError("Não foi possível redefinir a senha. Tente novamente.");
+        setServerError(t("Não foi possível redefinir a senha. Tente novamente."));
       }
     });
   };
@@ -55,7 +59,7 @@ export function ResetPasswordForm() {
   return (
     <form method="post" onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
       <div className="space-y-1.5">
-        <Label htmlFor="password">Nova senha</Label>
+        <Label htmlFor="password">{t("Nova senha")}</Label>
         <Input
           id="password"
           type="password"
@@ -65,11 +69,11 @@ export function ResetPasswordForm() {
           {...register("password")}
         />
         {errors.password && (
-          <p className="text-xs text-destructive">{errors.password.message}</p>
+          <p className="text-xs text-destructive">{t(errors.password.message ?? "")}</p>
         )}
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="password_confirm">Confirmar nova senha</Label>
+        <Label htmlFor="password_confirm">{t("Confirmar nova senha")}</Label>
         <Input
           id="password_confirm"
           type="password"
@@ -78,12 +82,12 @@ export function ResetPasswordForm() {
           {...register("password_confirm")}
         />
         {errors.password_confirm && (
-          <p className="text-xs text-destructive">{errors.password_confirm.message}</p>
+          <p className="text-xs text-destructive">{t(errors.password_confirm.message ?? "")}</p>
         )}
       </div>
       {needsMfa && (
         <div className="space-y-1.5">
-          <Label htmlFor="mfa_code">Código de verificação (2 etapas)</Label>
+          <Label htmlFor="mfa_code">{t("Código de verificação (2 etapas)")}</Label>
           <Input
             id="mfa_code"
             inputMode="numeric"
@@ -104,7 +108,7 @@ export function ResetPasswordForm() {
         </div>
       )}
       <Button type="submit" className="w-full" disabled={isPending}>
-        {isPending ? "Salvando..." : "Definir nova senha"}
+        {isPending ? t("Salvando...") : t("Definir nova senha")}
       </Button>
     </form>
   );

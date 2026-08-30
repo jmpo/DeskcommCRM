@@ -88,6 +88,13 @@ const ESPANHOL_PEDE_PARA_SAIR = [
   "darme de baja",
   "dar de baja la suscripcion",
   "quiero dar de baja la suscripcion",
+  // `salir` é o `sair` em espanhol, e `sair` já estava na lista em português.
+  // Faltava, e a promessa do CHANGELOG da 1.4.0 ("`baja`, `salir` e
+  // `no quiero recibir` descadastram") era falsa exatamente nesta palavra —
+  // medido com as funções reais antes do conserto: `baja` true, `salir` false.
+  "salir",
+  "SALIR",
+  "Salir.",
   "no quiero recibir mas mensajes",
   "no quiero recibir más mensajes",
   "por favor no me escriban mas",
@@ -108,6 +115,12 @@ const ESPANHOL_NAO_PEDE = [
   "no quiero recibir la factura por aqui, manda por email",
   // Outra lista. Quem escreve isto QUER continuar sendo atendido.
   "sacame de la lista de espera",
+  // CONTROLE de `salir`: a palavra só vale SOZINHA. Sem estes casos, alguém
+  // poderia "consertar" o positivo com um `includes("salir")` e a suíte ficaria
+  // verde bloqueando quem só avisou que vai sair de casa.
+  "voy a salir ahora",
+  "puedo salir mas temprano?",
+  "el pedido va a salir hoy?",
 ];
 
 describe("espanhol — a palavra que a plantilla pede", () => {

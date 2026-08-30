@@ -64,7 +64,7 @@
       "col": 3,
       "type": "frontend",
       "label": "ConversationHeader",
-      "sublabel": "aviso 'Automático pausado' + Devolver ao automático"
+      "sublabel": "quem manda + motivo do silêncio + Pausar/Devolver o automático"
     },
     {
       "id": "timeline",
@@ -281,6 +281,94 @@
       "type": "service",
       "label": "chamada do modelo (turno)",
       "sublabel": "lê a abertura e responde ao cliente"
+    },
+    {
+      "id": "comando",
+      "lane": "regra",
+      "col": 1,
+      "type": "service",
+      "label": "lib/inbox/comando-da-conversa.ts",
+      "sublabel": "função pura: quem manda + o automático está ativo? (espelha os gates do motor)"
+    },
+    {
+      "id": "pausar",
+      "lane": "borda",
+      "col": 3,
+      "type": "api",
+      "label": "POST /conversations/:id/pause-ai",
+      "sublabel": "o lado que faltava do interruptor — assume se não houver dono"
+    },
+    {
+      "id": "atribuir",
+      "lane": "dados",
+      "col": 2,
+      "type": "db",
+      "label": "fn_conversation_assign (0173)",
+      "sublabel": "claim/transfer calam o automático; release limpa; routing NÃO mexe"
+    },
+    {
+      "id": "comandoAtividade",
+      "lane": "regra",
+      "col": 3,
+      "type": "service",
+      "label": "lib/inbox/atividade-de-comando.ts",
+      "sublabel": "a troca de dono vira linha na timeline que JÁ existe"
+    },
+    {
+      "id": "fila",
+      "lane": "regra",
+      "col": 2,
+      "type": "service",
+      "label": "CONVERSATION_QUEUE_STATUSES",
+      "sublabel": "quem está esperando uma pessoa — uma definição, quatro consumidores"
+    },
+    {
+      "id": "avisoTexto",
+      "lane": "regra",
+      "col": 2,
+      "type": "lib",
+      "label": "lib/escalacao/aviso-ao-lead.ts",
+      "sublabel": "O QUE O CLIENTE LÊ — puro, um só para os dois motores"
+    },
+    {
+      "id": "avisoMotor",
+      "lane": "motor",
+      "col": 3,
+      "type": "lib",
+      "label": "aviso-de-escalacao.ts",
+      "sublabel": "envia atrás de runBeforeSend, seq 0, ANTES da trava"
+    },
+    {
+      "id": "avisoCrm",
+      "lane": "regra",
+      "col": 3,
+      "type": "lib",
+      "label": "lib/ai/handoff/aviso-ao-lead.ts",
+      "sublabel": "o mesmo texto pelo sendMessageHandler (mundo supabase-js)"
+    },
+    {
+      "id": "orquestrador",
+      "lane": "motor",
+      "col": 2,
+      "type": "worker",
+      "label": "triggerHandoff (orchestrator)",
+      "sublabel": "o SEGUNDO motor de passagem — sentimento, confiança, etapa, termo jurídico"
+    },
+    {
+      "id": "sentimento",
+      "lane": "motor",
+      "col": 1,
+      "type": "worker",
+      "label": "ai-sentiment-worker",
+      "sublabel": "score < limiar → ai.sentiment_alert → passagem, sem o lead saber"
+    },
+    {
+      "id": "central",
+      "lane": "dados",
+      "col": 4,
+      "type": "table",
+      "label": "agent_inbox_items",
+      "sublabel": "kind='handoff' — quem assume lê aqui se o cliente foi avisado"
     }
   ],
   "edges": [
@@ -511,6 +599,156 @@
       "from": "modelo",
       "to": "cabecalho",
       "label": "a resposta ao cliente volta a sair pela conversa"
+    },
+    {
+      "id": "e39",
+      "from": "cabecalho",
+      "to": "comando",
+      "label": "pergunta quem manda (uma verdade, três telas)"
+    },
+    {
+      "id": "e40",
+      "from": "comando",
+      "to": "cabecalho",
+      "label": "estado + motivo do silêncio + rótulo"
+    },
+    {
+      "id": "e41",
+      "from": "cabecalho",
+      "to": "pausar",
+      "label": "'Pausar o automático'"
+    },
+    {
+      "id": "e42",
+      "from": "pausar",
+      "to": "atribuir",
+      "label": "claim quando não há dono"
+    },
+    {
+      "id": "e43",
+      "from": "pausar",
+      "to": "comandoAtividade",
+      "label": "'Pausou o automático'"
+    },
+    {
+      "id": "e44",
+      "from": "atribuir",
+      "to": "conversas",
+      "label": "grava bot_silenced_until — o gate que o motor já lê"
+    },
+    {
+      "id": "e45",
+      "from": "comandoAtividade",
+      "to": "timeline",
+      "label": "Assumiu · Transferiu · Liberou · Pausou"
+    },
+    {
+      "id": "e46",
+      "from": "comando",
+      "to": "atribuir",
+      "label": "lê os MESMOS fatos que a função escreve"
+    },
+    {
+      "id": "e47",
+      "from": "fila",
+      "to": "conversas",
+      "label": "open+pending: o mesmo que o trigger de roteamento enfileira"
+    },
+    {
+      "id": "e48",
+      "from": "cabecalho",
+      "to": "fila",
+      "label": "a aba Fila pede os dois estados de espera"
+    },
+    {
+      "id": "e49",
+      "from": "fila",
+      "to": "comando",
+      "label": "o estado 'aguardando' do selo sai daqui"
+    },
+    {
+      "id": "e50",
+      "from": "avisoMotor",
+      "to": "avisoTexto",
+      "label": "o texto vem de um lugar só — duas redações envelheceriam separadas"
+    },
+    {
+      "id": "e51",
+      "from": "avisoCrm",
+      "to": "avisoTexto",
+      "label": "o MESMO texto, outro encanamento"
+    },
+    {
+      "id": "e52",
+      "from": "avisoMotor",
+      "to": "conversas",
+      "label": "a mensagem é gravada e sai pelo canal ANTES do silêncio"
+    },
+    {
+      "id": "e53",
+      "from": "guarda",
+      "to": "avisoMotor",
+      "label": "o stopGate lê force_human: por isso o aviso vem primeiro"
+    },
+    {
+      "id": "e54",
+      "from": "avisoMotor",
+      "to": "contacts",
+      "label": "ordem obrigatória — avisar depois de force_human é avisar ninguém"
+    },
+    {
+      "id": "e55",
+      "from": "sentimento",
+      "to": "orquestrador",
+      "label": "ai.sentiment_alert → handoff que o lead nunca soube que aconteceu"
+    },
+    {
+      "id": "e56",
+      "from": "orquestrador",
+      "to": "avisoCrm",
+      "label": "Step 0: avisa antes do UPDATE que silencia"
+    },
+    {
+      "id": "e57",
+      "from": "orquestrador",
+      "to": "conversas",
+      "label": "status='pending' + bot_silenced_until='infinity' (NÃO grava force_human)"
+    },
+    {
+      "id": "e58",
+      "from": "orquestrador",
+      "to": "central",
+      "label": "Step 6: o item que este motor nunca abriu"
+    },
+    {
+      "id": "e59",
+      "from": "avisoMotor",
+      "to": "central",
+      "label": "o desfecho do aviso vira LINHA no item — 'essa pessoa sabe que estou vindo?'"
+    },
+    {
+      "id": "e60",
+      "from": "avisoCrm",
+      "to": "atendentes",
+      "label": "mesma régua de disponibilidade: não prometer contato para o vazio"
+    },
+    {
+      "id": "e61",
+      "from": "avisoTexto",
+      "to": "atendentes",
+      "label": "3 estados da equipe, 3 promessas — nenhuma inventada"
+    },
+    {
+      "id": "e62",
+      "from": "central",
+      "to": "cabecalho",
+      "label": "o atendente abre a conversa sabendo se o cliente foi avisado"
+    },
+    {
+      "id": "e63",
+      "from": "reply",
+      "to": "avisoCrm",
+      "label": "'Assumir eu' também avisa antes de calar o automático"
     }
   ],
   "cards": [

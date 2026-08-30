@@ -45,6 +45,7 @@ function waitMs(config: Extract<FlowNode, { type: 'wait' }>['config']): number {
 
 /** A wait node whose duration meets the 5min floor required to break a cycle. */
 function isSufficientWaitNode(node: FlowNode): boolean {
+  if (node.type === 'match_reply') return node.config.grace_timeout_ms >= MIN_CYCLE_WAIT_MS;
   if (node.type !== 'wait') return false;
   return node.config.mode === 'fixed'
     ? node.config.duration_ms >= MIN_CYCLE_WAIT_MS
@@ -351,15 +352,12 @@ export function validateFlowForPublish(graph: FlowGraph): PublishValidationResul
   }
 
   for (const node of [...nodes].sort(byId)) {
-    if (node.type !== 'ai_classify') continue;
+    if (node.type !== 'ai_classify' && node.type !== 'match_reply' && node.type !== 'repeat') continue;
     const outgoing = outEdges.get(node.id) ?? [];
 
-    // Nó migrado para ramos nomeados: a aresta referencia o id estável, não o
-    // texto da classe. Exigir `class_match` aqui reprovaria um grafo VÁLIDO — e
-    // o operador ficaria sem publicar sem entender por quê. As regras v1 abaixo
-    // continuam valendo, intactas, para todo nó que não declarou ramos.
-    if (node.config.branches !== undefined) {
+    if (node.type === 'match_reply' || node.type === 'repeat' || node.config.branches !== undefined) {
       cobrirRamos(node, outgoing, errors);
+      if (node.type === 'repeat') continue;
       if (node.config.grace_timeout_ms < 900_000) {
         errors.push({
           node_id: node.id,

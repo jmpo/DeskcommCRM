@@ -57,11 +57,17 @@ export const TOOLS_ATENDIMENTO = declararTools([
     risco: "atencao",
     // ⚠️ FORA de "atender", e a razão é o TETO — não o valor da capacidade.
     //
-    // O pacote "Atender" já exigia 18 vagas e, com as 3 que um agente novo
-    // costuma ter, chega a 21 num teto de 20: ligá-lo já era impossível sem
-    // desligar algo antes (o e2e `capacidades-do-agente` mede exatamente isso).
-    // Acrescentar esta capacidade ali levaria a 22 — pioraria um defeito
-    // conhecido em troca de nada, porque o pacote continuaria não cabendo.
+    // O pacote "Atender" exige 18 vagas, quase o teto inteiro por agente.
+    // Acrescentar esta capacidade ali empurraria para 19 um pacote que já é o
+    // maior — e, somado ao que um agente costuma trazer ligado, é ele que
+    // encosta no teto primeiro.
+    //
+    // ⚠️ A ARITMÉTICA DESTE PARÁGRAFO MUDOU e a decisão não. Ele dizia
+    // "18 + 3 = 21 num teto de 20: ligá-lo já era impossível". O teto foi para
+    // 25 quando o dono do produto ficou sem como ligar as capacidades de agenda,
+    // então 21 hoje CABE — o argumento de impossibilidade venceu. O que sustenta
+    // a escolha agora é folga, não bloqueio, e por isso a linha continua sendo
+    // candidata a voltar numa revisão dos pacotes.
     //
     // Fica em "vender", que tem folga, e continua alcançável em qualquer jornada
     // pelo modo avançado. Quando o teto ou o tamanho do pacote for revisto, esta

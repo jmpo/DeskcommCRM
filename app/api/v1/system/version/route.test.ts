@@ -54,7 +54,11 @@ beforeEach(() => {
     current_version: "1.0.0",
     latest_version: "1.1.0",
     off_release: false,
-    changelog_raw: "## [1.1.0] — 2026-08-02\n\n**⚠️ Requer atenção**\n\nreconecte o número.\n\n### Adicionado\n\n- botão.\n",
+    // A seção da versão INSTALADA precisa estar aqui: sem ela, todo caso
+    // exercitaria o caminho "faixa incompleta" e o caminho feliz nasceria sem
+    // cobertura nenhuma.
+    changelog_raw:
+      "## [1.1.0] — 2026-08-02\n\n**⚠️ Requer atenção**\n\nreconecte o número.\n\n### Adicionado\n\n- botão.\n\n## [1.0.0] — 2026-08-01\n\n- primeira versão.\n",
     agent_last_seen_at: new Date().toISOString(),
     compare_failed: false,
     update_requested_at: null,
@@ -158,13 +162,86 @@ describe("GET /api/v1/system/version", () => {
     expect(body.data.notes).toBeUndefined();
   });
 
-  it("entrega o estado completo e a seção do CHANGELOG para o dono", async () => {
+  it("entrega o estado completo e a faixa do CHANGELOG para o dono", async () => {
     vi.mocked(loadAuthUser).mockResolvedValue(OWNER as never);
     const { GET } = await import("../version/route");
     const body = await (await GET(get())).json();
     expect(body.data.update_available).toBe(true);
-    expect(body.data.notes.body).toContain("botão");
-    expect(body.data.notes.requires_attention).toContain("reconecte o número");
+    expect(body.data.notes.sections.map((s: { version: string }) => s.version)).toEqual(["1.1.0"]);
+    expect(body.data.notes.sections[0].body).toContain("botão");
+    expect(body.data.notes.requires_attention).toEqual([
+      { version: "1.1.0", texto: expect.stringContaining("reconecte o número") },
+    ]);
+    expect(body.data.notes.complete).toBe(true);
+  });
+
+  it("entrega TODAS as seções entre a instalada e a alvo, com o aviso do meio nomeado", async () => {
+    // O defeito que esta faixa conserta: quem pula versões via só a seção-alvo,
+    // e o aviso de ação manual da versão do meio desaparecia (commit ac9472c5).
+    versionRow.current_version = "1.0.0";
+    versionRow.latest_version = "1.2.0";
+    versionRow.changelog_raw = [
+      "## [1.2.0] — 2026-08-03",
+      "",
+      "### Adicionado",
+      "",
+      "- coisa nova.",
+      "",
+      "## [1.1.0] — 2026-08-02",
+      "",
+      "**⚠️ Requer atenção**",
+      "",
+      "reconecte o número.",
+      "",
+      "## [1.0.0] — 2026-08-01",
+      "",
+      "- primeira versão.",
+      "",
+    ].join("\n");
+    vi.mocked(loadAuthUser).mockResolvedValue(OWNER as never);
+    const { GET } = await import("../version/route");
+    const body = await (await GET(get())).json();
+    expect(body.data.notes.sections.map((s: { version: string }) => s.version)).toEqual([
+      "1.2.0",
+      "1.1.0",
+    ]);
+    expect(body.data.notes.requires_attention.map((a: { version: string }) => a.version)).toEqual([
+      "1.1.0",
+    ]);
+    expect(body.data.notes.complete).toBe(true);
+  });
+
+  it("declara faixa INCOMPLETA quando o texto não alcança a versão que está no ar", async () => {
+    // O agente manda o CHANGELOG cortado em bytes. Um corpo truncado no meio da
+    // frase é indistinguível de um corpo inteiro — sem este sinal, a tela
+    // afirmaria completude que não tem.
+    versionRow.changelog_raw = "## [1.1.0] — 2026-08-02\n\n### Adicionado\n\n- botão.\n";
+    vi.mocked(loadAuthUser).mockResolvedValue(OWNER as never);
+    const { GET } = await import("../version/route");
+    const body = await (await GET(get())).json();
+    expect(body.data.notes.complete).toBe(false);
+  });
+
+  it("depois de um rollback a faixa parte da versão que VOLTOU AO AR, não da que quebrou", async () => {
+    // `current_version` nomeia a versão que quebrou (o `git checkout` deu
+    // certo; quem não subiu foi o container). Usar esse campo deixaria a faixa
+    // vazia justamente para quem mais precisa lê-la.
+    versionRow.current_version = "1.1.0";
+    versionRow.latest_version = "1.1.0";
+    runRow = {
+      id: "run-1",
+      status: "failed_rolled_back",
+      from_version: "1.0.0",
+      to_version: "1.1.0",
+      last_step: null,
+      log_tail: "",
+      dispatched_at: new Date().toISOString(),
+    } as never;
+    vi.mocked(loadAuthUser).mockResolvedValue(OWNER as never);
+    const { GET } = await import("../version/route");
+    const body = await (await GET(get())).json();
+    expect(body.data.current_version).toBe("1.0.0");
+    expect(body.data.notes.sections.map((s: { version: string }) => s.version)).toEqual(["1.1.0"]);
   });
 
   it("entrega compare_failed para a tela poder dizer 'não sei' em vez de 'está em dia'", async () => {

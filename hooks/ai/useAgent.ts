@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
+import { useT } from "@/hooks/i18n/useT";
 import type { AgentPatch } from "@/lib/ai/guardrails-schema";
 
 export interface AgentRow {
@@ -56,6 +57,7 @@ export function useAgent(id: string, opts?: { initialData?: AgentRow }) {
 }
 
 export function useUpdateAgent(id: string) {
+  const t = useT();
   const qc = useQueryClient();
   return useMutation({
     mutationKey: ["ai", "agents", id, "update"],
@@ -97,7 +99,7 @@ export function useUpdateAgent(id: string) {
     onSuccess: (data) => {
       qc.setQueryData(agentQueryKey(id), data);
       qc.invalidateQueries({ queryKey: ["ai", "agents", "list"] });
-      toast.success("Salvo");
+      toast.success(t("Salvo"));
     },
   });
 }

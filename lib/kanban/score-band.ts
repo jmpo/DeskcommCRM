@@ -120,6 +120,9 @@ export function resolveBand(score: number, anterior: ScoreBand | null): ScoreBan
 }
 
 /** Rótulo para exibir. Fechado: tipo novo sem rótulo não compila. */
-export function bandLabel(band: ScoreBand): string {
-  return SCORE_BAND_LABELS[band];
+export function bandLabel(
+  band: ScoreBand,
+  t: (texto: string) => string = (texto) => texto,
+): string {
+  return t(SCORE_BAND_LABELS[band]);
 }

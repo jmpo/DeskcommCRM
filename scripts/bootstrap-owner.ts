@@ -41,6 +41,25 @@ const SERVICE_ROLE = env.SUPABASE_SERVICE_ROLE_KEY;
 const OWNER_EMAIL = env.OWNER_EMAIL;
 const OWNER_PASSWORD = env.OWNER_PASSWORD;
 const ORG_NAME = env.OWNER_ORG_NAME || "Minha Empresa";
+/**
+ * O idioma que quem instalou escolheu, gravado na ORGANIZAÇÃO.
+ *
+ * Na organização, e não só no usuário dono, porque é ela que responde por quem
+ * ainda não existe: o segundo, o terceiro e o décimo convidado entram sem
+ * preferência própria e caem no idioma da empresa
+ * (`AuthUser.idioma`, resolvido em `lib/auth/server.ts`). Gravar apenas no dono
+ * faria uma instalação inteira em espanhol entregar o sistema em português para
+ * todo mundo que o dono convidasse.
+ *
+ * Fecha para o padrão diante de qualquer valor desconhecido: um `.env` com
+ * `APP_LOCALE=en` não pode derrubar a instalação nem escrever lixo no banco.
+ */
+const IDIOMAS_SERVIDOS = ["pt-BR", "es"] as const;
+const APP_LOCALE = (IDIOMAS_SERVIDOS as readonly string[]).includes(
+  (env.APP_LOCALE ?? "").trim(),
+)
+  ? (env.APP_LOCALE as string).trim()
+  : "pt-BR";
 
 if (!SUPABASE_URL || !SERVICE_ROLE) {
   throw new Error("Faltam NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY.");
@@ -76,7 +95,9 @@ async function ensureOwnerUser(): Promise<string> {
     email: OWNER_EMAIL,
     password: OWNER_PASSWORD,
     email_confirm: true,
-    user_metadata: { full_name: "Dono" },
+    // O dono também nasce com a preferência: ele é o único que entra antes de
+    // existir organização resolvida na sessão, no primeiro login.
+    user_metadata: { full_name: "Dono", locale: APP_LOCALE },
   });
   if (error || !data?.user) throw new Error(`criar dono: ${error?.message}`);
   console.log(`[bootstrap] dono criado: ${data.user.id}`);
@@ -100,6 +121,7 @@ async function ensureOrg(ownerId: string): Promise<string> {
       slug,
       display_name: ORG_NAME,
       legal_name: ORG_NAME,
+      locale: APP_LOCALE,
       created_by: ownerId,
     } as never)
     .select("id")

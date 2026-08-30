@@ -22,7 +22,13 @@ const consultas: { platformAdmins: unknown; memberships: unknown } = {
   memberships: { data: [], error: null },
 };
 
-vi.mock("next/headers", () => ({ cookies: async () => ({ getAll: () => [], set: () => {} }) }));
+// `get` entrou junto com a cadeia de idioma (usuário → organização): o
+// resolvedor pergunta ao cookie qual organização está ativa. O dublê tinha
+// `getAll`/`set` e não `get` — menos completo que a API real, e o teste caía
+// por falta do dublê, não por defeito.
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: () => undefined, getAll: () => [], set: () => {} }),
+}));
 vi.mock("next/navigation", () => ({ redirect: () => { throw new Error("redirect"); } }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -39,7 +45,17 @@ vi.mock("@/lib/supabase/server", () => ({
       const chain = {
         select: () => chain,
         eq: () => chain,
-        is: () => (alvo === "platformAdmins" ? { maybeSingle: async () => resultado() } : resultado()),
+        // ⚠️ `is()` para memberships devolve o RESULTADO, e não a cadeia — o que
+        // fazia dele o terminal obrigatório. A consulta de memberships passou a
+        // ordenar (a lista decide qual organização fica ativa sem cookie, e sem
+        // `ORDER BY` "a primeira" é o que o Postgres devolver), então o terminal
+        // agora pode vir depois de `.order()`. O dublê precisa aceitar as duas
+        // formas — e é thenable, então `await` no fim resolve igual.
+        is: () =>
+          alvo === "platformAdmins"
+            ? { maybeSingle: async () => resultado() }
+            : { ...chain, then: chain.then },
+        order: () => ({ ...chain, then: chain.then }),
         maybeSingle: async () => resultado(),
         then: (r: (v: unknown) => unknown) => Promise.resolve(resultado()).then(r),
       };
@@ -97,7 +113,10 @@ describe("loadAuthUser — falha de permissão não vira 'sem organização'", (
     };
     const u = await loadAuthUser();
     expect(u?.organizations).toEqual([
-      { organization_id: "o1", organization_name: "Acme", role: "admin" },
+      // `locale` é o idioma padrão da organização, que entra na membership para
+      // a resolução do idioma da sessão não precisar de uma segunda consulta.
+      // Aqui vem `null` porque o dublê não devolve a coluna.
+      { organization_id: "o1", organization_name: "Acme", role: "admin", locale: null },
     ]);
   });
 });

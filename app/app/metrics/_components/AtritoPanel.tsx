@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useState } from "react";
 
+import { useT } from "@/hooks/i18n/useT";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAtritoMetrics, useSalvarReguaAbandono } from "@/hooks/metrics/useAtritoMetrics";
@@ -22,11 +23,16 @@ import { formatarMedida, type Medida, type Par } from "@/lib/metrics/atrito";
  */
 
 function MedidaLinha({ m }: { m: Medida }) {
+  // Os rótulos do Atrito nascem em `lib/metrics/atrito.ts`, que é lógica pura e
+  // não conhece idioma. Traduzir no PONTO DE RENDERIZAÇÃO é o padrão adotado no
+  // resto do produto: o texto fixo casa no dicionário, e o que traz número
+  // interpolado degrada para português sem quebrar nada.
+  const t = useT();
   return (
     <div className="flex items-baseline justify-between gap-4 py-1.5">
       <div className="min-w-0">
-        <p className="truncate text-sm">{m.rotulo}</p>
-        {m.nota ? <p className="mt-0.5 text-xs text-muted-foreground">{m.nota}</p> : null}
+        <p className="truncate text-sm">{t(m.rotulo)}</p>
+        {m.nota ? <p className="mt-0.5 text-xs text-muted-foreground">{t(m.nota)}</p> : null}
       </div>
       <span className="shrink-0 text-sm font-medium tabular-nums">{formatarMedida(m)}</span>
     </div>
@@ -34,25 +40,26 @@ function MedidaLinha({ m }: { m: Medida }) {
 }
 
 function ParCard({ par }: { par: Par }) {
+  const t = useT();
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-normal text-muted-foreground">{par.titulo}</CardTitle>
+        <CardTitle className="text-sm font-normal text-muted-foreground">{t(par.titulo)}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4 sm:flex-row">
         {/* Eficiência — o que o sistema é empurrado a maximizar. */}
         <div className="sm:w-48 sm:shrink-0">
           <p className="text-2xl font-semibold tabular-nums">{formatarMedida(par.eficiencia)}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{par.eficiencia.rotulo}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{t(par.eficiencia.rotulo)}</p>
           {par.eficiencia.nota ? (
-            <p className="mt-1 text-xs text-muted-foreground">{par.eficiencia.nota}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t(par.eficiencia.nota)}</p>
           ) : null}
         </div>
 
         {/* O custo disso. Mesmo cartão, sempre. */}
         <div className="min-w-0 flex-1 border-t pt-3 sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0">
           <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
-            O que isso custou
+            {t("O que isso custou")}
           </p>
           {par.danos.map((d) => (
             <MedidaLinha key={d.chave} m={d} />
@@ -70,6 +77,7 @@ function ParCard({ par }: { par: Par }) {
  * de quem responde pelo resultado, não de quem opera.
  */
 function ReguaAbandono({ horas, padrao, podeEditar }: { horas: number; padrao: number; podeEditar: boolean }) {
+  const t = useT();
   const [valor, setValor] = useState(String(horas));
   const salvar = useSalvarReguaAbandono();
   const n = Number(valor);
@@ -79,23 +87,24 @@ function ReguaAbandono({ horas, padrao, podeEditar }: { horas: number; padrao: n
   if (!podeEditar) {
     return (
       <p className="text-xs text-muted-foreground">
-        Uma conversa conta como perdida no silêncio após <strong>{horas}h</strong> sem resposta
-        {horas === padrao ? " (padrão do sistema)" : ""}.
+        {t("Uma conversa conta como perdida no silêncio após")} <strong>{horas}h</strong>{" "}
+        {t("sem resposta")}
+        {horas === padrao ? ` ${t("(padrão do sistema)")}` : ""}.
       </p>
     );
   }
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-      <span>Contar como perdida no silêncio após</span>
+      <span>{t("Contar como perdida no silêncio após")}</span>
       <Input
         className="h-7 w-20 text-xs"
         value={valor}
         inputMode="numeric"
-        aria-label="Horas de silêncio até considerar a conversa perdida"
+        aria-label={t("Horas de silêncio até considerar a conversa perdida")}
         onChange={(e) => setValor(e.target.value)}
       />
-      <span>horas sem resposta.</span>
+      <span>{t("horas sem resposta.")}</span>
       {sujo ? (
         <Button
           size="sm"
@@ -104,32 +113,33 @@ function ReguaAbandono({ horas, padrao, podeEditar }: { horas: number; padrao: n
           disabled={!valido || salvar.isPending}
           onClick={() => salvar.mutate(n)}
         >
-          {salvar.isPending ? "Salvando…" : "Salvar"}
+          {salvar.isPending ? t("Salvando…") : t("Salvar")}
         </Button>
       ) : null}
       {sujo && !valido ? (
-        <span className="text-destructive">Use um número inteiro entre 1 e 2160.</span>
+        <span className="text-destructive">{t("Use um número inteiro entre 1 e 2160.")}</span>
       ) : null}
       {/* Falha VISÍVEL: sem isto, um erro de escrita deixaria a tela mostrando o
           valor digitado como se tivesse sido salvo. */}
       {salvar.isError ? (
-        <span className="text-destructive">Não foi possível salvar. Tente de novo.</span>
+        <span className="text-destructive">{t("Não foi possível salvar. Tente de novo.")}</span>
       ) : null}
-      {horas === padrao && !sujo ? <span>(padrão do sistema)</span> : null}
+      {horas === padrao && !sujo ? <span>{t("(padrão do sistema)")}</span> : null}
     </div>
   );
 }
 
 export function AtritoPanel({ podeEditarRegua }: { podeEditarRegua: boolean }) {
+  const t = useT();
   const { data, isLoading, isError } = useAtritoMetrics();
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Carregando o índice de atrito…</p>;
+    return <p className="text-sm text-muted-foreground">{t("Carregando o índice de atrito…")}</p>;
   }
   // Falha aberta na informação: dizer que não carregou é melhor que sumir com a
   // seção — seção ausente lê-se como "não há atrito" (doutrina cap. 4.5).
   if (isError || !data) {
-    return <p className="text-sm text-destructive">Erro ao carregar o índice de atrito.</p>;
+    return <p className="text-sm text-destructive">{t("Erro ao carregar o índice de atrito.")}</p>;
   }
 
   const { escopo, pares, regua } = data.data;
@@ -140,16 +150,16 @@ export function AtritoPanel({ podeEditarRegua }: { podeEditarRegua: boolean }) {
   return (
     <section className="flex flex-col gap-3">
       <div>
-        <h2 className="text-base font-medium">Atrito</h2>
+        <h2 className="text-base font-medium">{t("Atrito")}</h2>
         <p className="text-sm text-muted-foreground">
-          O que o resultado custou para os dois lados.{" "}
+          {t("O que o resultado custou para os dois lados.")}{" "}
           {escopo.demandas === 0 ? (
-            <>Nenhuma demanda encerrada no período — os números abaixo ainda não têm base.</>
+            <>{t("Nenhuma demanda encerrada no período — os números abaixo ainda não têm base.")}</>
           ) : (
             <>
-              Base: {escopo.demandas}{" "}
-              {escopo.demandas === 1 ? "demanda encerrada" : "demandas encerradas"} nos últimos 30
-              dias, e {escopo.demandas_abertas} ainda abertas.
+              {t("Base:")} {escopo.demandas}{" "}
+              {escopo.demandas === 1 ? t("demanda encerrada") : t("demandas encerradas")}{" "}
+              {t("nos últimos 30 dias, e")} {escopo.demandas_abertas} {t("ainda abertas.")}
             </>
           )}
         </p>
@@ -175,7 +185,7 @@ export function AtritoPanel({ podeEditarRegua }: { podeEditarRegua: boolean }) {
           não está na tela é ruído, e ruído compete com o que importava. */}
       {temMedidaAusente ? (
         <p className="text-xs text-muted-foreground">
-          &quot;—&quot; significa que não houve dado suficiente para medir, e não que o valor seja zero.
+          {t('"—" significa que não houve dado suficiente para medir, e não que o valor seja zero.')}
         </p>
       ) : null}
     </section>

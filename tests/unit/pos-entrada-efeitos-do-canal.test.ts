@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EntradaDeMensagem } from "@/lib/channels/pos-entrada";
+import { acelerarPipelineDeEventos } from "@/lib/dev/kick-local-pipeline";
 
 /**
  * OS EFEITOS QUE TRANSFORMAM UMA MENSAGEM EM TRABALHO.
@@ -36,6 +37,10 @@ vi.mock("@/lib/leads/nascimento-do-lead", () => ({
 }));
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+vi.mock("@/lib/dev/kick-local-pipeline", () => ({
+  acelerarPipelineDeEventos: vi.fn(async () => {}),
+  kickLocalPipeline: vi.fn(async () => {}),
 }));
 
 /** A sequência do que ACONTECEU — é o que os casos de ordem inspecionam. */
@@ -105,6 +110,7 @@ beforeEach(() => {
   audit.mockClear();
   garantirLeadDaConversa.mockClear();
   garantirLeadDaConversa.mockResolvedValue({ criado: true, leadId: "lead-1" } as never);
+  vi.mocked(acelerarPipelineDeEventos).mockClear();
 });
 
 describe("a ordem dos três efeitos", () => {
@@ -269,6 +275,7 @@ describe("nascimento do lead", () => {
 describe("os dois canais usam o mesmo passo", () => {
   const ZERNIO = readFileSync("lib/channels/zernio/ingest.ts", "utf8");
   const WAHA = readFileSync("lib/waha/ingest.ts", "utf8");
+  const META = readFileSync("lib/channels/meta/ingest.ts", "utf8");
 
   it("o canal intermediado chama nos DOIS caminhos de inserção", () => {
     // A ingestão resolve a conversa por dois caminhos — thread conhecida e
@@ -287,12 +294,40 @@ describe("os dois canais usam o mesmo passo", () => {
     expect(WAHA).toMatch(/await aplicarEfeitosPosEntrada\(admin, \{/);
   });
 
+  it("o canal oficial também acorda o follow-up no mesmo passo", () => {
+    expect(META).toMatch(/await aplicarEfeitosPosEntrada\(admin, \{/);
+  });
+
   it("e não guarda mais uma cópia privada da regra de opt-out", () => {
     // Duas cópias divergem na primeira vez que alguém acrescentar um termo — e
     // a que diverge é sempre a que ninguém lembra que existe.
     expect(WAHA, "o canal por QR voltou a ter regex própria de STOP").not.toMatch(
       /STOP\|PARAR\|SAIR\|UNSUBSCRIBE/,
     );
+  });
+
+  it("acorda o follow-up do contato ANTES do drain genérico", async () => {
+    await rodar();
+    expect(acelerarPipelineDeEventos).toHaveBeenCalledWith(
+      admin,
+      expect.objectContaining({
+        organizationId: "org-1",
+        contactId: "contato-1",
+        messageId: "msg-1",
+        texto: "oi, tudo bem?",
+      }),
+    );
+  });
+
+  it("avança o follow-up ANTES de acordar o agente", async () => {
+    vi.mocked(acelerarPipelineDeEventos).mockImplementation(async () => {
+      sequencia.push("acelerar-followup");
+    });
+    await rodar();
+    const followup = sequencia.indexOf("acelerar-followup");
+    const agente = sequencia.indexOf("rpc:ai_agent.dispatch_requested");
+    expect(followup).toBeGreaterThanOrEqual(0);
+    expect(agente).toBeGreaterThan(followup);
   });
 
   it("o vocabulário do opt-out vive num lugar só", () => {

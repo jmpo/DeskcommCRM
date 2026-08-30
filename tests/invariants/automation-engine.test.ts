@@ -291,11 +291,28 @@ describe("runAutomationForEvent — motor de regras (Task 8)", () => {
     expect(runsCount()).toBe(before);
   });
 
-  it("postpone: adia o evento inteiro ANTES de qualquer ação (all-or-nothing), zero runs", async () => {
-    const before = runsCount();
+  it("postpone: adia o evento inteiro ANTES de qualquer ação (all-or-nothing), e a espera VIRA um run 'adiado'", async () => {
+    // ═══ Por que este caso mudou, e por que ele passava por ACIDENTE ═══
+    //
+    // Ele afirmava `runsCount()` inalterado — "zero runs" — e usava um id de
+    // evento SINTÉTICO (`00000000-…-0003`) que nunca existiu em `event_log`.
+    // Enquanto adiar não gravava nada, as duas coisas conviviam sem se tocar.
+    //
+    // Desde que o adiamento passou a ser um ESTADO (migration 0175), o motor
+    // grava um run `adiado` — e a FK `automation_rule_runs_event_id_fkey` exigia
+    // um evento que a fixture não tinha. O INSERT falhava, o log gritava
+    // ("não foi possível registrar o adiamento", visível no job `invariants`),
+    // e o caso continuava VERDE lendo zero runs. Verde pelo motivo errado: ele
+    // media a FK quebrada, não o comportamento.
+    //
+    // Agora o evento é REAL, e a asserção é a que importa — porque "não
+    // apareceu nada na Atividade" e "a automação não rodou" serem a mesma tela
+    // foi o defeito que originou esta entrega inteira.
     const okBefore = fakeOkCalls;
+    const antes = runsForRule(R5).length;
+    const eventId = emitRealEvent("lead.stage_changed", "crm_lead", GOV_LEAD);
     const row = baseRow({
-      id: "00000000-0000-4000-8000-000000000003",
+      id: eventId,
       event_type: "lead.stage_changed",
       entity_kind: "crm_lead",
       entity_id: GOV_LEAD,
@@ -309,8 +326,13 @@ describe("runAutomationForEvent — motor de regras (Task 8)", () => {
     expect(deltaMs).toBeGreaterThan(55 * 60_000);
     expect(deltaMs).toBeLessThan(65 * 60_000);
 
-    expect(runsCount()).toBe(before);
-    expect(fakeOkCalls).toBe(okBefore); // fake_ok (2ª ação de R5) NÃO executou
+    // ALL-OR-NOTHING continua valendo: a 2ª ação de R5 não foi executada.
+    expect(fakeOkCalls).toBe(okBefore);
+
+    // E a espera é VISÍVEL: exatamente um run novo, com o estado que a 0175 abriu.
+    const runs = runsForRule(R5);
+    expect(runs.length).toBe(antes + 1);
+    expect(runs[runs.length - 1]!.status).toBe("adiado");
   });
 
   it("ação de type desconhecido: run registrado com status='failed', demais ações seguiriam", async () => {

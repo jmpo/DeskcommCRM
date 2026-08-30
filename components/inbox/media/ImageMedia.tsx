@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useT } from "@/hooks/i18n/useT";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,6 +16,7 @@ interface Props {
 
 /** Miniatura na bolha + lightbox (Dialog) no clique. Padrão WhatsApp Web. */
 export function ImageMedia({ messageId, alt }: Props) {
+  const t = useT();
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [open, setOpen] = useState(false);
   const src = mediaSrc(messageId);
@@ -30,7 +32,7 @@ export function ImageMedia({ messageId, alt }: Props) {
     <>
       <button
         type="button"
-        aria-label="Ampliar imagem"
+        aria-label={t("Ampliar imagem")}
         onClick={() => setOpen(true)}
         disabled={state !== "ready"}
         aria-disabled={state !== "ready"}

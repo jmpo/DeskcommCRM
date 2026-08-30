@@ -210,11 +210,19 @@ controle diz onde impacta.
 
 **Três regras de tela:**
 
-1. **Cada papel mostra as tools QUE ELE tem** — não uma lista única de 51 com teto de 20.
-2. **O teto de 20 deixa de ser problema.** Hoje o Conversador carrega até 12 nativas + 20 do
-   catálogo = 32 num prompt só, e o e2e `capacidades-do-agente.spec.ts` está fora do CI porque
-   ligar "Atender" estoura o teto. Separado: Conversador ≈5, Operador ≈45. **Isso conserta um
-   defeito existente, não é efeito colateral.**
+1. **Cada papel mostra as tools QUE ELE tem** — não uma lista única do catálogo inteiro contra
+   um teto só.
+2. **O teto deixa de ser problema.** Hoje o Conversador carrega as 12 nativas mais as do
+   catálogo num prompt só. Separado: Conversador ≈5, Operador ≈45. **Isso conserta um defeito
+   existente, não é efeito colateral.**
+
+   ⚠️ DUAS AFIRMAÇÕES DESTE ITEM VENCERAM, e as duas mediam contra régua que não existe mais:
+   (a) o teto era 20 e passou a ser **25**, quando o dono do produto ficou sem como ligar as
+   capacidades de agenda num agente cheio — o porquê está junto da constante em
+   `lib/mcp/tools/selecao-por-pacote.ts`; (b) o e2e `capacidades-do-agente.spec.ts` **não está
+   fora do CI**: ele roda em `SPECS_PARTE_2` de `.github/workflows/e2e.yml`, e `e2e` é status
+   check obrigatório. Quem for planejar a divisão de papéis contra este item confere os dois na
+   fonte antes.
 3. **Desligar diz a consequência**, em pt-BR de dono de clínica, não "desabilitar agente operador".
 
 ### 6.1 O botão "Testar" mente hoje — e isso entra no escopo

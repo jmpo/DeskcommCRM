@@ -14,6 +14,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { audit } from "@/lib/audit";
 import { sincronizarSaudeDaConexao } from "@/lib/channels/health";
 import { aplicarEfeitosPosEntrada } from "@/lib/channels/pos-entrada";
+import { acelerarPipelineDeEventos } from "@/lib/dev/kick-local-pipeline";
+import { canonicalPhoneBR } from "@/lib/channels/phone-variants";
 import { estamparAtribuicaoDoContato } from "@/lib/leads/atribuicao-de-anuncio";
 import { extrairAtribuicaoWaha } from "@/lib/waha/atribuicao-de-anuncio";
 import type { createAdminClient } from "@/lib/supabase/admin";
@@ -363,7 +365,11 @@ async function upsertContact(
     // ele já é um número, ou de `_data.key.remoteJidAlt` quando o chat é `@lid`.
     // Resolver aqui, e não no SQL, foi o que permitiu manter a assinatura da
     // função (e portanto os grants e os invariantes de hardening) intacta.
-    p_phone: parsed.kind === "phone" ? parsed.phone : telefoneAlt,
+    p_phone: parsed.kind === "phone"
+      ? canonicalPhoneBR(parsed.phone)
+      : telefoneAlt
+        ? canonicalPhoneBR(telefoneAlt)
+        : null,
     p_lid: parsed.kind === "lid" ? parsed.lid : null,
     p_chat_id: chatId,
     p_notify: notifyName,
@@ -454,6 +460,25 @@ async function markConversation(
 /**
  * Mensagem recebida (fromMe=false). Contato = remetente (`from`).
  */
+async function mensagemIngeridaPorExternalId(
+  admin: Admin,
+  orgId: string,
+  externalId: string,
+): Promise<{ id: string; contact_id: string; body: string | null } | null> {
+  const { data, error } = await admin
+    .from("messages")
+    .select("id, contact_id, body")
+    .eq("organization_id", orgId)
+    .eq("external_id", externalId)
+    .eq("direction", "inbound")
+    .maybeSingle();
+  if (error) {
+    logger.warn("waha.ingest: dedup sem ler mensagem existente", { detail: error.message });
+    return null;
+  }
+  return data ?? null;
+}
+
 async function handleInbound(
   admin: Admin,
   session: Session,
@@ -543,6 +568,26 @@ async function handleInbound(
       external_id: p.id,
       direcao: "inbound",
     });
+    // A 1ª entrega pode ter gravado a mensagem e estourado o tempo ANTES de
+    // `aplicarEfeitosPosEntrada` — a reentrega cai aqui. Reacelerar só o
+    // pipeline (sem re-despachar o agente) destrava o match_reply.
+    const existente = await mensagemIngeridaPorExternalId(admin, session.organization_id, p.id);
+    if (existente) {
+      try {
+        await acelerarPipelineDeEventos(admin, {
+          organizationId: session.organization_id,
+          contactId: existente.contact_id,
+          messageId: existente.id,
+          texto: existente.body,
+        });
+      } catch (err) {
+        logger.warn("waha.ingest: dedup nao reacelerou pipeline", {
+          organization_id: session.organization_id,
+          external_id: p.id,
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
     return;
   }
 

@@ -13,6 +13,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { useT } from "@/hooks/i18n/useT";
 import { Button } from "@/components/ui/button";
 
 export interface ImpersonatingInfo {
@@ -26,6 +27,7 @@ interface Props {
 }
 
 export function ImpersonateBanner({ impersonating }: Props) {
+  const t = useT();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
@@ -39,14 +41,14 @@ export function ImpersonateBanner({ impersonating }: Props) {
         method: "POST",
       });
       if (!res.ok) {
-        toast.error("Falha ao encerrar impersonate");
+        toast.error(t("Falha ao encerrar impersonate"));
         return;
       }
       // Hard navigation so the cleared cookie takes effect on next request.
       window.location.assign(`/admin/tenants/${impersonating.tenantId}`);
       router.push(`/admin/tenants/${impersonating.tenantId}`);
     } catch (err) {
-      toast.error("Erro de rede ao encerrar impersonate");
+      toast.error(t("Erro de rede ao encerrar impersonate"));
       console.error("[impersonate] end error", err);
     } finally {
       setBusy(false);
@@ -62,7 +64,7 @@ export function ImpersonateBanner({ impersonating }: Props) {
       <div className="flex items-center gap-2">
         <span aria-hidden>🛡️</span>
         <span>
-          Modo Impersonate — atuando como{" "}
+          {t("Modo Impersonate — atuando como")}{" "}
           <strong className="font-semibold">{impersonating.tenantName}</strong>
         </span>
       </div>
@@ -72,9 +74,9 @@ export function ImpersonateBanner({ impersonating }: Props) {
         className="border-amber-400 bg-white/60 text-amber-950 hover:bg-white dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-50 dark:hover:bg-amber-900/70"
         onClick={handleEnd}
         disabled={busy}
-        aria-label="Encerrar impersonate e voltar ao admin"
+        aria-label={t("Encerrar impersonate e voltar ao admin")}
       >
-        {busy ? "Encerrando…" : "Sair"}
+        {busy ? t("Encerrando…") : t("Sair")}
       </Button>
     </div>
   );

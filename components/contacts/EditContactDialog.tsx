@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import { useT } from "@/hooks/i18n/useT";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { contactPatchSchema, type ContactPatch } from "@/lib/schemas/contacts";
 import { useUpdateContact } from "@/hooks/contacts/useUpdateContact";
 import type { Contact } from "@/lib/types/contacts";
+import { phoneForDisplay } from "@/lib/channels/phone-variants";
 
 interface FormShape {
   name?: string;
@@ -31,6 +33,7 @@ interface Props {
 }
 
 export function EditContactDialog({ contact, open, onOpenChange }: Props) {
+  const t = useT();
   const update = useUpdateContact(contact.id);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -38,7 +41,7 @@ export function EditContactDialog({ contact, open, onOpenChange }: Props) {
     defaultValues: {
       name: contact.name ?? "",
       email: contact.email ?? "",
-      phone_number: contact.phone_number ?? "",
+      phone_number: contact.phone_number ? phoneForDisplay(contact.phone_number) : "",
       tagsRaw: contact.tags.join(", "),
     },
   });
@@ -48,7 +51,7 @@ export function EditContactDialog({ contact, open, onOpenChange }: Props) {
       form.reset({
         name: contact.name ?? "",
         email: contact.email ?? "",
-        phone_number: contact.phone_number ?? "",
+        phone_number: contact.phone_number ? phoneForDisplay(contact.phone_number) : "",
         tagsRaw: contact.tags.join(", "),
       });
     }
@@ -69,12 +72,12 @@ export function EditContactDialog({ contact, open, onOpenChange }: Props) {
 
     const parsed = contactPatchSchema.safeParse(payload);
     if (!parsed.success) {
-      setServerError(parsed.error.issues[0]?.message ?? "Dados inválidos");
+      setServerError(parsed.error.issues[0]?.message ?? t("Dados inválidos"));
       return;
     }
     try {
       await update.mutateAsync(parsed.data as ContactPatch);
-      toast.success("Contato atualizado");
+      toast.success(t("Contato atualizado"));
       onOpenChange(false);
     } catch {
       // hook handles toast
@@ -85,12 +88,12 @@ export function EditContactDialog({ contact, open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Editar contato</DialogTitle>
-          <DialogDescription>Atualize os dados deste contato.</DialogDescription>
+          <DialogTitle>{t("Editar contato")}</DialogTitle>
+          <DialogDescription>{t("Atualize os dados deste contato.")}</DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="ec-name">Nome</Label>
+            <Label htmlFor="ec-name">{t("Nome")}</Label>
             <Input id="ec-name" {...form.register("name")} />
           </div>
           <div className="space-y-2">
@@ -98,7 +101,7 @@ export function EditContactDialog({ contact, open, onOpenChange }: Props) {
             <Input id="ec-email" type="email" {...form.register("email")} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="ec-phone">Telefone (E.164)</Label>
+            <Label htmlFor="ec-phone">{t("Telefone (E.164)")}</Label>
             <Input id="ec-phone" {...form.register("phone_number")} />
           </div>
           <div className="space-y-2">
@@ -113,10 +116,10 @@ export function EditContactDialog({ contact, open, onOpenChange }: Props) {
               onClick={() => onOpenChange(false)}
               disabled={update.isPending}
             >
-              Cancelar
+              {t("Cancelar")}
             </Button>
             <Button type="submit" disabled={update.isPending}>
-              {update.isPending ? "Salvando…" : "Salvar"}
+              {update.isPending ? t("Salvando…") : t("Salvar")}
             </Button>
           </DialogFooter>
         </form>

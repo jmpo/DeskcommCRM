@@ -14,6 +14,8 @@ import { verifyInviteToken } from "@/lib/auth/invite-token";
 import { authRateLimited, AUTH_LIMITS } from "@/lib/auth/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 import { acceptInviteAction } from "@/app/actions/team/acceptInvite";
+import { normalizarIdioma } from "@/lib/i18n/idiomas";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,20 @@ interface PageProps {
 export default async function AcceptInvitePage({ params }: PageProps) {
   const { token } = await params;
 
+  // Rota pública, fora da árvore de `app/app/layout.tsx` — sem `IdiomaProvider`,
+  // então resolve o idioma direto, como `admin/forbidden/page.tsx`. Buscado
+  // ANTES do teto de tentativas e da validação do token porque toda ramificação
+  // abaixo (inclusive as de erro) precisa do mesmo idioma — quem ainda não tem
+  // conta cai no ramo sem `user` e cai no idioma padrão.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const idioma = normalizarIdioma(
+    (user?.user_metadata?.locale as string | undefined) ?? null,
+  );
+  const t = (texto: string) => traduzir(texto, idioma);
+
   // O gargalo de enumeração é AQUI, não no aceite: a rota é pública e cada
   // GET testa um token. Sem teto, varrer o espaço de tokens sai de graça
   // (issue #64). Barrar antes de verificar mantém a resposta indistinguível
@@ -31,9 +47,9 @@ export default async function AcceptInvitePage({ params }: PageProps) {
   if (await authRateLimited("invite_accept", null, AUTH_LIMITS.invite_accept)) {
     return (
       <Shell>
-        <h1 className="text-xl font-semibold">Muitas tentativas</h1>
+        <h1 className="text-xl font-semibold">{t("Muitas tentativas")}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Aguarde alguns minutos e abra o link do convite de novo.
+          {t("Aguarde alguns minutos e abra o link do convite de novo.")}
         </p>
       </Shell>
     );
@@ -44,34 +60,31 @@ export default async function AcceptInvitePage({ params }: PageProps) {
   if (!payload) {
     return (
       <Shell>
-        <h1 className="text-xl font-semibold">Convite inválido ou expirado</h1>
+        <h1 className="text-xl font-semibold">{t("Convite inválido ou expirado")}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Este link não é válido ou já passou da janela de 24h. Peça um novo convite ao admin do tenant.
+          {t(
+            "Este link não é válido ou já passou da janela de 24h. Peça um novo convite ao admin do tenant.",
+          )}
         </p>
       </Shell>
     );
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   if (!user) {
     const next = encodeURIComponent(`/team/accept-invite/${token}`);
     return (
       <Shell>
-        <h1 className="text-xl font-semibold">Você foi convidado</h1>
+        <h1 className="text-xl font-semibold">{t("Você foi convidado")}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Para aceitar o convite como <strong>{payload.role}</strong>, faça login com o email{" "}
-          <strong>{payload.email}</strong>.
+          {t("Para aceitar o convite como")} <strong>{payload.role}</strong>,{" "}
+          {t("faça login com o email")} <strong>{payload.email}</strong>.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Link
             href={`/login?next=${next}`}
             className="inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
           >
-            Fazer login
+            {t("Fazer login")}
           </Link>
           {/*
             O caminho que faltava. Quem é convidado e ainda NÃO tem conta só
@@ -84,7 +97,7 @@ export default async function AcceptInvitePage({ params }: PageProps) {
             href={`/signup?invite=${encodeURIComponent(token)}`}
             className="text-sm underline underline-offset-4"
           >
-            Ainda não tenho conta
+            {t("Ainda não tenho conta")}
           </Link>
         </div>
       </Shell>
@@ -95,17 +108,18 @@ export default async function AcceptInvitePage({ params }: PageProps) {
   if (userEmail !== payload.email.trim().toLowerCase()) {
     return (
       <Shell>
-        <h1 className="text-xl font-semibold">Email não corresponde</h1>
+        <h1 className="text-xl font-semibold">{t("Email não corresponde")}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Você está logado como <strong>{user.email}</strong>, mas o convite foi enviado para{" "}
-          <strong>{payload.email}</strong>. Saia e faça login com o email correto.
+          {t("Você está logado como")} <strong>{user.email}</strong>,{" "}
+          {t("mas o convite foi enviado para")} <strong>{payload.email}</strong>.{" "}
+          {t("Saia e faça login com o email correto.")}
         </p>
         <form action="/api/auth/signout" method="post" className="mt-4">
           <button
             type="submit"
             className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
           >
-            Sair
+            {t("Sair")}
           </button>
         </form>
       </Shell>
@@ -119,17 +133,17 @@ export default async function AcceptInvitePage({ params }: PageProps) {
 
   return (
     <Shell>
-      <h1 className="text-xl font-semibold">Aceitar convite</h1>
+      <h1 className="text-xl font-semibold">{t("Aceitar convite")}</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Você foi convidado para entrar como <strong>{payload.role}</strong>. Confirme abaixo para
-        ativar seu acesso.
+        {t("Você foi convidado para entrar como")} <strong>{payload.role}</strong>.{" "}
+        {t("Confirme abaixo para ativar seu acesso.")}
       </p>
       <form action={accept} className="mt-4">
         <button
           type="submit"
           className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
         >
-          Aceitar convite
+          {t("Aceitar convite")}
         </button>
       </form>
     </Shell>

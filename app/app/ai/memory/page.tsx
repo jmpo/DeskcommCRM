@@ -4,6 +4,7 @@ import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
 import { createClient } from "@/lib/supabase/server";
 import type { OrgMemoryState } from "@/hooks/ai/useOrgMemory";
+import { traduzir } from "@/lib/i18n/dicionario";
 import { OrgMemoryClient } from "./_client";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ export default async function OrgMemoryPage() {
   const user = await requireAuth();
   const activeOrg = await resolveActiveOrg(user);
   if (!activeOrg) redirect("/app");
+  const idioma = user.idioma;
 
   if (!user.is_platform_admin && ROLE_RANK[activeOrg.role] < ROLE_RANK.manager) {
     redirect("/403");
@@ -65,10 +67,12 @@ export default async function OrgMemoryPage() {
   return (
     <div className="flex h-full flex-col gap-6 p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Memória da IA</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{traduzir("Memória da IA", idioma)}</h1>
         <p className="text-sm text-muted-foreground">
-          Regras e aprendizados que TODOS os agentes de IA desta organização seguem em qualquer
-          conversa — não é uma configuração de um agente específico.
+          {traduzir(
+            "Regras e aprendizados que TODOS os agentes de IA desta organização seguem em qualquer conversa — não é uma configuração de um agente específico.",
+            idioma,
+          )}
         </p>
       </header>
       <OrgMemoryClient initialState={initialState} />

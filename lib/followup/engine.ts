@@ -11,14 +11,22 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { idsDoContatoEGemeos } from "@/lib/channels/contato-por-telefone";
 import { logger } from "@/lib/logger";
 
-import { flowGraphSchema, type FlowGraph, type FlowNode } from "./graph-schema";
+import { flowGraphSchema, type FlowGraph, type FlowNode, type ReplySaveTo } from "./graph-schema";
 import {
   ACTION_RECHECK_MS,
   BACKOFF_MS,
+  ehConfirmacao,
+  latestRepeatIndex,
+  occupancyEventCount,
+  actionTurnCompleted,
   processNode,
+  repeatTakenFromEvents,
+  repeatTotalFromEvents,
   resolveWaitPhase,
+  selectEdge,
   type EnrollmentEventRef,
   type EnrollmentOutcome,
   type EnrollmentRow,
@@ -27,8 +35,9 @@ import {
   type NodeResult,
 } from "./node-handlers";
 import { coletarEsperasAdaptativas, type EsperaAdaptativa, type TimingPlan } from "./timing-plan";
+import { interpolarDestino, persistirRespostaFollowupSupabase } from "./persistir-resposta";
 
-const MAX_STEPS = 30;
+const MAX_STEPS = 80;
 const CLAIM_LEASE_SECONDS = 120;
 const DEFAULT_CLAIM_LIMIT = 20;
 const MAX_ERROR_LEN = 300;
@@ -58,6 +67,12 @@ export interface FollowupJobRequest {
     purpose: "send_message" | "classify" | "plan_timing";
     /** action (mode 'ai_message') — Task 5.1: repassado ao turno pra virar o bloco de orientação. */
     prompt_hint?: string;
+    /** action (mode 'text') — corpo pronto; o turno envia sem chamar o modelo. */
+    fixed_body?: string;
+    /** action (mode 'template') — id em `message_templates`; o turno carrega o corpo e envia sem modelo. */
+    template_id?: string;
+    volta_index?: number;
+    volta_total?: number;
     /** ai_classify — Task 5.1: classes possíveis + dica opcional pro classificador. */
     classes?: string[];
     hint?: string;
@@ -72,8 +87,21 @@ export interface FollowupJobRequest {
 export interface AdminClient {
   claimDueEnrollments(limit: number, leaseSeconds: number): Promise<EnrollmentRow[]>;
   loadFlowGraph(orgId: string, versionId: string): Promise<FlowGraph | null>;
-  loadLeadFacts(orgId: string, contactId: string): Promise<{ lead_stage: string | null; tags: string[] }>;
+  loadLeadFacts(orgId: string, contactId: string): Promise<{
+    lead_stage: string | null;
+    tags: string[];
+    contact_name?: string | null;
+    custom_fields?: Record<string, unknown>;
+  }>;
   loadEnrollmentEvents(enrollmentId: string): Promise<EnrollmentEventRef[]>;
+  /** Latest inbound `messages.body` for the contact (optionally scoped to the enrollment conversation). */
+  loadLastInboundBody(
+    orgId: string,
+    contactId: string,
+    conversationId: string | null,
+    /** Só mensagens deste instante em diante — senão o SIM da pergunta anterior casa no próximo `match_reply`. */
+    naoAntesDe?: string | null,
+  ): Promise<string | null>;
   /** Inserts the step's audit event; `inserted:false` means idempotency_key already existed (23505 replay). */
   insertEnrollmentEvent(event: {
     organization_id: string;
@@ -86,6 +114,12 @@ export interface AdminClient {
   updateEnrollment(id: string, orgId: string, patch: EnrollmentPatch): Promise<void>;
   loadFlowPointerName(orgId: string, pointerId: string): Promise<string | null>;
   insertDeadInboxItem(item: { organization_id: string; title: string; body: string; ref_id: string }): Promise<void>;
+  persistirRespostaFollowup(input: {
+    organization_id: string;
+    contact_id: string;
+    save_to: ReplySaveTo;
+    value: string;
+  }): Promise<void>;
 }
 
 export interface TickDeps {
@@ -145,8 +179,15 @@ function eventPayload(result: NodeResult): Record<string, unknown> {
       return {
         next_node_id: result.next_node_id,
         ...(result.reason !== undefined ? { reason: result.reason } : {}),
+        ...(result.repeat !== undefined
+          ? { repeat_index: result.repeat.index, repeat_total: result.repeat.total }
+          : {}),
       };
     case "wait":
+      return {
+        next_eval_at: result.next_eval_at.toISOString(),
+        ...(result.wake_status !== undefined ? { wake_status: result.wake_status } : {}),
+      };
     case "recheck":
       return { next_eval_at: result.next_eval_at.toISOString() };
     case "enqueue_turn":
@@ -166,9 +207,29 @@ function eventPayload(result: NodeResult): Record<string, unknown> {
  * action, classes/hint do ai_classify, guidance do wait smart) pra saber o que
  * fazer; sem isso o job só teria os 3 campos genéricos (enrollment/node/purpose).
  */
-function turnPayloadExtras(node: FlowNode, smartWaits: EsperaAdaptativa[]): Partial<FollowupJobRequest["payload"]> {
+function interpolarVolta(texto: string, events: EnrollmentEventRef[]): string {
+  const volta = latestRepeatIndex(events);
+  if (!volta) return texto;
+  return texto.replaceAll("{{volta}}", String(volta.index)).replaceAll("{{voltas}}", String(volta.total));
+}
+
+function turnPayloadExtras(
+  node: FlowNode,
+  smartWaits: EsperaAdaptativa[],
+  events: EnrollmentEventRef[] = [],
+): Partial<FollowupJobRequest["payload"]> {
   if (node.type === "action" && node.config.mode === "ai_message") {
-    return { prompt_hint: node.config.prompt_hint };
+    return { prompt_hint: interpolarVolta(node.config.prompt_hint, events) };
+  }
+  if (node.type === "action" && node.config.mode === "text") {
+    return { fixed_body: interpolarVolta(node.config.body, events) };
+  }
+  if (node.type === "action" && node.config.mode === "template") {
+    const volta = latestRepeatIndex(events);
+    return {
+      template_id: node.config.template_id,
+      ...(volta ? { volta_index: volta.index, volta_total: volta.total } : {}),
+    };
   }
   if (node.type === "ai_classify") {
     return { classes: node.config.classes, ...(node.config.hint !== undefined ? { hint: node.config.hint } : {}) };
@@ -258,6 +319,8 @@ async function applyResult(
   result: NodeResult,
   summary: TickSummary,
   smartWaits: EsperaAdaptativa[] = [],
+  events: EnrollmentEventRef[] = [],
+  respostaParaGravar: string | null = null,
 ): Promise<void> {
   const { db, clock, enqueueJob } = deps;
 
@@ -276,15 +339,41 @@ async function applyResult(
   }
 
   const idemKey = `${node.id}:${enrollment.steps_taken}`;
+  const wantedType = eventTypeFor(result);
   const { inserted } = await db.insertEnrollmentEvent({
     organization_id: enrollment.organization_id,
     enrollment_id: enrollment.id,
     node_id: node.id,
-    event_type: eventTypeFor(result),
+    event_type: wantedType,
     payload: eventPayload(result),
     idempotency_key: idemKey,
   });
   const isReplay = !inserted;
+
+  // Corrida clássica: completeTurn grava `action_sent` com a chave N:steps e
+  // avança; um tick/inbound paralelo tenta `action_recheck` com a MESMA chave,
+  // perde o insert (replay) e AINDA assim reescrevia current_node_id pro action.
+  // Se o evento que já existe é de OUTRO tipo, não aplicar o patch deste result.
+  if (isReplay) {
+    const frescos = await db.loadEnrollmentEvents(enrollment.id);
+    const prior = frescos.find((e) => e.idempotency_key === idemKey);
+    if (prior?.event_type && prior.event_type !== wantedType) {
+      if (result.kind === "advance" && prior.event_type === "action_sent") {
+        // action_sent gravado; o update do completeTurn pode ter se perdido —
+        // aplica só o avanço sem inventar outro evento.
+        await db.updateEnrollment(enrollment.id, enrollment.organization_id, {
+          current_node_id: result.next_node_id,
+          status: "active",
+          next_eval_at: result.next_eval_at.toISOString(),
+          steps_taken: enrollment.steps_taken + 1,
+          claimed_until: null,
+          updated_at: clock().toISOString(),
+        });
+        tallyOutcome(result, summary);
+      }
+      return;
+    }
+  }
 
   const patch: EnrollmentPatch = {
     steps_taken: enrollment.steps_taken + 1,
@@ -299,6 +388,10 @@ async function applyResult(
       patch.next_eval_at = result.next_eval_at.toISOString();
       break;
     case "wait":
+      patch.current_node_id = enrollment.current_node_id;
+      patch.status = result.wake_status ?? "active";
+      patch.next_eval_at = result.next_eval_at.toISOString();
+      break;
     case "recheck":
       // recheck = action turn in flight: stay on the node, stay active, look again after the
       // recheck delay. No enqueueJob (the whole point) — the in-flight turn owns the send.
@@ -312,22 +405,11 @@ async function applyResult(
       // node.type narrado (union discriminada de FlowNode) — sem cast: dentro
       // do `if`, node.config já é o config do ai_classify de verdade.
       const graceMs =
-        result.purpose === "classify" && node.type === "ai_classify"
+        node.type === "ai_classify" || node.type === "match_reply"
           ? node.config.grace_timeout_ms
           : ACTION_RECHECK_MS;
       patch.next_eval_at = new Date(clock().getTime() + graceMs).toISOString();
       if (!isReplay) {
-        // At-most-once: o job só é disparado na aplicação FRESCA do resultado —
-        // um replay (23505) nunca reenfileira turno (doutrina de envio). Se
-        // enqueueJob falhar aqui (rede/fila fora do ar), o evento JÁ foi
-        // commitado — updateEnrollment abaixo não roda nesta tentativa, então
-        // o enrollment continua claimable e o tick seguinte reprocessa o
-        // MESMO passo: o insert do evento bate 23505 (replay), enqueueJob é
-        // pulado de novo (nunca reenvia) e o enrollment converge pro
-        // next_eval_at normal (5min ação / grace do classify). Efeito líquido
-        // de uma falha transitória no enqueue: atraso limitado ao próximo
-        // recheck, nunca um envio duplicado — self-healing, sem retry
-        // agressivo de envio.
         await enqueueJob({
           organization_id: enrollment.organization_id,
           contact_id: enrollment.contact_id,
@@ -335,7 +417,8 @@ async function applyResult(
             followup_enrollment_id: enrollment.id,
             node_id: node.id,
             purpose: result.purpose,
-            ...turnPayloadExtras(node, smartWaits),
+            ...turnPayloadExtras(node, smartWaits, events),
+            ...(result.fixed_body ? { fixed_body: result.fixed_body } : {}),
           },
         });
       }
@@ -353,10 +436,61 @@ async function applyResult(
 
   await db.updateEnrollment(enrollment.id, enrollment.organization_id, patch);
 
+  if (
+    result.kind === "advance" &&
+    !isReplay &&
+    respostaParaGravar &&
+    node.type === "match_reply" &&
+    node.config.save_to &&
+    (node.config.if_exists ?? "overwrite") !== "skip" &&
+    !((node.config.if_exists ?? "overwrite") === "confirm" && ehConfirmacao(respostaParaGravar))
+  ) {
+    try {
+      await db.persistirRespostaFollowup({
+        organization_id: enrollment.organization_id,
+        contact_id: enrollment.contact_id,
+        save_to: interpolarDestino(node.config.save_to, events),
+        value: respostaParaGravar,
+      });
+    } catch (err) {
+      logger.warn("followup: gravar resposta falhou; o fluxo já avançou", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   if (!isReplay) tallyOutcome(result, summary);
 }
 
-async function processEnrollment(deps: TickDeps, enrollment: EnrollmentRow, summary: TickSummary): Promise<void> {
+/**
+ * Resposta do WhatsApp neste request — não espera claim/cron.
+ * `inboundBody` é o texto desta mensagem (substitui nome já gravado na captação).
+ */
+export async function aplicarRespostaInbound(
+  deps: TickDeps,
+  enrollment: EnrollmentRow,
+  inboundBody: string,
+): Promise<void> {
+  const summary: TickSummary = { claimed: 0, advanced: 0, scheduled: 0, failed: 0, dead: 0 };
+  await processEnrollment(deps, enrollment, summary, inboundBody);
+}
+
+/** Um passo do grafo sem claim global — captação arranca o fluxo novo sem
+ *  tratar `waiting_reply` de outro lead como timeout. */
+export async function avancarEnrollmentAtivo(
+  deps: TickDeps,
+  enrollment: EnrollmentRow,
+): Promise<void> {
+  const summary: TickSummary = { claimed: 0, advanced: 0, scheduled: 0, failed: 0, dead: 0 };
+  await processEnrollment(deps, enrollment, summary);
+}
+
+async function processEnrollment(
+  deps: TickDeps,
+  enrollment: EnrollmentRow,
+  summary: TickSummary,
+  inboundBodyOverride?: string,
+): Promise<void> {
   const { db, clock } = deps;
 
   if (enrollment.steps_taken > MAX_STEPS) {
@@ -370,59 +504,102 @@ async function processEnrollment(deps: TickDeps, enrollment: EnrollmentRow, summ
 
   const node = graph.nodes.find((n) => n.id === enrollment.current_node_id);
   if (!node) throw new Error("node_not_found");
+  if (inboundBodyOverride !== undefined && node.type !== "match_reply" && node.type !== "wait") {
+    return;
+  }
 
   const leadRow = await db.loadLeadFacts(enrollment.organization_id, enrollment.contact_id);
   const lead: LeadFacts = {
     lead_stage: leadRow.lead_stage,
     tags: leadRow.tags,
     steps_taken: enrollment.steps_taken,
-    last_outcome: null, // onda 5: ai_classify ainda não persiste resultado pra condicionar
+    last_outcome: null,
+    contact_name: leadRow.contact_name ?? null,
+    custom_fields: leadRow.custom_fields,
   };
 
   let waitElapsed: boolean | undefined;
   let wokeEarly: boolean | undefined;
   let actionEnqueued: boolean | undefined;
   let actionRecheckCount: number | undefined;
+  let actionCompleted: boolean | undefined;
   let planEnqueued: boolean | undefined;
   let planRecheckCount: number | undefined;
+  let repeatTaken: number | undefined;
+  let repeatTotal: number | null | undefined;
+  let events: EnrollmentEventRef[] = [];
 
-  // Acionamento: as esperas adaptativas do fluxo. Só o trigger precisa delas (é
-  // ele quem manda planejar), e só quando ainda não há plano — fluxo v1 e
-  // enrollment já planejado não pagam nem a coleta nem a leitura de eventos.
   const smartWaits = node.type === "trigger" ? coletarEsperasAdaptativas(graph.nodes) : [];
   const vaiPlanejar = smartWaits.length > 0 && (enrollment.timing_plan ?? null) === null;
+  const precisaEventos =
+    vaiPlanejar ||
+    node.type === "wait" ||
+    node.type === "ai_classify" ||
+    node.type === "match_reply" ||
+    node.type === "action" ||
+    node.type === "repeat";
+
+  if (precisaEventos) {
+    events = await db.loadEnrollmentEvents(enrollment.id);
+  }
 
   if (vaiPlanejar) {
-    const events = await db.loadEnrollmentEvents(enrollment.id);
-    // Mesmo guard de ocupação do action: "um turno para ESTA estadia no nó já
-    // foi enfileirado?" — sem ele, cada recheck geraria um 2º job de plano.
     planEnqueued = resolveWaitPhase(events, node.id, enrollment.steps_taken);
     planRecheckCount = events.filter((e) => e.node_id === node.id).length;
   }
 
-  if (node.type === "wait" || node.type === "ai_classify" || node.type === "action") {
-    const events = await db.loadEnrollmentEvents(enrollment.id);
-    // Same prior-step-event check for all three: "did we already act on this node at this
-    // occupancy?" — resolveWaitPhase looks for `${node}:${steps_taken - 1}`. For `action`
-    // this is the occupancy guard that makes the send enqueue EXACTLY ONCE (a recheck sees
-    // the prior `turn_enqueued` event and skips re-enqueuing).
+  if (node.type === "wait" || node.type === "ai_classify" || node.type === "match_reply" || node.type === "action") {
     waitElapsed = resolveWaitPhase(events, node.id, enrollment.steps_taken);
-    if (node.type === "ai_classify") {
-      // Marker próprio de reactivity (Task 5.2, lib/followup/reactivity.ts) —
-      // `${node.id}:${steps_taken}:wake`, distinto do idempotency_key de passo
-      // (`${node.id}:${steps_taken - 1}`) que waitElapsed checa. Existe ⇒ um
-      // inbound chegou nesta ocupação do nó; desempata contra o "no_reply" do
-      // fix da Task 5.1 (ambos re-entram via a MESMA waitElapsed=true).
+    // match_reply de captação: a confirmação já enfileirou um evento neste nó.
+    // O claim seguinte às vezes chega com steps_taken desalinhado da chave
+    // `${node}:${steps-1}` — sem isto o motor trata como 1ª visita e MANDA A
+    // PERGUNTA DE NOVO em vez de ler o SIM.
+    if (node.type === "match_reply") {
+      waitElapsed = waitElapsed || occupancyEventCount(events, node.id) > 0;
+    }
+    if (node.type === "ai_classify" || node.type === "match_reply" || node.type === "wait") {
       const wakeKey = `${node.id}:${enrollment.steps_taken}:wake`;
       wokeEarly = events.some((e) => e.node_id === node.id && e.idempotency_key === wakeKey);
     }
     if (node.type === "action") {
       actionEnqueued = waitElapsed;
-      // Dead-man counter: events on THIS action node (action never enters waiting_reply, so
-      // reactivity never writes a `:wake` marker for it — this counts turn_enqueued + recheck).
-      actionRecheckCount = events.filter((e) => e.node_id === node.id).length;
+      actionRecheckCount = occupancyEventCount(events, node.id);
+      actionCompleted = actionTurnCompleted(events, node.id);
     }
   }
+  const textoInbound = inboundBodyOverride?.trim() ?? "";
+  if (textoInbound && (node.type === "match_reply" || node.type === "wait")) {
+    wokeEarly = true;
+  }
+
+  if (node.type === "repeat") {
+    repeatTaken = repeatTakenFromEvents(events, node.id);
+    repeatTotal = repeatTotalFromEvents(events, node.id);
+  }
+
+  let lastInboundBody: string | undefined;
+  if (textoInbound && node.type === "match_reply") {
+    lastInboundBody = textoInbound;
+  } else if (
+    (node.type === "match_reply" && (wokeEarly || waitElapsed)) ||
+    (node.type === "repeat" && repeatTotal == null)
+  ) {
+    // Sempre no contato inteiro: a captação e o WhatsApp podem ser conversas
+    // diferentes, e filtrar pela conversation_id do enrollment esconde o SIM.
+    lastInboundBody =
+      (await db.loadLastInboundBody(
+        enrollment.organization_id,
+        enrollment.contact_id,
+        null,
+        enrollment.updated_at,
+      )) ?? "";
+    if (node.type === "match_reply" && lastInboundBody.trim()) {
+      wokeEarly = true;
+    }
+  }
+
+  const nextAlways = selectEdge(graph.edges, node.id, { type: "always" });
+  const proximo = nextAlways ? (graph.nodes.find((n) => n.id === nextAlways.target) ?? null) : null;
 
   const result = processNode({
     node,
@@ -432,13 +609,27 @@ async function processEnrollment(deps: TickDeps, enrollment: EnrollmentRow, summ
     clock,
     waitElapsed,
     wokeEarly,
+    lastInboundBody,
     actionEnqueued,
     actionRecheckCount,
+    actionCompleted,
     smartWaits,
     planEnqueued,
     planRecheckCount,
+    repeatTaken,
+    repeatTotal,
+    proximo,
   });
-  await applyResult(deps, enrollment, node, result, summary, smartWaits);
+  await applyResult(
+    deps,
+    enrollment,
+    node,
+    result,
+    summary,
+    smartWaits,
+    events,
+    node.type === "match_reply" && wokeEarly ? (lastInboundBody ?? "").trim() || null : null,
+  );
 }
 
 export async function runFollowupTick(deps: TickDeps, opts?: { limit?: number }): Promise<TickSummary> {
@@ -505,24 +696,59 @@ export function createSupabaseAdminClient(admin: SupabaseClient): AdminClient {
       return flowGraphSchema.parse(data.graph);
     },
     async loadLeadFacts(orgId, contactId) {
-      const { data, error } = await admin
-        .from("crm_leads")
-        .select("stage_id, tags")
+      const [{ data: lead, error: leadErr }, { data: contact, error: contactErr }] = await Promise.all([
+        admin
+          .from("crm_leads")
+          .select("stage_id, tags, custom_fields")
+          .eq("organization_id", orgId)
+          .eq("contact_id", contactId)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        admin.from("contacts").select("name").eq("organization_id", orgId).eq("id", contactId).maybeSingle(),
+      ]);
+      if (leadErr) throw new Error(leadErr.message);
+      if (contactErr) throw new Error(contactErr.message);
+      const custom =
+        lead?.custom_fields && typeof lead.custom_fields === "object" && !Array.isArray(lead.custom_fields)
+          ? (lead.custom_fields as Record<string, unknown>)
+          : {};
+      return {
+        lead_stage: lead?.stage_id ?? null,
+        tags: lead?.tags ?? [],
+        contact_name: contact?.name ?? null,
+        custom_fields: custom,
+      };
+    },
+    async loadLastInboundBody(orgId, contactId, _conversationId, naoAntesDe) {
+      const ids = await idsDoContatoEGemeos(admin, orgId, contactId);
+      let q = admin
+        .from("messages")
+        .select("body")
         .eq("organization_id", orgId)
-        .eq("contact_id", contactId)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .in("contact_id", ids)
+        .eq("direction", "inbound");
+      if (naoAntesDe) q = q.gte("sent_at", naoAntesDe);
+      const { data, error } = await q.order("sent_at", { ascending: false }).limit(1).maybeSingle();
       if (error) throw new Error(error.message);
-      return { lead_stage: data?.stage_id ?? null, tags: data?.tags ?? [] };
+      return typeof data?.body === "string" ? data.body : null;
     },
     async loadEnrollmentEvents(enrollmentId) {
       const { data, error } = await admin
         .from("followup_enrollment_events")
-        .select("node_id, idempotency_key")
-        .eq("enrollment_id", enrollmentId);
+        .select("node_id, idempotency_key, event_type, payload")
+        .eq("enrollment_id", enrollmentId)
+        .order("created_at", { ascending: true });
       if (error) throw new Error(error.message);
-      return data ?? [];
+      return (data ?? []).map((row) => ({
+        node_id: row.node_id,
+        idempotency_key: row.idempotency_key,
+        event_type: row.event_type,
+        payload:
+          row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+            ? (row.payload as Record<string, unknown>)
+            : null,
+      }));
     },
     async insertEnrollmentEvent(event) {
       const { error } = await admin.from("followup_enrollment_events").insert(event);
@@ -557,6 +783,9 @@ export function createSupabaseAdminClient(admin: SupabaseClient): AdminClient {
         ref_id: item.ref_id,
       });
       if (error) throw new Error(error.message);
+    },
+    async persistirRespostaFollowup(input) {
+      await persistirRespostaFollowupSupabase(admin, input);
     },
   };
 }

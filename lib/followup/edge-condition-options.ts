@@ -1,4 +1,4 @@
-import type { FlowEdge, FlowNode } from "./graph-schema";
+import { nodeBranches, type FlowEdge, type FlowNode } from "./graph-schema";
 
 /**
  * Per-source-node menu of valid edge conditions for the builder's edge
@@ -40,6 +40,13 @@ export function edgeConditionOptions(sourceNode: FlowNode | undefined): EdgeCond
       ...sourceNode.config.classes.map(classMatchOption),
       classMatchOption("no_reply"),
     ];
+  }
+  if (sourceNode?.type === "match_reply" || sourceNode?.type === "repeat") {
+    return nodeBranches(sourceNode).map((b) => ({
+      key: conditionKey(b.condition),
+      label: b.label ?? b.id,
+      condition: b.condition,
+    }));
   }
   if (sourceNode?.type === "condition") {
     return [ALWAYS_OPTION, condResultOption(true), condResultOption(false)];

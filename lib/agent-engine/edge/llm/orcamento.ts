@@ -292,8 +292,9 @@ const GRAFIAS_DE_DESLIGADO = new Set([
  * arquivo faz `safeParse` (`:204`) e LANÇA quando o schema recusa (`:223`). Um
  * `z.enum` para o kill switch transformaria a alavanca de emergência num
  * derrubador do app inteiro no dia em que o operador escrevesse `false` — o
- * idioma dos vizinhos `AGENT_DISPATCH_CONSUMER` (`:104`) e
- * `EVENT_LOG_WORKER_ENABLED` (`:107`). O precedente correto no mesmo arquivo é
+ * idioma do vizinho `AGENT_DISPATCH_CONSUMER`. (O outro exemplo citado aqui era
+ * `EVENT_LOG_WORKER_ENABLED`, removido em 2026-08-25 por nunca ter tido
+ * leitor.) O precedente correto no mesmo arquivo é
  * `APP_ACCENT_HEX: z.string().optional().default("")` (`:201`): string crua no
  * env, normalização no código.
  */

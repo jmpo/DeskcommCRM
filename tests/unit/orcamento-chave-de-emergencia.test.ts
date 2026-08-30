@@ -18,7 +18,7 @@
  * transformaria a alavanca de emergência no derrubador do app inteiro no dia em
  * que o operador, às 2h da manhã, escrevesse `false` em vez de `off`.
  *
- * O idioma dos vizinhos (`AGENT_DISPATCH_CONSUMER`, `EVENT_LOG_WORKER_ENABLED`)
+ * O idioma do vizinho `AGENT_DISPATCH_CONSUMER`
  * é `z.enum`, e para eles está certo: são knobs de arquitetura, escritos uma vez
  * na instalação. Este é o oposto — é mexido justamente quando algo já deu
  * errado. O precedente correto no mesmo arquivo é `APP_ACCENT_HEX`: string crua

@@ -13,6 +13,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { endConfigSchema } from "@/lib/followup/graph-schema";
 import { RESULTADOS_DO_FIM, opcoes, type ResultadoDoFim } from "@/lib/followup/vocabulario";
+import { useT } from "@/hooks/i18n/useT";
 
 import type { ConfigOf } from "./shared";
 
@@ -23,6 +24,7 @@ export function EndForm({
   config: ConfigOf<"end">;
   onChange: (c: ConfigOf<"end">) => void;
 }) {
+  const t = useT();
   const [outcome, setOutcome] = useState(config.outcome);
   const [note, setNote] = useState(config.note ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +33,7 @@ export function EndForm({
     const candidate = { outcome: next.outcome, ...(next.note.trim() ? { note: next.note } : {}) };
     const parsed = endConfigSchema.safeParse(candidate);
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Configuração inválida.");
+      setError(parsed.error.issues[0]?.message ?? t("Configuração inválida."));
       return;
     }
     setError(null);
@@ -41,7 +43,7 @@ export function EndForm({
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <Label htmlFor="end-outcome">Resultado</Label>
+        <Label htmlFor="end-outcome">{t("Resultado")}</Label>
         <Select
           value={outcome}
           onValueChange={(v) => {
@@ -56,14 +58,14 @@ export function EndForm({
           <SelectContent>
             {opcoes(RESULTADOS_DO_FIM).map(({ valor, rotulo }) => (
               <SelectItem key={valor} value={valor}>
-                {rotulo}
+                {t(rotulo)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="end-note">Nota (opcional)</Label>
+        <Label htmlFor="end-note">{t("Nota (opcional)")}</Label>
         <Textarea
           id="end-note"
           maxLength={200}

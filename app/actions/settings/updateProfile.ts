@@ -5,7 +5,11 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { audit } from "@/lib/audit";
-import { profileSchema, type ProfileInput } from "@/lib/schemas/settings";
+import {
+  profileSchema,
+  SEM_PREFERENCIA_DE_IDIOMA,
+  type ProfileInput,
+} from "@/lib/schemas/settings";
 import { resolveActiveOrg, loadAuthUser } from "@/lib/auth/server";
 
 export type UpdateProfileResult =
@@ -30,7 +34,9 @@ export async function updateProfile(input: ProfileInput): Promise<UpdateProfileR
   const { error } = await supabase.auth.updateUser({
     data: {
       full_name: parsed.data.full_name ?? null,
-      locale: parsed.data.locale,
+      // `null` é o que faz a cadeia seguir para a organização: o resolvedor
+      // de idioma lê a preferência primeiro e só cai na empresa se ela faltar.
+      locale: parsed.data.locale === SEM_PREFERENCIA_DE_IDIOMA ? null : parsed.data.locale,
       timezone: parsed.data.timezone,
       avatar_url: parsed.data.avatar_url ?? null,
     },

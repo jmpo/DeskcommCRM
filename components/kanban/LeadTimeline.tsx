@@ -1,6 +1,9 @@
 "use client";
+
+import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 import { useState } from "react";
 
+import { useT } from "@/hooks/i18n/useT";
 import { cn } from "@/lib/utils";
 import {
   activityLabel,
@@ -19,9 +22,9 @@ interface Props {
   isError: boolean;
 }
 
-function quando(iso: string): string {
+function quando(iso: string, idioma: string): string {
   try {
-    return new Intl.DateTimeFormat("pt-BR", {
+    return new Intl.DateTimeFormat(idioma, {
       day: "2-digit",
       month: "short",
       hour: "2-digit",
@@ -49,27 +52,33 @@ function Marcador({ item }: { item: TimelineItemView }) {
 }
 
 function Linha({ item, aoVivo }: { item: TimelineItemView; aoVivo?: boolean }) {
-  const nome = actorName(item.actor_kind ?? null, {
-    agente: item.actor_agent_name ?? null,
-    usuario: item.actor_user_name ?? null,
-  });
+  const tagDoIdioma = useTagDeIdioma();
+  const t = useT();
+  const nome = actorName(
+    item.actor_kind ?? null,
+    {
+      agente: item.actor_agent_name ?? null,
+      usuario: item.actor_user_name ?? null,
+    },
+    t,
+  );
   return (
     <li className="flex gap-2 py-1.5">
       <Marcador item={item} />
       <div className="min-w-0 flex-1">
         <p className="text-xs text-text">
-          {activityLabel(item.type)}
+          {t(activityLabel(item.type))}
           {aoVivo && (
             // O que chegou AGORA fica marcado: sem isto ele entraria na lista
             // idêntico ao resto e a chegada seria indistinguível do histórico.
             <span className="ml-1.5 text-[10px] uppercase tracking-wide text-accent">
-              agora
+              {t("agora")}
             </span>
           )}
         </p>
         {item.reason && <p className="mt-0.5 text-xs text-text-muted">{item.reason}</p>}
         <p className="mt-0.5 text-[11px] text-text-muted">
-          {nome} · {quando(item.performed_at)}
+          {nome} · {quando(item.performed_at, tagDoIdioma)}
         </p>
       </div>
     </li>
@@ -85,11 +94,12 @@ function Linha({ item, aoVivo }: { item: TimelineItemView; aoVivo?: boolean }) {
  * precedência reescrita em componente é rejeição de review.
  */
 export function LeadTimeline({ itens, chegouAoVivo, isLoading, isError }: Props) {
+  const t = useT();
   const [abertos, setAbertos] = useState<Set<number>>(new Set());
   const blocos = agrupaTimeline(itens, chegouAoVivo);
 
   if (isLoading) {
-    return <p className="py-4 text-xs text-text-muted">Carregando a linha do tempo…</p>;
+    return <p className="py-4 text-xs text-text-muted">{t("Carregando a linha do tempo…")}</p>;
   }
   // TRÊS estados, não dois: "não consegui ler" é diferente de "não há nada".
   // Transformar erro em lista vazia diria ao usuário que o lead não tem
@@ -97,12 +107,16 @@ export function LeadTimeline({ itens, chegouAoVivo, isLoading, isError }: Props)
   if (isError) {
     return (
       <p className="py-4 text-xs text-warning-fg">
-        Não consegui carregar a linha do tempo. Tente de novo em instantes.
+        {t("Não consegui carregar a linha do tempo. Tente de novo em instantes.")}
       </p>
     );
   }
   if (itens.length === 0) {
-    return <p className="py-4 text-xs text-text-muted">Nada aconteceu com este negócio ainda.</p>;
+    return (
+      <p className="py-4 text-xs text-text-muted">
+        {t("Nada aconteceu com este negócio ainda.")}
+      </p>
+    );
   }
 
   return (
@@ -136,7 +150,7 @@ export function LeadTimeline({ itens, chegouAoVivo, isLoading, isError }: Props)
                     alguém fez aquilo. */}
                 <span aria-hidden className="mt-1 h-2 w-0.5 shrink-0 bg-border" />
                 <span className="first-letter:uppercase">{b.rotulo}</span>
-                <span className="text-text-muted">· {b.itens.length} ações</span>
+                <span className="text-text-muted">· {b.itens.length} {t("ações")}</span>
                 <span aria-hidden className="ml-auto text-[10px]">
                   {aberto ? "−" : "+"}
                 </span>
@@ -156,10 +170,14 @@ export function LeadTimeline({ itens, chegouAoVivo, isLoading, isError }: Props)
         }
         const aberto = abertos.has(i);
         const primeiro = b.itens[0]!;
-        const nome = actorName(primeiro.actor_kind ?? null, {
-          agente: primeiro.actor_agent_name ?? null,
-          usuario: primeiro.actor_user_name ?? null,
-        });
+        const nome = actorName(
+          primeiro.actor_kind ?? null,
+          {
+            agente: primeiro.actor_agent_name ?? null,
+            usuario: primeiro.actor_user_name ?? null,
+          },
+          t,
+        );
         return (
           <li key={`g${i}`} className="py-1.5">
             <button
@@ -177,7 +195,7 @@ export function LeadTimeline({ itens, chegouAoVivo, isLoading, isError }: Props)
             >
               <Marcador item={primeiro} />
               <span>
-                {nome} · {b.itens.length} ações
+                {nome} · {b.itens.length} {t("ações")}
               </span>
               <span aria-hidden className="ml-auto text-[10px]">
                 {aberto ? "−" : "+"}

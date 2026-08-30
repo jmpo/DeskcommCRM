@@ -33,6 +33,19 @@ describe("tabToFilter — o que cada aba significa", () => {
     expect(tabToFilter("closed")).toEqual({ status: "closed" });
   });
 
+  it("a Fila pede os DOIS estados de espera — a conversa escalada é `pending`", () => {
+    // Sem `pending`, a conversa que o automático passou para uma pessoa não
+    // aparecia em aba NENHUMA que o atendente vê: Fila pedia só `open`, Minhas
+    // exige dono, IA filtra `ai_handling` e Todas é escondida do papel `agent`
+    // fora do modo `all`. O trigger de roteamento do banco, esse, sempre a
+    // enfileirou — é por isso que o rodízio a atribuía enquanto a tela jurava
+    // que ela não existia.
+    expect(tabToFilter("unassigned")).toEqual({
+      assigned_to: "unassigned",
+      status: ["open", "pending"],
+    });
+  });
+
   it("as outras abas não ganham o filtro de tabela", () => {
     expect(tabToFilter("unassigned").exclude_finished).toBeUndefined();
     expect(tabToFilter("all").exclude_finished).toBeUndefined();
@@ -119,8 +132,11 @@ describe("listConversationsHandler — predicado", () => {
   });
 
   it("status terminal + exclude_finished aplica os DOIS: contradição devolve vazio", async () => {
-    const chamadas = await rodar({ status: "closed", exclude_finished: true });
-    expect(chamadas.some((c) => c.metodo === "eq" && c.args[0] === "status")).toBe(true);
+    const chamadas = await rodar({ status: ["closed"], exclude_finished: true });
+    // `in` e não `eq`: o filtro de status virou lista para a aba Fila poder pedir
+    // os DOIS estados de espera (open + pending). Um valor só continua chegando,
+    // agora como lista de um.
+    expect(chamadas.some((c) => c.metodo === "in" && c.args[0] === "status")).toBe(true);
     expect(temNotTerminal(chamadas)).toBe(true);
   });
 

@@ -12,6 +12,8 @@ export interface ActionCtx {
   admin: SupabaseClient;
   organizationId: string;
   ruleId: string;
+  /** Nome da regra como o operador a nomeou — entra nos avisos que ele lê. */
+  ruleName: string;
   event: EventRow;
   context: Record<string, unknown>; // mesmo objeto avaliado pelas condições
   requestId: string;

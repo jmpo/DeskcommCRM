@@ -54,6 +54,7 @@ jobs:
       - name: Unit tests
         run: pnpm test:unit
 
+
       # Scripts do kit self-host num repo git descartável (docker/crontab
       # dublados). É o único gate que exercita o update.sh — um erro aqui
       # rebobina a instalação de quem hospeda, e nenhum teste TS o veria.

@@ -1,5 +1,5 @@
 /**
- * Core handlers para /api/v1/contacts (lista + get + create + patch).
+ * Core handlers para /api/v1/contacts (lista + get + create + patch + delete).
  *
  * Reusados pelo Route Handler REST e por MCP tools (S-13.03/04).
  * - Recebem actor polimórfico (`user` | `ai_agent`).
@@ -11,8 +11,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { ApiError } from "@/lib/api/types";
 import type { Actor, HandlerCtx } from "@/lib/api/handlers/types";
 import { audit } from "@/lib/audit";
+import { roleAtLeast } from "@/lib/auth/types";
+import { canonicalPhoneBR, phoneLookupVariants } from "@/lib/channels/phone-variants";
 import { hashCpf, encryptCpfSql } from "@/lib/contacts/cpf";
 import type { Contact } from "@/lib/types/contacts";
+import { ensureConversation, sessaoProntaParaEnvio } from "@/lib/automation/start-conversation";
 import type {
   ContactCreate,
   ContactPatch,
@@ -25,13 +28,6 @@ type SB = SupabaseClient;
 
 const SELECT_COLS =
   "id, organization_id, name, display_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, created_at, updated_at, last_activity_at";
-
-const ROLE_RANK: Record<string, number> = {
-  viewer: 1,
-  agent: 2,
-  manager: 3,
-  admin: 4,
-};
 
 interface CursorPayload {
   sort: string | null;
@@ -127,6 +123,18 @@ export async function listContactsHandler(
       `email.ilike.%${s}%`,
       `phone_number.ilike.%${s}%`,
     ];
+    if (digits.length >= 8) {
+      // 10/11 dígitos sem DDI: no Brasil é DDD+local. Sem o 55, `3284793302`
+      // não gera a variante com o 9 e o cadastro `+5532984793302` some da busca.
+      const base =
+        !digits.startsWith("55") && (digits.length === 10 || digits.length === 11)
+          ? `55${digits}`
+          : digits;
+      for (const v of phoneLookupVariants(base)) {
+        const d = v.replace(/\D/g, "");
+        if (d && d !== digits) orParts.push(`phone_number.ilike.%${d}%`);
+      }
+    }
     if (digits.length === 11) {
       orParts.push(`cpf_hash.eq.${hashCpf(digits)}`);
     }
@@ -274,8 +282,7 @@ export async function getContactHandler(
       .maybeSingle();
 
     const role = membership?.role as string | undefined;
-    const rank = role ? (ROLE_RANK[role] ?? 0) : 0;
-    if (rank < ROLE_RANK.manager!) {
+    if (!roleAtLeast(role, "manager")) {
       cpfDecryptDenied = true;
     } else {
       const { data: dec, error: decErr } = await supabase.rpc("decrypt_cpf", {
@@ -340,7 +347,7 @@ export async function createContactHandler(
     name: input.name ?? null,
     display_name: input.display_name ?? null,
     email: input.email ?? null,
-    phone_number: input.phone_number ?? null,
+    phone_number: input.phone_number ? canonicalPhoneBR(input.phone_number) : null,
     birthdate: input.birthdate ?? null,
     tags: input.tags ?? [],
     source: input.source,
@@ -365,6 +372,16 @@ export async function createContactHandler(
   }
 
   const contact = created as Contact;
+  if (contact.phone_number) {
+    try {
+      const sessionId = await sessaoProntaParaEnvio(supabase, ctx.organization_id);
+      if (sessionId) {
+        await ensureConversation(supabase, ctx.organization_id, contact.id, sessionId);
+      }
+    } catch {
+      // conversa no create é best-effort; o contato já existe
+    }
+  }
 
   await supabase
     .rpc("emit_event", {
@@ -447,7 +464,9 @@ export async function patchContactHandler(
   //
   // O banco deriva a coluna sozinho — era só não escrever nela.
   if (input.email !== undefined) patch.email = input.email;
-  if (input.phone_number !== undefined) patch.phone_number = input.phone_number;
+  if (input.phone_number !== undefined) {
+    patch.phone_number = input.phone_number ? canonicalPhoneBR(input.phone_number) : input.phone_number;
+  }
   if (input.birthdate !== undefined) patch.birthdate = input.birthdate;
   if (input.tags !== undefined) patch.tags = input.tags;
   if (input.source !== undefined) patch.source = input.source;
@@ -579,4 +598,101 @@ export async function patchContactHandler(
   });
 
   return contact;
+}
+
+// ---------------------------------------------------------------------------
+// delete
+// ---------------------------------------------------------------------------
+
+function throwOnDbError(
+  err: { code?: string; message: string } | null,
+  requestId: string,
+): void {
+  if (!err) return;
+  // conversations/messages apontam para contacts com ON DELETE RESTRICT.
+  if (err.code === "23503") {
+    throw new ApiError(
+      409,
+      "state_conflict",
+      undefined,
+      requestId,
+      "Não foi possível excluir: o contato ainda tem registros vinculados.",
+    );
+  }
+  throw new ApiError(500, "internal_error", undefined, requestId, err.message);
+}
+
+export async function deleteContactHandler(
+  supabase: SB,
+  ctx: HandlerCtx,
+  contactId: string,
+): Promise<{ id: string }> {
+  const { data: existing, error: selErr } = await supabase
+    .from("contacts")
+    .select("id, organization_id")
+    .eq("id", contactId)
+    .eq("organization_id", ctx.organization_id)
+    .maybeSingle();
+
+  if (selErr) {
+    throw new ApiError(500, "internal_error", undefined, ctx.requestId, selErr.message);
+  }
+  if (!existing) {
+    throw new ApiError(404, "not_found", undefined, ctx.requestId, "Contato não encontrado.");
+  }
+
+  // Mensagens e conversas RESTRICT no contato: apagar primeiro, senão o DELETE
+  // da ficha falha para qualquer lead que já falou no canal.
+  const { error: msgErr } = await supabase
+    .from("messages")
+    .delete()
+    .eq("contact_id", contactId)
+    .eq("organization_id", ctx.organization_id);
+  throwOnDbError(msgErr, ctx.requestId);
+
+  const { error: convErr } = await supabase
+    .from("conversations")
+    .delete()
+    .eq("contact_id", contactId)
+    .eq("organization_id", ctx.organization_id);
+  throwOnDbError(convErr, ctx.requestId);
+
+  const { data: deleted, error: delErr } = await supabase
+    .from("contacts")
+    .delete()
+    .eq("id", contactId)
+    .eq("organization_id", ctx.organization_id)
+    .select("id")
+    .maybeSingle();
+  throwOnDbError(delErr, ctx.requestId);
+  if (!deleted) {
+    throw new ApiError(404, "not_found", undefined, ctx.requestId, "Contato não encontrado.");
+  }
+
+  const a = actorAuditPayload(ctx.actor);
+
+  await supabase
+    .rpc("emit_event", {
+      p_event_type: "contact.deleted",
+      p_entity_kind: "contact",
+      p_entity_id: contactId,
+      p_payload: {},
+      p_metadata: { request_id: ctx.requestId, ...a.metadataActor },
+      p_organization_id: ctx.organization_id,
+    })
+    .then(({ error }) => {
+      if (error) console.error("[contacts.delete] emit_event failed", error.message);
+    });
+
+  await audit({
+    action: "contact.deleted",
+    actorUserId: a.actorUserId,
+    organizationId: ctx.organization_id,
+    resourceType: "contact",
+    resourceId: contactId,
+    requestId: ctx.requestId,
+    metadata: a.metadataActor,
+  });
+
+  return { id: deleted.id as string };
 }

@@ -57,7 +57,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (safeActions === null) {
     return fail(
       "encryption_unavailable",
-      "Não foi possível guardar o segredo do webhook com segurança. Configure NUVEMSHOP_OAUTH_ENCRYPTION_KEY e tente de novo — ou crie a ação sem segredo.",
+      "Não foi possível guardar o segredo do webhook com segurança: a chave de cifra desta instalação não está ativa. Quem administra o servidor resolve rodando o update.sh, que gera e ativa a chave. Enquanto isso, você pode criar a ação sem segredo.",
       422,
       { requestId },
     );

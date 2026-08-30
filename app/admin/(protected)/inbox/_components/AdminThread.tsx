@@ -7,6 +7,7 @@ import { AdminSidePanel } from "./AdminSidePanel";
 import { CircleNotch, Lock } from "@/lib/ui/icons";
 import { Badge } from "@/components/ui/badge";
 import type { Message } from "@/lib/types/messaging";
+import { useT } from "@/hooks/i18n/useT";
 
 // ---------------------------------------------------------------------------
 // Status badge color
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export function AdminThreadClient({ conversationId }: Props) {
+  const t = useT();
   const { data, isLoading, isError } = useAdminConversation(conversationId);
 
   // Messages come in desc order from API — reverse for chronological display
@@ -39,7 +41,7 @@ export function AdminThreadClient({ conversationId }: Props) {
   if (isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
-        <CircleNotch size={24} className="animate-spin" aria-label="Carregando" />
+        <CircleNotch size={24} className="animate-spin" aria-label={t("Carregando")} />
       </div>
     );
   }
@@ -47,13 +49,13 @@ export function AdminThreadClient({ conversationId }: Props) {
   if (isError || !data) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-destructive">
-        Falha ao carregar conversa.
+        {t("Falha ao carregar conversa.")}
       </div>
     );
   }
 
   const { conversation, organization, contact } = data;
-  const contactName = contact?.name?.trim() || contact?.phone_number || "Sem nome";
+  const contactName = contact?.name?.trim() || contact?.phone_number || t("Sem nome");
   const statusVariant = STATUS_VARIANT[conversation.status] ?? "outline";
 
   return (
@@ -85,7 +87,7 @@ export function AdminThreadClient({ conversationId }: Props) {
         <div className="flex-1 overflow-y-auto py-2">
           {messages.length === 0 ? (
             <p className="p-4 text-center text-xs text-muted-foreground">
-              Sem mensagens nesta conversa.
+              {t("Sem mensagens nesta conversa.")}
             </p>
           ) : (
             messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)
@@ -96,9 +98,9 @@ export function AdminThreadClient({ conversationId }: Props) {
         <div className="flex items-center gap-2 border-t border-border bg-muted/40 px-4 py-3">
           <Lock size={14} className="shrink-0 text-muted-foreground" aria-hidden />
           <span className="text-xs text-muted-foreground">
-            Modo somente-leitura.{" "}
+            {t("Modo somente-leitura.")}{" "}
             <span className="font-medium">
-              Use &ldquo;Impersonate&rdquo; (em breve, S-11.07) para responder.
+              {t("Use “Impersonate” (em breve, S-11.07) para responder.")}
             </span>
           </span>
         </div>

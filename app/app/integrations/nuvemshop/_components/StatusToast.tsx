@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { useT } from "@/hooks/i18n/useT";
 
 const ERROR_MESSAGES: Record<string, string> = {
   not_configured: "Integração não configurada — configure as credenciais em .env.local.",
@@ -16,6 +17,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 export function StatusToast() {
+  const t = useT();
   const params = useSearchParams();
   const router = useRouter();
   const handled = useRef(false);
@@ -28,14 +30,14 @@ export function StatusToast() {
     handled.current = true;
 
     if (ok) {
-      toast.success("Nuvemshop conectada com sucesso.");
+      toast.success(t("Nuvemshop conectada com sucesso."));
     } else if (error) {
-      toast.error(ERROR_MESSAGES[error] ?? `Erro: ${error}`);
+      toast.error(t(ERROR_MESSAGES[error] ?? `Erro: ${error}`));
     }
 
     // Strip the query params so reload doesn't replay the toast.
     router.replace("/app/integrations/nuvemshop");
-  }, [params, router]);
+  }, [params, router, t]);
 
   return null;
 }

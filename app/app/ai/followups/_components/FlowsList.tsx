@@ -1,4 +1,8 @@
 "use client";
+
+import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
+
+import { useT } from "@/hooks/i18n/useT";
 import { useState } from "react";
 import Link from "next/link";
 
@@ -6,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FlowArrow, Plus } from "@/lib/ui/icons";
 import { useFollowupFlows, type FollowupFlowPointerRow } from "@/hooks/followup/useFollowupFlows";
+import { DeleteFollowupFlowButton } from "./DeleteFollowupFlowButton";
 import { FlowStatusBadge } from "./FlowStatusBadge";
 import { NewFlowDialog } from "./NewFlowDialog";
 
@@ -14,8 +19,8 @@ interface Props {
   canWrite: boolean;
 }
 
-function formatUpdatedAt(iso: string): string {
-  return new Date(iso).toLocaleDateString("pt-BR", {
+function formatUpdatedAt(iso: string, idioma: string): string {
+  return new Date(iso).toLocaleDateString(idioma, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -23,13 +28,15 @@ function formatUpdatedAt(iso: string): string {
 }
 
 export function FlowsList({ initialData, canWrite }: Props) {
+  const tagDoIdioma = useTagDeIdioma();
+  const t = useT();
   const { data } = useFollowupFlows({ initialData });
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const flows = data ?? [];
 
   const newFlowButton = (
-    <Button onClick={() => setDialogOpen(true)}>
+    <Button onClick={() => setDialogOpen(true)} className="w-full sm:w-auto">
       <Plus size={14} aria-hidden className="mr-2" /> Novo fluxo
     </Button>
   );
@@ -39,10 +46,11 @@ export function FlowsList({ initialData, canWrite }: Props) {
       <>
         <Card className="flex flex-col items-center gap-3 p-10 text-center">
           <FlowArrow size={36} aria-hidden className="text-text-muted" />
-          <h2 className="font-medium">Nenhum fluxo de follow-up ainda</h2>
+          <h2 className="font-medium">{t("Nenhum fluxo de follow-up ainda")}</h2>
           <p className="max-w-sm text-sm text-text-muted">
-            Follow-ups reengajam contatos automaticamente após silêncio, mudança de
-            etapa ou fim de conversa — sem depender de alguém lembrar de mandar mensagem.
+            {t(
+              "Follow-ups reengajam contatos após silêncio, mudança de etapa, uma regra em Webhooks ou a resposta do contato — sem depender de alguém lembrar de mandar mensagem.",
+            )}
           </p>
           {canWrite && <div className="mt-1">{newFlowButton}</div>}
         </Card>
@@ -54,14 +62,14 @@ export function FlowsList({ initialData, canWrite }: Props) {
   return (
     <div className="flex flex-col gap-4">
       {canWrite && (
-        <div className="flex justify-end">{newFlowButton}</div>
+        <div className="flex sm:justify-end">{newFlowButton}</div>
       )}
 
       <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {flows.map((flow) => (
           <li key={flow.id}>
-            <Link href={`/app/ai/followups/${flow.id}`} className="block h-full">
-              <Card className="flex h-full flex-col gap-3 p-4 transition-colors hover:border-accent-400">
+            <Card className="flex h-full flex-col gap-3 p-4 transition-colors hover:border-accent-400">
+              <Link href={`/app/ai/followups/${flow.id}`} className="flex flex-1 flex-col gap-3">
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="min-w-0 flex-1 truncate font-medium" title={flow.name}>
                     {flow.name}
@@ -70,7 +78,7 @@ export function FlowsList({ initialData, canWrite }: Props) {
                 </div>
                 <dl className="grid grid-cols-2 gap-2 pt-1 text-xs">
                   <div>
-                    <dt className="text-text-muted">Versão</dt>
+                    <dt className="text-text-muted">{t("Versão")}</dt>
                     <dd className="font-mono">{flow.active_version_id ? "publicada" : "—"}</dd>
                   </div>
                   <div>
@@ -79,10 +87,15 @@ export function FlowsList({ initialData, canWrite }: Props) {
                   </div>
                 </dl>
                 <p className="mt-auto pt-2 text-xs text-text-muted">
-                  Atualizado em {formatUpdatedAt(flow.updated_at)}
+                  Atualizado em {formatUpdatedAt(flow.updated_at, tagDoIdioma)}
                 </p>
-              </Card>
-            </Link>
+              </Link>
+              {canWrite && (
+                <div className="flex justify-end border-t border-border pt-2">
+                  <DeleteFollowupFlowButton flowId={flow.id} flowName={flow.name} />
+                </div>
+              )}
+            </Card>
           </li>
         ))}
       </ul>

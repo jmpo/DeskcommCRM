@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { useT } from "@/hooks/i18n/useT";
 import { CheckCircle } from "@/lib/ui/icons";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,6 +49,7 @@ const VARIANT_LABELS: Record<LgpdRequestType, { button: string; title: string; d
 };
 
 export function ApproveButton({ requestId, requestType, status }: ApproveButtonProps) {
+  const t = useT();
   const [reason, setReason] = useState("");
   const [open, setOpen] = useState(false);
   const { mutate, isPending } = useApproveLgpdRequest();
@@ -64,12 +66,12 @@ export function ApproveButton({ requestId, requestType, status }: ApproveButtonP
       { id: requestId, approved_reason: reason.trim() },
       {
         onSuccess: () => {
-          toast.success("Aprovação registrada — request mudou para processing");
+          toast.success(t("Aprovação registrada — request mudou para processing"));
           setOpen(false);
           setReason("");
         },
         onError: () => {
-          toast.error("Falha ao aprovar a solicitação. Tente novamente.");
+          toast.error(t("Falha ao aprovar a solicitação. Tente novamente."));
         },
       },
     );
@@ -80,38 +82,38 @@ export function ApproveButton({ requestId, requestType, status }: ApproveButtonP
       <AlertDialogTrigger asChild>
         <Button size="sm" className="gap-2">
           <CheckCircle size={16} aria-hidden />
-          {labels.button}
+          {t(labels.button)}
         </Button>
       </AlertDialogTrigger>
 
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{labels.title}</AlertDialogTitle>
-          <AlertDialogDescription>{labels.description}</AlertDialogDescription>
+          <AlertDialogTitle>{t(labels.title)}</AlertDialogTitle>
+          <AlertDialogDescription>{t(labels.description)}</AlertDialogDescription>
         </AlertDialogHeader>
 
         <div className="space-y-2 py-2">
           <Label htmlFor="approved_reason">
-            Justificativa{" "}
-            <span className="text-muted-foreground text-xs">(mínimo 10 caracteres)</span>
+            {t("Justificativa")}{" "}
+            <span className="text-muted-foreground text-xs">({t("mínimo 10 caracteres")})</span>
           </Label>
           <Textarea
             id="approved_reason"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Descreva o motivo da aprovação manual desta solicitação…"
+            placeholder={t("Descreva o motivo da aprovação manual desta solicitação…")}
             rows={3}
             maxLength={500}
             className="resize-none"
             aria-describedby="approved_reason_hint"
           />
           <p id="approved_reason_hint" className="text-xs text-muted-foreground">
-            {reason.trim().length}/500 caracteres
+            {reason.trim().length}/500 {t("caracteres")}
           </p>
         </div>
 
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogCancel>{t("Cancelar")}</AlertDialogCancel>
           <AlertDialogAction
             onClick={(e) => {
               e.preventDefault();
@@ -119,7 +121,7 @@ export function ApproveButton({ requestId, requestType, status }: ApproveButtonP
             }}
             disabled={!isValid || isPending}
           >
-            {isPending ? "Aprovando…" : "Confirmar aprovação"}
+            {isPending ? t("Aprovando…") : t("Confirmar aprovação")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

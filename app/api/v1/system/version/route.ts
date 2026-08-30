@@ -11,7 +11,7 @@ import { fail, ok } from "@/lib/api/wrappers";
 import { loadAuthUser } from "@/lib/auth/server";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { extractChangelogSection } from "@/lib/system/changelog";
+import { extractChangelogRange } from "@/lib/system/changelog";
 import { isRunStale, type RunStatus, type RunStep } from "@/lib/system/update-run";
 
 export const dynamic = "force-dynamic";
@@ -80,7 +80,15 @@ export async function GET(_req: NextRequest): Promise<Response> {
   }
 
   const latest = version?.latest_version ?? "";
-  const section = latest ? extractChangelogSection(version?.changelog_raw ?? "", latest) : null;
+  // A faixa INTEIRA entre o que está no ar e o que vai entrar, não só a seção
+  // da versão-alvo. Mostrar só a alvo perdia aviso: quem pulava da 1.4.0 para a
+  // 1.6.0 nunca lia a 1.4.1 nem a 1.5.0 — e a 1.4.1 existia para corrigir uma
+  // instrução invertida que mandava apagar a conexão que estava funcionando.
+  //
+  // O limite inferior é `running`, NUNCA `current`: depois de um rollback,
+  // `current` nomeia a versão que quebrou, e a faixa sairia vazia justamente
+  // para quem mais precisa lê-la.
+  const faixa = latest ? extractChangelogRange(version?.changelog_raw ?? "", latest, running) : null;
 
   return ok({
     current_version: running,
@@ -99,7 +107,23 @@ export async function GET(_req: NextRequest): Promise<Response> {
     // não tocada por nenhum heartbeat, coluna com o default da migration).
     has_known_release: version?.has_known_release ?? true,
     agent_online: !Number.isNaN(lastSeen) && now.getTime() - lastSeen < AGENT_OFFLINE_AFTER_MS,
-    notes: section ? { body: section.body, requires_attention: section.requiresAttention } : null,
+    notes:
+      faixa && faixa.secoes.length > 0
+        ? {
+            // Consolidados no topo, cada um dizendo de que versão veio: numa
+            // faixa de várias versões, "reconecte o número" sem dizer de qual
+            // release não informa o operador — assusta.
+            requires_attention: faixa.secoes
+              .filter((s) => s.requiresAttention)
+              .map((s) => ({ version: s.version, texto: s.requiresAttention ?? "" })),
+            sections: faixa.secoes.map((s) => ({ version: s.version, body: s.body })),
+            // `false` = o texto recebido não alcança a versão que está no ar, e
+            // a última seção da lista pode estar cortada no meio da frase. A
+            // tela precisa DIZER isso — corpo truncado é indistinguível de
+            // corpo inteiro para quem lê.
+            complete: faixa.completa,
+          }
+        : null,
     run: run
       ? {
           id: run.id,

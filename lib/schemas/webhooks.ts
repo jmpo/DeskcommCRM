@@ -25,6 +25,20 @@ export const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("add_tag"), config: z.object({ tags: z.array(z.string().min(1).max(60)).min(1).max(10) }) }),
   z.object({ type: z.literal("assign_owner"), config: z.object({ user_id: z.string().uuid() }) }),
   z.object({
+    type: z.literal("send_ai_message"),
+    config: z.object({
+      /** Agente PUBLICADO que assina a mensagem. */
+      agent_id: z.string().uuid(),
+      channel_session_id: z.string().uuid(),
+      /**
+       * O que fazer com os dados do formulário. Mesmo teto do `prompt_hint` de
+       * um passo de follow-up (1000): é instrução, não roteiro — quem escreve
+       * mais que isso está tentando pôr o prompt do agente aqui dentro.
+       */
+      instruction: z.string().min(1).max(1000),
+    }),
+  }),
+  z.object({
     type: z.literal("call_webhook"),
     config: z.object({
       url: z.string().url().max(2000),
@@ -33,6 +47,10 @@ export const actionSchema = z.discriminatedUnion("type", [
       // Ciphertext hex (round-trip do editor: GET devolve, PATCH preserva).
       secret_enc: z.string().max(4000).optional(),
     }),
+  }),
+  z.object({
+    type: z.literal("start_message_flow"),
+    config: z.object({ flow_pointer_id: z.string().uuid() }),
   }),
 ]);
 

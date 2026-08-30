@@ -96,6 +96,27 @@ class ConsultaPg<T> implements PromiseLike<RespostaFalsa<T[]>> {
     return this;
   }
 
+  /**
+   * `>=` e `<=` — QUARTA vez que o `naoImplementado` se paga. Nasceram porque
+   * `horariosLivresDaOrg` (consulta.ts:209) filtra as exceções de jornada por
+   * intervalo de datas, e o adaptador ESTOUROU no primeiro invariante que
+   * exercitou o handler de marcar.
+   *
+   * E o estouro veio no CONTROLE POSITIVO do teste, não no caso principal: o
+   * caso "não marca para o contato de outra org" teria passado por o handler
+   * não marcar NADA. Adaptador que devolve vazio em vez de estourar teria
+   * transformado um gate de isolamento em decoração.
+   */
+  gte(coluna: string, valor: unknown): this {
+    this.filtros.push([">=", coluna, valor]);
+    return this;
+  }
+
+  lte(coluna: string, valor: unknown): this {
+    this.filtros.push(["<=", coluna, valor]);
+    return this;
+  }
+
   order(coluna: string, opts?: { ascending?: boolean }): this {
     this.ordem = { coluna, asc: opts?.ascending !== false };
     return this;

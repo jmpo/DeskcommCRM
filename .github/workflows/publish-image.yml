@@ -50,7 +50,52 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  # Nenhuma tag publica sem estar CONTIDA na `main`.
+  #
+  # `on: push: tags: ["v*"]` reage a tag de QUALQUER ramo, e nenhuma das três
+  # condições do canal `stable` (mais abaixo) olha procedência — nem o
+  # `type=semver`, que publica `X.Y.Z` do mesmo jeito. A branch protection não
+  # cobre isto: ela vale para a branch `main`, não para refs de tag.
+  #
+  # E o alcance disso é o parque inteiro: `hostgator-setup-kit/agent.sh` oferece
+  # a MAIOR tag `v*` a toda VPS instalada, sem olhar de onde ela veio. Este repo
+  # já teve na árvore local uma tag `v1.4.0` de um FORK — ela existe hoje
+  # renomeada para `jmpo/v1.4.0` justamente para não colidir com a numeração
+  # daqui.
+  a-tag-veio-da-main:
+    runs-on: ubuntu-latest
+    # Sem o bloco, o token herda o default do REPOSITÓRIO — configuração que vive
+    # fora do repo. Mesma razão do `permissions: {}` de `imagens-ok`.
+    permissions:
+      contents: read
+    steps:
+      - name: A tag está contida na main?
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Sem `if:` no job, de propósito: job pulado deixa `build-and-push`
+          # pulado também, e `imagens-ok` (que roda com `always()`) lê `skipped`
+          # como reprovação. Em PR e em push de branch este job RODA e sai zero.
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "não é push de tag (${GITHUB_REF_TYPE}) — nada a conferir"
+            exit 0
+          fi
+          estado=$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${GITHUB_SHA}" --jq .status)
+          echo "compare main...${GITHUB_SHA} → ${estado}"
+          # `identical` = a tag é o topo da main; `behind` = está atrás dela, ou
+          # seja, contida. `ahead` e `diverged` são commit que a main não tem.
+          case "$estado" in
+            identical|behind) echo "ok: o commit da tag está contido na main" ;;
+            *)
+              echo "::error::A tag ${GITHUB_REF_NAME} aponta para um commit que a main NÃO contém (${estado})."
+              echo "::error::Publicar isso entregaria ao parque instalado código que nunca passou pelo CI da main."
+              exit 1
+              ;;
+          esac
+
   build-and-push:
+    needs: [a-tag-veio-da-main]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -165,11 +210,12 @@ jobs:
   # depois disso é esperado (não há Supabase aqui) e não reprova — o que
   # reprova é o processo não chegar a servir.
   imagem-do-app-sobe:
+    needs: [a-tag-veio-da-main]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v4

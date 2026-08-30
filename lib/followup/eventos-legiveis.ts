@@ -88,8 +88,8 @@ const STATUS: Record<string, { rotulo: string; tom: TomDoStatus }> = {
   cancelada: { rotulo: "Cancelada", tom: "neutral" },
 };
 
-export function rotuloDoStatus(status: string): string {
-  return STATUS[status]?.rotulo ?? status;
+export function rotuloDoStatus(status: string, t: (texto: string) => string = (texto) => texto): string {
+  return t(STATUS[status]?.rotulo ?? status);
 }
 
 export function tomDoStatus(status: string): TomDoStatus {
@@ -122,6 +122,8 @@ const TIPO_DO_NO: Record<FlowNode["type"], string> = {
   wait: "Espera",
   condition: "Condição",
   ai_classify: "Interpretação da resposta",
+  match_reply: "Resposta (texto)",
+  repeat: "Repetição",
   action: "Mensagem",
   end: "Fim",
 };
@@ -160,13 +162,25 @@ export function resumoDoNo(node: FlowNode): NoDoDossie {
       };
     case "ai_classify":
       return { ...base, resumo: `classifica a resposta em: ${node.config.classes.join(", ")}` };
+    case "match_reply":
+      return {
+        ...base,
+        resumo: `casa a resposta com: ${node.config.branches.map((b) => b.label).join(", ")}`,
+      };
+    case "repeat":
+      return {
+        ...base,
+        resumo: `repete até ${node.config.max_count} voltas conforme a resposta`,
+      };
     case "action":
       return {
         ...base,
         resumo:
           node.config.mode === "ai_message"
             ? "o agente escreve e envia a mensagem"
-            : "envia uma mensagem de modelo pronto",
+            : node.config.mode === "text"
+              ? "envia um texto fixo"
+              : "envia uma mensagem de modelo pronto",
       };
     case "end":
       return { ...base, resumo: `encerra — ${DESFECHO[node.config.outcome] ?? node.config.outcome}` };
@@ -219,6 +233,11 @@ function fraseDoRamoDeclarado(origem: FlowNode | undefined, branchId: string): s
   if (origem.type === "ai_classify") {
     const label = origem.config.branches?.find((b) => b.id === branchId)?.label;
     return label ? fraseDaClasse(label) : RAMO_SEM_NOME;
+  }
+
+  if (origem.type === "match_reply") {
+    const label = origem.config.branches.find((b) => b.id === branchId)?.label;
+    return label ? `quando a resposta casa com “${label}”` : RAMO_SEM_NOME;
   }
 
   if (origem.type === "condition") {
@@ -279,12 +298,12 @@ function texto(v: unknown): string | null {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
 }
 
-function quandoLegivel(iso: unknown): string | null {
+function quandoLegivel(iso: unknown, idioma: string): string | null {
   const s = texto(iso);
   if (!s) return null;
   const t = Date.parse(s);
   if (Number.isNaN(t)) return null;
-  return new Intl.DateTimeFormat("pt-BR", {
+  return new Intl.DateTimeFormat(idioma, {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -304,7 +323,11 @@ function quandoLegivel(iso: unknown): string | null {
 export function descreveEvento(
   evento: EventoDeEnrollment,
   nos: Record<string, NoDoDossie>,
+  idioma: string,
 ): EventoLegivel {
+  // `idioma` por PARÂMETRO, não por hook: este módulo é puro e roda também
+  // fora de componente. Hook aqui quebraria em runtime, e o teste que monta
+  // a função direto passaria verde.
   const onde = refDoNo(evento.node_id, nos);
   const p = evento.payload ?? {};
   const motor = { onde, autor: "motor" as const };
@@ -315,7 +338,7 @@ export function descreveEvento(
     case "node_advanced":
       return { titulo: "Seguiu em frente", detalhe: `foi para ${refDoNo(texto(p.next_node_id), nos)}`, ...motor };
     case "wait_started": {
-      const ate = quandoLegivel(p.next_eval_at);
+      const ate = quandoLegivel(p.next_eval_at, idioma);
       const modo = texto(p.mode) === "smart" ? " (tempo escolhido pelo agente)" : "";
       return { titulo: "Começou a esperar", detalhe: ate ? `volta a olhar em ${ate}${modo}` : null, ...motor };
     }
@@ -330,7 +353,7 @@ export function descreveEvento(
     case "classify_enqueued":
       return { titulo: "Pediu ao agente para interpretar a resposta", detalhe: null, ...motor };
     case "action_recheck": {
-      const ate = quandoLegivel(p.next_eval_at);
+      const ate = quandoLegivel(p.next_eval_at, idioma);
       return {
         titulo: "Conferiu se a mensagem já tinha saído",
         detalhe: ate ? `confere de novo em ${ate}` : null,
@@ -391,11 +414,11 @@ export function descreveEvento(
     case "paused_manual":
       return { titulo: "Pausado por uma pessoa da equipe", detalhe: texto(p.motivo), ...pessoa };
     case "resumed_manual": {
-      const volta = quandoLegivel(p.next_eval_at);
+      const volta = quandoLegivel(p.next_eval_at, idioma);
       return { titulo: "Retomado por uma pessoa da equipe", detalhe: volta ? `volta a andar em ${volta}` : null, ...pessoa };
     }
     case "snoozed_manual": {
-      const para = quandoLegivel(p.next_eval_at);
+      const para = quandoLegivel(p.next_eval_at, idioma);
       return { titulo: "Adiado por uma pessoa da equipe", detalhe: para ? `adiado para ${para}` : null, ...pessoa };
     }
     case "skipped_manual":

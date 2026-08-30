@@ -21,9 +21,9 @@ import {
   gatewayConfig,
   gatewayHeaders,
   isAiGatewayConfigured,
-  isEmbeddingProviderConfigured,
 } from "@/lib/ai/gateway";
 import { embedText } from "@/lib/ai/embed";
+import { MODELO_DE_EMBEDDING } from "@/lib/ai/embeddings/chave";
 import { getBudgetStatus, type BudgetStatus } from "@/lib/ai/budget/check";
 import {
   AVISO_CORPO,
@@ -35,6 +35,7 @@ import {
 } from "@/lib/agent-engine/edge/llm/orcamento";
 import { computeCost } from "@/lib/ai/cost";
 import { logInvocation } from "@/lib/ai/log-invocation";
+import { elegivelParaWorkerLegado } from "@/lib/ai/agents/no-ar";
 import { renderSystemPrompt } from "@/lib/ai/render-system-prompt";
 import { triggerHandoff } from "@/lib/ai/handoff/orchestrator";
 import { checkG1, checkG3, checkG4Legal, checkG4Stage } from "@/lib/ai/handoff/triggers";
@@ -54,7 +55,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const RECENT_MESSAGES_LIMIT = 20;
 const RAG_TOP_K = 5;
-const RAG_THRESHOLD = 0.72;
+// 0.40 e nao 0.72: o valor foi CALIBRADO com medicao na migration 0097 (pergunta literal 0.849, parafrase 0.49-0.65, irrelevante 0.27).
+// Com 0.72 toda parafrase — que e como o cliente escreve — era descartada, e o RAG parecia quebrado funcionando.
+// O banco moveu o default; estes tres sitios de codigo ficaram para tras e venciam o banco, porque quem corta pelo limiar e o TypeScript.
+const RAG_THRESHOLD = 0.4;
 const WINDOW_24H_MS = 24 * 60 * 60 * 1000;
 const HANDOFF_RECENT_GUARD_MS = 5_000;
 
@@ -635,18 +639,40 @@ async function buildContext(input: BuildContextInput): Promise<GuardDecision> {
   const inbound_body = (msg.body ?? "").trim();
   if (!inbound_body) return skip("empty_inbound_body");
 
-  // Default agent for this tenant.
-  const { data: agent } = await admin
+  // O agente legado desta organização.
+  //
+  // `is_active` sozinho NÃO é "quem atende", e tratá-lo como se fosse era o
+  // buraco: pausar um `mcp_agent` limpa `published_version_id` e deixa
+  // `is_active` de pé, então este SELECT continuava trazendo o agente que o dono
+  // acabara de pausar — e a trava `engine_owns_reply` logo abaixo, que é
+  // ORG-WIDE, deixa de valer exatamente quando o último publicado é pausado.
+  // Resultado medido em produção: pausar o agente o fazia VOLTAR a responder,
+  // com o `system_prompt` do cadastro no lugar do da versão publicada.
+  //
+  // A régua agora é a mesma que a tela usa (`lib/ai/agents/no-ar.ts`).
+  //
+  // ⚠️ Quem PROTEGE é a régua, não o `.is("archived_at", null)` abaixo — medido
+  // por sabotagem: apagar o filtro deixa os 4 casos de
+  // `tests/unit/agente-pausado-nao-atende.test.ts` verdes, porque
+  // `estadoDoAgente` já devolve "arquivado". O filtro fica por ser mais barato
+  // não trazer do banco o que vai ser descartado; não confie nele como guarda.
+  // Sem `.limit(1)`: o primeiro da ordem pode ser justamente o que a régua
+  // recusa, e cortar antes de filtrar faria um `mcp_agent` pausado — que é
+  // `is_default` na instalação que o onboarding cria — esconder o `rag_bot`
+  // legítimo logo abaixo dele. A ordem (`is_default`, depois `created_at`) é a
+  // de sempre; o que muda é que ela agora escolhe entre os ELEGÍVEIS.
+  const { data: candidatos } = await admin
     .from("ai_agents")
     .select(
-      "id, organization_id, model, system_prompt, config, guardrails, active_kb_version_id, is_active, is_default",
+      "id, organization_id, model, system_prompt, config, guardrails, active_kb_version_id, is_active, is_default, kind, published_version_id, archived_at",
     )
     .eq("organization_id", input.organizationId)
     .eq("is_active", true)
+    .is("archived_at", null)
     .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: true });
+
+  const agent = (candidatos ?? []).find(elegivelParaWorkerLegado) ?? null;
 
   if (!agent) return skip("agent_inactive_or_missing");
 
@@ -681,7 +707,12 @@ async function buildContext(input: BuildContextInput): Promise<GuardDecision> {
     .maybeSingle();
   if (publicado) return skip("engine_owns_reply");
 
-  if (!agent.active_kb_version_id) return skip("kb_version_missing");
+  // Base de conhecimento ausente NÃO cala mais o bot.
+  //
+  // Este `skip` derrubava a resposta inteira — a organização sem material
+  // configurado simplesmente não recebia atendimento automático, e o motivo
+  // (`kb_version_missing`) só existia no log do worker. Responder sem material é
+  // pior que responder com; não responder é pior que os dois.
 
   // O teto de gasto NÃO mora aqui. Ele é aplicado em `processMessageReceived`,
   // DEPOIS da triagem determinística (G1/G4) — ver o comentário no call site.
@@ -699,10 +730,10 @@ async function buildContext(input: BuildContextInput): Promise<GuardDecision> {
     .slice()
     .reverse();
 
-  // RAG retrieval (best-effort — empty list when embedding provider missing)
+  // RAG best-effort: lista vazia quando não há material ou não há chave.
   const retrieved_chunks = await retrieveContext({
     organizationId: input.organizationId,
-    kbVersionId: agent.active_kb_version_id,
+    kbVersionId: agent.active_kb_version_id ?? null,
     query: inbound_body,
   });
 
@@ -771,37 +802,67 @@ async function resolveLeadId(
 
 interface RetrieveInput {
   organizationId: string;
-  kbVersionId: string;
+  /** LEGADO: só é usado quando a organização não tem material cadastrado. */
+  kbVersionId: string | null;
   query: string;
 }
 
+/**
+ * Este caminho só roda em organização SEM agente publicado (o engine é dono da
+ * resposta quando há um). Como não há versão publicada, não há
+ * `knowledge_source_ids` para ler: aqui o escopo é a organização inteira, que é
+ * o comportamento que este worker sempre teve — antes por acidente (a KB do
+ * agente default), agora por escrito.
+ */
 async function retrieveContext(input: RetrieveInput): Promise<RagHit[]> {
-  if (!isEmbeddingProviderConfigured()) return [];
+  const admin = createAdminClient();
+
+  const { data: fontesRows } = await admin
+    .from("ai_knowledge_sources")
+    .select("id")
+    .eq("organization_id", input.organizationId)
+    .eq("is_active", true)
+    .eq("status", "ready")
+    .not("active_kb_version_id", "is", null);
+  const fontes = ((fontesRows ?? []) as Array<{ id: string }>).map((f) => f.id);
+
+  if (fontes.length === 0 && !input.kbVersionId) return [];
+
   let embedding: number[];
   try {
     const { embedding: e } = await embedText(input.query, {
       organizationId: input.organizationId,
+      ponto: "embedding_consultar",
     });
     embedding = e;
   } catch (err) {
-    logger.warn("[ai-response-worker] embed failed; proceeding without RAG", {
+    logger.warn("[ai-response-worker] embed falhou; segue sem RAG", {
       error: err instanceof Error ? err.message : String(err),
       organization_id: input.organizationId,
     });
     return [];
   }
 
-  const admin = createAdminClient();
-  const { data, error } = await admin.rpc("retrieve_top_k_chunks" as never, {
-    p_organization_id: input.organizationId,
-    p_kb_version_id: input.kbVersionId,
-    p_embedding: embedding as unknown as string,
-    p_k: RAG_TOP_K,
-    p_threshold: RAG_THRESHOLD,
-  } as never);
+  const { data, error } =
+    fontes.length > 0
+      ? await admin.rpc("fn_buscar_trechos_das_fontes" as never, {
+          p_organization_id: input.organizationId,
+          p_source_ids: fontes as unknown as string,
+          p_embedding: embedding as unknown as string,
+          p_k: RAG_TOP_K,
+          p_threshold: RAG_THRESHOLD,
+          p_embedding_model: MODELO_DE_EMBEDDING,
+        } as never)
+      : await admin.rpc("retrieve_top_k_chunks" as never, {
+          p_organization_id: input.organizationId,
+          p_kb_version_id: input.kbVersionId,
+          p_embedding: embedding as unknown as string,
+          p_k: RAG_TOP_K,
+          p_threshold: RAG_THRESHOLD,
+        } as never);
 
   if (error) {
-    logger.warn("[ai-response-worker] retrieve_top_k_chunks failed", {
+    logger.warn("[ai-response-worker] busca de trechos falhou", {
       error: error.message,
       organization_id: input.organizationId,
     });

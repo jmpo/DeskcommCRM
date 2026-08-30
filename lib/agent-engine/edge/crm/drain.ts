@@ -179,8 +179,16 @@ async function processEvent(
   // Também cobre a instalação recém-feita que ainda não configurou agente
   // nenhum: hoje ela pagaria por cada mensagem recebida.
   //
-  // Roteador COM membros ou COM fallback continua passando: ali existe quem
-  // atenda, e o caminho genérico de "classificou e não bateu" segue valendo.
+  // Roteador com membro PUBLICADO ou fallback PUBLICADO continua passando: ali
+  // existe quem atenda, e o caminho genérico de "classificou e não bateu" segue
+  // valendo.
+  //
+  // Este parágrafo dizia "roteador COM membros ou COM fallback", e a diferença
+  // não é de redação: pausar um agente não apaga a linha dele em
+  // `ai_router_members` nem zera `ai_routers.fallback_agent_id`. Medir a
+  // EXISTÊNCIA da linha deixava o portão aberto para um roteador cujos membros
+  // foram todos pausados — exatamente o caso que o parágrafo acima diz estar
+  // cobrindo, entrando pela outra porta.
   const { rows: capacidade } = await pool.query<{
     tem_agente: boolean;
     tem_roteador: boolean;
@@ -197,8 +205,29 @@ async function processEvent(
          where r.organization_id = $1 and r.is_active
            and r.channel_session_id = $2
            and (
-             r.fallback_agent_id is not null
-             or exists (select 1 from ai_router_members m where m.router_id = r.id)
+             -- O fallback e os membros contam pelo que PODEM EXECUTAR, não por
+             -- existirem. A versão anterior media fallback_agent_id is not null
+             -- e a existência de LINHA em ai_router_members — e as duas
+             -- sobrevivem à pausa do agente, que só limpa published_version_id.
+             -- Um roteador cujos membros foram todos pausados continuava
+             -- abrindo o portão: a organização pagava o classificador e o turno
+             -- inteiro por mensagem recebida, para responder pelo genérico.
+             -- O predicado aqui é o MESMO que loadPublishedAgentConfigById
+             -- aplica na hora de executar (agent-config.ts) — é o que garante
+             -- que o portão não promete um agente que o resolvedor vai recusar.
+             exists (
+               select 1 from ai_agents fa
+               join ai_agent_versions fv on fv.id = fa.published_version_id
+               where fa.id = r.fallback_agent_id and fa.organization_id = $1
+                 and fa.archived_at is null and fv.status = 'published'
+             )
+             or exists (
+               select 1 from ai_router_members m
+               join ai_agents ma on ma.id = m.agent_id
+               join ai_agent_versions mv on mv.id = ma.published_version_id
+               where m.router_id = r.id and ma.organization_id = $1
+                 and ma.archived_at is null and mv.status = 'published'
+             )
            )
        ) as tem_roteador`,
     [event.organization_id, p.channel_session_id],

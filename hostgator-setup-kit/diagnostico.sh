@@ -110,7 +110,7 @@ IMG_APP="$(imagem_do_servico app)"
 #     A primeira versão deste detector decidia pelo NOME da imagem ("tem host,
 #     logo veio de registro") e só consultava os labels quando o nome não tinha
 #     host. Uma sabotagem derrubou isso em um comando: construí local, taguei
-#     como `ghcr.io/jmpo/deskcomm-worker:falsificado`, e o diagnóstico
+#     como `<namespace>/deskcomm-worker:falsificado`, e o diagnóstico
 #     deu "NÃO afetada" numa instalação afetada. Pior: o comentário ao lado do
 #     código afirmava que os labels pegariam esse caso — a prosa descrevia uma
 #     proteção que o código não implementava.

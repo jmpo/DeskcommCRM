@@ -23,6 +23,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { logger } from "@/lib/logger";
+import { encontrarContatoPorTelefone } from "@/lib/channels/contato-por-telefone";
+import { canonicalPhoneBR } from "@/lib/channels/phone-variants";
 
 import { extrairAtribuicaoMeta } from "@/lib/channels/atribuicao-de-anuncio-oficial";
 import { estamparAtribuicaoDoContato } from "@/lib/leads/atribuicao-de-anuncio";
@@ -118,7 +120,7 @@ export async function ingestZernioInbound(
     if (msg.identity.phone) {
       await admin
         .from("contacts")
-        .update({ phone_number: msg.identity.phone })
+        .update({ phone_number: canonicalPhoneBR(msg.identity.phone) })
         .eq("id", existente.contact_id)
         .is("phone_number", null);
     }
@@ -327,14 +329,23 @@ async function upsertContact(
 ): Promise<string | null> {
   const kind = identity.startsWith("phone:") ? "phone" : "lid";
   const valor = identity.slice(identity.indexOf(":") + 1);
+  const phoneBruto = kind === "phone" ? valor : msg.identity.phone;
+  const existente = phoneBruto ? await encontrarContatoPorTelefone(admin, organizationId, phoneBruto) : null;
+  const phone = existente?.phone_number
+    ? canonicalPhoneBR(existente.phone_number)
+    : phoneBruto
+      ? canonicalPhoneBR(phoneBruto)
+      : null;
 
   // Reusa a RPC do canal por QR: ela já resolve a corrida de dois webhooks
   // simultâneos numa transação, e escrever um segundo upsert seria criar um
   // segundo lugar onde a mesma corrida pode voltar.
+  // p_phone também no kind lid: senão a captação (contato só com número) vira
+  // um segundo cadastro quando o WhatsApp chega com BSUID.
   const { data, error } = await admin.rpc("fn_upsert_wa_contact", {
     p_org: organizationId,
     p_kind: kind,
-    p_phone: kind === "phone" ? valor : null,
+    p_phone: phone,
     p_lid: kind === "lid" ? valor : null,
     p_chat_id: msg.conversationId,
     p_notify: msg.identity.displayName ?? msg.identity.username ?? null,
@@ -357,7 +368,7 @@ async function upsertContact(
   if (msg.identity.phone) {
     await admin
       .from("contacts")
-      .update({ phone_number: msg.identity.phone })
+      .update({ phone_number: canonicalPhoneBR(msg.identity.phone) })
       .eq("id", contactId)
       .is("phone_number", null);
   }

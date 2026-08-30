@@ -11,6 +11,7 @@
 import * as React from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { useT } from "@/hooks/i18n/useT";
 import type { AgentVersionRow } from "@/hooks/ai/useAgentVersions";
 
 interface Props {
@@ -96,6 +97,7 @@ function buildFieldChanges(a: AgentVersionRow, b: AgentVersionRow): FieldChange[
 }
 
 export function VersionDiff({ versionA, versionB }: Props) {
+  const t = useT();
   const tools = diffArr(versionA.tool_ids ?? [], versionB.tool_ids ?? []);
   const handoffKw = diffArr(versionA.handoff_keywords ?? [], versionB.handoff_keywords ?? []);
   const followupFlows = diffArr(
@@ -115,51 +117,56 @@ export function VersionDiff({ versionA, versionB }: Props) {
         <Badge variant="outline">v{versionB.version_number}</Badge>
       </div>
 
-      <Section title="Configuração">
+      <Section title={t("Configuração")}>
         {fields.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Sem mudanças.</p>
+          <p className="text-xs text-muted-foreground">{t("Sem mudanças.")}</p>
         ) : (
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-muted-foreground">
-                <th className="py-1">Campo</th>
-                <th className="py-1">v{versionA.version_number}</th>
-                <th className="py-1">v{versionB.version_number}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fields.map((f) => (
-                <tr key={f.key} className="border-t border-border/40">
-                  <td className="py-1 font-mono">{f.label}</td>
-                  <td className="py-1 font-mono text-destructive">{String(f.a)}</td>
-                  <td className="py-1 font-mono text-emerald-600">{String(f.b)}</td>
+          // `overflow-x-auto` isolado: campos como `channel_session_id`
+          // (uuid, monoespaçado) em 3 colunas passavam da largura de um
+          // celular pequeno sem isso.
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-muted-foreground">
+                  <th className="py-1 pr-3">{t("Campo")}</th>
+                  <th className="py-1 pr-3">v{versionA.version_number}</th>
+                  <th className="py-1">v{versionB.version_number}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {fields.map((f) => (
+                  <tr key={f.key} className="border-t border-border/40">
+                    <td className="whitespace-nowrap py-1 pr-3 font-mono">{t(f.label)}</td>
+                    <td className="whitespace-nowrap py-1 pr-3 font-mono text-destructive">{String(f.a)}</td>
+                    <td className="whitespace-nowrap py-1 font-mono text-emerald-600">{String(f.b)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Section>
 
-      <Section title="Tools">
-        <Pills label="Adicionadas" tone="add" items={tools.added} />
-        <Pills label="Removidas" tone="del" items={tools.removed} />
+      <Section title={t("Tools")}>
+        <Pills label={t("Adicionadas")} tone="add" items={tools.added} />
+        <Pills label={t("Removidas")} tone="del" items={tools.removed} />
         {tools.added.length === 0 && tools.removed.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Sem mudanças.</p>
+          <p className="text-xs text-muted-foreground">{t("Sem mudanças.")}</p>
         ) : null}
       </Section>
 
-      <Section title="Handoff keywords">
-        <Pills label="Adicionadas" tone="add" items={handoffKw.added} />
-        <Pills label="Removidas" tone="del" items={handoffKw.removed} />
+      <Section title={t("Handoff keywords")}>
+        <Pills label={t("Adicionadas")} tone="add" items={handoffKw.added} />
+        <Pills label={t("Removidas")} tone="del" items={handoffKw.removed} />
         {handoffKw.added.length === 0 && handoffKw.removed.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Sem mudanças.</p>
+          <p className="text-xs text-muted-foreground">{t("Sem mudanças.")}</p>
         ) : null}
       </Section>
 
-      <Section title="Follow-up">
+      <Section title={t("Follow-up")}>
         {followupEnabledChanged ? (
           <p className="text-xs">
-            Habilitado:{" "}
+            {t("Habilitado:")}{" "}
             <span className="font-mono text-destructive">
               {String(versionA.followup?.enabled ?? false)}
             </span>{" "}
@@ -169,16 +176,16 @@ export function VersionDiff({ versionA, versionB }: Props) {
             </span>
           </p>
         ) : null}
-        <Pills label="Fluxos adicionados" tone="add" items={followupFlows.added} />
-        <Pills label="Fluxos removidos" tone="del" items={followupFlows.removed} />
+        <Pills label={t("Fluxos adicionados")} tone="add" items={followupFlows.added} />
+        <Pills label={t("Fluxos removidos")} tone="del" items={followupFlows.removed} />
         {!followupEnabledChanged &&
         followupFlows.added.length === 0 &&
         followupFlows.removed.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Sem mudanças.</p>
+          <p className="text-xs text-muted-foreground">{t("Sem mudanças.")}</p>
         ) : null}
       </Section>
 
-      <Section title="System prompt">
+      <Section title={t("System prompt")}>
         <pre className="max-h-96 overflow-auto rounded-md border border-border/60 bg-muted/30 p-2 font-mono text-xs leading-relaxed">
           {lines.map((l, idx) => {
             const cls =

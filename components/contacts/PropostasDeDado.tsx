@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/hooks/i18n/useT";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,7 @@ interface Props {
 }
 
 export function PropostasDeDado({ contactId, podeDecidir, aoDecidir }: Props) {
+  const t = useT();
   const [itens, setItens] = useState<Proposta[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
@@ -64,9 +66,9 @@ export function PropostasDeDado({ contactId, podeDecidir, aoDecidir }: Props) {
     } catch {
       // Não some da tela: `itens` fica como está e o erro aparece. Uma lista que
       // esvazia por falha de rede diz "não há nada pendente", que é mentira.
-      setErro("Não foi possível carregar as sugestões agora.");
+      setErro(t("Não foi possível carregar as sugestões agora."));
     }
-  }, [contactId]);
+  }, [contactId, t]);
 
   useEffect(() => {
     void carregar();
@@ -86,14 +88,14 @@ export function PropostasDeDado({ contactId, podeDecidir, aoDecidir }: Props) {
         // A mensagem do servidor é a que explica 409 ("já foi decidida", "venceu
         // pelo prazo") — e é justamente o caso em que a pessoa precisa entender
         // por que o clique dela não valeu, em vez de tentar de novo.
-        setErro(body?.error?.message ?? "Não foi possível registrar a decisão.");
+        setErro(body?.error?.message ? t(body.error.message) : t("Não foi possível registrar a decisão."));
         await carregar();
         return;
       }
       await carregar();
       if (decision === "accept") aoDecidir?.();
     } catch {
-      setErro("Não foi possível registrar a decisão.");
+      setErro(t("Não foi possível registrar a decisão."));
     } finally {
       setOcupado(null);
     }
@@ -106,11 +108,11 @@ export function PropostasDeDado({ contactId, podeDecidir, aoDecidir }: Props) {
   return (
     <Card className="border-warning-fg/30 bg-warning-bg/40 p-4">
       <div className="mb-3 flex items-center gap-2">
-        <h2 className="text-sm font-semibold">O assistente ouviu isto na conversa</h2>
-        <Badge variant="warning">{itens?.length ?? 0} aguardando você</Badge>
+        <h2 className="text-sm font-semibold">{t("O assistente ouviu isto na conversa")}</h2>
+        <Badge variant="warning">{itens?.length ?? 0} {t("aguardando você")}</Badge>
       </div>
       <p className="mb-3 text-xs text-muted-foreground">
-        Nada foi salvo ainda. Confira o que a pessoa escreveu e decida.
+        {t("Nada foi salvo ainda. Confira o que a pessoa escreveu e decida.")}
       </p>
 
       {erro && <p className="mb-3 text-sm text-error-fg">{erro}</p>}
@@ -120,14 +122,14 @@ export function PropostasDeDado({ contactId, podeDecidir, aoDecidir }: Props) {
           <li key={p.id} className="rounded-md border bg-background p-3">
             <div className="flex flex-wrap items-baseline gap-2">
               <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                {NOME_DO_CAMPO[p.campo] ?? p.campo}
+                {t(NOME_DO_CAMPO[p.campo] ?? p.campo)}
               </span>
               <span className="font-medium">{p.valor_proposto}</span>
               {/* O valor atual fica à vista: sem ele, "confirmar" não diz o que
                   vai ser substituído. */}
               {p.valor_anterior && (
                 <span className="text-xs text-muted-foreground">
-                  (hoje: {p.valor_anterior})
+                  ({t("hoje:")} {p.valor_anterior})
                 </span>
               )}
             </div>
@@ -145,7 +147,7 @@ export function PropostasDeDado({ contactId, podeDecidir, aoDecidir }: Props) {
                   disabled={ocupado === p.id}
                   onClick={() => void decidir(p.id, "accept")}
                 >
-                  {ocupado === p.id ? "Salvando…" : "Está certo, salvar"}
+                  {ocupado === p.id ? t("Salvando…") : t("Está certo, salvar")}
                 </Button>
                 <Button
                   size="sm"
@@ -153,7 +155,7 @@ export function PropostasDeDado({ contactId, podeDecidir, aoDecidir }: Props) {
                   disabled={ocupado === p.id}
                   onClick={() => void decidir(p.id, "dismiss")}
                 >
-                  Descartar
+                  {t("Descartar")}
                 </Button>
               </div>
             )}

@@ -11,7 +11,7 @@ import { type NextRequest } from "next/server";
 import { audit } from "@/lib/audit";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
-import { ROLE_RANK } from "@/lib/auth/types";
+import { roleAtLeast } from "@/lib/auth/types";
 import { createTemplateSchema } from "@/lib/schemas/templates";
 import { createClient } from "@/lib/supabase/server";
 
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   // Compartilhado exige manager+. requireRole já resolveu o role efetivo do
   // banco em org.role — reusar em vez de uma 2ª chamada/RPC. A RLS with_check
   // barra de qualquer forma; isto só dá um erro claro antes do insert.
-  if (shared && ROLE_RANK[org.role] < ROLE_RANK.manager) {
+  if (shared && !roleAtLeast(org.role, "manager")) {
     return fail("forbidden", "Só manager+ cria template compartilhado.", 403, { requestId });
   }
   const supabase = await createClient();

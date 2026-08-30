@@ -2,6 +2,7 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useRealtimeChannel } from "@/hooks/realtime/useRealtimeChannel";
+import { useRefetchDeSeguranca } from "@/hooks/realtime/useRefetchDeSeguranca";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import type { Message } from "@/lib/types/messaging";
@@ -58,7 +59,7 @@ export function useMessagesRealtime(conversationId: string | null) {
     qc.invalidateQueries({ queryKey: ["conversations"] });
   }, [qc, conversationId]);
 
-  useRealtimeChannel({
+  const { status: realtimeStatus, ultimaEntrega } = useRealtimeChannel({
     name: conversationId ? `messages-${conversationId}` : "messages-disabled",
     postgresChanges: conversationId
       ? {
@@ -72,5 +73,26 @@ export function useMessagesRealtime(conversationId: string | null) {
     enabled: !!conversationId,
   });
 
-  return query;
+  /**
+   * A REDE DE SEGURANÇA da conversa aberta.
+   *
+   * A mesma razão da lista, e aqui o custo de ficar velho é maior: a pessoa
+   * está OLHANDO a conversa enquanto responde. Com o canal morto e a aba em
+   * foco, a resposta do cliente não aparecia até o F5.
+   *
+   * A assinatura é a contagem de mensagens mais o id da mais recente — a
+   * contagem sozinha não flagraria uma mensagem que chega e outra que sai da
+   * primeira página no mesmo intervalo.
+   */
+  const seguranca = useRefetchDeSeguranca<{ pages: MessagesResponse[] }>({
+    queryKey,
+    assinatura: (d) => {
+      const msgs = d?.pages.flatMap((p) => p.data) ?? [];
+      return `${msgs.length}:${msgs[0]?.id ?? ""}`;
+    },
+    ultimaEntrega,
+    enabled: !!conversationId,
+  });
+
+  return { ...query, realtimeStatus, seguranca };
 }

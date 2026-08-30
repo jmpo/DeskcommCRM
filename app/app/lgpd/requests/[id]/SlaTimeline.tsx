@@ -1,7 +1,9 @@
 "use client";
 
+import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
+
 import { differenceInDays, format, isBefore } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { useT } from "@/hooks/i18n/useT";
 
 interface SlaTimelineProps {
   received_at: string;
@@ -47,6 +49,8 @@ function milestoneStatus(
 }
 
 export function SlaTimeline({ received_at, due_at, request_type }: SlaTimelineProps) {
+  const localeDaData = useLocaleDeData();
+  const t = useT();
   const receivedAt = new Date(received_at);
   const dueAt = new Date(due_at);
   const now = new Date();
@@ -87,13 +91,13 @@ export function SlaTimeline({ received_at, due_at, request_type }: SlaTimelinePr
       {/* Progress bar */}
       <div className="space-y-1">
         <div className="flex justify-between text-xs text-muted-foreground">
-          <span>D+{daysElapsed} (hoje)</span>
+          <span>D+{daysElapsed} ({t("hoje")})</span>
           <span>
             {daysRemaining > 0
-              ? `${daysRemaining}d restantes`
+              ? `${daysRemaining}${t("d restantes")}`
               : daysRemaining === 0
-                ? "vence hoje"
-                : `${Math.abs(daysRemaining)}d em atraso`}
+                ? t("vence hoje")
+                : `${Math.abs(daysRemaining)}${t("d em atraso")}`}
           </span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
@@ -140,10 +144,10 @@ export function SlaTimeline({ received_at, due_at, request_type }: SlaTimelinePr
               </div>
               <div className={`pb-1 text-sm ${isLast ? "" : "pb-3"}`}>
                 <p className={`leading-tight ${labelColor}`}>
-                  D+{m.targetDay} — {m.label}
+                  D+{m.targetDay} — {t(m.label)}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {format(m.date, "dd 'de' MMM yyyy", { locale: ptBR })}
+                  {format(m.date, "dd 'de' MMM yyyy", { locale: localeDaData })}
                 </p>
               </div>
             </li>

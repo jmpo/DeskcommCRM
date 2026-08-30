@@ -30,6 +30,35 @@ describe("edgeConditionOptions", () => {
     expect(options[3]!.condition).toEqual({ type: "class_match", value: "no_reply" });
   });
 
+  it("match_reply: declared branches + no_reply + always from nodeBranches", () => {
+    const source = node({
+      id: "n1",
+      type: "match_reply",
+      label: "Casar",
+      position: { x: 0, y: 0 },
+      config: {
+        branches: [{ id: "br_sim", label: "Sim", op: "eq", pattern: "sim" }],
+        grace_timeout_ms: 900_000,
+      },
+    });
+    const options = edgeConditionOptions(source);
+    expect(options.map((o) => o.key)).toEqual(["branch:br_sim", "branch:no_reply", "always"]);
+    expect(options.map((o) => o.label)).toEqual(["Sim", "Sem resposta", "Sempre"]);
+  });
+
+  it("repeat: próxima volta + acabou + sempre", () => {
+    const source = node({
+      id: "n1",
+      type: "repeat",
+      label: "Repetir",
+      position: { x: 0, y: 0 },
+      config: { max_count: 12 },
+    });
+    const options = edgeConditionOptions(source);
+    expect(options.map((o) => o.key)).toEqual(["branch:body", "branch:done", "always"]);
+    expect(options.map((o) => o.label)).toEqual(["Próxima volta", "Acabou", "Sempre"]);
+  });
+
   it("ai_classify: does not duplicate no_reply when it's already declared as a class", () => {
     // Not a real-world config (no_reply is a reserved outcome, not a user class), but the
     // function must still be well-defined and never emit an option with a duplicate key.

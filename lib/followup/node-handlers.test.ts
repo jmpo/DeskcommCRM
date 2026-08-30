@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 
 import {
   BACKOFF_MS,
+  actionTurnCompleted,
+  occupancyEventCount,
   processNode,
   resolveWaitPhase,
   selectEdge,
@@ -132,6 +134,73 @@ describe("resolveWaitPhase", () => {
   });
 });
 
+describe("occupancyEventCount", () => {
+  it("conta eventos do nó atual mesmo se a chave steps_taken-1 não bater", () => {
+    const events = [{ node_id: "cap_nome", idempotency_key: "cap_nome:3" }];
+    expect(resolveWaitPhase(events, "cap_nome", 8)).toBe(false);
+    expect(occupancyEventCount(events, "cap_nome")).toBe(1);
+  });
+});
+
+describe("actionTurnCompleted", () => {
+  it("is true when action_sent sits in the current occupancy suffix", () => {
+    const events = [
+      { node_id: "prev", idempotency_key: "prev:1", event_type: "node_advanced" },
+      { node_id: "msg", idempotency_key: "msg:8", event_type: "turn_enqueued" },
+      { node_id: "msg", idempotency_key: "msg:9", event_type: "action_sent" },
+      { node_id: "msg", idempotency_key: "msg:10", event_type: "action_recheck" },
+    ];
+    expect(actionTurnCompleted(events, "msg")).toBe(true);
+  });
+
+  it("is false when the send has not closed yet", () => {
+    const events = [
+      { node_id: "msg", idempotency_key: "msg:8", event_type: "turn_enqueued" },
+      { node_id: "msg", idempotency_key: "msg:8:wake", event_type: "inbound_woke" },
+    ];
+    expect(actionTurnCompleted(events, "msg")).toBe(false);
+  });
+});
+
+describe("processNode — action after send closed", () => {
+  const node: FlowNode = {
+    id: "a1",
+    type: "action",
+    label: "Send",
+    position: { x: 0, y: 0 },
+    config: { mode: "text", body: "oi" },
+  };
+  const edges = [edge({ source: "a1", target: "cap", condition: { type: "always" } })];
+
+  it("advances when action_sent already landed (heals recheck race)", () => {
+    const result = processNode({
+      node,
+      edges,
+      enrollment: enrollment({ current_node_id: "a1" }),
+      lead: lead(),
+      clock,
+      actionEnqueued: true,
+      actionCompleted: true,
+      actionRecheckCount: 3,
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "cap" });
+  });
+
+  it("still rechecks while the turn is in flight without action_sent", () => {
+    const result = processNode({
+      node,
+      edges,
+      enrollment: enrollment({ current_node_id: "a1" }),
+      lead: lead(),
+      clock,
+      actionEnqueued: true,
+      actionCompleted: false,
+      actionRecheckCount: 1,
+    });
+    expect(result.kind).toBe("recheck");
+  });
+});
+
 describe("processNode — trigger", () => {
   it("advances via the 'always' edge immediately", () => {
     const node: FlowNode = { id: "t1", type: "trigger", label: "Start", position: { x: 0, y: 0 }, config: {} };
@@ -164,6 +233,19 @@ describe("processNode — wait (fixed)", () => {
 
   it("elapsed: advances via the 'always' edge", () => {
     const result = processNode({ node, edges, enrollment: enrollment(), lead: lead(), clock, waitElapsed: true });
+    expect(result).toEqual({ kind: "advance", next_node_id: "n2", next_eval_at: NOW });
+  });
+
+  it("resposta do lead (wokeEarly) corta o timer e avança na hora", () => {
+    const result = processNode({
+      node,
+      edges,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+      waitElapsed: false,
+      wokeEarly: true,
+    });
     expect(result).toEqual({ kind: "advance", next_node_id: "n2", next_eval_at: NOW });
   });
 
@@ -698,5 +780,272 @@ describe("processNode — ai_classify migrado para ramos nomeados", () => {
       wokeEarly: false,
     });
     expect(result).toMatchObject({ kind: "advance", next_node_id: "no-sem-resposta" });
+  });
+});
+
+describe("processNode — match_reply", () => {
+  const RAMOS = [
+    { id: "br_sim", label: "Sim", op: "eq" as const, pattern: "sim" },
+    { id: "br_preco", label: "Preço", op: "contains" as const, pattern: "preco" },
+  ];
+
+  function matchNode(extra?: Partial<Extract<FlowNode, { type: "match_reply" }>["config"]>): Extract<
+    FlowNode,
+    { type: "match_reply" }
+  > {
+    return {
+      id: "mr1",
+      type: "match_reply",
+      label: "Casar",
+      position: { x: 0, y: 0 },
+      config: { branches: RAMOS, grace_timeout_ms: 900_000, ...extra },
+    };
+  }
+
+  const edges = [
+    edge({ source: "mr1", target: "no-sim", condition: { type: "branch", branch_id: "br_sim" } }),
+    edge({ source: "mr1", target: "no-preco", condition: { type: "branch", branch_id: "br_preco" } }),
+    edge({ source: "mr1", target: "no-sem-resposta", condition: { type: "branch", branch_id: "no_reply" } }),
+    edge({ source: "mr1", target: "escape", condition: { type: "always" } }),
+  ];
+
+  it("first visit parks with wait + waiting_reply (no enqueue_turn)", () => {
+    const result = processNode({
+      node: matchNode(),
+      edges,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+    });
+    expect(result).toEqual({
+      kind: "wait",
+      next_eval_at: new Date(NOW.getTime() + 900_000),
+      wake_status: "waiting_reply",
+    });
+  });
+
+  it("wokeEarly: first matching branch wins (eq, case-insensitive trim)", () => {
+    const result = processNode({
+      node: matchNode(),
+      edges,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+      waitElapsed: true,
+      wokeEarly: true,
+      lastInboundBody: "  SIM  ",
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "no-sim" });
+  });
+
+  it("wokeEarly: contains match when eq does not", () => {
+    const result = processNode({
+      node: matchNode(),
+      edges,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+      waitElapsed: true,
+      wokeEarly: true,
+      lastInboundBody: "quero ver o PRECO agora",
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "no-preco" });
+  });
+
+  it("wokeEarly: no match falls through always/else", () => {
+    const result = processNode({
+      node: matchNode(),
+      edges,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+      waitElapsed: true,
+      wokeEarly: true,
+      lastInboundBody: "talvez depois",
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "escape" });
+  });
+
+  it("wokeEarly + save_to sem aresta Sempre usa o primeiro ramo que não é no_reply", () => {
+    const node = matchNode({ save_to: { kind: "contact_name" } });
+    const soRamo = [
+      edge({ source: "mr1", target: "no-sim", condition: { type: "branch", branch_id: "br_sim" } }),
+    ];
+    const result = processNode({
+      node,
+      edges: soRamo,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+      waitElapsed: true,
+      wokeEarly: true,
+      lastInboundBody: "Ian",
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "no-sim" });
+  });
+
+  it("wokeEarly + save_to: qualquer texto segue o Sempre (nome já na ficha não importa)", () => {
+    const node = matchNode({ save_to: { kind: "contact_name" } });
+    const result = processNode({
+      node,
+      edges,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+      waitElapsed: true,
+      wokeEarly: true,
+      lastInboundBody: "Ian Couto",
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "escape" });
+  });
+
+  it("if_exists skip: nome já na ficha avança na hora", () => {
+    const node = matchNode({ save_to: { kind: "contact_name" }, if_exists: "skip" });
+    const result = processNode({
+      node,
+      edges,
+      enrollment: enrollment(),
+      lead: lead({ contact_name: "Ian" }),
+      clock,
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "escape" });
+  });
+
+  it("if_exists confirm: nome já na ficha enfileira pergunta de confirmação", () => {
+    const node = matchNode({ save_to: { kind: "contact_name" }, if_exists: "confirm" });
+    const result = processNode({
+      node,
+      edges,
+      enrollment: enrollment(),
+      lead: lead({ contact_name: "Ian" }),
+      clock,
+    });
+    expect(result.kind).toBe("enqueue_turn");
+    if (result.kind === "enqueue_turn") {
+      expect(result.purpose).toBe("send_message");
+      expect(result.wake_status).toBe("waiting_reply");
+      expect(result.fixed_body).toContain("Ian");
+      expect(result.fixed_body).toMatch(/SIM/i);
+    }
+  });
+
+  it("action não envia a pergunta se o próximo match_reply vai pular ou confirmar", () => {
+    const ask: FlowNode = {
+      id: "ask",
+      type: "action",
+      label: "Perguntar",
+      position: { x: 0, y: 0 },
+      config: { mode: "text", body: "qual seu nome?" },
+    };
+    const nxt = matchNode({ save_to: { kind: "contact_name" }, if_exists: "confirm" });
+    const result = processNode({
+      node: ask,
+      edges: [edge({ source: "ask", target: "mr1", condition: { type: "always" } })],
+      enrollment: enrollment({ current_node_id: "ask" }),
+      lead: lead({ contact_name: "Ian" }),
+      clock,
+      proximo: nxt,
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "mr1" });
+  });
+
+  it("timeout (waitElapsed, not wokeEarly) routes no_reply", () => {
+    const result = processNode({
+      node: matchNode(),
+      edges,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+      waitElapsed: true,
+      wokeEarly: false,
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "no-sem-resposta" });
+  });
+
+  it("wokeEarly on first occupancy still matches instead of parking", () => {
+    const result = processNode({
+      node: matchNode(),
+      edges,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+      waitElapsed: false,
+      wokeEarly: true,
+      lastInboundBody: "sim",
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "no-sim" });
+  });
+});
+
+describe("processNode — repeat", () => {
+  function repeatNode(): FlowNode {
+    return {
+      id: "rp1",
+      type: "repeat",
+      label: "Repetir",
+      position: { x: 0, y: 0 },
+      config: { max_count: 12 },
+    };
+  }
+  const edges = [
+    edge({ source: "rp1", target: "corpo", condition: { type: "branch", branch_id: "body" } }),
+    edge({ source: "rp1", target: "fim", condition: { type: "branch", branch_id: "done" } }),
+    edge({ source: "rp1", target: "de-novo", condition: { type: "always" } }),
+  ];
+
+  it("primeira visita com 2 sai para o corpo na volta 1", () => {
+    const result = processNode({
+      node: repeatNode(),
+      edges,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+      lastInboundBody: "2",
+      repeatTaken: 0,
+      repeatTotal: null,
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "corpo", repeat: { index: 1, total: 2 } });
+  });
+
+  it("zero filhos vai direto para acabou", () => {
+    const result = processNode({
+      node: repeatNode(),
+      edges,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+      lastInboundBody: "nenhum",
+      repeatTaken: 0,
+      repeatTotal: null,
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "fim" });
+  });
+
+  it("depois de N voltas sai por acabou sem reler a resposta", () => {
+    const result = processNode({
+      node: repeatNode(),
+      edges,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+      lastInboundBody: "Maria tem 8 anos",
+      repeatTaken: 2,
+      repeatTotal: 2,
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "fim" });
+  });
+
+  it("texto sem número cai no fallback", () => {
+    const result = processNode({
+      node: repeatNode(),
+      edges,
+      enrollment: enrollment(),
+      lead: lead(),
+      clock,
+      lastInboundBody: "não sei",
+      repeatTaken: 0,
+      repeatTotal: null,
+    });
+    expect(result).toMatchObject({ kind: "advance", next_node_id: "de-novo" });
   });
 });

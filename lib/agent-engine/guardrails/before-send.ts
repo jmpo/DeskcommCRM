@@ -196,6 +196,31 @@ export interface GateContext {
    * fiação nos dois sentidos: presente no `send_message`, ausente no follow-up.
    */
   internalVocabularyEnforced?: boolean;
+  /**
+   * Arma o `spinningGate`. **Ausente = ARMADO** — a direção segura aqui é a
+   * oposta do `internalVocabularyEnforced` logo acima, e a assimetria é
+   * deliberada: aquele protege o CLIENTE de uma palavra feia, este protege o
+   * NÚMERO de um banimento. Um default desarmado desligaria a proteção
+   * anti-ban em todo chamador que não conhece este campo.
+   *
+   * O único que o desarma é o AVISO DE ESCALAÇÃO
+   * (`lib/agent-engine/agent/aviso-de-escalacao.ts`), e a razão é aritmética,
+   * não preferência. `decideSpinning` conta as candidatas idênticas ou
+   * quase-idênticas (Jaccard ≥ 0,8) nas últimas `windowSize` (20) mensagens do
+   * NÚMERO — janela que cruza leads — e veta a partir da terceira
+   * (`repetitionThreshold: 2`). O aviso é texto de código: por mais variantes
+   * que tenha, a terceira pessoa a pedir um atendente na mesma janela cairia no
+   * veto, e veto ali é DROP SILENCIOSO — exatamente o silêncio que o aviso
+   * existe para acabar, produzido pelo guardrail. Medido antes de escrever esta
+   * linha: com 3 variantes, 14 de 20 avisos seguidos eram vetados
+   * (`tests/unit/aviso-ao-lead.test.ts` congela a conta).
+   *
+   * O risco de ban que isto abre é coberto do outro lado: as variantes seguem
+   * existindo (o número não repete UMA frase), o aviso é UM por escalação e
+   * responde a quem acabou de escrever — o oposto do blast de template que este
+   * gate persegue —, e ele continua contando no cap diário (`recordSend`).
+   */
+  spinningEnforced?: boolean;
 }
 
 /**
@@ -483,6 +508,10 @@ export const messagingWindowGate: Gate = {
 const spinningGate: Gate = {
   name: 'spinning',
   evaluate: (ctx) => {
+    // Desarmado explicitamente: `skipped`, nunca `pass` silencioso — a diferença
+    // entre "não vetou" e "nem chegou a olhar" é esta linha no trace (a mesma
+    // disciplina do `messagingWindowGate` com canal sem janela).
+    if (ctx.spinningEnforced === false) return { pass: true, skipped: 'not_applicable' };
     const decision = decideSpinning({
       candidate: ctx.body,
       window: ctx.spinning.window,
@@ -644,6 +673,16 @@ export interface RunBeforeSendArgs {
    */
   enforceInternalVocabulary?: boolean;
   /**
+   * Desarma o `spinningGate` para ESTA tentativa. Ausente = armado (ver
+   * `GateContext.spinningEnforced` para a razão da assimetria e para a conta que
+   * obriga o único chamador que o desarma).
+   *
+   * Desarmar também tira a candidata da JANELA: um corpo que a cadeia não julga
+   * pelo histórico não pode entrar no histórico que julga os outros. O cap
+   * diário (`recordSend`) continua valendo — o aviso é uma mensagem de verdade.
+   */
+  enforceSpinning?: boolean;
+  /**
    * Enviado SÓ se TODOS os gates passarem — ChannelAdapter (própria tx/idempotência). Recebe o
    * corpo FINAL (o disclosureGate F4-05 pode emendá-lo via `amendBody`): quem monta o send DEVE
    * enviar este `body`, não o corpo original capturado antes da cadeia.
@@ -708,6 +747,7 @@ export async function runBeforeSend(args: RunBeforeSendArgs): Promise<BeforeSend
       messagingWindow: { lastInboundAt, ...(args.isTemplate === true ? { isTemplate: true } : {}) },
       pacing: { knobs: pacingCfg.knobs, state: pacingState, crmDailyLimit: args.crmDailyLimit, rng: args.rng },
       spinning: { knobs: spinningKnobs, window },
+      ...(args.enforceSpinning === false ? { spinningEnforced: false as const } : {}),
       promise: { table: promise?.table ?? null, ...(promise?.versionId !== undefined ? { versionId: promise.versionId } : {}) },
       semanticPromise,
       disclosure: {
@@ -820,7 +860,11 @@ export async function runBeforeSend(args: RunBeforeSendArgs): Promise<BeforeSend
     // repetições curto-circuitarem, então re-registrar aqui inflaria o cap.
     if (outcome.kind === 'sent') {
       await recordSend(client, args.tenantId, args.channelSessionId, args.now);
-      await recordCopy(client, args.tenantId, args.channelSessionId, ctx.body, args.now);
+      // Simetria com o gate desarmado: quem não é julgado pela janela não entra
+      // nela. Ver `GateContext.spinningEnforced`.
+      if (args.enforceSpinning !== false) {
+        await recordCopy(client, args.tenantId, args.channelSessionId, ctx.body, args.now);
+      }
     }
     await client.query('commit');
     return { status: 'sent', outcome, trace };

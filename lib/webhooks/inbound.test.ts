@@ -3,9 +3,13 @@ import { mapInboundPayload, normalizePhoneBR, verifyInboundSignature } from "@/l
 import { createHmac } from "node:crypto";
 
 describe("normalizePhoneBR", () => {
-  it("já em E.164 passa direto", () => expect(normalizePhoneBR("+5511998765432")).toBe("+5511998765432"));
+  it("já em E.164 com o nono passa direto", () => expect(normalizePhoneBR("+5511998765432")).toBe("+5511998765432"));
   it("DDD+numero BR ganha +55", () => expect(normalizePhoneBR("11 99876-5432")).toBe("+5511998765432"));
   it("com 55 na frente sem +", () => expect(normalizePhoneBR("5511998765432")).toBe("+5511998765432"));
+  it("celular antigo sem o nono ganha o 9", () => {
+    expect(normalizePhoneBR("+553284793302")).toBe("+5532984793302");
+    expect(normalizePhoneBR("3284793302")).toBe("+5532984793302");
+  });
   it("fixo BR 10 dígitos", () => expect(normalizePhoneBR("1133334444")).toBe("+551133334444"));
   it("lixo → null", () => expect(normalizePhoneBR("abc")).toBeNull());
   it("vazio/não-string → null", () => {

@@ -7,7 +7,9 @@
  *
  * Duas razoes para agrupar em PACOTES em vez de listar tool por tool:
  *   1. modelo — 60 tools num prompt degradam a escolha do LLM (erra a tool,
- *      gasta contexto, alucina argumento). O teto de 20 por agente e real.
+ *      gasta contexto, alucina argumento). O teto por agente e real — o numero
+ *      dele mora em `TETO_TOOLS_POR_AGENTE` e ja mudou uma vez (20 -> 25), por
+ *      isso nao se repete aqui.
  *   2. tela — 60 checkboxes destroem a configuracao para um leigo.
  * O checkbox por tool continua existindo em "modo avancado"; o pacote e o
  * caminho padrao.
