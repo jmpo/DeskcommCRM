@@ -43,6 +43,8 @@ import { checkpointDoJob } from './inbound-turn';
 import { declaracaoDoTurnoSchema, promessasEmAberto, type DeclaracaoDoTurno } from './declaracao';
 import { loadPublishedAgentConfigById } from './agent-config';
 import { isLeadInHandoff } from './human-handoff';
+import { fusoDaOrganizacao } from './fuso-da-org';
+import { renderAgora } from '@/lib/tempo/agora';
 import { insertInboxItem } from '../db/repository';
 import { buildMcpTurnTools } from '../edge/crm/mcp-tools';
 import { runModelCall } from '../edge/llm/run-model-call';
@@ -85,20 +87,36 @@ export const SYSTEM_DO_OPERADOR =
   'Use apenas o que a conversa sustenta. Não invente avanço, não registre o que ninguém disse. ' +
   'Se não houver nada a fazer, não faça nada — um turno sem ação é uma resposta válida.';
 
-/** O briefing do turno: o que o Conversador declarou, em linguagem de negócio. */
+/**
+ * O briefing do turno: o que o Conversador declarou, em linguagem de negócio.
+ *
+ * `agoraBlock` é o relógio (`renderAgora`), e ele não é enfeite aqui: o
+ * Operador é quem EXECUTA a promessa com prazo — o briefing abaixo já ecoa
+ * `— até ${p.prazo}` em ISO —, e `crm_schedule_followup` pode estar entregue só
+ * a ele (`entrega-de-capacidade.ts`), o que faz dele o único papel do turno com
+ * a ferramenta que precisa de data. Cobrar um prazo sem saber que dia é hoje é
+ * o mesmo buraco que a abertura do Conversador tinha.
+ *
+ * Opcional com default vazio de propósito: os chamadores de teste montam o
+ * briefing sem relógio, e o que este parâmetro não pode fazer é obrigar quem já
+ * chamava a mudar.
+ */
 export function renderBriefingDoOperador(
   declaracao: DeclaracaoDoTurno | null,
   promessas: ReturnType<typeof promessasEmAberto>,
+  agoraBlock = '',
 ): string {
+  const comAgora = (linhas: string[]): string =>
+    (agoraBlock === '' ? linhas : [agoraBlock, '', ...linhas]).join('\n');
   if (declaracao === null) {
     // Ausente ≠ vazia, de novo — e aqui a diferença vira instrução. Dizer ao
     // modelo "não houve declaração" e pedir que ele olhe o estado é diferente de
     // deixá-lo achar que o turno foi vazio.
-    return [
+    return comAgora([
       'O turno anterior NÃO deixou declaração do que aconteceu (fechamento incompleto).',
       'Verifique o estado do lead e registre o que estiver claramente pendente.',
       'Na dúvida, não faça nada.',
-    ].join('\n');
+    ]);
   }
   const linhas = ['Foi isto que aconteceu na conversa que acabou:'];
   if (declaracao.intencoes.length > 0) {
@@ -112,7 +130,7 @@ export function renderBriefingDoOperador(
     }
   }
   linhas.push('', 'Deixe o sistema refletindo isso. O que já estiver registrado, não repita.');
-  return linhas.join('\n');
+  return comAgora(linhas);
 }
 
 /** O que o Operador decidiu neste turno — vai a `event_log` e, quando muda o que
@@ -420,7 +438,19 @@ export function createOperatorTurnHandler(deps: InboundTurnDeps) {
             // pergunta que o dono do negócio vai fazer — não teria resposta.
             purpose: 'operator_turn',
             system: SYSTEM_DO_OPERADOR,
-            messages: [{ role: 'user', content: renderBriefingDoOperador(declaracao, promessas) }],
+            messages: [
+              {
+                role: 'user',
+                content: renderBriefingDoOperador(
+                  declaracao,
+                  promessas,
+                  renderAgora(
+                    deps.clock?.() ?? new Date(),
+                    await fusoDaOrganizacao(pool, tenantId, log),
+                  ),
+                ),
+              },
+            ],
             tools: mcp.tools,
             maxSteps: agentConfig.maxSteps,
             // O modelo E o provider/credencial, sempre juntos — a regra do PR

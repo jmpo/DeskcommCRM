@@ -26,11 +26,11 @@
  * despercebida.
  */
 import { readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { RAIZ_DO_REPO, arquivosDeCodigo } from "./helpers/varrer-codigo";
+import { arquivosDeCodigo, caminhoRelativo } from "./helpers/varrer-codigo";
 
 /**
  * Quem PODE mencionar `ai_invocations`, e por quê. Uma entrada aqui é uma
@@ -50,7 +50,7 @@ const CONSULTA = /\.from\(\s*["'`]ai_invocations["'`]\s*\)/;
 describe("telemetria de IA tem uma tabela só", () => {
   const arquivos = arquivosDeCodigo(["app", "lib", "workers", "components", "hooks", "scripts"]).map(
     (absoluto) => ({
-      caminho: relative(RAIZ_DO_REPO, absoluto),
+      caminho: caminhoRelativo(absoluto),
       conteudo: readFileSync(absoluto, "utf8"),
     }),
   );

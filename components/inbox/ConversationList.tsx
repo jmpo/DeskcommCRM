@@ -52,7 +52,11 @@ export function ConversationList({
 
   // Fila (G5-03): a lista já vem ordenada por tempo de espera (server), então a
   // posição é o índice na lista visível. Só mostramos posição/espera nessa visão.
-  const isQueue = filters.assigned_to === "unassigned";
+  // A Fila deixou de mandar `assigned_to=unassigned` (agora pede `comando`), e
+  // sem esta linha a numeração "1º, 2º…" e o tempo de espera sumiriam da única
+  // visão em que servem para alguma coisa — sem erro nenhum, só sumiriam.
+  const isQueue =
+    filters.comando?.includes("aguardando") ?? filters.assigned_to === "unassigned";
   // Uma leitura por lista, compartilhada por todas as linhas (react-query dedupa
   // com o cabeçalho, que faz a mesma pergunta).
   const automaticoDaOrg = useAutomaticoAtivo();
@@ -72,18 +76,23 @@ export function ConversationList({
    * canal, e pelo mesmo motivo escrito lá: rótulo que se repete em toda linha
    * ensina o olho a ignorar a área onde vivem os avisos que importam.
    *
-   * Medido nas abas: "Fila" filtra `assigned_to=unassigned` (nenhuma linha tem
-   * dono), "Minhas" filtra `assigned_to=me` (todas têm o MESMO) e "IA" filtra por
-   * status. Sobram "Todas" e "Fechadas" — e mesmo nelas, só vale se a página
-   * realmente tiver mais de um dono distinto.
+   * Medido nas abas: "Fila" pede `comando=aguardando` (nenhuma linha tem dono —
+   * a régua põe quem tem dono em `humano`), "Minhas" filtra `assigned_to=me`
+   * (todas têm o MESMO) e "Automático" pede `comando=automatico` (também sem
+   * dono, pela mesma razão). Sobram "Todas" e "Fechadas" — e mesmo nelas, só
+   * vale se a página realmente tiver mais de um dono distinto.
+   *
+   * O `filters.comando` entrou junto com as abas novas: sem ele, a Fila voltaria
+   * a repetir o mesmo selo de atendente em cada uma das linhas.
    */
   const mostrarAtendente = useMemo(() => {
     if (filters.assigned_to) return false;
+    if (filters.comando && !filters.comando.includes("humano")) return false;
     const donos = new Set(
       items.map((i) => i.assigned_to_user_id).filter((id): id is string => Boolean(id)),
     );
     return donos.size > 1;
-  }, [filters.assigned_to, items]);
+  }, [filters.assigned_to, filters.comando, items]);
 
   useEffect(() => {
     if (onVisibleChange) onVisibleChange(items.map((i) => i.id));

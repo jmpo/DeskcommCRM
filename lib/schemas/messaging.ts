@@ -6,6 +6,7 @@
  * (quando o payload entra na pipeline pós-verificação HMAC).
  */
 import { z } from "zod";
+import { COMANDOS_DO_BANCO, type ComandoDoBanco } from "@/lib/inbox/comando-da-conversa";
 
 /**
  * O que a API aceita ESCREVER. Cinco valores, e a ausência de `pending`/`resolved`
@@ -253,6 +254,52 @@ export const listConversationsQuerySchema = z.object({
         validos.push(r.data);
       }
       return validos.length > 0 ? validos : undefined;
+    }),
+  /**
+   * QUEM MANDA na conversa — um valor, ou vários separados por vírgula.
+   *
+   * É o filtro que as abas passaram a usar no lugar de `status`. A diferença não
+   * é de forma, é de pergunta: `status` é ciclo de vida ("aberta? fechada?"),
+   * `comando` é quem responde a próxima mensagem — e o motor de IA nunca lê
+   * `status`. Enquanto as abas perguntavam pelo status, a Fila listava como
+   * "aguardando atendente" as conversas que o robô estava atendendo.
+   *
+   * O valor é calculado pelo banco (`comando_da_conversa`, migration 0203), e é
+   * por isso que ele pode ir no `WHERE` sem quebrar o cursor de paginação.
+   */
+  comando: z
+    .union([z.enum(COMANDOS_DO_BANCO), z.string()])
+    .optional()
+    .transform((v, ctx) => {
+      if (v === undefined) return undefined;
+      const itens = v
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (itens.length === 0) {
+        // AQUI ELE DIVERGE DO `status`, DE PROPÓSITO. Lá, lista vazia vira
+        // `undefined` — "sem filtro". Aqui isso seria a pior saída possível: a
+        // aba pediria um conjunto vazio e receberia TUDO, ou seja, a tela
+        // afirmaria que todas as conversas estão no estado que ela nomeia.
+        // Melhor um 422 barulhento que uma lista plausível e errada.
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "comando vazio" });
+        return z.NEVER;
+      }
+      const validos: ComandoDoBanco[] = [];
+      for (const item of itens) {
+        const r = z.enum(COMANDOS_DO_BANCO).safeParse(item);
+        if (!r.success) {
+          // Mesma razão do `status`: recusar, não ignorar. Uma lista menor sem
+          // explicação parece resposta.
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `comando inválido: ${item}`,
+          });
+          return z.NEVER;
+        }
+        validos.push(r.data);
+      }
+      return validos;
     }),
   /**
    * Esconde as conversas terminais (fechada/arquivada).

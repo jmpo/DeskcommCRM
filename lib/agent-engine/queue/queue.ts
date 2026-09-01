@@ -169,17 +169,32 @@ const CLAIM_SQL = `
  *   - o `case when` é OBRIGATÓRIO: `greatest(NULL, 0)` no Postgres devolve 0, não
  *     NULL — sem ele a fila VAZIA se disfarçaria de "job vencido" e o loop
  *     voltaria a girar no ritmo curto, que é exatamente o defeito da issue;
- *   - o `least(..., 86400000)` segura `run_after = 'infinity'`, que o hold do
- *     session-watchdog grava, e que estouraria o `int4` do cast;
+ *   - o clamp segura `run_after = 'infinity'`, que o hold do session-watchdog
+ *     grava (`session-watchdog.ts`), e que estouraria o `int4` do cast. Ele
+ *     clampa o TIMESTAMP, e não o resultado, e a ordem NÃO é estilo: em
+ *     Postgres 15 e 16 `'infinity'::timestamptz - now()` é um ERRO do servidor
+ *     (`cannot subtract infinite timestamps`), então um `least()` aplicado ao
+ *     resultado nunca chega a rodar. Medido nos dois: pg15 devolve o erro,
+ *     pg17 devolve `infinity`. Enquanto o piso declarado era pg17 isto era
+ *     latente; num Postgres 15 quebra o RELÓGIO do worker
+ *     (`workers/agent-worker/main.ts`), que é quem chama esta função.
+ *     Guardado por `tests/unit/aritmetica-de-timestamp-infinito.test.ts`;
  *   - o `::int` faz o pg devolver `number`; sem ele viria `string` de `numeric`.
  */
 export async function faltaParaOProximoJob(pool: Pool): Promise<number | null> {
   const { rows } = await pool.query<{ falta_ms: number | null }>(
     `select case
               when min(run_after) is null then null
-              else least(
-                     greatest(extract(epoch from (min(run_after) - now())) * 1000, 0),
-                     86400000
+              -- O clamp é do TIMESTAMP, não do resultado — e a ordem é o
+              -- conserto. Ver o parágrafo do 'infinity' no cabeçalho: em
+              -- Postgres 15 a SUBTRAÇÃO estoura antes de qualquer least()
+              -- ('cannot subtract infinite timestamps'), então clampar depois
+              -- protege só quem já está no 17.
+              else greatest(
+                     extract(epoch from (
+                       least(min(run_after), now() + interval '1 day') - now()
+                     )) * 1000,
+                     0
                    )::int
             end as falta_ms
        from job_queue

@@ -52,6 +52,9 @@ import type { ProviderRegistry } from '../edge/llm/providers';
 import { HANDOFF_REASON_ORCAMENTO } from '../edge/llm/orcamento';
 import { MIRROR_WARN_ONLY, mirrorLeadStageToCrm } from '../edge/crm/move-lead-stage';
 import { insertInboxItem } from '../db/repository';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { moverLeadParaEtapaDeHandoff } from '@/lib/leads/handoff-stage-move';
+import { detectUrgencySignal } from '../guardrails/sinal-de-urgencia';
 import { buildNativeMediaParts } from './media-parts';
 import { enqueueJob, rescheduleJob, type JobRow, type Queryable } from '../queue/queue';
 import { applyLeadStateUpdate, getLeadState, type LeadStage, type LeadStateRow } from './lead-state';
@@ -87,6 +90,7 @@ import { matchesHandoffKeyword } from './agent-config';
 import { msAteAJanelaAbrir } from './janela-de-atendimento';
 import { janelaDeEnvioAberta, proximaAberturaDaJanela } from '../pacing/engine';
 import { loadChannelKnobs } from '../pacing/store';
+import { avisarJanelaFechada, resolverAvisoDeJanela } from '../pacing/aviso-de-janela';
 import { resolveTurnAgent } from './resolve-turn-agent';
 import {
   hasOpenCaseForContact,
@@ -130,6 +134,8 @@ import {
   type JailbreakLevel,
 } from '../guardrails/jailbreak/classifier';
 import { camadaLigada, lerCamadasDaOrg } from '../guardrails/camadas-da-org';
+import { fusoDaOrganizacao } from './fuso-da-org';
+import { renderAgora } from '@/lib/tempo/agora';
 
 /**
  * Superfície ESTÁTICA das tools do agente (description + inputSchema) — parte do
@@ -560,7 +566,105 @@ const CASES_SYSTEM_BLOCK =
   'sistema, uma decisão que exige uma pessoa), use a tool open_human_case — você CONTINUA conversando ' +
   'com o lead, não silencia. NUNCA prometa ao lead que um humano vai verificar/resolver sem antes chamar ' +
   'open_human_case. Quando um caso estiver esperando informação do cliente e você já a obteve na ' +
-  'conversa, use provide_case_update para devolver ao responsável.';
+  'conversa, use provide_case_update para devolver ao responsável. Ao avisar o lead que abriu o caso, ' +
+  'NUNCA narre a causa técnica ou interna (erro de sistema, falha de confirmação, nome de ferramenta, ' +
+  'log ou qualquer diagnóstico) — isso é assunto técnico e não vai pro cliente. `title`/`summary`/`blocker` ' +
+  'são só para o humano; a mensagem ao lead diz apenas, em linguagem simples, que você vai verificar/ajustar ' +
+  'e volta com uma resposta, sem explicar o motivo interno.';
+
+/**
+ * Bloco de sistema RESIDENTE de transparência — SEMPRE presente, independente de
+ * `casesEnabled` ou de `open_human_case` ter sido chamado neste turno.
+ *
+ * Por quê: `CASES_SYSTEM_BLOCK` só ensina a não narrar a causa técnica NO MOMENTO de
+ * abrir um caso — mas o modelo narra "problema no sistema" também SEM abrir caso
+ * nenhum, quando só está incerto ou algo falhou silenciosamente (medido em produção,
+ * 2026-08-29: "houve um pequeno problema no sistema sobre o agendamento", mandado ao
+ * cliente às 11:43, sem nenhum `agent_cases` aberto naquele turno — o veto de
+ * `CASES_SYSTEM_BLOCK` nunca chegou a valer porque a tool nunca foi chamada). O
+ * detector de vazamento (`vazamento-interno.ts`) não pega isso por desenho — ele caça
+ * FORMA (identificador técnico), não sentença comum em português — então a única
+ * cura possível aqui é instrução, não filtro.
+ */
+const TRANSPARENCIA_SYSTEM_BLOCK =
+  '## Nunca narre problema interno ao lead\n' +
+  'Em QUALQUER mensagem — abrindo caso ou não — NUNCA diga ao lead que "houve um problema/erro no ' +
+  'sistema", "falha na confirmação", "erro técnico" ou qualquer variação que admita que algo deu errado ' +
+  'do lado interno. Isso vale mesmo quando você está incerto do resultado de uma ferramenta ou algo ' +
+  'falhou sem você entender o motivo. O lead não precisa do diagnóstico, precisa saber o que fazer ' +
+  'agora: diga que vai verificar/confirmar e volta com a resposta, peça mais um instante, ou pergunte de ' +
+  'novo o que falta — nunca admita que "o sistema" ou "a confirmação" teve um problema.';
+
+/**
+ * Bloco de sistema RESIDENTE da Agenda — entra no prefixo cacheável sempre que o
+ * agente tem `crm_book_appointment` no `tool_ids` publicado, INDEPENDENTE de a skill
+ * situacional "agendamento" ter disparado no turno.
+ *
+ * Por quê: a skill "agendamento" (`lib/agent-engine/agent/skills.ts`) só injeta o
+ * corpo dela quando a ÚLTIMA mensagem inbound do turno bate uma keyword. Medido
+ * neste repo: o turno em que o lead ACEITA um horário oferecido ("pode ser amanhã
+ * às 9 então") raramente repete uma keyword de agendar — quem carrega a keyword é o
+ * turno ANTERIOR, que já passou. Sem o corpo da skill presente NAQUELE turno
+ * específico, o modelo confirmava o compromisso pela conversa, sem nunca chamar
+ * `crm_book_appointment` — sentença dita ao cliente, nada gravado no banco. Esta
+ * regra é curta, redundante com a skill de propósito e, por só depender de
+ * `agentConfig.toolIds` (não da mensagem do turno), fica sempre presente.
+ *
+ * ⚠️ Segundo parágrafo (2026-08-29): a mesma lacuna de keyword tem um irmão mais
+ * barato de cometer. Medido em produção: o lead disse "Pode ser segunda de manha"
+ * e depois só "?" — nenhuma das duas bate keyword da skill "agendamento", então o
+ * corpo dela (que tem a instrução "chame crm_find_free_slots e leia a resposta")
+ * nunca entrou no contexto. O primeiro parágrafo deste bloco só proíbe MENTIR
+ * ("confirmado" sem checar) — não obriga a CHECAR. Sem essa obrigação, o modelo
+ * tinha uma saída segura e preguiçosa: responder "vou verificar e te aviso" pra
+ * sempre, sem nunca chamar a ferramenta. O segundo parágrafo fecha essa saída.
+ *
+ * ⚠️ Terceiro parágrafo (2026-08-29, mesmo dia): o segundo parágrafo sozinho NÃO
+ * bastou — medido no mesmo teste, depois de publicado. Causa raiz achada no
+ * `system_prompt` que o PRÓPRIO tenant escreveu para este agente: ele instrui a
+ * "encaminhar dúvidas ou situações fora da sua autonomia ao gerente Fernando".
+ * O modelo estava classificando "confirmar horário" como uma dessas situações e
+ * respondendo "vou confirmar com o Fernando/a equipe" — coerente com a
+ * identidade que o tenant deu a ele, só que sem nunca chamar a ferramenta. Um
+ * agravante: a MESMA conversa já tinha várias respostas assim ANTES deste fix
+ * existir, e o modelo lê o próprio histórico — puxando a resposta pra manter
+ * consistência com o que ele mesmo já disse. O terceiro parágrafo nomeia o
+ * conflito explicitamente e resolve a favor da ferramenta: checar/marcar
+ * agenda com uma tool disponível NUNCA é "fora da autonomia", nem quando o
+ * prompt do tenant nomeia um gerente para outras decisões — e ele AINDA vale
+ * pra essas outras decisões (aprovar desconto, exceção de política etc.),
+ * porque este parágrafo só fala de checar/marcar horário.
+ */
+const AGENDA_SYSTEM_BLOCK =
+  '## Agenda — nunca confirme sem checar\n' +
+  'Você só pode dizer a um lead que um horário/consulta/visita está confirmado DEPOIS de chamar ' +
+  'crm_book_appointment (ou crm_reschedule_appointment, para remarcação) e ver o retorno confirmando o ' +
+  'sucesso. Isso vale mesmo quando o lead já aceitou um horário que você ofereceu — aceite verbal não é ' +
+  'reserva. NUNCA diga "confirmado", "está marcado" ou equivalente baseado só no histórico da conversa. ' +
+  'Se ainda não chamou a ferramenta neste turno, chame antes de responder; se a chamada falhar ou você não ' +
+  'tiver certeza do resultado, diga que vai verificar e NÃO afirme que está confirmado.\n' +
+  'Isso NÃO é desculpa para procrastinar: se o lead mencionou (agora ou em qualquer mensagem anterior da ' +
+  'conversa) um dia/horário específico que ainda não foi checado, chame crm_find_free_slots NESTE turno ' +
+  'antes de responder — não repita "vou verificar/confirmar e te aviso" sem ter chamado a ferramenta. Um ' +
+  '"vou verificar" só é aceitável na MESMA resposta em que você já chamou a ferramenta e ela falhou ou não ' +
+  'trouxe resultado; nunca como substituto de chamar.\n' +
+  'Checar e marcar horário usando crm_find_free_slots/crm_book_appointment está SEMPRE dentro da sua ' +
+  'autonomia quando essas ferramentas estão disponíveis para você — mesmo que as instruções da empresa ' +
+  'peçam para encaminhar decisões fora da sua autonomia a um gerente/responsável nomeado (ex.: "fale com o ' +
+  'Fernando"). Isso vale para OUTRAS decisões (desconto, exceção de política, algo que a ferramenta não ' +
+  'cobre) — nunca para simplesmente consultar ou marcar um horário que a ferramenta resolve sozinha. NÃO ' +
+  'diga "vou confirmar/verificar com [nome de pessoa/equipe]" para justificar não ter chamado a ferramenta: ' +
+  'chame primeiro, e só fale de encaminhar a alguém se a ferramenta genuinamente não resolver.';
+
+/**
+ * Tools de agenda cuja EXECUÇÃO neste turno arma o `agendaStallGate` (before-send.ts) —
+ * ver o wrap no loop de montagem das tools MCP, mais abaixo.
+ */
+const AGENDA_TOOL_NAMES = new Set([
+  'crm_find_free_slots',
+  'crm_book_appointment',
+  'crm_reschedule_appointment',
+]);
 
 export interface InboundTurnKnobs {
   /** últimas N mensagens no contexto de abertura (LEAD_CONTEXT_HISTORY_LIMIT) */
@@ -1116,6 +1220,11 @@ async function executarTurnoDoAgente(
   // linhas de distância um do outro, e duas queries para a mesma pergunta viram,
   // com o tempo, duas respostas.
   const camadas = await lerCamadasDaOrg(pool, tenantId);
+  // O fuso da ORGANIZAÇÃO — o que o bloco `## Agora` usa lá embaixo, na montagem
+  // da abertura. Lido aqui pela mesma razão da linha acima: uma query por turno,
+  // longe do ponto de uso, para não virar duas respostas para a mesma pergunta.
+  // Nunca lança e nunca vem vazio (ver `fuso-da-org.ts`).
+  const fusoDaOrg = await fusoDaOrganizacao(pool, tenantId, runLog);
 
   // F4-06 (acceptance 2): lead em handoff humano → NO-OP no INÍCIO do turno, antes de
   // qualquer chamada de modelo/CRM. O bot silenciou (bot_silenced_until='infinity', cache
@@ -1157,7 +1266,48 @@ async function executarTurnoDoAgente(
         timezone: knobs.timezone,
         abertura: abertura.toISOString(),
       });
+      // O adiamento deixa RASTRO VISÍVEL. Sem isto, o único registro de que o
+      // número está calado morre no log do contêiner — e foi assim que uma
+      // instalação passou um domingo inteiro muda, com todos os contêineres
+      // `healthy` e o dono sem nada para olhar. Um aviso por canal, deduplicado
+      // enquanto durar o silêncio; ver o cabeçalho de `aviso-de-janela.ts`.
+      //
+      // Fire-and-forget: telemetria nunca derruba um turno que já decidiu o que
+      // fazer com a mensagem do cliente — e o job JÁ foi reagendado acima.
+      try {
+        const criados = await avisarJanelaFechada(pool, {
+          tenantId,
+          channelSessionId: input.channelSessionId,
+          abertura,
+          janela: `${knobs.windowStartHour}h-${knobs.windowEndHour}h`,
+          timezone: knobs.timezone,
+          domingoDesligado: !knobs.allowSunday,
+        });
+        if (criados > 0) {
+          runLog.info('aviso de janela fechada aberto na Central', {
+            channel_session_id: input.channelSessionId,
+          });
+        }
+      } catch (err) {
+        runLog.warn('não consegui abrir o aviso de janela fechada', {
+          error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
+        });
+      }
       throw new JobSettledError('fora da janela anti-ban — job reagendado para a abertura da janela');
+    }
+    // A janela está ABERTA: se havia aviso de silêncio pendurado, ele morre
+    // AQUI — no mesmo ponto que o abriu. Um aviso que só o humano fecha vira
+    // dívida: na segunda o número volta a atender e o painel seguiria dizendo
+    // que está calado.
+    try {
+      await resolverAvisoDeJanela(pool, {
+        tenantId,
+        channelSessionId: input.channelSessionId,
+      });
+    } catch (err) {
+      runLog.warn('não consegui resolver o aviso de janela fechada', {
+        error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
+      });
     }
   }
 
@@ -1335,11 +1485,16 @@ async function executarTurnoDoAgente(
     skillIndex,
   });
   // Spec 15 §5.2: bloco das tools de caso SEMPRE residente (não invalida o prefixo
-  // cacheável — mesmo espírito do índice de skills) quando a tela habilita.
-  const system =
-    agentConfig !== null && agentConfig.casesEnabled
-      ? `${systemWithMemory}\n\n${CASES_SYSTEM_BLOCK}`
-      : systemWithMemory;
+  // cacheável — mesmo espírito do índice de skills) quando a tela habilita. O bloco da
+  // Agenda segue o mesmo padrão, condicionado a `crm_book_appointment` estar entre as
+  // tools publicadas — ver comentário de `AGENDA_SYSTEM_BLOCK`. `TRANSPARENCIA_SYSTEM_BLOCK`
+  // não depende de nenhuma feature — todo agente publicado o recebe.
+  const blocosResidentes = [systemWithMemory, TRANSPARENCIA_SYSTEM_BLOCK];
+  if (agentConfig !== null && agentConfig.casesEnabled) blocosResidentes.push(CASES_SYSTEM_BLOCK);
+  if (agentConfig !== null && agentConfig.toolIds.includes('crm_book_appointment')) {
+    blocosResidentes.push(AGENDA_SYSTEM_BLOCK);
+  }
+  const system = blocosResidentes.join('\n\n');
   const previous = await latestCheckpoint(pool, tenantId, leadId);
   const leadState = await getLeadState(pool, tenantId, leadId);
   const openingContext = await getLeadContext(
@@ -1595,6 +1750,33 @@ async function executarTurnoDoAgente(
   // (`internal_vocabulary_leak`): 1º veto no turno ensina o modelo a reescrever; persistir
   // solta o envio com registro. Por turno (closure), nunca cross-turno.
   let internalVocabularyVetoCount = 0;
+  // Cap de envio (warm-up/diário) vetado neste turno — capturado aqui porque o veto
+  // não empurra outcome nenhum a `outcomes` (ver comentário no ponto de captura, mais
+  // abaixo). Diferente da janela horária (checada ANTES do modelo rodar, linha ~1233):
+  // o cap depende de quanto já saiu HOJE, que muda com o turno concorrente — só dá pra
+  // saber com certeza no momento do envio, não antes.
+  let pacingCapVeto: { code: string; nextAllowedAt: Date } | null = null;
+  // Best-effort: move o lead pra etapa `crm_stages.slug='chamar-humano'` do pipeline
+  // dele (se o tenant tiver criado essa etapa — opt-in, ver `lib/leads/handoff-stage-move.ts`)
+  // sempre que um caso humano abre neste turno, deliberado (open_human_case) ou pelo
+  // fail-safe do `case_promise`. Sem isto, o funil no CRM não refletia o handoff que o
+  // PRÓPRIO PROMPT do tenant promete ao lead ("vou verificar/encaminhar com o Fernando")
+  // — medido em produção, tenant YADEA: caso aberto, funil parado em "Novo contato".
+  // Nunca bloqueia nem derruba o turno — mesma disciplina de `triggerHandoff` (G1-G4),
+  // que já chama o mesmo helper para o handoff por palavra-chave do cliente.
+  const moverParaHandoffBestEffort = (reason: string): void => {
+    moverLeadParaEtapaDeHandoff(createAdminClient(), { organizationId: tenantId, leadId, reason }).catch((err) => {
+      runLog.warn('moverLeadParaEtapaDeHandoff falhou (best-effort, caso humano)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  };
+  // Arma o `agendaStallGate` (before-send.ts): true assim que crm_find_free_slots,
+  // crm_book_appointment ou crm_reschedule_appointment executar neste turno — marcado no
+  // wrapper das tools MCP, mais abaixo. `send_message` lê o valor NO MOMENTO do envio; como
+  // as tools do modelo rodam em passos anteriores do mesmo loop, o valor já está certo
+  // quando o modelo decide mandar a resposta.
+  let agendaToolCalledThisTurn = false;
   const outcomes: ChannelSendResult[] = [];
   // Citações acumuladas por buscas de conhecimento DESTE turno — anexadas à
   // próxima outbound enviada (shape de lib/ai/citations/types, que a UI já lê).
@@ -1905,6 +2087,11 @@ async function executarTurnoDoAgente(
             casesEnabled: agentConfig?.casesEnabled ?? false,
             hasOpenCase,
             openedCaseThisTurn,
+            // Nome(s) próprio(s) que o prompt do tenant usa pra retaguarda humana (ex.:
+            // "Fernando") — o mesmo vocabulário que `matchesHandoffKeyword` já usa do lado
+            // do CLIENTE, agora somado ao alvo genérico do `casePromiseGate` do lado do
+            // que o MODELO promete. Ver `GateContext.humanPromiseExtraTargets`.
+            humanPromiseExtraTargets: agentConfig?.handoffKeywords ?? [],
             // A rede contra vazamento de vocabulário interno arma AQUI e só aqui: este é
             // o único corpo escrito pelo MODELO, e o único caminho em que o veto vira
             // erro instrutivo que ele pode consertar no turno seguinte. O `send_template`
@@ -1913,6 +2100,14 @@ async function executarTurnoDoAgente(
             // não é dele, e a única saída seria o silêncio. O follow-up determinístico
             // idem (ver GateContext.internalVocabularyEnforced).
             enforceInternalVocabulary: true,
+            // Mesmo padrão do vocabulário interno: só o `send_message` arma — é o único
+            // corpo escrito pelo modelo. `active` segue a MESMA condição de
+            // `AGENDA_SYSTEM_BLOCK` (crm_book_appointment publicado); sem ela o gate
+            // vetaria agente que nem tem a ferramenta de agenda.
+            agenda: {
+              active: agentConfig !== null && agentConfig.toolIds.includes('crm_book_appointment'),
+              toolCalledThisTurn: agendaToolCalledThisTurn,
+            },
             ...(deps.knobs.disclosureMode !== undefined ? { disclosureMode: deps.knobs.disclosureMode } : {}),
             // Gate 5 (F4-02): classificador semântico roteado pelo MESMO seam agnóstico (budget
             // da org checado nele). Closure com tenant/lead/job da ROW fechados — nunca do payload.
@@ -1966,6 +2161,7 @@ async function executarTurnoDoAgente(
               return { ok: false, error: { code: chain.code, message: chain.message } };
             }
             openedCaseThisTurn = true;
+            moverParaHandoffBestEffort('case_promise_autofallback');
             // Re-roda a cadeia INTEIRA agora que há caso aberto — o send real acontece
             // DENTRO do runBeforeSend (via args.send); nunca chamamos o canal por fora
             // (perderia pacing/lgpd/stop). ponytail: re-roda a cadeia inteira no fail-safe
@@ -2004,6 +2200,17 @@ async function executarTurnoDoAgente(
             });
           }
           if (chain.status === 'vetoed') {
+            // Cap de warm-up/diário: reescrever o texto não resolve (é rate limit, não
+            // conteúdo) — ensinar o modelo a "tentar de novo" só gasta passo. Guardamos
+            // pra reagendar o JOB inteiro depois que o turno terminar (mesmo padrão de
+            // `rescheduleJob` já usado pra janela horária), em vez de deixar o lead sem
+            // resposta até a próxima mensagem dele chegar (ou nunca).
+            if (
+              (chain.code === 'warmup_cap' || chain.code === 'daily_cap') &&
+              chain.nextAllowedAt !== undefined
+            ) {
+              pacingCapVeto = { code: chain.code, nextAllowedAt: chain.nextAllowedAt };
+            }
             // Erro de ENSINO pt-br (mesmo shape de get_lead_context/breaker): o
             // modelo o vê no turno seguinte. NÃO é exceção — não derruba o run.
             return { ok: false, error: { code: chain.code, message: chain.message } };
@@ -2349,6 +2556,7 @@ async function executarTurnoDoAgente(
           );
           if (!res.ok) return res;
           openedCaseThisTurn = true;
+          moverParaHandoffBestEffort('open_human_case');
           // ACH-03: a expectativa vai junto com a confirmação. Medido num turno
           // real: o agente abria o caso e prometia ao cliente que "alguém entra
           // em contato" sem nunca ter olhado se havia alguém — a capacidade de
@@ -2443,7 +2651,21 @@ async function executarTurnoDoAgente(
       if (mcp !== null) {
         mcpCleanup = mcp.cleanup;
         for (const [name, mcpTool] of Object.entries(mcp.tools)) {
-          if (!(name in rawTools)) rawTools[name] = mcpTool;
+          if (name in rawTools) continue;
+          // Marca a EXECUÇÃO (não só a decisão de chamar) — é isso que o agendaStallGate
+          // precisa saber para não vetar um turno que já checou a agenda de verdade.
+          if (AGENDA_TOOL_NAMES.has(name) && typeof mcpTool.execute === 'function') {
+            const executeOriginal = mcpTool.execute.bind(mcpTool);
+            rawTools[name] = {
+              ...mcpTool,
+              execute: (async (...args: Parameters<typeof executeOriginal>) => {
+                agendaToolCalledThisTurn = true;
+                return executeOriginal(...args);
+              }) as typeof mcpTool.execute,
+            };
+          } else {
+            rawTools[name] = mcpTool;
+          }
         }
         mcpToolIdsDoTurno.push(...mcp.toolIds);
         runLog.info('tools MCP da tela montadas no turno', { mcp_tool_ids: mcp.toolIds });
@@ -2583,9 +2805,29 @@ async function executarTurnoDoAgente(
         `Se a mensagem dele responde a isso, chame provide_case_update com este case_id e a informação recebida — ` +
         `NÃO diga que já repassou/avisou o responsável sem chamar a tool.`
       : '';
-  const openingSuffixes = [matchedSkillsBlock, stageHintBlock, splitHint, caseAwaitingLeadBlock].filter(
-    (b) => b !== '',
-  );
+  // ── O RELÓGIO DO TURNO ────────────────────────────────────────────────────
+  //
+  // Entra AQUI, e o lugar é a metade do conserto.
+  //
+  // No `system` (o prefixo estável org-wide, F2-17) ele invalidaria o cache de
+  // prompt de TODOS os leads a cada turno, porque muda a cada segundo — é o que
+  // `stable-prefix.ts` proíbe em letra. No sufixo por-lead ele é volátil entre
+  // iguais, e custa os ~50 tokens dele.
+  //
+  // PRIMEIRO da lista de propósito: a âncora temporal precede o material que o
+  // modelo vai usar para decidir data — corpo de skill, hint do classificador,
+  // caso pendente. E `executarTurnoDoAgente` é o ponto por onde passam os TRÊS
+  // turnos conversacionais (inbound, follow-up e resposta a caso), então um
+  // ponto só cobre os três — e alcança de carona a chamada de fechamento, que
+  // reusa `openingTextOnly` e é onde nasce o `prazo` ISO da declaração.
+  const agoraBlock = renderAgora(clock(), fusoDaOrg);
+  const openingSuffixes = [
+    agoraBlock,
+    matchedSkillsBlock,
+    stageHintBlock,
+    splitHint,
+    caseAwaitingLeadBlock,
+  ].filter((b) => b !== '');
   const openingText =
     openingSuffixes.length === 0 ? openingBase : `${openingBase}\n\n${openingSuffixes.join('\n\n')}`;
   // Onda 3 (aprimoramento): mídia inbound recente vira part nativa (image/file) SÓ para
@@ -2617,6 +2859,11 @@ async function executarTurnoDoAgente(
       tenantId,
       leadId,
       jobId: job.id,
+      // De quem é esta execução. Vai para `llm_calls.agent_id` e é o que permite
+      // a aba "Execuções" da tela do agente mostrar o que ELE fez — antes ela
+      // lia `ai_agent_runs`, tabela que motor nenhum vivo escreve, e dizia
+      // "Nenhuma execução ainda" com o agente respondendo no WhatsApp.
+      agentId: agentConfig?.agentId ?? null,
       purpose: 'agent_turn',
       system,
       messages: openingMessages,
@@ -2911,6 +3158,61 @@ async function executarTurnoDoAgente(
     );
     throw new JobSettledError(
       'turno encerrado com veto do sink (is_blocked) — job cancelado em definitivo, checkpoint gravado',
+    );
+  }
+
+  // Cap de warm-up/diário vetou toda tentativa de envio deste turno e nada saiu: sem
+  // isto, o job terminava 'ok' com `messages_sent: 0` e o lead ficava sem resposta até
+  // escrever de novo por conta própria (ou nunca) — medido em produção, 2026-08-29
+  // (número no dia 0 de warm-up, cap batido pelo volume da própria conversa de teste).
+  // Mesmo contrato da janela anti-ban (linha ~1233): adia sem gastar `attempts`, o job
+  // volta a 'pending' na hora certa e o mesmo turno roda de novo, com o mesmo contexto.
+  if (pacingCapVeto !== null && outcomes.length === 0) {
+    // Capturado num `const`: `pacingCapVeto` é reatribuído numa closure em outro ponto do
+    // turno, e o TS reabre a união (perde o `!== null`) depois de qualquer chamada — o
+    // valor JÁ CHECADO não muda, só a inferência precisa de um nome que não reatribui.
+    const veto = pacingCapVeto;
+    await rescheduleJob(pool, job.id, ctx.workerId, {
+      delayMs: Math.max(veto.nextAllowedAt.getTime() - clock().getTime(), 1_000),
+      reason: `cap de envio (${veto.code}) atingido — turno adiado para a próxima abertura`,
+    });
+    runLog.info('turno adiado — cap de envio atingido antes de qualquer mensagem sair', {
+      code: veto.code,
+      proxima_abertura: veto.nextAllowedAt.toISOString(),
+    });
+    // O reagendamento acima trata toda mensagem represada igual — um lead relatando
+    // risco de segurança (freio, fumaça, bateria esquentando) esperaria a mesma janela
+    // que um "bom dia" qualquer, às vezes horas (medido em produção, tenant YADEA:
+    // 20h+ represado num relato de bateria superaquecendo). Sem furar o cap de
+    // warm-up/diário em si (proteção anti-banimento — mexer nisso é decisão de
+    // produto, não deste guardrail), abre um alerta CRÍTICO na Central agora, pra um
+    // humano poder responder manualmente pelo próprio WhatsApp enquanto o número
+    // aquece. Dedupe por (kind, ref) — não reabre um já aberto pra esta conversa.
+    if (detectUrgencySignal(inboundSignal)) {
+      await insertInboxItem(
+        pool,
+        tenantId,
+        {
+          kind: 'handoff',
+          severity: 'critical',
+          title: 'Lead com sinal de urgência represado pelo cap de envio do número',
+          body:
+            `Mensagem do lead parece relatar risco/urgência, mas o número está em ` +
+            `warm-up/bateu o cap diário (${veto.code}) — a resposta automática só sai em ` +
+            `${veto.nextAllowedAt.toISOString()}. Considere responder manualmente pelo ` +
+            `WhatsApp enquanto o número aquece.`,
+          refKind: 'conversation',
+          refId: input.conversationId,
+        },
+        'kind_e_ref',
+      ).catch((err) => {
+        runLog.warn('alerta de urgência represada por warmup_cap falhou (best-effort)', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+    throw new JobSettledError(
+      'cap de envio atingido — job reagendado para a próxima abertura, sem mensagem enviada',
     );
   }
 

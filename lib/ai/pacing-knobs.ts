@@ -155,3 +155,33 @@ export function knobsView(row: ChannelKnobsRow | null, agora: Date = new Date())
     },
   };
 }
+
+/**
+ * O valor a GRAVAR para um knob booleano da ficha Anti-ban: `null` quando o
+ * operador está no default (herda), o booleano quando ele diverge (override).
+ *
+ * ## Por que isto existe
+ *
+ * Todo knob de TEXTO da ficha já sabia dizer "não mexi": campo vazio vira `null`
+ * e o motor herda o default (`intOrNull`, `msOrNull`, o `trim()` do timezone).
+ * O Switch de "Enviar aos domingos" não sabia — ele enviava **sempre** o
+ * booleano que estava na tela, e o que estava na tela, sem override, era o
+ * default do dia.
+ *
+ * Resultado medido em produção: em 2026-08-06 o default era `false`, e um save
+ * daquela ficha — feito para declarar o aquecimento, não para mexer em domingo —
+ * gravou `allow_sunday=false` como override permanente. Quando o produto mudou o
+ * default para `true` em 2026-08-20, essa instalação ficou para trás com uma
+ * escolha que ninguém fez, e o número passou a ficar mudo todo domingo.
+ *
+ * ## A regra, e o que ela preserva
+ *
+ * Igual ao default ⇒ `null`. Diferente ⇒ o valor.
+ *
+ * Isso NÃO apaga escolha de ninguém: quem desligou o domingo quando o default
+ * era ligado continua com `false` gravado, porque diverge. O que some é só o
+ * override que nunca foi uma decisão — e com ele some o congelamento.
+ */
+export function valorDeOverride(valorNaTela: boolean, padrao: boolean): boolean | null {
+  return valorNaTela === padrao ? null : valorNaTela;
+}

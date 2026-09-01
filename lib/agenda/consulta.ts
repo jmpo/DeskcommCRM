@@ -524,3 +524,118 @@ export async function idDoTipoPorSlug(
     .maybeSingle();
   return data ? { id: String(data.id), nome: String(data.name) } : null;
 }
+
+
+/**
+ * O que uma organização OFERECE para marcar.
+ *
+ * ⚠️ ESTE COLETOR NASCEU DE QUATRO CÓPIAS. `calendar_event_types` era lida em
+ * quatro lugares independentes, cada um com o seu recorte de colunas: o `GET`
+ * de `/api/v1/agenda/tipos`, a tela de configuração, a tela que marca e o
+ * `marcarAgendamentoHandler`. Nenhuma chamava a outra. É a mesma situação que
+ * o cabeçalho deste arquivo descreve para os horários — e o desfecho seria o
+ * mesmo: a tela e a IA respondendo por regras diferentes sobre o que a clínica
+ * atende.
+ *
+ * ⚠️ `incluirInativos` NÃO é conveniência, é a diferença entre duas perguntas.
+ * *"O que existe de cadastro?"* (tela de configuração, que precisa mostrar o
+ * desativado para alguém poder reativá-lo) e *"o que dá para marcar agora?"*
+ * (a IA e a tela que marca). Oferecer um tipo inativo ao modelo é beco sem
+ * saída garantido: `horariosLivresDaOrg` o encontra e recusa com
+ * `tipo_desativado`. Por isso o default é SÓ ATIVOS — quem quer o outro pede.
+ */
+export interface TipoDeAtendimento {
+  /** Chave de lista e alvo de PATCH/DELETE na TELA. Nunca vai ao modelo (ver a tool). */
+  id: string;
+  nome: string;
+  /** O handle estável que as ferramentas de agenda aceitam em `event_type_slug`. */
+  slug: string;
+  descricao: string | null;
+  categoria: string;
+  duracaoMin: number;
+  localKind: string;
+  localDetalhes: string | null;
+  /** true = o compromisso nasce aguardando o cliente confirmar (`pending`). */
+  precisaConfirmacao: boolean;
+  ativo: boolean;
+  /** Sem dono não há jornada, e sem jornada não há horário (`sem_responsavel`). */
+  donoPadraoId: string | null;
+  /**
+   * Os quatro números da grade. Eles NÃO vão ao modelo — `horariosLivresDaOrg`
+   * já os aplicou antes de devolver os horários, e repassá-los convidaria a IA a
+   * recalcular o que a máquina calculou. Estão aqui porque a rota de
+   * configuração os publica desde antes deste coletor existir, e campo que some
+   * de uma rota `/api/v1/` é quebra de contrato.
+   */
+  bufferAntesMin: number;
+  bufferDepoisMin: number;
+  antecedenciaMinimaMin: number;
+  janelaDeAgendamentoDias: number;
+}
+
+export type ResultadoDosTipos =
+  | { ok: true; tipos: TipoDeAtendimento[] }
+  | {
+      ok: false;
+      codigo: "erro_interno";
+      motivoParaOperador: string;
+      motivoParaCliente: string;
+    };
+
+/**
+ * Os tipos de atendimento da organização.
+ *
+ * ⚠️ Erro de leitura NUNCA vira lista vazia. As duas leituras são
+ * indistinguíveis para quem recebe, e significam o oposto: lista vazia diz "a
+ * organização não cadastrou nada" e faria o modelo anunciar ao paciente que a
+ * clínica não atende. A recusa nomeada é o que leva alguém a corrigir.
+ */
+export async function listaTiposDeAtendimento(
+  supabase: SupabaseClient,
+  organizationId: string,
+  opcoes?: { incluirInativos?: boolean },
+): Promise<ResultadoDosTipos> {
+  const incluirInativos = opcoes?.incluirInativos ?? false;
+
+  let q = supabase
+    .from("calendar_event_types")
+    .select(
+      "id, name, slug, description, category, duration_minutes, location_kind, location_details, requires_confirmation, is_active, default_owner_user_id, buffer_before_minutes, buffer_after_minutes, minimum_notice_minutes, booking_window_days",
+    )
+    // Service role bypassa a RLS: este filtro é a única proteção no caminho da
+    // ferramenta MCP (ver o cabeçalho do arquivo).
+    .eq("organization_id", organizationId);
+  if (!incluirInativos) q = q.eq("is_active", true);
+
+  const { data, error } = await q.order("is_active", { ascending: false }).order("name");
+
+  if (error) {
+    return {
+      ok: false,
+      codigo: "erro_interno",
+      motivoParaOperador: error.message,
+      motivoParaCliente: `Não consegui ver o que a agenda oferece agora. ${NAO_OFERECA}`,
+    };
+  }
+
+  return {
+    ok: true,
+    tipos: (data ?? []).map((t) => ({
+      id: String(t.id),
+      nome: String(t.name),
+      slug: String(t.slug),
+      descricao: t.description === null ? null : String(t.description),
+      categoria: String(t.category),
+      duracaoMin: Number(t.duration_minutes),
+      localKind: String(t.location_kind),
+      localDetalhes: t.location_details === null ? null : String(t.location_details),
+      precisaConfirmacao: Boolean(t.requires_confirmation),
+      ativo: Boolean(t.is_active),
+      donoPadraoId: t.default_owner_user_id === null ? null : String(t.default_owner_user_id),
+      bufferAntesMin: Number(t.buffer_before_minutes),
+      bufferDepoisMin: Number(t.buffer_after_minutes),
+      antecedenciaMinimaMin: Number(t.minimum_notice_minutes),
+      janelaDeAgendamentoDias: Number(t.booking_window_days),
+    })),
+  };
+}

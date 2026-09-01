@@ -21,6 +21,7 @@ import type { McpAuthResult } from "@/lib/mcp/auth";
 import { logger } from "@/lib/logger";
 import { allTools, getToolByName } from "@/lib/mcp/tools";
 import { catalogEntry } from "@/lib/mcp/tools/catalog";
+import { higienizarUuidsDeAterro } from "@/lib/mcp/uuid-de-aterro";
 import { recusaDeCapacidadeParaOModelo } from "@/lib/mcp/recusa-para-o-modelo";
 import type { McpContext, McpToolDefinition } from "@/lib/mcp/types";
 import { resolveActiveLeadForContact, type LeadCandidate } from "@/lib/leads/active-lead";
@@ -68,7 +69,31 @@ function wrapMcpTool(
     inputSchema,
     execute: async (args: unknown) => {
       const startedAt = Date.now();
-      const argsRecord = (args ?? {}) as Record<string, unknown>;
+      // ── O UUID QUE O MODELO INVENTA PARA "NÃO SEI" ────────────────────────
+      //
+      // Aqui, na fronteira, e não em cada handler. Medido em produção: um
+      // agente mandou `owner_user_id: "00000000-…"` num campo OPCIONAL, o
+      // `?? tipo.default_owner_user_id` do outro lado não caiu no default
+      // porque o valor não era `undefined`, e a agenda de um usuário que não
+      // existe voltou vazia. A paciente ficou sem consulta e a chamada está no
+      // audit com `success: true` — não havia erro para investigar.
+      //
+      // O catálogo tem 28 campos de uuid que aceitam ausência, e todos vazavam
+      // a mesma sentinela. Consertar por handler seria consertar por instância:
+      // o 29º nasceria fora. Ver `lib/mcp/uuid-de-aterro.ts`.
+      const higiene = higienizarUuidsDeAterro(
+        def.inputSchema as Record<string, z.ZodTypeAny>,
+        (args ?? {}) as Record<string, unknown>,
+      );
+      const argsRecord = higiene.limpos;
+      if (higiene.descartados.length > 0) {
+        // Não é cosmético: sem esta linha o defeito passa a se curar em
+        // silêncio e ninguém descobre que um modelo faz isso o tempo todo.
+        logger.info("uuid de aterro descartado do payload da tool", {
+          tool: def.name,
+          campos: higiene.descartados.join(","),
+        });
+      }
       try {
         ensureScope(input.auth.scopes, def.requiresScope);
         ensureRole(input.auth.role, def.requiresRole);

@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { relativoEmBarraNormal } from "./helpers/caminho";
+
 /**
  * VARREDURA: tela de servidor que consulta tabela de inquilino filtra a
  * organização ATIVA, e não só a RLS.
@@ -100,7 +102,7 @@ function consultas(): Consulta[] {
   const out: Consulta[] = [];
   for (const arquivo of telasDeServidor(path.join(RAIZ, "app/app"))) {
     const fonte = fs.readFileSync(arquivo, "utf8");
-    const rel = path.relative(RAIZ, arquivo);
+    const rel = relativoEmBarraNormal(RAIZ, arquivo);
     for (const m of fonte.matchAll(/\.from\("([a-z_]+)"\)/g)) {
       const tabela = m[1] as string;
       if (!TENANT.has(tabela)) continue;

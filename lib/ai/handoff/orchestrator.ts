@@ -12,6 +12,9 @@
  *      (idempotente: se outro handoff aconteceu nos últimos 5s com mesma reason,
  *       skip — tratamento de race G2 vs G3 vs G4 simultâneos.)
  *   2. INSERT em crm_lead_activities (timeline) se houver lead_id
+ *   2.5. Move o lead para a etapa `crm_stages.slug='chamar-humano'` do
+ *        pipeline dele, se o tenant tiver criado essa etapa (opt-in — ver
+ *        `lib/leads/handoff-stage-move.ts`). Pipeline sem essa etapa: no-op.
  *   3. emit_event('ai.handoff_triggered') no event_log
  *   4. Realtime broadcast no channel 'org:<org>:queue' (event 'handoff_pending')
  *   5. api_audit_log action='ai.handoff_triggered'
@@ -23,6 +26,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logger } from "@/lib/logger";
+import { moverLeadParaEtapaDeHandoff } from "@/lib/leads/handoff-stage-move";
 
 import { avisarLeadDoCrm } from "./aviso-ao-lead";
 
@@ -171,6 +175,20 @@ export async function triggerHandoff(
           error: actErr.message,
         });
       }
+
+      // Step 2.5 — best-effort: move o card para a etapa "chamar humano" do
+      // pipeline dele, quando o tenant configurou uma (ver docstring do
+      // arquivo). Nunca bloqueia nem derruba o handoff em si.
+      await moverLeadParaEtapaDeHandoff(admin, {
+        organizationId: input.organizationId,
+        leadId: input.leadId,
+        reason: input.reason,
+      }).catch((err) => {
+        logger.warn("[handoff-orchestrator] moverLeadParaEtapaDeHandoff failed", {
+          lead_id: input.leadId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     }
 
     // Step 3 — durable event for any downstream consumer.

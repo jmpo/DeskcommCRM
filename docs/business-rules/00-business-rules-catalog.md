@@ -174,7 +174,14 @@ owner: Rafael Melgaço
 - **Por que deixou de ser regex de palavra solta** (2026-08-21): caçar a PALAVRA em qualquer posição bloqueava frase inocente na INGESTÃO, antes do modelo — e o bloqueio some a pessoa da conversa sem ninguém saber, com `blocked_reason='stop_keyword'` parecendo legítimo. Medido num corpus de 79 frases: a regra antiga produzia **12 falsos positivos** de nicho ("tem como parar a dor?", "posso sair antes das 15h?", "preciso sair mais cedo da consulta") e deixava passar **21 de 33 pedidos reais** ("não quero mais receber nada", "me tira da lista", "cancelar inscrição"). A regra nova: 0 falsos positivos, 33 de 33 pedidos.
 - **Onde ela mora, para não envelhecer aqui**: `lib/opt-out/deteccao.ts`. O vocabulário em vigor sai de `grep -n 'PALAVRAS_DE_OPT_OUT' -A20 lib/opt-out/deteccao.ts`; as frases de controle, de `tests/unit/opt-out-deteccao.test.ts`.
 - **Dois níveis, e a diferença importa**: `ehPedidoDeOptOut` (inequívoco) autoriza gravar `is_blocked`, que só uma pessoa desfaz. `ehOptOutProvavel` soma os ambíguos ("me deixa em paz") e é o sinal do runtime — para de responder e escala à Central, **sem** bloquear.
-- **Lacuna conhecida**: espanhol não é coberto (`baja`, `salir`, `no quiero recibir`). Medido: 0 de 9. Ver PR #275.
+- **Espanhol é coberto, nos dois níveis** (vocabulário inequívoco no PR #275; camada ambígua e construções com pronome preso — `escribirme`, `mandarme` — no PR #416, de @JowaniOrantes).
+
+  ⚠️ Esta linha dizia *"lacuna conhecida: espanhol não é coberto (`baja`, `salir`, `no quiero recibir`). Medido: 0 de 9"*, e **ela já estava falsa antes do #416** — não ficou falsa com ele. Medido na `main` em 2026-08-30, pelo caminho real: as **três palavras que a própria frase citava como não cobertas** devolvem `bloqueia=true ambiguo=true`. O #275 as cobriu e ninguém atualizou a prosa; a mesma frase esteve errada em dois documentos por semanas. Achado do `@Assistente e Testes` ao verificar a triagem do #416 por régua própria, e confirmado aqui antes de escrever.
+
+  A frase antiga misturava duas coisas que precisavam ser separadas: o vocabulário inequívoco (já coberto desde o #275) e a camada ambígua mais as construções com pronome (que só o #416 trouxe). Dizer "espanhol não é coberto" era falso para a primeira e verdadeiro para a segunda.
+
+  O número sai daqui de propósito — número envelhece, comando não:
+  `grep -cE 'deja de|dejen de|no quiero|dame de baja' tests/unit/opt-out-deteccao.test.ts` conta as frases em espanhol sob teste.
 - **Enforcement**: Worker de webhook (após persist da message), via `lib/channels/pos-entrada.ts`.
 - **Override**: Tenant admin pode desbloquear manualmente; ação auditada.
 

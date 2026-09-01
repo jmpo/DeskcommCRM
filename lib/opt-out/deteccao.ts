@@ -79,8 +79,13 @@ export const PALAVRAS_DE_OPT_OUT: ReadonlySet<string> = new Set([
   // denúncia de spam derruba o quality rating e faz a plataforma recusar
   // definições novas: perde-se as aprovadas, não só a linha.
   //
-  // `baja` sozinha É o pedido. "Doy de baja la pauta?" tem quatro palavras e
-  // cai no ambíguo, que é onde deve cair.
+  // `baja` sozinha É o pedido. "Doy de baja la pauta?" tem quatro palavras:
+  // não bloqueia — é pergunta sobre pausar publicidade (o objeto é "la
+  // pauta", fora de `suscripcion|lista|publicidad|promociones`, abaixo), não
+  // pedido de descadastro. Este comentário chamava o resultado de "cai no
+  // ambíguo"; estava errado — o espanhol não tinha UMA frase ambígua sequer
+  // até este PR acrescentar as de baixo em `FRASES_AMBIGUAS_DE_OPT_OUT`. Cai
+  // em NADA, e é onde deve cair: pergunta de negócio não é sinal de opt-out.
   "baja",
   "bajar",
   // `salir` é o `sair` em espanhol, e `sair` está nesta lista desde sempre —
@@ -91,9 +96,10 @@ export const PALAVRAS_DE_OPT_OUT: ReadonlySet<string> = new Set([
   // recebendo — no idioma em que a plantilla é a fonte do pedido.
   //
   // Não alarga a regra: continua valendo só a palavra SOZINHA (mensagem inteira
-  // = a palavra). "Voy a salir ahora" tem três palavras e cai no ambíguo, que é
-  // onde deve cair — a mesma proteção que faz "tem como parar a dor?" não
-  // bloquear paciente de clínica.
+  // = a palavra). "Voy a salir ahora" tem três palavras: não bloqueia — a
+  // mesma proteção que faz "tem como parar a dor?" não bloquear paciente de
+  // clínica. Cai em NADA, não em "ambíguo" — mesma correção do comentário de
+  // `baja`, acima.
   "salir",
   "desuscribir",
   "desuscribirme",
@@ -109,7 +115,40 @@ const VERBOS_DE_COMUNICACAO =
   "chamar|chama|ligar|liga|perturbar|perturba|encher|enche|insistir|insiste|" +
   // espanhol — mesma âncora, outra língua. Sem eles "no quiero recibir mas
   // mensajes" não casa nenhum padrão e o pedido se perde.
-  "recibir|recibe|escribir|escribe|escriban|molestar|molesta|llamar|llama|mandes|envien";
+  "recibir|recibe|escribir|escribe|escriban|molestar|molesta|llamar|llama|mandes|envien|" +
+  // `contactar` faltava — "no me contacten más" e "deja de contactarme" não
+  // casavam nenhum padrão, embora sejam pedido de descadastro tão direto
+  // quanto "no me escriba".
+  "contactar|contacta|contacte|contacten|contactes";
+
+/**
+ * Objetos que aparecem depois de um verbo de comunicação mas NÃO são a
+ * comunicação em si — pedido, fatura, orçamento, campanha publicitária.
+ * Compartilhada entre português e espanhol: sem este lookahead, "parar de
+ * mandar o pedido" ou "deja de mandar el pedido" bloqueariam um cliente
+ * que está pedindo para CONTINUAR sendo atendido, só que sobre outro
+ * assunto — o mesmo risco que o padrão de "não quero receber" já trata
+ * para "ligação", só que agora no verbo de cessação em vez do verbo isolado.
+ */
+const OBJETOS_NAO_COMUNICATIVOS =
+  "pedido|pedidos|encomenda|encomendas|pacote|pacotes|entrega|entregas|" +
+  "fatura|faturas|boleto|boletos|cobranca|cobrancas|produto|produtos|" +
+  "paquete|paquetes|envio|envios|factura|facturas|boleta|boletas|" +
+  "cobro|cobros|producto|productos|pauta|pautas|presupuesto|presupuestos";
+
+/**
+ * Determinantes que podem vir entre o verbo e o objeto não comunicativo —
+ * "o pedido", "el paquete". Compartilhado pt/es, e não só por DRY: os dois
+ * padrões de cessação abaixo (`par(?:ar|a|e|em)` em português e
+ * `dej(?:ar|a|e|en)|par(?:ar|a|e|en)` em espanhol) casam a MESMA forma
+ * "pare"/"para" nos dois idiomas — "pare" é alcançado pela alternativa "e"
+ * de AMBOS. Um lookahead só com determinantes de um idioma deixa "pare de
+ * mandar o pedido" escapar pelo padrão espanhol, que não reconhece "o" como
+ * determinante e portanto não vê o objeto excluído. Medido.
+ */
+const DETERMINANTES_DE_OBJETO =
+  "o|a|os|as|el|los|la|las|meu|minha|meus|minhas|seu|sua|seus|suas|" +
+  "mi|mis|tu|tus|esse|essa|esses|essas|ese|esa|esos|esas|nesse|nessa";
 
 /**
  * Pedidos INEQUÍVOCOS de descadastro escritos por extenso. Todos exigem o objeto
@@ -121,14 +160,39 @@ const VERBOS_DE_COMUNICACAO =
  * `tests/unit/opt-out-deteccao.test.ts` e reprovam o CI.
  */
 const FRASES_DE_OPT_OUT: readonly RegExp[] = [
-  // "pare de me mandar", "parar de receber", "para de mandar mensagem"
-  new RegExp(`\\bpar(?:ar|a|e|em)\\s+de\\s+(?:me\\s+)?(?:${VERBOS_DE_COMUNICACAO})\\b`, "u"),
+  // "pare de me mandar", "parar de receber", "para de mandar mensagem" — mas
+  // NÃO "pare de mandar o pedido nesse endereço": o padrão ancorava só no
+  // VERBO ("mandar"), e "mandar" é verbo de comunicação mesmo quando o
+  // OBJETO é outra coisa. Medido: sem o lookahead, esta frase de e-commerce
+  // bloqueava um cliente pedindo para mudar a ENTREGA — o mesmo defeito que
+  // este arquivo existe para impedir ("tem como parar a dor?"), só que
+  // introduzido pela própria regra que consertou o primeiro caso. O
+  // lookahead (OBJETOS_NAO_COMUNICATIVOS) é o mesmo que já protege o
+  // padrão de cessação espanhol, abaixo.
+  new RegExp(
+    `\\bpar(?:ar|a|e|em)\\s+de\\s+(?:me\\s+)?(?:${VERBOS_DE_COMUNICACAO})\\b` +
+      `(?!\\s+(?:${DETERMINANTES_DE_OBJETO})?\\s*(?:${OBJETOS_NAO_COMUNICATIVOS})\\b)`,
+    "u",
+  ),
   // "não quero (mais) receber" — mas "não quero receber ligação, só whatsapp" é
   // troca de canal, não descadastro: quem diz isso QUER continuar no WhatsApp.
   /\bnao\s+(?:quero|desejo|gostaria)\s+(?:de\s+)?(?:mais\s+)?receber\b(?!\s+(?:ligacao|ligacoes|chamada|chamadas|telefonema|telefonemas|telefone)\b)/u,
   /\bnao\s+quero\s+receber\s+mais\b/u,
   /\bnao\s+quero\s+mais\s+(?:mensagem|mensagens|contato|nada\s+de\s+voces)\b/u,
-  /\bnao\s+me\s+(?:mande|manda|mandem|envie|envia|enviem|chame|chama|ligue|liga)\s+mais\b/u,
+  // "não me mande mais" — mas NÃO "não me mande mais boletos": esta regra
+  // ancorava só no VERBO, e mandar é verbo de comunicação mesmo quando o
+  // objeto é uma cobrança. Bloqueava um cliente que está RECLAMANDO e quer
+  // continuar sendo atendido, com o objeto escrito na própria frase.
+  //
+  // É a mesma classe que o lookahead de `OBJETOS_NAO_COMUNICATIVOS` já
+  // resolvia no padrão de cessação ("parar de mandar o pedido"), e que ficou
+  // sem ele aqui — conserto por instância, não por classe. Esta é a forma
+  // mais COMUM das duas: "não me mande mais X" é como se reclama direto.
+  new RegExp(
+    `\\bnao\\s+me\\s+(?:mande|manda|mandem|envie|envia|enviem|chame|chama|ligue|liga)\\s+mais\\b` +
+      `(?!\\s+(?:${DETERMINANTES_DE_OBJETO})?\\s*(?:${OBJETOS_NAO_COMUNICATIVOS})\\b)`,
+    "u",
+  ),
   /\bme\s+(?:tira|tire|tirem|remove|remova|removam|retira|retire|exclui|exclua|apaga|apague)\s+(?:da|dessa|desta|de\s+sua|da\s+sua)\s+lista\b/u,
   /\bsair\s+d(?:a|essa|esta)\s+lista\b/u,
   /\bcancelar?\s+(?:a\s+)?(?:inscricao|assinatura)\b/u,
@@ -150,7 +214,47 @@ const FRASES_DE_OPT_OUT: readonly RegExp[] = [
     "u",
   ),
   /\bno\s+quiero\s+recibir\s+mas\b/u,
-  /\bno\s+me\s+(?:escriba|escriban|escribas|mande|manden|mandes|llame|llamen)\s+mas\b/u,
+  // "no quiero más mensajes/publicidad/promociones" — o objeto é um
+  // SUBSTANTIVO, não um verbo, e por isso não casava no padrão de cima
+  // (que exige verbo de comunicação depois de "no quiero"). Espelho direto
+  // de "não quero mais mensagem/contato" em português: faltava por
+  // assimetria, não por decisão.
+  /\bno\s+quiero\s+mas\s+(?:mensajes?|publicidad|promociones|nada\s+de\s+ustedes)\b/u,
+  // Imperativo com pronome preso — "dame de baja" é como a pessoa responde
+  // de fato à própria plantilla que pede "Respondé BAJA". `dar de baja`
+  // (sem pronome) segue de fora de propósito: sem objeto, é a frase que o
+  // corpus de testes marca como ambígua/fora de escopo (pausar campanha),
+  // não pedido de descadastro.
+  /\b(?:dame|deme|denme|danos)\s+de\s+baja\b/u,
+  // "no quiero que me contacten" — outra estrutura para o mesmo pedido que
+  // a extensão de `contacte|contacten|contactes` acima já cobre na forma
+  // "no me contacten mas".
+  /\bno\s+quiero\s+que\s+me\s+contact(?:e|en|es)\b/u,
+  // Remoção de "contactos" ou "base de datos" — mesma família da regra de
+  // `lista`, abaixo, mas objeto diferente: quem pede isto não está trocando
+  // de assunto, está pedindo para ser esquecido.
+  /\b(?:borrame|borrar|eliminame|elimina|sacame|quitame)\s+de\s+(?:tus\s+|mis\s+|la\s+)?(?:contactos|base\s+de\s+datos)\b/u,
+  // Espelho exato da regra portuguesa acima, com o mesmo lookahead e pelo
+  // mesmo motivo: "no me manden mas cobros duplicados" é reclamação de
+  // cobrança, não pedido de descadastro.
+  new RegExp(
+    `\\bno\\s+me\\s+(?:escriba|escriban|escribas|mande|manden|mandes|llame|llamen|contacte|contacten|contactes)\\s+mas\\b` +
+      `(?!\\s+(?:${DETERMINANTES_DE_OBJETO})?\\s*(?:${OBJETOS_NAO_COMUNICATIVOS})\\b)`,
+    "u",
+  ),
+  // "deja de escribirme", "para de mandarme mensajes" — o pronome PRESO ao
+  // infinitivo ("escribirme"), diferente do português, onde ele vem solto
+  // ANTES do verbo ("de me mandar"). Sem o sufixo opcional, a construção
+  // mais comum de pedir descadastro em espanhol não casava padrão nenhum.
+  // Mesmo lookahead de objeto não comunicativo do padrão português de
+  // "parar de", acima — o risco de capturar o objeto errado é o mesmo nos
+  // dois idiomas.
+  new RegExp(
+    `\\b(?:dej(?:ar|a|e|en)|par(?:ar|a|e|en))\\s+de\\s+` +
+      `(?:${VERBOS_DE_COMUNICACAO})(?:me|nos|le|les)?\\b` +
+      `(?!\\s+(?:${DETERMINANTES_DE_OBJETO})?\\s*(?:${OBJETOS_NAO_COMUNICATIVOS})\\b)`,
+    "u",
+  ),
   // "dar de baja" já É o pedido — a plantilla usa a palavra nesse sentido.
   /\b(?:dar|darme|doy)\s+de\s+baja\s+(?:la\s+)?(?:suscripcion|lista|publicidad|promociones)\b/u,
   /\bdarme\s+de\s+baja\b/u,
@@ -172,6 +276,34 @@ const FRASES_AMBIGUAS_DE_OPT_OUT: readonly RegExp[] = [
   /\bja\s+(?:disse|falei)\s+que\s+nao\s+(?:quero|tenho\s+interesse)\b/u,
   /\bnao\s+(?:me\s+)?interessa\s+mais\b/u,
   /\bpara\s+com\s+isso\b/u,
+  // ── espanhol ──────────────────────────────────────────────────────────────
+  //
+  // Esta lista tinha ZERO entradas em espanhol. Não por decisão: o ambíguo é
+  // uma segunda lista, com curadoria própria, e ninguém a preencheu quando o
+  // espanhol entrou — o comentário de `baja`/`salir` acima chegou a AFIRMAR
+  // que certas frases "caem no ambíguo" sem que essa lista tivesse uma
+  // entrada em espanhol capaz de pegá-las. Efeito medido: em espanhol,
+  // `ehOptOutProvavel` nunca soma nada além do inequívoco —
+  // `detectAmbiguousOptOut` (o runtime do agente) nunca escala um cliente de
+  // fala espanhola, por mais claro que o sinal seja.
+  /\b(?:dejame|dejenme)\s+en\s+paz\b/u,
+  /\bya\s+(?:te\s+)?dije\s+que\s+no\s+(?:quiero|me\s+interesa)\b/u,
+  // "ya no me interesa" / "no me interesa mas" — e NÃO "no me interesa" nu.
+  //
+  // O que faz desta frase um sinal de opt-out não é a recusa: é a marca de
+  // REPETIÇÃO. "No me interesa" sozinho é a objeção comercial mais comum do
+  // funil — "no me interesa ese plan, pero sí el otro", "no me interesa,
+  // gracias" —, e o agente precisa seguir vendendo ali, não parar e escalar.
+  // Com os dois trechos opcionais, sete frases de objeção medidas passavam a
+  // escalar; com um dos dois marcadores exigido, nenhuma. E as 89 frases do
+  // corpus deste arquivo não mudam de veredito: as duas formas que ele testa
+  // ("ya no me interesa", "ya te dije que no me interesa") têm marcador.
+  //
+  // É o espelho exato do português, que sempre exigiu o "mais":
+  // `/\bnao\s+(?:me\s+)?interessa\s+mais\b/` — a assimetria era o defeito.
+  /\b(?:ya\s+no\s+me\s+interesa|no\s+me\s+interesa\s+mas)\b/u,
+  /\b(?:ya\s+basta|basta\s+ya)\b/u,
+  /\bno\s+me\s+molest(?:e|en|es)\b/u,
 ];
 
 /** A mensagem inteira é a palavra-chave (ignorando pontuação e emoji de borda). */

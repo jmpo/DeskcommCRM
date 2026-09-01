@@ -103,6 +103,12 @@ export const ALVO_DE_FUNIL: Record<string, AlvoDeFunil> = {
   crm_book_appointment: "funil_vem_do_contato",
   crm_reschedule_appointment: "sem_funil",
   crm_cancel_appointment: "sem_funil",
+  // Mesmo argumento das duas acima, e pela mesma razão: operam por
+  // `appointment_id` e nunca recebem `lead_id`. Classificá-las
+  // `funil_vem_do_lead` seria teatro — o gate procuraria um argumento que não
+  // vem e liberaria 100% das vezes, com aparência de escopado.
+  crm_confirm_appointment: "sem_funil",
+  crm_set_appointment_outcome: "sem_funil",
 
   // ---- não têm funil, e isso é declarado ----
   crm_send_whatsapp_message: "sem_funil",

@@ -162,6 +162,20 @@ import { declararTools } from "./tipos";
 
 export const TOOLS_AGENDAMENTO = declararTools([
   {
+    // A PRIMEIRA da lista porque é o primeiro passo do fluxo — e porque a
+    // ausência dela era o defeito. As outras quatro exigem o identificador do
+    // tipo de atendimento, e nenhuma capacidade do catálogo dizia quais existem:
+    // o agente chutava o nome e ouvia "não existe atendimento chamado assim".
+    name: "crm_list_event_types",
+    category: "read",
+    rotulo: "Ver o que a empresa atende",
+    explicacao:
+      "Mostra os tipos de atendimento que dá para marcar, quanto cada um dura e como é feito, para o atendente de IA falar do que existe de verdade.",
+    oQueToca: "Agenda da equipe",
+    risco: "seguro",
+    pacotes: ["vender"],
+  },
+  {
     name: "crm_find_free_slots",
     category: "read",
     rotulo: "Ver horários livres na agenda",
@@ -199,6 +213,29 @@ export const TOOLS_AGENDAMENTO = declararTools([
     explicacao:
       "Move um compromisso já marcado para outro horário, mantendo o mesmo cliente e o mesmo tipo de atendimento.",
     oQueToca: "Agenda da equipe",
+    risco: "atencao",
+    pacotes: ["vender"],
+  },
+  {
+    name: "crm_confirm_appointment",
+    category: "write",
+    rotulo: "Confirmar um horário combinado",
+    explicacao:
+      "Confirma o horário que estava esperando a resposta da pessoa, para a equipe saber que ela vem mesmo.",
+    oQueToca: "Agenda da equipe",
+    // `atencao` e não `critico`: confirmar errado se desfaz — remarca ou desmarca.
+    risco: "atencao",
+    pacotes: ["vender"],
+  },
+  {
+    name: "crm_set_appointment_outcome",
+    category: "write",
+    rotulo: "Registrar se a pessoa veio ou faltou",
+    explicacao:
+      "Anota o que aconteceu num horário que já passou: a pessoa foi atendida, ou não apareceu.",
+    oQueToca: "Agenda da equipe",
+    // `atencao`: registrar falta devolve o horário para outra pessoa, mas o
+    // sistema recusa fazer isso antes da hora — a guarda mora no handler.
     risco: "atencao",
     pacotes: ["vender"],
   },

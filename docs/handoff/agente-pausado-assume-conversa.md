@@ -25,7 +25,7 @@ o que a UI diz é o que acontece na execução.
 | Causa raiz identificada | **SIM — não é o seletor** |
 | Teste que reprova o defeito | feito (vermelho observado) |
 | Correção | feita — 6 sítios |
-| Prova em tela (Playwright) | em curso |
+| Prova em tela (Playwright) | feita p/ o agente pausado; spec do domingo escrita |
 
 ## O que já se sabe do código (SHA 481c24c4, working tree limpo)
 
@@ -493,3 +493,191 @@ seletor do que cada VPS baixa**.
 
 O `update.sh` faz backup automático antes e re-aplica `supabase/baseline.sql`
 (idempotente). Este PR **não muda schema**, então a re-aplicação é no-op.
+
+---
+
+## A sonda que quase virou um achado falso (2026-08-30, depois do deploy)
+
+Depois de a v1.10.2 subir, rodei uma sonda na VPS para conferir se o código novo
+estava **dentro** das imagens em execução. Ela procurava o arquivo-fonte dentro
+do contêiner. Resultado:
+
+```
+worker  agent_id no insert de llm_calls: /app/lib/agent-engine/edge/llm/run-model-call.ts
+worker  avisarJanelaFechada:             /app/lib/agent-engine/pacing/aviso-de-janela.ts
+app     valorDeOverride:                 ← VAZIO
+```
+
+Duas linhas com achado e uma vazia lê como defeito no app. **Não era.** O
+`worker` roda `tsx` sobre os fontes, então os `.ts` estão lá; o `app` é build
+standalone do Next, onde o fonte virou chunk compilado e nenhum `.ts` solto
+existe. A sonda mediu a **forma do artefato**, não o código — e o sucesso
+parcial dela nos outros dois alvos foi justamente o que a fez parecer calibrada.
+
+A régua que vale nos dois, porque não depende da forma:
+
+```bash
+# 1) de que commit saiu a imagem que está rodando?
+ssh hg-vps 'docker inspect $(docker ps --filter "label=com.docker.compose.service=app" -q | head -1) \
+  --format "{{index .Config.Labels \"org.opencontainers.image.revision\"}}"'
+# 2) esse commit contém o conserto?
+git merge-base --is-ancestor <sha-do-conserto> <revision> && echo CONTEM
+```
+
+Medido: `rev=d0b6200c` nas duas imagens, que é a tag `v1.10.2`, e
+`git grep valorDeOverride d0b6200c` devolve 1 ocorrência em
+`lib/ai/pacing-knobs.ts` e 3 em `components/connections/AntiBanSheet.tsx`.
+**O conserto está nas imagens em execução.**
+
+Armadilha irmã na mesma hora: rodei `git grep valorDeOverride HEAD` e deu vazio.
+`HEAD` aqui é `fix/agente-pausado-nao-atende` (o PR #408, antigo) — régua errada,
+não ausência. O conserto do domingo nasceu em `fix/agente-mudo-deixa-rastro`.
+
+## Prova em tela do conserto do domingo
+
+O conserto do Switch subiu para a VPS **sem** prova de tela — o unitário
+`tests/unit/anti-ban-nao-congela-o-padrao.test.ts` cobre a regra pura e tem uma
+cerca que lê o `AntiBanSheet.tsx`, mas cerca de texto não prova que o valor que
+sai da TELA chega ao BANCO como `null`. Entre a função e a linha há formulário,
+mutation, rota e Zod.
+
+Spec escrita: `tests/e2e/protecao-de-envio-nao-congela-o-padrao.spec.ts`, com as
+duas direções — salvar sem tocar no Switch tem de virar `null`; desligar o
+domingo de verdade tem de virar `false`. Sem a segunda, um "conserto" que
+devolvesse `null` sempre passaria, e o Switch viraria decorativo.
+
+**Não foi feita na instalação do dono**, de propósito: a tela exige login, e
+entrar na produção dele com a identidade dele não é prova que se peça a um
+agente. O ambiente é o build local em modo produção sobre Supabase local, com o
+MESMO código de `v1.10.2`.
+
+---
+
+## INCIDENTE 2026-08-30 noite — "o agente parou de responder de novo"
+
+O dono escreveu: *"depois que vc mexeu ele parou de responder e nem com a proteção
+configurado correto ta respondendo de jeito nenhum mais, voce estragou o que estava
+funcionando"*. Três coisas nessa frase, e as três têm resposta medida.
+
+### A linha do tempo (a medição que decide)
+
+| Evento | Horário (SP) |
+|---|---|
+| Robô responde pela última vez | 30/08 **14:10:42** |
+| Mensagem do dono **sem resposta** | 30/08 **14:14:10** |
+| **Deploy da v1.10.2** (`docker inspect .State.StartedAt`) | 30/08 **17:27** |
+
+O silêncio começou **3h13min antes** do deploy. **A mudança não é a causa** —
+e eu havia publicado o contrário, com mecanismo plausível e tudo, antes de olhar
+o relógio. Lição em `feedback_causa_que_me_culpa_passa_sem_exame`.
+
+### A causa real
+
+Às 14:08 e 14:10 o dono escreveu em caixa alta, testando. O classificador leu
+como cliente irritado e disparou `triggerHandoff('low_sentiment')`, gravando
+`conversations.bot_silenced_until = 'infinity'` + `last_handoff_at`. Comportamento
+**correto** — cliente irritado, chama gente. O defeito é o que vem depois.
+
+### Defeito 1 — ~~a escalação é um beco sem saída~~ **RETRATADO em 2026-08-30 23:0x**
+
+**Todo** caminho que limpa `bot_silenced_until` é filtrado por
+`last_handoff_at is null`:
+
+- `fn_conversation_assign` (release): `when p_to_user_id is null then (case when
+  last_handoff_at is null then null else bot_silenced_until end)`
+- `POST /conversations/[id]/close` → `.is("last_handoff_at", null)`
+- `PATCH /conversations/_handler` (status terminal) → idem
+
+Consequência: **depois de uma escalação da IA, nenhuma ação de tela devolve o robô.**
+Pausa manual (`pause-ai`) tem volta, porque ela não grava `last_handoff_at`; a
+escalação da IA, não. É o invariante 7 do Sistema Vivo (laço de retorno) quebrado.
+
+Desbloqueio manual usado no incidente (não é conserto, é curativo):
+
+```sql
+update conversations set bot_silenced_until = null, updated_at = now()
+ where id = '<conversa>' and organization_id = '<org>';
+```
+
+### Defeito 2 — o worker legado respondia por cima da escalação (CORRIGIDO)
+
+`workers/ai-response-worker.ts` comparava `new Date(c.bot_silenced_until).getTime()
+> Date.now()`. Para `'infinity'` isso é `NaN`, e toda comparação com `NaN` é falsa:
+a guarda **nunca disparava**. A tela usava a regra certa
+(`silencioVigente` em `lib/inbox/comando-da-conversa.ts`, que trata `'infinity'` e
+falha fechado) — duas regras para a mesma pergunta, discordando.
+
+Conserto: o worker passa a **chamar** `silencioVigente`. Cerca em
+`tests/unit/silencio-infinito-cala-o-worker-legado.test.ts`; sabotagem com previsão
+declarada antes de rodar (2/2/1) bateu nas três.
+
+**Armadilha reencontrada:** a primeira versão da cerca reprovou o próprio conserto —
+o regex achou a expressão antiga **dentro do comentário** que a documenta. A cerca
+agora tira comentários antes de medir, com um controle que prova que ela ainda
+enxerga código.
+
+### Não era
+
+- **Proteção de envio / domingo.** Knob correto: `allow_sunday` NULL (herda `true`),
+  janela até 23h, e o incidente às 21:54.
+- **Fila.** Últimas 2h: 52 jobs, todos `done` na 1ª tentativa. Os 66
+  `agent_inbox_items(kind='job_dead')` são de 30/07 a 25/08 — ruído velho.
+
+### Achado colateral: quem atende não é quem o dono pensa
+
+| Agente | Estado | `priority` |
+|---|---|---|
+| Vitoria — Atendente Clinica Vitalis | **publicada** (`is_active=f`) | **999** |
+| Atendente IA | publicada | 0 |
+| Suporte Deskcomm | **sem `published_version_id`** | — |
+
+Pausar não tira do ar: quem decide é a publicação. E o agente que o dono quer no ar
+nunca teve versão publicada. Ações são dele (arquivar a Vitoria, publicar o Suporte).
+
+---
+
+## RETRATAÇÃO — "a escalação é um beco sem saída" era FALSO
+
+O "Defeito 1" acima está **errado** e fica registrado com a correção ao lado, em vez
+de apagado: o erro é mais instrutivo que o achado.
+
+**A porta existe, e está na tela.** `lib/escalacao/retomada.ts ::
+devolverAtendimentoAoAgente` limpa `bot_silenced_until`, `last_handoff_at`,
+`last_handoff_reason` e `contacts.force_human` — **sem** o filtro
+`last_handoff_at is null` que gateia `release`/`close`. Ela é servida por
+`app/api/v1/conversations/[id]/reactivate-bot/route.ts` (papel `agent`), exposta por
+MCP (`lib/mcp/tools/escalacao.ts`) e tem botão próprio:
+
+```
+components/inbox/ConversationHeader.tsx:102   const podeDevolver = travaVigente;
+components/inbox/ConversationHeader.tsx:251   {retomar.isPending ? "Devolvendo..." : t("Devolver ao automático")}
+```
+
+`podeDevolver = travaVigente`, e `travaVigente` é **true** exatamente no estado do
+incidente (medido rodando `comandoDaConversa` com os fatos reais). Ou seja: o botão
+esteve na tela durante as 8 horas de silêncio.
+
+### Como eu concluí "não existe"
+
+```bash
+grep -rn "bot_silenced_until" lib/ app/ workers/ --include='*.ts' \
+  | grep -viE "database.types|\.test\.|types/messaging" | head -12   # ← 48 linhas no total
+```
+
+`head -12` sobre 48. `lib/escalacao/retomada.ts` estava fora do corte. Uma saída
+truncada é visualmente idêntica a uma completa, e some justo a cauda — que é onde
+mora o que não se previu. Afirmação de **ausência** exige cobertura total; eu tinha
+exibição parcial. Lição em
+`feedback_ausencia_afirmada_a_partir_de_lista_truncada`.
+
+**Regra para quem retomar:** antes de escrever "não existe X", conte
+(`| wc -l`) e busque pelo **nome** do que X faria (`devolver`, `retomar`,
+`reactivate`), não só pela coluna que X tocaria.
+
+### O que sobra de verdadeiro
+
+- 36 conversas silenciadas por escalação, a mais antiga de 18/07 — **não presas**,
+  mas não retomadas por ninguém. É fila não trabalhada, não defeito estrutural.
+- O conserto do `'infinity'` no worker legado segue válido e independente: ele não
+  depende de nada disto, e o argumento que eu usei para retê-lo (que ele agravaria
+  um beco sem saída) **cai junto com o beco**.

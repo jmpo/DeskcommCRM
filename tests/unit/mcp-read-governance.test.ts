@@ -28,6 +28,7 @@ import {
 } from "@/lib/mcp/tools/conversations";
 import { crmListLeads, crmGetLead } from "@/lib/mcp/tools/leads";
 import type { McpContext } from "@/lib/mcp/types";
+import { comandoDaConversa } from "@/lib/inbox/comando-da-conversa";
 
 const ORG = "22222222-2222-4222-8222-222222222222";
 const USER_A = "11111111-1111-4111-8111-111111111111"; // Alice
@@ -115,7 +116,7 @@ function makeCtx(resolve: Resolver): McpContext {
 
 // Row de conversa mínima com os campos que os handlers/tools leem.
 function convRow(over: Record<string, unknown>): Record<string, unknown> {
-  return {
+  const base: Record<string, unknown> = {
     id: over.id,
     organization_id: ORG,
     contact_id: "c0000000-0000-4000-8000-000000000001",
@@ -139,14 +140,47 @@ function convRow(over: Record<string, unknown>): Record<string, unknown> {
     updated_at: new Date(now).toISOString(),
     ...over,
   };
+  /**
+   * `comando_da_conversa` é CALCULADO pelo banco (migration 0203) e chega junto
+   * com a linha — `isInQueue` do MCP o lê para decidir se busca as posições.
+   *
+   * O dublê o DERIVA pela regra canônica em vez de cravar um valor: cravar faria
+   * este arquivo ficar verde no dia em que a regra mudasse e o produto errasse,
+   * que é o defeito que o espelho SQL↔TS existe para impedir. Aqui ele custa uma
+   * linha e mantém o dublê honesto de graça.
+   */
+  return {
+    ...base,
+    comando_da_conversa: comandoDaConversa(
+      {
+        status: String(base.status),
+        assigned_to_user_id: (base.assigned_to_user_id as string | null) ?? null,
+        bot_silenced_until: (base.bot_silenced_until as string | null) ?? null,
+        force_human: false,
+        is_blocked: false,
+        automaticoDaOrg: true,
+      },
+      new Date(now),
+    ).comando.quem,
+  };
 }
 
 /** Resolver de conversas: getQueuePositions (select "id") devolve a fila na ordem do inbox. */
 function convResolver(single: Record<string, unknown> | null): Resolver {
   return (q) => {
     if (q.table === "conversations" && q.select === "id") {
-      // Emula o ORDER BY do banco: retorna a fila JÁ ordenada (inbox order).
-      const ordered = inboxOrder(QUEUE_ROWS).map((id) => ({ id }));
+      // Emula o ORDER BY do banco: retorna a fila JÁ ordenada (inbox order)…
+      //
+      // …E O FILTRO. Desde a migration 0203 `getQueuePositions` pede
+      // `comando_da_conversa in comandosDaFila(...)`, então uma conversa que o
+      // AUTOMÁTICO está conduzindo não volta desta consulta — e é por isso que
+      // ela não ganha `queue_position`. Um dublê que devolvesse a lista inteira
+      // afirmaria o contrário do produto e deixaria o caso "IA atendendo, sem
+      // posição" verde pelo motivo errado.
+      const naFila = single === null || single.comando_da_conversa === "aguardando";
+      const ordered = inboxOrder(QUEUE_ROWS)
+        .filter((id) => naFila || id !== single?.id)
+        .map((id) => ({ id }));
       return { data: ordered, error: null };
     }
     if (q.table === "conversations" && q.terminal === "maybeSingle") {
@@ -188,7 +222,19 @@ describe("crm_get_conversation — governança + shape", () => {
   });
 
   it("NA FILA: assignee_kind=null, sem nome, queue_position preenchida", async () => {
-    const row = convRow({ id: CONV_MID, status: "open", assigned_to_user_id: null });
+    // O FIXTURE GANHOU O SILÊNCIO, e a mudança não é cosmética.
+    //
+    // Até a migration 0203, "na fila" era `open` + sem dono — e era justamente
+    // esse par que punha na fila tudo que o robô estava atendendo (medido na VPS:
+    // 83 na aba, 47 delas comandadas pelo automático). Sob a régua nova, `open` +
+    // sem dono + sem trava É O AUTOMÁTICO. Para estar esperando uma pessoa, a
+    // conversa precisa ter sido escalada — que é o que `bot_silenced_until` diz.
+    const row = convRow({
+      id: CONV_MID,
+      status: "open",
+      assigned_to_user_id: null,
+      bot_silenced_until: "infinity",
+    });
     const res = (await crmGetConversation.handler(
       { conversation_id: CONV_MID },
       makeCtx(convResolver(row)),

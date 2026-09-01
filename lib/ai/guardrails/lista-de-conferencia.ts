@@ -155,6 +155,18 @@ export const CONFERENCIAS_DE_SAIDA: readonly ConferenciaDeSaida[] = [
      camada: null,
   },
   {
+    nome: "agenda_stall",
+    rotulo: "Não prometer checar a agenda sem checar de verdade",
+    oQueProtege:
+      'Barra o "vou verificar/confirmar o horário" quando o assistente ainda não chamou a ' +
+      "ferramenta de agenda nesta resposta — a promessa só sai depois de checar de verdade.",
+    escolha: null,
+    porQueNaoSeDesliga:
+      "É a mesma promessa vazia do 'vou pedir pro responsável', só que sobre agenda: o cliente " +
+      "fica esperando uma confirmação que nunca foi checada. Regra fixa, sem custo.",
+    camada: null,
+  },
+  {
     nome: "disclosure",
     rotulo: "Dizer que é um assistente quando perguntam",
     oQueProtege: "Se o cliente pergunta se está falando com um robô, a resposta não pode enganar.",

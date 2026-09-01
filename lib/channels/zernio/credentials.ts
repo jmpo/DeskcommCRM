@@ -52,9 +52,26 @@ export interface ZernioCredsLookup {
  * Base da API. Explícita e sobrescrevível: o próprio provider publica um
  * servidor local no OpenAPI, e um teste de integração precisa apontar para
  * outro lugar sem editar código.
+ *
+ * `||` e não `??`, e o `trim()` junto — a diferença é o bug inteiro.
+ *
+ * O `.env.example` entrega esta chave VAZIA, e o comentário ao lado dela
+ * promete: "Vazio usa a produção do provedor." O `??` não cumpria essa
+ * promessa, porque ele só cai no padrão em `null`/`undefined` — string vazia
+ * é valor, e passa. Quem fizesse `cp .env.example .env`, preenchesse as duas
+ * credenciais e deixasse este override como veio — que é o caminho NORMAL,
+ * já que o override existe só para homologação — resolvia `baseUrl` para
+ * `""`, montava `/v1/inbox/conversations` sem host, e o `fetch` do Node
+ * recusava com `TypeError: Failed to parse URL`. Todo envio pelo canal
+ * quebrava, nos DOIS caminhos de credencial (env e sessão cifrada), que
+ * chamam esta mesma função.
+ *
+ * Ausente funcionava e vazia não: por isso a doutrina de QA — que manda testar
+ * com os envs opcionais AUSENTES — passava por cima. Quem copia o exemplo não
+ * tem a var ausente, tem ela presente e vazia.
  */
 export function zernioBaseUrl(): string {
-  return process.env.ZERNIO_API_BASE_URL ?? "https://zernio.com/api";
+  return process.env.ZERNIO_API_BASE_URL?.trim() || "https://zernio.com/api";
 }
 
 /**

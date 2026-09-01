@@ -188,7 +188,15 @@ describe("a razão é DERIVADA do cálculo, e isso é verificável", () => {
       sinais({ commitments: ["a", "b"], risco: "em_dia" }),
       sinais({ objections: ["x", "y"], risco: "em_risco" }),
       sinais({ commitments: ["a", "b"], objections: ["x"], qualification: { n: "1" }, risco: "em_risco" }),
-      sinais({ qualification: { a: "1", b: "2", c: "3" }, risco: "em_voo" }),
+      // ⚠️ ERA `qualification` SOZINHA aqui, e o caso afirmava um score que o
+      // BANCO NUNCA ACEITOU: sem compromisso nem objeção, nenhum fator recebe
+      // âncora, e `crm_lead_scores_needs_reason` exige
+      // `evidence @? '$.factors[*].ancora'`. A função devolvia 60 e o INSERT
+      // do escritor real estourava 23514 — medido pelo caminho de produção no
+      // invariante `score-escritor-real-satisfaz-a-constraint`. O teste provava
+      // a FUNÇÃO e afirmava o SISTEMA. A recusa desse cenário está fixada no
+      // caso próprio mais abaixo.
+      sinais({ objections: ["x"], qualification: { a: "1", b: "2" }, risco: "em_voo" }),
     ];
     for (const caso of casos) {
       const r = calculaScore(caso);
@@ -229,8 +237,32 @@ describe("os quatro deltas do contrato", () => {
     expect(um.score).toBeNull();
     expect(um.semSinal).toBe("sem_conteudo");
 
-    const dois = calculaScore(sinais({ qualification: { need: "automatizar", budget: "5k" } }));
+    // DOIS sinais que o sistema INTEIRO aceita: o de compromisso carrega a
+    // âncora que a constraint exige. Antes este par era `need` + `budget`, e o
+    // score que ele produzia morria no INSERT (ver o caso da recusa abaixo).
+    const dois = calculaScore(
+      sinais({ commitments: ["ligar terça"], qualification: { need: "automatizar" } }),
+    );
     expect(dois.score).not.toBeNull();
+  });
+
+  it("só qualificação recusa com motivo, em vez de produzir score que o banco rejeita", () => {
+    // ═══ O defeito que este caso prende (CRMV5W) ═══
+    //
+    // Só os fatores de COMPROMISSO e OBJEÇÃO recebem âncora; qualificação e
+    // recência nascem sem ela — a recência de propósito ("é a AUSÊNCIA de
+    // pontos"). Um negócio cujo conteúdo é apenas BANT passava nas duas
+    // recusas, produzia score, e o escritor real estourava `23514` ao gravar:
+    // o lead ficava SEM SCORE NENHUM, com a tela vazia e a causa só no log do
+    // worker. Medido pelo caminho de produção, não por leitura.
+    //
+    // A promessa já estava escrita no cabeçalho de `calculaScore` — "melhor
+    // recusar aqui, com motivo legível, do que descobrir no INSERT". A
+    // verificação é que parava no checkpoint existir, e não em algum fator
+    // USAR a âncora dele.
+    const r = calculaScore(sinais({ qualification: { need: "sim", budget: "10k", authority: "dono" } }));
+    expect(r.score, "produziu score sem nenhum fator ancorado — o banco recusa esta linha").toBeNull();
+    expect(r.semSinal).toBe("sem_lastro_citavel");
   });
 
   it("recência NÃO conta para o mínimo — vitalidade não é conteúdo", () => {

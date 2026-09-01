@@ -1,6 +1,28 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+/**
+ * Remove um par de aspas (simples ou duplas) que envolva o valor inteiro —
+ * mesma convenção que `hostgator-setup-kit/install.sh` grava no `.env` de
+ * TODA instalação self-host (`NEXT_PUBLIC_APP_URL="https://${DOMAIN}"`).
+ * Sem isto, um self-hoster que rode `pnpm test:unit` na própria VPS antes de
+ * atualizar vê a suíte inteira falhar com "Variáveis de ambiente inválidas"
+ * (a URL vira `"https://…"` — aspas incluídas — e falha a validação Zod de
+ * `lib/env.ts`), mesmo com o `.env` real e correto. `.env.example` (o
+ * convívio local, sem instalador) não usa aspas — por isso o bug nunca
+ * apareceu em desenvolvimento, só em VPS instalada pelo kit.
+ */
+function stripQuotes(value: string): string {
+  if (value.length >= 2) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return value.slice(1, -1);
+    }
+  }
+  return value;
+}
+
 // Load .env and .env.local before importing any app code that validates env vars
 for (const envFile of [".env", ".env.local"]) {
   try {
@@ -11,7 +33,7 @@ for (const envFile of [".env", ".env.local"]) {
       if (!trimmed || trimmed.startsWith("#")) continue;
       const [key, ...rest] = trimmed.split("=");
       if (key && !process.env[key]) {
-        process.env[key] = rest.join("=");
+        process.env[key] = stripQuotes(rest.join("=").trim());
       }
     }
   } catch {

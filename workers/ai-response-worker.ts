@@ -34,6 +34,7 @@ import {
   HANDOFF_REASON_ORCAMENTO,
 } from "@/lib/agent-engine/edge/llm/orcamento";
 import { computeCost } from "@/lib/ai/cost";
+import { silencioVigente } from "@/lib/inbox/comando-da-conversa";
 import { logInvocation } from "@/lib/ai/log-invocation";
 import { elegivelParaWorkerLegado } from "@/lib/ai/agents/no-ar";
 import { renderSystemPrompt } from "@/lib/ai/render-system-prompt";
@@ -616,8 +617,24 @@ async function buildContext(input: BuildContextInput): Promise<GuardDecision> {
     const age = Date.now() - new Date(c.last_inbound_at).getTime();
     if (age > WINDOW_24H_MS) return skip("window_24h_expired");
   }
-  // Post-handoff silence (IA-06)
-  if (c.bot_silenced_until && new Date(c.bot_silenced_until).getTime() > Date.now()) {
+  // Post-handoff silence (IA-06).
+  //
+  // A regra vem de `lib/inbox/comando-da-conversa.ts` — a MESMA que move a tela —
+  // e não de uma comparação local, porque a cópia local que estava aqui discordava
+  // dela em produção. Ela era:
+  //
+  //     new Date(c.bot_silenced_until).getTime() > Date.now()
+  //
+  // e o valor que o produto grava para escalação permanente é `'infinity'`, cujo
+  // `new Date(...).getTime()` é `NaN`. Toda comparação com `NaN` é falsa, então a
+  // guarda nunca disparava: a tela mostrava "automático parado" e este worker
+  // seguia respondendo por cima de uma conversa que a IA havia entregado a um
+  // humano (medido na VPS em 2026-08-30, handoff por `low_sentiment`).
+  //
+  // `silencioVigente` também falha FECHADO em data ilegível, que é a direção certa:
+  // dizer "o automático está ativo" sobre um dado que não se sabe ler é a frase
+  // tranquilizadora que a doutrina proíbe.
+  if (silencioVigente(c.bot_silenced_until, new Date()).vigente) {
     return skip("silenced_post_handoff");
   }
   // Recent handoff (idempotency for S-06.03)

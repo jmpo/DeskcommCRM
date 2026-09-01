@@ -47,6 +47,8 @@ import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { relativoEmBarraNormal } from "./helpers/caminho";
+
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { Sidebar } from "@/components/shell/Sidebar";
 import type { ActiveOrg, AuthUser } from "@/lib/auth/types";
@@ -241,7 +243,7 @@ describe("catraca: `branding()` é server-only", () => {
       "app/onboarding/layout.tsx",
       "lib/legal/operador.ts",
     ];
-    const vistos = varridos.filter(chamaBranding).map((f) => path.relative(RAIZ, f));
+    const vistos = varridos.filter(chamaBranding).map((f) => relativoEmBarraNormal(RAIZ, f));
     expect(esperados.filter((e) => !vistos.includes(e))).toEqual([]);
   });
 
@@ -252,7 +254,7 @@ describe("catraca: `branding()` é server-only", () => {
     );
 
     expect(
-      infratores.map((f) => path.relative(RAIZ, f)),
+      infratores.map((f) => relativoEmBarraNormal(RAIZ, f)),
       "`branding()` lê `window.__PUBLIC_ENV__` no navegador e `process.env` no\n" +
         "servidor, e as duas fontes divergem desde que o layout raiz passou a\n" +
         "injetar a marca do BANCO. Num client component isso é hydration mismatch\n" +

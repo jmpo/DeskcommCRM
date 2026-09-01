@@ -247,6 +247,17 @@ test.describe("a automação conta o que aconteceu de verdade", () => {
       // O WhatsApp está fora do ar neste ambiente, então a mensagem não saiu.
       // A tela tem que dizer isso — e NÃO pode dizer "Sucesso".
       await expect(cartao.getByText("Sucesso")).toHaveCount(0);
+      // ⚠️ E TAMBÉM NÃO PODE ESTAR ADIADO — esta linha é diagnóstico, não régua
+      // nova. Quando a janela de envio fecha, o run vira `adiado` e a tela o
+      // rotula "Aguardando envio": a asserção seguinte então falha com
+      // `element(s) not found`, um sintoma que não menciona relógio nenhum e que
+      // já custou horas de investigação. Com esta linha antes, a spec falha
+      // dizendo O QUE aconteceu. Quem garante que não acontece é o seed, que
+      // fixa a janela em 0h-24h (`garantirJanelaSempreAberta`).
+      await expect(
+        cartao.getByText("Aguardando envio"),
+        "o envio foi ADIADO (janela de envio fechada), não tentado — a janela do rig deveria estar aberta 0h-24h pelo seed",
+      ).toHaveCount(0);
       await expect(cartao.getByText("Falhou").first()).toBeVisible();
 
       // E tem que dizer o QUE conferir, em português — não `waha_error`.
@@ -254,13 +265,28 @@ test.describe("a automação conta o que aconteceu de verdade", () => {
         cartao.getByText(/serviço de WhatsApp|não está conectado/i).first(),
       ).toBeVisible();
     } finally {
+      // ⚠️ `page.request` (com os cookies do login), NUNCA o fixture `request`.
+      //
+      // O fixture é um `APIRequestContext` ANÔNIMO — não há `storageState` no
+      // `playwright.config.ts` —, e as duas rotas exigem `manager`. O DELETE
+      // voltava 401, o `.catch` engolia, e a regra de ENVIO ficava ATIVA na
+      // organização compartilhada, que nenhum passo desta suíte reseta.
+      //
+      // O estrago não ficava aqui. A pré-checagem de adiamento do motor é
+      // all-or-nothing sobre o evento: com uma regra de envio viva no gatilho
+      // "contato novo (webhook)", QUALQUER outra spec que dispare esse gatilho
+      // tem o evento inteiro abortado junto — foi assim que `webhooks.spec`,
+      // que só adiciona uma tag, passou a cair sem ter nada com WhatsApp.
+      //
+      // A própria spec já sabia da diferença: a leitura dos runs, mais acima,
+      // usa `page.request.get` justamente porque precisa estar autenticada.
       if (ruleId) {
-        await request
+        await page.request
           .delete(`${APP_URL}/api/v1/automation-rules/${ruleId}`)
           .catch(() => undefined);
       }
       if (sourceId) {
-        await request
+        await page.request
           .delete(`${APP_URL}/api/v1/webhook-sources/${sourceId}`)
           .catch(() => undefined);
       }

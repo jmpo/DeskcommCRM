@@ -25,6 +25,7 @@ import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { listaTiposDeAtendimento } from "@/lib/agenda/consulta";
 
 export const dynamic = "force-dynamic";
 
@@ -88,18 +89,39 @@ export async function GET(req: NextRequest): Promise<Response> {
   const autorizado = await requireRole("viewer", { requestId, resource: "calendar_event_types" });
   if (!autorizado.ok) return autorizado.response;
 
-  const admin = createAdminClient();
-  const { data, error } = await admin
-    .from("calendar_event_types")
-    .select(
-      "id, name, slug, description, category, duration_minutes, location_kind, location_details, default_owner_user_id, requires_confirmation, is_active, buffer_before_minutes, buffer_after_minutes, minimum_notice_minutes, booking_window_days",
-    )
-    .eq("organization_id", autorizado.org.orgId)
-    .order("is_active", { ascending: false })
-    .order("name");
-
-  if (error) return fail("internal_error", error.message, 500, { requestId });
-  return ok(data ?? [], { requestId });
+  // A MESMA coleta que a ferramenta MCP usa. Esta query era inline aqui, e havia
+  // outras três iguais no repo — a tela e a IA respondendo por recortes
+  // diferentes sobre o que a organização atende. Ver `listaTiposDeAtendimento`.
+  //
+  // `incluirInativos: true` porque quem chama esta rota administra o cadastro:
+  // esconder o tipo desativado tiraria dele a única porta para reativá-lo.
+  const r = await listaTiposDeAtendimento(createAdminClient(), autorizado.org.orgId, {
+    incluirInativos: true,
+  });
+  if (!r.ok) return fail("internal_error", r.motivoParaOperador, 500, { requestId });
+  // O wire desta rota é snake_case e a tela já o consome assim; o coletor fala a
+  // língua do domínio. A tradução é aqui, na borda, e não no coletor — que
+  // também serve a IA, cujo vocabulário é outro.
+  return ok(
+    r.tipos.map((t) => ({
+      id: t.id,
+      name: t.nome,
+      slug: t.slug,
+      description: t.descricao,
+      category: t.categoria,
+      duration_minutes: t.duracaoMin,
+      location_kind: t.localKind,
+      location_details: t.localDetalhes,
+      default_owner_user_id: t.donoPadraoId,
+      requires_confirmation: t.precisaConfirmacao,
+      is_active: t.ativo,
+      buffer_before_minutes: t.bufferAntesMin,
+      buffer_after_minutes: t.bufferDepoisMin,
+      minimum_notice_minutes: t.antecedenciaMinimaMin,
+      booking_window_days: t.janelaDeAgendamentoDias,
+    })),
+    { requestId },
+  );
 }
 
 export async function POST(req: NextRequest): Promise<Response> {

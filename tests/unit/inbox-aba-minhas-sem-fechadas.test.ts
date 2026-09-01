@@ -33,17 +33,36 @@ describe("tabToFilter — o que cada aba significa", () => {
     expect(tabToFilter("closed")).toEqual({ status: "closed" });
   });
 
-  it("a Fila pede os DOIS estados de espera — a conversa escalada é `pending`", () => {
-    // Sem `pending`, a conversa que o automático passou para uma pessoa não
-    // aparecia em aba NENHUMA que o atendente vê: Fila pedia só `open`, Minhas
-    // exige dono, IA filtra `ai_handling` e Todas é escondida do papel `agent`
-    // fora do modo `all`. O trigger de roteamento do banco, esse, sempre a
-    // enfileirou — é por isso que o rodízio a atribuía enquanto a tela jurava
-    // que ela não existia.
-    expect(tabToFilter("unassigned")).toEqual({
-      assigned_to: "unassigned",
-      status: ["open", "pending"],
+  it("a Fila pergunta QUEM MANDA, não o status — e o valor mudou por medição", () => {
+    // ESTE `toEqual` MUDOU EM 2026-08-30, e o motivo fica escrito para a próxima
+    // sessão não "consertar" de volta.
+    //
+    // O par anterior (`assigned_to=unassigned` + os dois estados de espera) tinha
+    // consertado um defeito real: a conversa escalada é `pending` e sumia de toda
+    // aba. Só que ele carregava outro: "sem dono e aberta" é TAMBÉM a conversa
+    // que o robô está atendendo agora. Medido na VPS: a Fila mostrava 83 e o
+    // automático comandava 47 delas — o atendente via como trabalho seu quase
+    // tudo que já estava sendo respondido.
+    //
+    // `comandosDaFila` responde a pergunta certa e continua cobrindo a conversa
+    // escalada (ela é `aguardando`, por causa do silêncio, não do status).
+    expect(tabToFilter("unassigned")).toEqual({ comando: ["aguardando"] });
+  });
+
+  it("numa org SEM automático, a Fila também traz o que ninguém está atendendo", () => {
+    // O controle do caso acima. Sem ele, a Fila de uma instalação recém-instalada
+    // — que ainda não publicou agente — nasceria VAZIA com clientes esperando,
+    // que é o pior estado possível na primeira impressão.
+    expect(tabToFilter("unassigned", false)).toEqual({
+      comando: ["aguardando", "automatico"],
     });
+  });
+
+  it("a aba do automático pergunta a régua do MOTOR, não `ai_handling`", () => {
+    // `ai_handling` é escrito por UM caminho só em produção (a volta pelo botão
+    // "Devolver ao automático"), e por isso a aba mostrava 2 enquanto o robô
+    // atendia 47.
+    expect(tabToFilter("ai")).toEqual({ comando: ["automatico"] });
   });
 
   it("as outras abas não ganham o filtro de tabela", () => {

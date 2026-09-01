@@ -15,6 +15,8 @@ import type { Logger } from '../obs/logger';
 import type { ProviderRegistry } from '../edge/llm/providers';
 import { runModelCall, type LlmEdgeConfig } from '../edge/llm/run-model-call';
 import type { LeadContext } from '../edge/crm/get-lead-context';
+import { fusoDaOrganizacao } from './fuso-da-org';
+import { renderAgora } from '@/lib/tempo/agora';
 
 const CLASSIFY_INSTRUCTION =
   'Você é um classificador auxiliar de follow-up (NÃO responde ao lead). Classifique a ' +
@@ -117,12 +119,21 @@ export interface PropostaDeEsperaBruta {
   motivo: string;
 }
 
-function buildPlanMessage(context: LeadContext, now: Date, esperas: EsperaParaPlanejar[]): string {
+function buildPlanMessage(
+  context: LeadContext,
+  now: Date,
+  esperas: EsperaParaPlanejar[],
+  fuso: string,
+): string {
   return [
     PLAN_INSTRUCTION,
     '',
-    '## Agora',
-    now.toISOString(),
+    // Este bloco era `'## Agora'` seguido de `now.toISOString()` cru — o único
+    // relógio que o motor tinha, e meio relógio: sem dia da semana e sem fuso,
+    // ele não responde a pergunta que ESTE planejador faz, que é quando é
+    // aceitável falar com alguém. Passou a ser o mesmo `renderAgora` do turno,
+    // porque dois formatos de "## Agora" no mesmo motor viram dois vocabulários.
+    renderAgora(now, fuso),
     '',
     '## Esperas do fluxo, na ordem',
     ...esperas.map((e, i) =>
@@ -213,7 +224,17 @@ export async function planFollowupTiming(
       jobId: ids.jobId,
       purpose: 'followup_decide_timing',
       ...(args.model !== undefined ? { model: args.model } : {}),
-      messages: [{ role: 'user', content: buildPlanMessage(args.context, now, args.esperas) }],
+      messages: [
+        {
+          role: 'user',
+          content: buildPlanMessage(
+            args.context,
+            now,
+            args.esperas,
+            await fusoDaOrganizacao(db, ids.tenantId, deps.log),
+          ),
+        },
+      ],
     },
     { registry: deps.registry, log: deps.log },
   );

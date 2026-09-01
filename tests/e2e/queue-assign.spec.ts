@@ -56,11 +56,29 @@ test.describe("G5-03 — fila com posição + atribuição", () => {
   // Dev server compila /app/* a frio na 1ª visita (pode passar de 30s).
   test.describe.configure({ timeout: 120_000 });
 
-  test.beforeAll(() => {
+  test.beforeAll(async () => {
     // Restaura o estado de fila (idempotente) antes do fluxo.
     execFileSync("npx", ["tsx", "scripts/seed-e2e-queue.ts"], { stdio: "inherit" });
     creds = JSON.parse(fs.readFileSync(CREDS_PATH, "utf8")) as Creds;
     if (!creds.queue) throw new Error("queue seed block ausente em .e2e-creds.json");
+
+    // A CONVERSA PRECISA ESTAR ESCALADA PARA ESTAR NA FILA — mudou em 2026-08-31.
+    //
+    // Até a migration 0203, "na fila" era "sem dono + aberta". Só que numa org com
+    // IA no ar isso descreve TAMBÉM a conversa que o robô está atendendo agora, e
+    // era por contar essas que a Fila mostrava 83 numa instalação onde 47 já
+    // estavam sendo respondidas. Agora a Fila pergunta quem espera uma PESSOA.
+    //
+    // O cenário desta spec (posição na fila + atribuição a um atendente) pressupõe
+    // exatamente isso, então o estado tem de dizê-lo. Fica AQUI e não no
+    // `seed-e2e-queue.ts` porque aquele seed é compartilhado com
+    // `inbox-tempo-real` e `followup-queue`, que dependem do automático ATIVO —
+    // silenciar lá consertaria esta e quebraria as outras duas.
+    const { error: erroSilencio } = await admin
+      .from("conversations")
+      .update({ bot_silenced_until: "infinity" })
+      .eq("id", creds.queue.conversation_id);
+    if (erroSilencio) throw new Error(`não consegui escalar a conversa: ${erroSilencio.message}`);
   });
 
   test("conversa aparece na Fila com posição → worker atribui → move para Minhas", async ({
