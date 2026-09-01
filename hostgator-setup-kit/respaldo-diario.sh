@@ -51,6 +51,33 @@ else
   exit 1
 fi
 
+# ── OS OUTROS SITES DA VPS ───────────────────────────────────────────────────
+#
+# A VPS deixou de ser só o CRM: sites migrados (WordPress em contêiner) vivem
+# aqui e merecem o mesmo guarda-chuva. O bloco é CONDICIONAL — instalação sem
+# esses contêineres pula em silêncio, e o respaldo do CRM nunca depende dele.
+#
+# Duas peças por site, porque são dois desastres diferentes:
+#  - o dump da base (posts, leads, configuração) — o que muda todo dia;
+#  - o tar do webroot (tema, plugins, uploads) — o que muda quando alguém mexe.
+if docker ps --format '{{.Names}}' | grep -q '^sandra-db-1$'; then
+  SB="$DEST/sandra-$(date +%Y%m%d).sql.gz"
+  if docker exec sandra-db-1 sh -c 'mariadb-dump -uwordpress -p"$MYSQL_PASSWORD" wordpress' 2>>"$LOG" | gzip > "$SB.parcial" \
+     && gzip -t "$SB.parcial" 2>>"$LOG" && [ "$(stat -c%s "$SB.parcial")" -gt 10240 ]; then
+    mv "$SB.parcial" "$SB"; log "OK sandra-db: $(du -h "$SB" | cut -f1)"
+  else
+    rm -f "$SB.parcial"; echo "dump do sandra-db falhou — ver $LOG" > "$ERRO"; log "FALHA: sandra-db"
+  fi
+  SW="$DEST/sandra-files-$(date +%Y%m%d).tar.gz"
+  if docker exec sandra-wordpress-1 tar -czf - -C /var/www/html wp-content 2>>"$LOG" > "$SW.parcial" \
+     && [ "$(stat -c%s "$SW.parcial")" -gt 1048576 ]; then
+    mv "$SW.parcial" "$SW"; log "OK sandra-files: $(du -h "$SW" | cut -f1)"
+  else
+    rm -f "$SW.parcial"; echo "tar do sandra-wordpress falhou — ver $LOG" > "$ERRO"; log "FALHA: sandra-files"
+  fi
+  find "$DEST" -name 'sandra-*.gz' -mtime +14 -delete
+fi
+
 # Rotação: os diários além de 14 saem. `-name 'diario-*'` para NUNCA tocar nos
 # respaldos manuais pre-esquema, que têm outro prefixo e outra razão de existir.
 find "$DEST" -name 'diario-*.sql.gz' -mtime +14 -delete
