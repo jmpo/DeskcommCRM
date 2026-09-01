@@ -20,10 +20,24 @@
  * NUNCA deixa a promessa passar sem caso.
  */
 
-/** Alvo humano/retaguarda (já sem acento — o texto é normalizado antes de casar). */
-const TARGET =
-  "(?:equipe|time|setor|responsavel|responsaveis|pessoal|especialista|especialistas|" +
-  "atendente|atendentes|gerente|supervisor|departamento)";
+/** Alvo humano/retaguarda genérico (já sem acento — o texto é normalizado antes de casar). */
+const TARGET_WORDS = [
+  "equipe",
+  "time",
+  "setor",
+  "responsavel",
+  "responsaveis",
+  "pessoal",
+  "especialista",
+  "especialistas",
+  "atendente",
+  "atendentes",
+  "gerente",
+  "supervisor",
+  "departamento",
+] as const;
+const TARGET_WORD_SET = new Set<string>(TARGET_WORDS);
+const TARGET = `(?:${TARGET_WORDS.join("|")})`;
 
 /**
  * Lacuna curta que NÃO cruza fim de frase (sem .!?\n): impede casar um verbo de
@@ -31,40 +45,62 @@ const TARGET =
  */
 const gap = (n: number): string => `[^.!?\\n]{0,${n}}?`;
 
-const PATTERNS: readonly RegExp[] = [
-  // (1a) encaminhar/passar/acionar/... → alvo humano: "encaminhar pro setor", "acionar o responsavel".
-  new RegExp(`\\b(?:encaminh|repass|transfer|acion|escal|direcion|pass|cham)\\w*${gap(20)}\\b${TARGET}\\b`),
-  // (1a-bis) mesmo verbo de encaminhamento, mas o ALVO é retomado por PRONOME (eles/elas)
-  // em vez do substantivo — achado na prova E2E da Wave 7 real: "já passo o pedido pra
-  // eles resolverem" escapava (1a) porque "eles" não é TARGET). Exige um verbo de
-  // RESOLUÇÃO depois do pronome (não só "passar pra eles" — precisa prometer AÇÃO deles).
-  new RegExp(
-    `\\b(?:encaminh|repass|transfer|acion|escal|direcion|pass|cham)\\w*${gap(30)}` +
-      `\\b(?:pra|para|pro|com)\\b${gap(8)}\\b(?:eles|elas)\\b${gap(25)}` +
-      `\\b(?:resolv|retorn|respond|liber|analis|verific|cuid|assum|atend|aprov|confirm|contat|ajud)\\w*`,
-  ),
-  // (1b) verbo de CONSULTA + "com" + alvo humano: "verificar com a equipe", "falar com o pessoal".
-  //      Exige "com <humano>": "verificar seu pedido no sistema" (sem "com equipe") NÃO casa.
-  new RegExp(`\\b(?:verific|fal|confer|confirm|consult|alinh|valid|chec)\\w*${gap(15)}\\bcom\\b${gap(15)}\\b${TARGET}\\b`),
-  // (1c) pedir/solicitar pra/ao alvo humano: "vou pedir pra equipe liberar".
-  new RegExp(`\\b(?:ped|solicit)\\w*${gap(12)}\\b(?:pra|para|pro|ao|aos|a|as|com)\\b${gap(10)}\\b${TARGET}\\b`),
-  // (2) "<alvo humano> vai/pode <resolver/retornar/...>": "nosso time vai resolver", "um responsavel vai te retornar".
-  //     "nossa equipe ESTA a disposicao" NÃO casa ("esta" fora do grupo vai/vao/pode).
-  new RegExp(
-    `\\b${TARGET}\\b${gap(20)}\\b(?:vai|vao|ira|irao|pode|podem|poderao)\\b${gap(10)}` +
-      `(?:\\b(?:te|lhe|se|nos)\\b\\s*)?(?:resolv|retorn|respond|liber|analis|verific|cuid|assum|atend|entr|aprov|confirm|contat|ajud)\\w*`,
-  ),
-  // (2b) "quem resolve/cuida ... e o nosso time": "isso quem resolve e o nosso time".
-  new RegExp(
-    `\\bquem\\b${gap(15)}\\b(?:resolv|cuid|respond|decid|aprov|liber|atend)\\w*${gap(20)}` +
-      `(?:\\b(?:nosso|nossa|nossos|nossas|o|a|os|as)\\b\\s*)?${TARGET}\\b`,
-  ),
-  // (3) deferir a TERCEIROS via subjuntivo 3ª pessoa do plural: "assim que liberarem eu te aviso".
-  new RegExp(
-    `\\b(?:assim que|assim q|quando|depois que|logo que|apos)\\b${gap(12)}` +
-      `\\b(?:liber|aprov|autoriz|respond|retorn|verific|analis|resolv|confirm)(?:ar|er)em\\b`,
-  ),
-];
+/**
+ * Monta os 7 padrões de promessa-de-humano em cima de um ALVO (`target`)
+ * substituível — o TARGET genérico por padrão, ou o TARGET estendido com
+ * nome(s) próprio(s) do tenant (ver `detectHumanPromise`).
+ */
+function buildPatterns(target: string): RegExp[] {
+  return [
+    // (1a) encaminhar/passar/acionar/... → alvo humano: "encaminhar pro setor", "acionar o responsavel".
+    new RegExp(`\\b(?:encaminh|repass|transfer|acion|escal|direcion|pass|cham)\\w*${gap(20)}\\b${target}\\b`),
+    // (1a-bis) mesmo verbo de encaminhamento, mas o ALVO é retomado por PRONOME (eles/elas)
+    // em vez do substantivo — achado na prova E2E da Wave 7 real: "já passo o pedido pra
+    // eles resolverem" escapava (1a) porque "eles" não é TARGET). Exige um verbo de
+    // RESOLUÇÃO depois do pronome (não só "passar pra eles" — precisa prometer AÇÃO deles).
+    new RegExp(
+      `\\b(?:encaminh|repass|transfer|acion|escal|direcion|pass|cham)\\w*${gap(30)}` +
+        `\\b(?:pra|para|pro|com)\\b${gap(8)}\\b(?:eles|elas)\\b${gap(25)}` +
+        `\\b(?:resolv|retorn|respond|liber|analis|verific|cuid|assum|atend|aprov|confirm|contat|ajud)\\w*`,
+    ),
+    // (1b) verbo de CONSULTA + "com" + alvo humano: "verificar com a equipe", "falar com o pessoal".
+    //      Exige "com <humano>": "verificar seu pedido no sistema" (sem "com equipe") NÃO casa.
+    new RegExp(`\\b(?:verific|fal|confer|confirm|consult|alinh|valid|chec)\\w*${gap(15)}\\bcom\\b${gap(15)}\\b${target}\\b`),
+    // (1c) pedir/solicitar pra/ao alvo humano: "vou pedir pra equipe liberar".
+    new RegExp(`\\b(?:ped|solicit)\\w*${gap(12)}\\b(?:pra|para|pro|ao|aos|a|as|com)\\b${gap(10)}\\b${target}\\b`),
+    // (2) "<alvo humano> vai/pode <resolver/retornar/...>": "nosso time vai resolver", "um responsavel vai te retornar".
+    //     "nossa equipe ESTA a disposicao" NÃO casa ("esta" fora do grupo vai/vao/pode).
+    new RegExp(
+      `\\b${target}\\b${gap(20)}\\b(?:vai|vao|ira|irao|pode|podem|poderao)\\b${gap(10)}` +
+        `(?:\\b(?:te|lhe|se|nos)\\b\\s*)?(?:resolv|retorn|respond|liber|analis|verific|cuid|assum|atend|entr|aprov|confirm|contat|ajud)\\w*`,
+    ),
+    // (2b) "quem resolve/cuida ... e o nosso time": "isso quem resolve e o nosso time".
+    new RegExp(
+      `\\bquem\\b${gap(15)}\\b(?:resolv|cuid|respond|decid|aprov|liber|atend)\\w*${gap(20)}` +
+        `(?:\\b(?:nosso|nossa|nossos|nossas|o|a|os|as)\\b\\s*)?${target}\\b`,
+    ),
+    // (2c) ESTADO passivo alegado — não uma promessa de AÇÃO futura (vai resolver),
+    //      e sim uma AFIRMAÇÃO de que já está sendo tratado agora: "está em análise
+    //      pela equipe", "ficou em análise com o responsável". Achado em produção
+    //      (tenant YADEA, 2026-08-30): o agente respondeu a uma reclamação de garantia
+    //      de quase 1 dia dizendo que estava "em análise pela equipe responsável" sem
+    //      NENHUM caso aberto — as 7 regras acima exigem verbo de AÇÃO (vai/vamos/
+    //      encaminho) e nenhuma casa uma alegação de estado já em curso.
+    new RegExp(
+      `\\b(?:est[aá]|ficou|fica|segue)\\b${gap(10)}\\bem\\b\\s+an[aá]lise\\b${gap(20)}` +
+        `\\b(?:com|pela|pelo|do|da|na|no)\\b${gap(10)}\\b${target}\\b`,
+    ),
+    // (3) deferir a TERCEIROS via subjuntivo 3ª pessoa do plural: "assim que liberarem eu te aviso".
+    //     Não depende de `target` — não repetido no alvo estendido.
+    new RegExp(
+      `\\b(?:assim que|assim q|quando|depois que|logo que|apos)\\b${gap(12)}` +
+        `\\b(?:liber|aprov|autoriz|respond|retorn|verific|analis|resolv|confirm)(?:ar|er)em\\b`,
+    ),
+  ];
+}
+
+/** Compilado uma vez no load do módulo — caminho quente sem nome próprio extra. */
+const PATTERNS: readonly RegExp[] = buildPatterns(TARGET);
 
 /** Minúsculas + remove diacríticos (NFD) — casa acento/caixa uniformemente. */
 function normalize(body: string): string {
@@ -74,12 +110,42 @@ function normalize(body: string): string {
     .toLowerCase();
 }
 
+/** Escapa metacaracteres de regex — nome próprio vira literal, nunca sintaxe. */
+function escapeRegex(word: string): string {
+  return word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * True se a candidata promete envolver um humano/retaguarda. Determinístico,
  * conservador (spec §10.2). Vazio/whitespace = false.
+ *
+ * `extraHumanNames` (opcional) — nome(s) próprio(s) que o PROMPT do tenant usa
+ * para a retaguarda humana (ex.: "Fernando", o gerente citado no system_prompt
+ * do agente YADEA). Sem isto, um agente cujo prompt nomeia a pessoa em vez do
+ * cargo ("vou confirmar com o Fernando") escapa 100% do detector — TARGET só
+ * conhece cargos genéricos (medido em produção, 2026-08-29/30, tenant YADEA:
+ * dezenas de promessas nomeando "Fernando", 1 só detecção em 3 dias). A fonte
+ * natural é `ai_agent_versions.handoff_keywords` — já é o vocabulário que o
+ * tenant escreveu pra "isto é uma pessoa/situação que exige humano" (reusado
+ * hoje só do lado do CLIENTE, em `matchesHandoffKeyword`); aqui aplicamos o
+ * mesmo vocabulário do lado do que o MODELO promete. Palavras compostas
+ * ("falar com humano") e as já cobertas por TARGET_WORDS são descartadas —
+ * só nomes próprios simples entram no alvo estendido.
  */
-export function detectHumanPromise(body: string): boolean {
+export function detectHumanPromise(body: string, extraHumanNames?: readonly string[]): boolean {
   if (body.trim() === "") return false;
   const text = normalize(body);
-  return PATTERNS.some((re) => re.test(text));
+  if (extraHumanNames === undefined || extraHumanNames.length === 0) {
+    return PATTERNS.some((re) => re.test(text));
+  }
+  const names = Array.from(
+    new Set(
+      extraHumanNames
+        .map((w) => normalize(w).trim())
+        .filter((w) => /^[a-z]{3,}$/.test(w) && !TARGET_WORD_SET.has(w)),
+    ),
+  );
+  if (names.length === 0) return PATTERNS.some((re) => re.test(text));
+  const extendedTarget = `(?:${TARGET_WORDS.join("|")}|${names.map(escapeRegex).join("|")})`;
+  return buildPatterns(extendedTarget).some((re) => re.test(text));
 }

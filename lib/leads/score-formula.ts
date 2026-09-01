@@ -178,6 +178,24 @@ export function calculaScore(sinais: SinaisDoLead): ScoreCalculado {
   }
   const nBant = Math.min(camposBant, TETO_BANT);
   if (nBant > 0) {
+    // QUALIFICAÇÃO NÃO GANHA ÂNCORA, e a ausência é DECIDIDA — não esquecimento.
+    //
+    // ⚠️ Ela era acidental até 2026-08-30, e a diferença custou um defeito: no
+    // fator de recência logo abaixo a ausência sempre teve comentário; aqui não
+    // tinha nenhum, e foi justamente a não documentada que quebrou. Um negócio
+    // só-BANT montava fatores sem âncora nenhuma e morria no INSERT com 23514,
+    // sem score e sem sintoma legível (ver a guarda de lastro adiante).
+    // Observação do @Maestro (2), conferindo o conserto: no mesmo arquivo, a
+    // ausência pensada estava escrita e a acidental não.
+    //
+    // POR QUE ela não pode ganhar a âncora que está à mão: os campos BANT vêm de
+    // `lead_state.qualification`, e o formato é `{kind: "checkpoint" | "message"}`.
+    // Apontar para o checkpoint seria citar como fonte algo que não sustenta
+    // aquele número — e âncora falsa é pior que ausente, porque a âncora existe
+    // exatamente para dizer DE ONDE veio.
+    //
+    // Devolver score ao lead só-BANT exige um `kind` novo, e isso é contrato:
+    // decisão de produto, registrada e não tomada aqui.
     fatores.push({
       pontos: nBant * POR_CAMPO_BANT,
       frase: plural(nBant, "item de qualificação", "itens de qualificação"),
@@ -193,6 +211,38 @@ export function calculaScore(sinais: SinaisDoLead): ScoreCalculado {
   const relevantes = fatores
     .filter((f) => f.pontos !== 0)
     .sort((a, b) => Math.abs(b.pontos) - Math.abs(a.pontos));
+
+  /**
+   * LASTRO CITÁVEL É SOBRE O FATOR, NÃO SOBRE O CHECKPOINT EXISTIR.
+   *
+   * A guarda lá em cima recusa quando não há checkpoint nenhum — necessária,
+   * mas não suficiente: só os fatores de COMPROMISSO e OBJEÇÃO recebem a
+   * âncora. Um negócio cujo conteúdo é apenas qualificação (BANT) passa por
+   * aquela guarda, tem dois sinais substantivos, e produz fatores em que NENHUM
+   * tem âncora — enquanto a constraint do banco exige
+   * `evidence @? '$.factors[*].ancora'`.
+   *
+   * O desfecho, medido pelo caminho de produção (`recalculaScoreDoLead` contra
+   * o Postgres do `test:db`, invariante `score-escritor-real-satisfaz-a-constraint`):
+   * `23514` dentro do worker, e o lead fica **sem score nenhum** — tela vazia e
+   * causa só no log. O cabeçalho desta função já prometia o contrário: "melhor
+   * recusar aqui, com motivo legível, do que descobrir no INSERT". A promessa
+   * estava escrita; a verificação parou no checkpoint EXISTIR, e não em algum
+   * fator USAR a âncora dele.
+   *
+   * A conta é sobre `relevantes` e não sobre `fatores`: é `relevantes` que vai
+   * para `evidence`, e um fator de zero ponto é filtrado antes de chegar lá —
+   * checar a lista errada deixaria a mesma linha passar por outro caminho.
+   *
+   * NÃO se resolve dando âncora ao fator de qualificação: ela viria de
+   * `lead_state`, e o formato da âncora é `{kind: "checkpoint" | "message"}`.
+   * Apontar o BANT para o checkpoint seria citar como fonte algo que não o
+   * sustenta. Dar-lhe âncora própria é decisão de produto (um `kind` novo), não
+   * conserto de defeito.
+   */
+  if (!relevantes.some((f) => f.ancora)) {
+    return { score: null, reason: "", evidence: {}, band: null, semSinal: "sem_lastro_citavel" };
+  }
 
   // DELTA 4 (segunda metade) — no máximo TRÊS parcelas nomeadas, que é o que o
   // contrato promete. O resto vira UMA linha agregada em vez de sumir: truncar

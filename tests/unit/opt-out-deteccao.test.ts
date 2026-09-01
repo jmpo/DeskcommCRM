@@ -35,8 +35,15 @@ const PEDE_PARA_SAIR = [
   "não quero mais receber nada de vocês",
   "nao quero receber mais",
   "não me mande mais mensagens",
+  // CONTROLE do lookahead da #435, lado português.
+  "nao me mandem mais mensagens",
+  "nao me ligue mais",
   "me tira dessa lista",
   "me remove da lista por favor",
+  // CONTROLE do lookahead novo: continua bloqueando quando o objeto É a
+  // comunicação — o lookahead exclui só a lista fechada de objetos não
+  // comunicativos, não apaga o padrão inteiro.
+  "pare de mandar essas fotos",
   "quero sair da lista",
   "quero cancelar a inscrição",
   "me descadastra aí",
@@ -44,6 +51,19 @@ const PEDE_PARA_SAIR = [
 
 /** Frases do dia a dia que usam a palavra e NÃO são pedido de descadastro. */
 const NAO_PEDE_PARA_SAIR = [
+  // e-commerce — o padrão de cessação ancorava só no VERBO ("mandar"), e
+  // "mandar" é verbo de comunicação mesmo quando o objeto é outra coisa.
+  // Bloquearia um cliente pedindo para mudar a ENTREGA.
+  "pare de mandar o pedido nesse endereco",
+  "para de mandar a fatura por aqui",
+  // MESMA CLASSE, outra construção: "não me mande mais X" ancorava só no
+  // verbo, como o padrão de cessação acima ancorava. O lookahead de
+  // OBJETOS_NAO_COMUNICATIVOS estava num e faltava no outro — e este é o mais
+  // comum dos dois, porque é como se reclama direto (issue #435).
+  "nao me mande mais boletos",
+  "nao me mande mais faturas por email",
+  "nao me mandem mais cobrancas duplicadas",
+  "nao me envie mais os produtos errados",
   // clínica — o caso que motivou este arquivo
   "tem como parar a dor?",
   "dá pra parar o sangramento em casa?",
@@ -88,6 +108,37 @@ const ESPANHOL_PEDE_PARA_SAIR = [
   "darme de baja",
   "dar de baja la suscripcion",
   "quiero dar de baja la suscripcion",
+  // Pronome PRESO ao infinitivo — a construção mais comum de pedir
+  // descadastro em espanhol, e a que não casava padrão nenhum até este PR.
+  // Diferente do português, onde o pronome vem solto ANTES do verbo.
+  "deja de escribirme",
+  "dejen de mandarme mensajes",
+  "deja de enviarme promociones",
+  "para de escribirme",
+  "para de mandarme mensajes",
+  "deja de escribirme por favor",
+  "deja de escribir",
+  // Objeto SUSTANTIVO em vez de verbo — "no quiero más mensajes" não tem
+  // verbo de comunicação depois de "no quiero", então o padrão geral (que
+  // exige verbo) não pega. Espelho de "não quero mais mensagem/contato".
+  "no quiero mas mensajes",
+  "no quiero mas publicidad",
+  "ya no quiero mas promociones",
+  "no quiero mas nada de ustedes",
+  // Imperativo com pronome preso — como a pessoa responde de fato à
+  // plantilla "Respondé BAJA".
+  "dame de baja",
+  "denme de baja",
+  // `contactar`, que faltava na lista de verbos de comunicação.
+  "no me contacten mas",
+  // CONTROLE do lookahead da #435: quando o objeto É a comunicação, a regra
+  // segue valendo. O lookahead exclui uma lista fechada, não apaga o padrão.
+  "no me manden mas mensajes",
+  "no me escriban mas",
+  "no me llamen mas",
+  "no quiero que me contacten",
+  "borrame de tus contactos",
+  "eliminame de la base de datos",
   // `salir` é o `sair` em espanhol, e `sair` já estava na lista em português.
   // Faltava, e a promessa do CHANGELOG da 1.4.0 ("`baja`, `salir` e
   // `no quiero recibir` descadastram") era falsa exatamente nesta palavra —
@@ -121,6 +172,30 @@ const ESPANHOL_NAO_PEDE = [
   "voy a salir ahora",
   "puedo salir mas temprano?",
   "el pedido va a salir hoy?",
+  // CONTROLE do lookahead novo de OBJETOS_NAO_COMUNICATIVOS: o mesmo achado
+  // de "pare de mandar o pedido" (português), em espanhol. Sem o lookahead,
+  // "deja de mandar el pedido a esa dirección" bloquearia um cliente que
+  // está pedindo para mudar a ENTREGA, não para parar de ser atendido.
+  "deja de mandar el pedido a esa direccion",
+  "deja de cobrarme el envio",
+  // O espelho espanhol da issue #435 — o objeto é a cobrança, não a conversa.
+  "no me manden mas cobros duplicados",
+  "no me manden mas facturas por correo",
+  "no me manden mas paquetes a esa direccion",
+  "no me mande mas boletas, ya pague",
+  // OBJEÇÃO COMERCIAL — o buraco que faltava neste corpus, e por onde um
+  // falso positivo entrou. `ESPANHOL_NAO_PEDE` tinha controle de clínica, de
+  // e-commerce e de troca de canal, mas nenhum da recusa de VENDA: a frase
+  // mais comum do funil, e a que o agente precisa contornar em vez de fugir
+  // dela. Sem estes casos, `no me interesa` nu escalava para humano e a
+  // suíte ficava verde.
+  "no me interesa",
+  "no me interesa, gracias",
+  "no me interesa ese plan, pero si el otro",
+  "por ahora no me interesa, quizas el mes que viene",
+  "no me interesa el seguro, quiero solo el producto",
+  "la verdad no me interesa el precio, me interesa la calidad",
+  "no me interesa pagar mas, hay algo mas barato?",
 ];
 
 describe("espanhol — a palavra que a plantilla pede", () => {
@@ -135,6 +210,64 @@ describe("espanhol — a palavra que a plantilla pede", () => {
       expect(ehPedidoDeOptOut(texto)).toBe(false);
     });
   }
+});
+
+/**
+ * O lado negativo do corpus verificava só o BLOQUEIO, e não a ESCALADA.
+ *
+ * São dois níveis com custos diferentes: `ehPedidoDeOptOut` grava
+ * `is_blocked=true` e o contato para de ser atendido; `ehOptOutProvavel` faz o
+ * agente parar de responder e chamar um humano. O segundo é mais barato, mas
+ * não é grátis — num sistema de vendas ele desliga a automação exatamente na
+ * objeção, que é o momento em que ela deveria trabalhar.
+ *
+ * Enquanto só o bloqueio era verificado, uma frase podia entrar na lista
+ * ambígua e o corpus inteiro seguir verde: `ehPedidoDeOptOut` devolve `false`
+ * para ela, que é tudo que se perguntava. Foi por essa porta que
+ * `no me interesa` (sem marca de repetição) passou a escalar toda objeção
+ * comercial em espanhol sem nenhum caso vermelhar.
+ *
+ * Medido ao escrever: com a regra corrigida, ZERO frases dos dois corpora
+ * negativos escalam. O gate nasce verde e trava a volta.
+ */
+describe("o lado negativo também não pode ESCALAR, não só não bloquear", () => {
+  for (const texto of [...ESPANHOL_NAO_PEDE, ...NAO_PEDE_PARA_SAIR]) {
+    it(`não escala para humano: ${texto}`, () => {
+      expect(ehOptOutProvavel(texto), texto).toBe(false);
+    });
+  }
+});
+
+/**
+ * O espanhol tinha ZERO frases ambíguas — `ehOptOutProvavel` nunca somava
+ * nada além do inequívoco nesse idioma, e o comentário de `baja`/`salir` em
+ * `deteccao.ts` chegou a afirmar que duas frases "caem no ambíguo" sem que
+ * essa camada existisse para pegá-las. Espelha o corpus português de baixo
+ * ("me deixa em paz", "já disse que não quero", "para com isso") — mesma
+ * forma, outra língua.
+ */
+describe("espanhol — o ambíguo, que não existia", () => {
+  it.each([
+    "déjame en paz",
+    "déjenme en paz",
+    "ya te dije que no me interesa",
+    "ya no me interesa",
+    // CONTROLE do lado positivo: o marcador de repetição é o que separa o
+    // sinal da objeção. "ya" numa, "mas" na outra — sem nenhum dos dois, a
+    // frase está em `ESPANHOL_NAO_PEDE`, acima.
+    "no me interesa mas",
+    "ya no me interesa nada de esto",
+    "basta ya",
+    "ya basta con esto",
+    "no me molesten",
+  ])("reconhece o sinal ambíguo: %s", (texto) => {
+    expect(ehOptOutProvavel(texto)).toBe(true);
+  });
+
+  it("o ambíguo em espanhol também NÃO autoriza bloqueio por si só", () => {
+    expect(ehOptOutProvavel("déjame en paz")).toBe(true);
+    expect(ehPedidoDeOptOut("déjame en paz")).toBe(false);
+  });
 });
 
 describe("ehPedidoDeOptOut — pedido INEQUÍVOCO, o que autoriza bloquear", () => {

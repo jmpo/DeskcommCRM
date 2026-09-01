@@ -13,7 +13,6 @@ import {
 } from "@/app/api/v1/conversations/_handler";
 import { listMessagesHandler } from "@/app/api/v1/messages/_handler";
 import { getQueuePositions } from "@/lib/routing/queue";
-import { CONVERSATION_QUEUE_STATUSES } from "@/lib/schemas";
 import { resolveUserNames } from "./_users";
 import type { McpToolDefinition } from "../types";
 
@@ -25,11 +24,15 @@ import type { McpToolDefinition } from "../types";
  * coisas ao mesmo tempo dentro de `lib/routing/queue.ts`. O que a IA lia pela
  * tool e o que a pessoa via na tela não eram a mesma fila.
  */
-function isInQueue(c: { assigned_to_user_id: string | null; status: string }): boolean {
-  return (
-    c.assigned_to_user_id === null &&
-    (CONVERSATION_QUEUE_STATUSES as readonly string[]).includes(c.status)
-  );
+function isInQueue(c: { comando_da_conversa?: string | null }): boolean {
+  // Ele decide UMA coisa: vale a pena buscar as posições de fila para esta
+  // página? Por isso é liberal de propósito — pergunta "não tem dono e não
+  // acabou", que cobre tanto a org COM automático (só `aguardando` está na fila)
+  // quanto a SEM (`automatico` também está, ver `comandosDaFila`). Errar para o
+  // lado do sim custa uma consulta; errar para o não some com a posição que a IA
+  // devolve ao cliente.
+  const q = c.comando_da_conversa;
+  return q === "aguardando" || q === "automatico";
 }
 
 const listInputShape = {
@@ -63,6 +66,11 @@ export const crmListConversations: McpToolDefinition<typeof listInputShape> = {
       {
         // O handler espera LISTA desde que o filtro passou a aceitar vários.
         status: input.status ? [input.status] : undefined,
+        // `undefined` EXPLÍCITO: `.optional()` no Zod produz uma chave
+        // OBRIGATÓRIA de tipo `X | undefined`, não uma chave opcional — omiti-la
+        // é erro de tipo. A tool do MCP não expõe filtro por comando (quem
+        // pergunta é a tela), então ela não filtra por ele.
+        comando: undefined,
         limit: input.limit,
         cursor: input.cursor,
       },

@@ -100,6 +100,21 @@ test.describe("webhooks & automações — fluxo completo", () => {
   // com diagnóstico.
   test.use({ actionTimeout: 10_000 });
 
+  // ⚠️ ESTA SPEC NÃO ENVIA NADA, E MESMO ASSIM DEPENDE DA JANELA DE ENVIO.
+  //
+  // A ação dela é "adicionar tag", que nunca é adiada. Mas a pré-checagem de
+  // adiamento do motor é ALL-OR-NOTHING sobre o evento: basta uma regra irmã
+  // com ação de WhatsApp no mesmo gatilho estar fora da janela para o evento
+  // INTEIRO ser abortado — e aí a tag nunca executa, nenhum run é gravado, e a
+  // asserção de "Sucesso" mais abaixo estoura as 12 tentativas.
+  //
+  // Foi exatamente o que aconteceu a partir das 22h BRT, em toda branch, por um
+  // dia inteiro. O seed declara a janela do rig (0h-24h, `garantirJanelaSempreAberta`),
+  // e é ele que tira a hora do CI de dentro da conta deste teste.
+  test.beforeAll(() => {
+    execFileSync("npx", ["tsx", "scripts/seed-e2e-numero-conectado.ts"], { stdio: "inherit" });
+  });
+
   test("cria fonte, cria automação, dispara lead real, confere atividade e kanban; agent sem acesso", async ({
     page,
     request,
@@ -194,9 +209,25 @@ test.describe("webhooks & automações — fluxo completo", () => {
       const directBody = (await directRes.json()) as { data: { lead_id: string } };
       expect(directBody.data.lead_id).toBeTruthy();
 
-      // --- Step 6: drena o event_log (até 3 ticks — trigger legado duplica evento) ---
+      // --- Step 6: drena o event_log ATÉ ESVAZIAR, não um número fixo de ticks ---
+      //
+      // Contar ticks era um PROXY para "drenou o suficiente", e o proxy dependia
+      // de quantas specs rodaram antes: a fila é global, FIFO por `created_at`, e
+      // esta spec é a 21ª de 42 na parte 2 do CI. Com a fila acima da capacidade
+      // do laço, o evento DESTA automação — o mais novo — nunca era alcançado, e
+      // o sintoma era "run da automação não apareceu com status Sucesso".
+      //
+      // MEDIDO (2026-08-30, local, mesmo build): o tick devolve
+      // `{"scanned":50,"done":50,...}`; com 200 na fila a spec passava, com 300
+      // falhava com a mensagem EXATA do CI, na mesma linha. O conserto não é
+      // aumentar o número de ticks — isso só adia, e a dívida cresce sozinha a
+      // cada spec nova. É trocar o proxy pela condição: drena enquanto houver
+      // trabalho.
       const internalSecret = loadInternalSecret();
-      for (let i = 0; i < 3; i++) {
+      const TETO_DE_TICKS = 40; // trava de segurança: 40 × 50 = 2000 eventos
+      let ticks = 0;
+      let ultimoResumo: { scanned?: number; retried?: number; failed?: number } = {};
+      for (; ticks < TETO_DE_TICKS; ticks++) {
         // Batch de até 50 eventos pendentes, cada um com handlers que fazem
         // vários round-trips de DB (e potencialmente WAHA/IA) — bem mais lento
         // que uma ação de UI; timeout maior que o actionTimeout padrão do teste.
@@ -205,8 +236,56 @@ test.describe("webhooks & automações — fluxo completo", () => {
           timeout: 60_000,
         });
         expect(drainRes.ok()).toBeTruthy();
+        const resumo = (await drainRes.json()) as {
+          data?: { scanned?: number; retried?: number; failed?: number };
+        };
+        ultimoResumo = resumo.data ?? {};
         await page.waitForTimeout(700);
+        // A condição de parada é "não há mais NADA pendente" (`scanned === 0`),
+        // NUNCA "o meu evento apareceu": parar no próprio evento esconderia
+        // acúmulo deixado por outras specs, que é o defeito que este conserto
+        // existe para expor. Sai DEPOIS do tick vazio, não no primeiro lote
+        // parcial: o trigger legado duplica evento, e parar antes deixaria o par
+        // para trás — a razão original de o laço ser 3 e não 1.
+        if ((resumo.data?.scanned ?? 0) === 0) break;
       }
+      // Estourar o teto FALHA, e falha dizendo o que sobrou. Seguir em silêncio
+      // devolveria o defeito disfarçado de timeout: "não drenou o suficiente" é
+      // exatamente o que estamos consertando, e ele não pode voltar sem nome.
+      expect(
+        ticks,
+        `a fila não esvaziou em ${TETO_DE_TICKS} ticks (${TETO_DE_TICKS * 50} eventos). ` +
+          `Último tick: scanned=${ultimoResumo.scanned ?? "?"}, ` +
+          `retried=${ultimoResumo.retried ?? "?"}, failed=${ultimoResumo.failed ?? "?"}. ` +
+          "Acúmulo grande demais para ser ruído desta spec — ou há evento que falha e reenfileira em laço.",
+      ).toBeLessThan(TETO_DE_TICKS);
+
+      // O CAMINHO VERDE TAMBÉM CARREGA O DADO.
+      //
+      // Sem esta linha, `ticks` só é revelado quando a asserção acima FALHA — o
+      // run que passa joga fora exatamente a medida que responde à pergunta em
+      // aberto: a fila estava mesmo acumulando, ou 3 ticks bastavam e o vermelho
+      // da `main` vinha da janela de envio (#450)?
+      //
+      // Enquanto o dado morre no verde, a única forma de responder é um
+      // experimento caro: rodar esta branch sem o #450, num horário dentro da
+      // faixa 01:00-10:00 UTC. Registrando, todo run futuro responde de graça —
+      // se vier sempre 1 ou 2, a tese do acúmulo cai por medição própria; se
+      // vier alto, ela se confirma. Os dois desfechos informam.
+      //
+      // `console.info` e não `console.log`: é o método que o eslint deste repo
+      // permite (`no-console` com `allow: ["warn","error","info"]`) e o padrão
+      // que 7 specs já usam — as linhas `[QA] …` que aparecem no log do CI saem
+      // daí (`qa-agente-usa-as-maos.spec.ts:517`). Não é precedente novo.
+      //
+      // Instrumento, não catraca: baixar o TETO compraria a mesma resposta
+      // pagando com risco de flake, e flake foi o defeito que este arquivo
+      // acabou de custar um dia para consertar.
+      console.info(
+        `[QA] fila do event_log drenou em ${ticks} tick(s) de ${TETO_DE_TICKS} ` +
+          `(último: scanned=${ultimoResumo.scanned ?? "?"}, ` +
+          `retried=${ultimoResumo.retried ?? "?"}, failed=${ultimoResumo.failed ?? "?"})`,
+      );
 
       // --- Step 7: aba Atividade mostra a run com sucesso ---
       // A regra não tem condição — dispara tanto pro "Lead de Teste" (passo 3)
@@ -216,17 +295,38 @@ test.describe("webhooks & automações — fluxo completo", () => {
       const runTitle = page.getByText(RULE_NAME, { exact: true }).first();
       const runCard = cardOf(runTitle);
       let found = false;
+      // Fotografado a cada tentativa para a mensagem de falha poder DISTINGUIR as
+      // causas. A asserção antiga dizia só "não apareceu com status Sucesso", e
+      // esse texto cobre TRÊS mundos diferentes:
+      //
+      //   card nem existe        -> a automação não rodou (evento não chegou ao motor)
+      //   card existe, sem status-> rodou e ficou pendente (run travado)
+      //   card existe com outro  -> rodou e FALHOU (o motor tem o porquê gravado)
+      //
+      // As três pedem investigações diferentes, e o teste as entregava como uma
+      // frase só. Isso custou uma noite: o vermelho do CI foi lido como acúmulo
+      // de fila, corrigido, e voltou — porque a mensagem não dizia o que a tela
+      // realmente mostrava.
+      let diagnostico = "nenhuma tentativa registrada";
       for (let attempt = 0; attempt < 12; attempt++) {
-        if ((await runCard.count()) > 0 && (await runCard.getByText("Sucesso").count()) > 0) {
+        const cards = await runCard.count();
+        if (cards > 0 && (await runCard.getByText("Sucesso").count()) > 0) {
           found = true;
           break;
         }
+        diagnostico =
+          cards === 0
+            ? `tentativa ${attempt + 1}: NENHUM card com o nome da regra na aba Atividade`
+            : `tentativa ${attempt + 1}: card existe, e o texto dele é ${JSON.stringify(
+                (await runCard.first().innerText()).replace(/\s+/g, " ").trim().slice(0, 240),
+              )}`;
         await page.getByRole("button", { name: "Atualizar" }).click();
         await page.waitForTimeout(1000);
       }
-      expect(found, "run da automação não apareceu com status Sucesso na aba Atividade").toBe(
-        true,
-      );
+      expect(
+        found,
+        `run da automação não apareceu com status Sucesso na aba Atividade. ${diagnostico}`,
+      ).toBe(true);
       await expect(runCard.getByText("Sucesso")).toBeVisible();
 
       // --- Step 8: /app/pipelines/{pipelineId} mostra o card com a tag ---

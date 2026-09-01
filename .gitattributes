@@ -41,3 +41,28 @@ supabase/migrations/MANIFEST.md merge=union
 # clona no Windows vê a falha. `eol=lf` fixa LF no checkout independente do
 # `core.autocrlf` de quem clonou.
 *.sql text eol=lf
+
+# ─── Fim de linha fixo em LF para TODO arquivo de texto ──────────────────────
+#
+# A regra de `*.sql` acima resolveu um caso de um problema que é geral, e o
+# resto dele continuava de pé. Num clone feito no Windows com o padrão do
+# instalador git (`core.autocrlf=true`), TODO arquivo de texto chega ao disco
+# com CRLF — e os gates deste repo leem arquivo de texto o tempo todo: o
+# workflow YAML, o mapa de jornadas, o selo da tradução, a lista de specs do
+# e2e. Um `\r` no fim da linha derruba regex ancorada e comparação de string.
+#
+# Medido num clone limpo desta main, rodando `pnpm test:unit` em Windows:
+#
+#     core.autocrlf=true  (padrão)  ->  9 arquivos / 20 casos vermelhos
+#     core.autocrlf=false           ->  5 arquivos /  8 casos vermelhos
+#
+# Os 5 arquivos e 12 casos da diferença NÃO têm defeito nenhum: são
+# `tag-so-nasce-da-main`, `e2e-cobertura-completa`, `numero-de-jornada-e-unico`,
+# `traducao-nao-defasa` e `marca-logo-spec-ancora-a-rota` lendo `\r` que o CI
+# nunca vê, porque `ubuntu-latest` não converte. É o mesmo raciocínio que o
+# bloco de `*.sql` já escreveu — só que ele vale para o repo inteiro.
+#
+# `text=auto` deixa o git detectar binário sozinho; só o que ele já trata como
+# texto é normalizado. Os blobs JÁ estão em LF, então isto não reescreve
+# arquivo nenhum: muda apenas o que o checkout entrega.
+* text=auto eol=lf

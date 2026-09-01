@@ -111,15 +111,13 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
   com OBJETO DE COMUNICAÇÃO ("parar de me mandar", "sair da lista"). Enquanto eram duas
   regras, a ingestão bloqueava paciente que perguntou "tem como parar a dor?" — medido em
   clínica, 12 falsos positivos num corpus de 32 frases de nicho.
-  Para ver o vocabulário em vigor sem confiar nesta linha:
+  Cobre português e espanhol, nos dois níveis (inequívoco e ambíguo) — foi preciso um PR
+  além do #275 (que só tinha coberto o vocabulário inequívoco) para o espanhol ganhar a
+  camada ambígua e as construções com pronome preso ("escribirme"). Para ver o vocabulário
+  em vigor sem confiar nesta linha:
   `grep -n 'PALAVRAS_DE_OPT_OUT' -A20 lib/opt-out/deteccao.ts`, e as frases de controle em
   `tests/unit/opt-out-deteccao.test.ts`.
-  **Espanhol É coberto neste fork** (`baja`, `desuscribir`, `no quiero recibir`, `sacame de
-  la lista`), com a mesma âncora: verbo de comunicação, nunca palavra solta em frase longa.
-  Medido — 6 das 9 definições aprovadas do dono terminam com "Respondé BAJA para no recibir
-  más", e três clientes pediram sem serem atendidos. As exclusões são o que impede o falso
-  positivo NOVO: "no quiero recibir la factura" e "sacame de la lista de espera" NÃO
-  bloqueiam. Upstream ainda não tem — é o que o PR #275 passa a oferecer.
+  O espanhol nasceu deste fork (PR #275, mergeado em 24/08) e foi refinado na upstream.
 - Mídia: subir pro Supabase Storage primeiro, passar URL ao WAHA (não inline base64)
 - Multi-device: assinar `message.any` (não só `message`); tratar `fromMe=true` sem duplicar
 - Grupos: SKIP CRM binding se `chatId.endsWith('@g.us')`. Sender é `p.author`, não `p.from`

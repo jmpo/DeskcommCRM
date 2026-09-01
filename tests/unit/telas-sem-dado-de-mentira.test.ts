@@ -65,6 +65,8 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { relativoEmBarraNormal } from "./helpers/caminho";
+
 const RAIZ = process.cwd();
 const AREA_DO_TENANT = path.join(RAIZ, "app/app");
 
@@ -153,7 +155,7 @@ function cadeiaDeImports(arquivo: string, vistos = new Set<string>()): string[] 
   }
   for (const especificador of importesDe(fonte)) {
     if (PROIBIDOS.test(especificador)) {
-      achados.push(`${path.relative(RAIZ, arquivo)} → ${especificador}`);
+      achados.push(`${relativoEmBarraNormal(RAIZ, arquivo)} → ${especificador}`);
       continue;
     }
     const local = resolverLocal(especificador, arquivo);
@@ -175,12 +177,12 @@ describe("tela alcançável não come dado de mentira", () => {
   it("nenhuma tela do tenant CHEGA a uma fixture, nem por caminho indireto", () => {
     const infratores: string[] = [];
     for (const arquivo of arquivos) {
-      const relativo = path.relative(RAIZ, arquivo);
-      if (PERMITIDOS[relativo]) continue;
+      const rel = relativoEmBarraNormal(RAIZ, arquivo);
+      if (PERMITIDOS[rel]) continue;
       // A cadeia inteira, não só o import direto: o caminho provável é a tela
       // importar um componente limpo que importa a fixture.
       const proibidos = cadeiaDeImports(arquivo);
-      if (proibidos.length > 0) infratores.push(`${relativo}: ${[...new Set(proibidos)].join(" | ")}`);
+      if (proibidos.length > 0) infratores.push(`${rel}: ${[...new Set(proibidos)].join(" | ")}`);
     }
     expect(
       infratores,

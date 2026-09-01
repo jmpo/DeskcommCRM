@@ -29,7 +29,7 @@
  * silenciosa — se você precisar acrescentar uma, escreva o porquê junto.
  */
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 // O padrão vive em módulo próprio para poder ser testado sem executar o lint —
 // ver a justificativa das duas fronteiras (issue #118) lá.
@@ -185,11 +185,21 @@ const KNOWN_DEBT: { reason: string; files: string[] }[] = [
 
 const DEBT = new Set(KNOWN_DEBT.flatMap((g) => g.files));
 
+/**
+ * Caminhos SEMPRE em barra normal.
+ *
+ * `join()` devolve barra invertida no Windows, e as duas listas contra as
+ * quais estes caminhos são comparados usam barra normal: `ALLOWED` é regex
+ * ancorada em `^lib/channels/`, e `DEBT` é um Set de strings. Falhava nas
+ * DUAS pontas — nada era permitido, e nada era reconhecido como dívida já
+ * registrada —, e o script acusava 155 arquivos numa árvore limpa. No CI
+ * (Linux) passa, então só quem contribui do Windows via.
+ */
 function walk(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = join(dir, e.name);
     if (e.isDirectory()) return e.name === "node_modules" ? [] : walk(p);
-    return /\.tsx?$/.test(e.name) ? [p] : [];
+    return /\.tsx?$/.test(e.name) ? [p.split(sep).join("/")] : [];
   });
 }
 

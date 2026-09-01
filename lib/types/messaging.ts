@@ -38,6 +38,12 @@ export interface Conversation {
    * como aparecer só quando faz sentido, e a rota ficaria sem porta.
    */
   bot_silenced_until: string | null;
+  /**
+   * Campo CALCULADO pelo banco (migration 0203) — não é coluna, e por isso não vem
+   * em `select=*`: quem o quiser tem de pedi-lo por nome. Opcional porque a
+   * resposta de uma versão anterior, ainda em cache do react-query, não o tem.
+   */
+  comando_da_conversa?: string | null;
   last_handoff_at: string | null;
   created_at: string;
   updated_at: string;

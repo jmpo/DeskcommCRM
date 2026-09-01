@@ -48,6 +48,23 @@ export const FUSOS_OFERECIDOS: { codigo: string; rotulo: string }[] = [
 ];
 
 /**
+ * O fuso de quem ainda não escolheu — e o mesmo valor das outras duas pontas:
+ * o DEFAULT da coluna `organizations.timezone` (baseline.sql) e o
+ * `availabilityScheduleSchema` da jornada (`lib/schemas/routing.ts`).
+ *
+ * Existe para quem precisa DEGRADAR: leitor que encontra a coluna com um valor
+ * que o `Intl` recusa não pode lançar nem inventar UTC — UTC daria três horas
+ * de erro numa instalação brasileira, calado. Cair no mesmo valor que o banco
+ * já usa como padrão mantém uma verdade só.
+ *
+ * ⚠️ NÃO é o fuso do pacing. `PACING_DEFAULTS.timezone` tem o mesmo texto e
+ * responde a outra pergunta (a janela anti-ban daquele CANAL, override por
+ * linha em `channel_knobs`). Coincidem hoje; unificar os dois faria uma
+ * decisão de anti-ban mudar o relógio do agente.
+ */
+export const FUSO_PADRAO = "America/Sao_Paulo";
+
+/**
  * O runtime consegue usar este fuso?
  *
  * Pergunta ao `Intl`, e não a uma lista: é o `Intl` que o motor da janela usa, e

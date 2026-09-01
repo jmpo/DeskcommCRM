@@ -3,6 +3,15 @@ import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 
 export interface ConversationCounts {
+  /**
+   * OPCIONAIS de propósito: um cache de react-query gravado antes deste deploy
+   * não tem estes campos, e a tela lê o cache antes da primeira resposta nova.
+   * Marcá-los obrigatórios daria `undefined` onde o tipo promete `number` — e o
+   * badge imprimiria "NaN" no primeiro segundo depois de atualizar.
+   */
+  fila?: number;
+  automatico?: number;
+  /** Nome antigo de `fila`, mantido pela rota versionada. Prefira `fila`. */
   unassigned: number;
   mine: number;
   all: number;

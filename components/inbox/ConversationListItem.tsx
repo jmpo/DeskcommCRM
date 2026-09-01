@@ -48,12 +48,26 @@ interface Props {
   automaticoDaOrg?: boolean;
 }
 
-const STATUS_DOT: Record<string, string> = {
-  open: "bg-muted-foreground/60",
-  claimed: "bg-blue-500",
-  ai_handling: "bg-purple-500",
-  closed: "bg-muted-foreground/30",
-  archived: "bg-muted-foreground/20",
+/**
+ * A COR SAI DE QUEM MANDA, NÃO DO STATUS.
+ *
+ * O mapa anterior era por `conversations.status`, e o `bg-purple-500` de
+ * `ai_handling` era a mesma mentira das abas em forma de cor: `ai_handling` é
+ * escrito por UM caminho só em produção, então a bolinha do automático quase
+ * nunca aparecia — enquanto o robô atendia a maior parte da lista — e, quando
+ * aparecia, sobrevivia ao silêncio, porque o status não muda quando o atendente
+ * cala o automático.
+ *
+ * As chaves são as de `Comando["quem"]`, ao lado de `ROTULO_DO_COMANDO`, pela
+ * mesma razão que ele mora ali: a cor e a palavra dizem a mesma coisa e não
+ * podem ser mantidas em arquivos diferentes.
+ */
+const COR_DO_COMANDO: Record<string, string> = {
+  humano: "bg-blue-500",
+  automatico: "bg-purple-500",
+  aguardando: "bg-amber-500",
+  ninguem: "bg-muted-foreground/60",
+  encerrada: "bg-muted-foreground/30",
 };
 
 function initials(name: string | null | undefined, fallback: string): string {
@@ -109,7 +123,7 @@ export function ConversationListItem({
   const truncated = preview.length > 60 ? `${preview.slice(0, 60)}…` : preview;
   const time = relativeTime(conversation.last_message_at, localeDaData);
   const unread = conversation.unread_count_for_assignee ?? 0;
-  const dot = STATUS_DOT[conversation.status] ?? STATUS_DOT.open;
+
 
   /**
    * Quem manda, pela MESMA regra do cabeçalho.
@@ -126,9 +140,11 @@ export function ConversationListItem({
     assignee_kind: conversation.assignee_kind ?? null,
     bot_silenced_until: conversation.bot_silenced_until ?? null,
     force_human: c?.force_human ?? null,
+    is_blocked: c?.is_blocked ?? null,
     automaticoDaOrg,
   });
   const isAi = comando.quem === "automatico";
+  const dot = COR_DO_COMANDO[comando.quem] ?? COR_DO_COMANDO.ninguem;
 
   // O número DA EMPRESA por onde esta conversa chegou — não o do cliente. Com
   // dois canais é o que decide o tom da resposta e qual número a pessoa vê

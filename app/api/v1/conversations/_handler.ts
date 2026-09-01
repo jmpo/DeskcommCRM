@@ -24,6 +24,7 @@ const SELECT_COLS = `
   unread_count_for_assignee, is_group, group_chat_id, tags, metadata,
   snooze_until, created_at, updated_at,
   bot_silenced_until, last_handoff_at,
+  comando_da_conversa,
   contacts:contact_id (id, display_name, name, phone_number, is_anonymized, tags, is_blocked, avatar_storage_path, force_human),
   channel_sessions:channel_session_id (phone_number, display_name, provider)
 `;
@@ -88,7 +89,12 @@ export async function listConversationsHandler(
   // mais tempo primeiro. `last_inbound_at` = última mensagem do cliente = "há
   // quanto tempo aguarda resposta" (não `created_at`, que pode ser uma conversa
   // antiga reaberta). Demais visões: por atividade recente (last_message_at desc).
-  const isQueue = q.assigned_to === "unassigned";
+  // A Fila deixou de se identificar por `assigned_to=unassigned` — ela agora pede
+  // `comando`. Sem esta linha o `isQueue` ficaria PARA SEMPRE falso na aba Fila e
+  // a ordenação por tempo de espera sumiria **sem nenhum sintoma na tela**: a
+  // lista continuaria populada, só que ordenada por atividade recente, e quem
+  // espera desde ontem afundaria embaixo de quem escreveu agora.
+  const isQueue = q.comando?.includes("aguardando") ?? q.assigned_to === "unassigned";
   const sortCol = isQueue ? "last_inbound_at" : "last_message_at";
   const asc = isQueue;
 
@@ -105,6 +111,12 @@ export async function listConversationsHandler(
   // estados de espera numa consulta só, em vez de filtrar em memória o que a
   // página já truncou.
   if (q.status && q.status.length > 0) query = query.in("status", q.status);
+  // O filtro de QUEM MANDA (migration 0203). Vai no banco, e não em memória, para
+  // o cursor de paginação continuar valendo: filtrar depois de paginar devolveria
+  // páginas curtas e um "carregar mais" que às vezes não traz nada.
+  if (q.comando && q.comando.length > 0) {
+    query = query.in("comando_da_conversa", q.comando);
+  }
   // Depois do `status` de propósito: pedir um status terminal E `exclude_finished`
   // é contradição, e a resposta certa para uma contradição é lista vazia — não
   // um dos dois lados escolhido em silêncio.

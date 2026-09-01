@@ -23,7 +23,7 @@
  * constante — o sétimo sítio nasce ligado ou nasce vermelho.
  */
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { CONVERSATION_QUEUE_STATUSES } from "@/lib/schemas";
@@ -52,8 +52,14 @@ describe("a fila tem uma definição só", () => {
     }
   });
 
-  it.each(SITIOS_DA_FILA)("%s consome a constante", (caminho) => {
-    expect(fonte(caminho)).toContain("CONVERSATION_QUEUE_STATUSES");
+  it.each(SITIOS_DA_FILA)("%s consome comandosDaFila", (caminho) => {
+    // A RÉGUA MUDOU DE PERGUNTA, e a cerca mudou junto.
+    //
+    // `CONVERSATION_QUEUE_STATUSES` respondia "quem está esperando?" por STATUS,
+    // e o status não sabe quem manda: medido na VPS em 2026-08-30, esse predicado
+    // punha na fila 47 conversas que o robô estava atendendo. Quem responde agora
+    // é `comandosDaFila`, e é ELE que não pode ter uma segunda cópia.
+    expect(fonte(caminho)).toContain("comandosDaFila");
   });
 
   it.each(SITIOS_DA_FILA)("%s não decide a fila por literal solto", (caminho) => {
@@ -74,11 +80,16 @@ describe("a fila tem uma definição só", () => {
     }
   });
 
-  it("o trigger de roteamento do banco concorda com a constante", () => {
-    // O baseline é a outra ponta da mesma decisão, e foi ele que esteve certo o
-    // tempo todo: o trigger sempre enfileirou `pending`. Se alguém encolher a
-    // constante sem mexer no trigger, o rodízio volta a atribuir conversa que a
-    // tela jura não existir — que era exatamente o estado anterior.
+  it("o trigger de RODÍZIO concorda com a constante — outra pergunta, declarada", () => {
+    // ATENÇÃO: a constante deixou de ser a régua da FILA e passou a ser a régua do
+    // RODÍZIO, que é outra pergunta. "Entra na distribuição automática?" continua
+    // sendo respondida por status; "está esperando uma pessoa?" passou a ser
+    // respondida por `comandosDaFila`.
+    //
+    // A diferença é REAL e fica declarada aqui em vez de herdada: a tela passa a
+    // mostrar ~36 e o rodízio segue distribuindo ~83. Mudar o trigger é decisão de
+    // produto que ninguém tomou — e o dia em que for tomada, este teste é onde a
+    // decisão vai estar escrita.
     const baseline = fonte("supabase/baseline.sql");
     const gatilho = baseline.slice(baseline.indexOf("trg_conversation_routing_requested"));
     const when = gatilho.slice(0, gatilho.indexOf("execute function"));
@@ -91,5 +102,69 @@ describe("a fila tem uma definição só", () => {
     // duas direções.
     const doTrigger = [...when.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
     expect(doTrigger).toEqual([...CONVERSATION_QUEUE_STATUSES].sort());
+  });
+});
+
+describe("quem manda não se decide por `ai_handling`", () => {
+  /**
+   * `conversations.status = 'ai_handling'` é escrito por UM caminho só em
+   * produção — a volta pelo botão "Devolver ao automático" — e por isso NUNCA
+   * descreveu quem está no comando: a aba que o filtrava mostrava 2 conversas
+   * enquanto o robô atendia 47.
+   *
+   * Ele continua sendo um status de ciclo de vida legítimo, e ESCREVÊ-LO segue
+   * permitido. O que esta cerca proíbe é **decidir** por ele.
+   *
+   * A allowlist nasce VAZIA, e isso é medido, não esperado: depois da conversão
+   * nenhum arquivo de produção casa com os padrões abaixo. Uma allowlist que
+   * nasce vazia só encolhe — não há dívida para carimbar.
+   */
+  const ALLOWLIST: readonly string[] = [];
+
+  const PADROES: Array<[nome: string, re: RegExp]> = [
+    ["comparação direta", /status\s*===\s*["']ai_handling["']/],
+    ["filtro no banco", /\.eq\(\s*["']status["']\s*,\s*["']ai_handling["']/],
+    ["filtro em objeto", /status:\s*["']ai_handling["']/],
+  ];
+
+  function arquivosDeProducao(): string[] {
+    const out: string[] = [];
+    const anda = (dir: string) => {
+      for (const e of readdirSync(join(RAIZ, dir), { withFileTypes: true })) {
+        const rel = `${dir}/${e.name}`;
+        if (e.isDirectory()) {
+          if (e.name !== "node_modules") anda(rel);
+        } else if (/\.tsx?$/.test(e.name) && !e.name.includes(".test.")) {
+          out.push(rel);
+        }
+      }
+    };
+    for (const raiz of ["app", "components", "lib", "hooks", "workers"]) anda(raiz);
+    return out;
+  }
+
+  it("nenhum arquivo de produção decide o comando por `ai_handling`", () => {
+    const culpados: string[] = [];
+    for (const caminho of arquivosDeProducao()) {
+      if (ALLOWLIST.includes(caminho)) continue;
+      // Comentários fora: eles EXPLICAM o defeito, e uma cerca que os lê acusa
+      // justamente o texto que documenta o conserto.
+      const src = fonte(caminho)
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "");
+      for (const [nome, re] of PADROES) {
+        if (re.test(src)) culpados.push(`${caminho} (${nome})`);
+      }
+    }
+    expect(culpados, "quem manda voltou a ser decidido por status").toEqual([]);
+  });
+
+  it("o controle: a cerca ENXERGA o padrão que ela proíbe", () => {
+    // Uma varredura que nasce com zero achados pode estar certa ou pode estar
+    // cega, e as duas se leem igual. Este caso prova que ela morde.
+    const falso = `const x = { status: "ai_handling" };`;
+    expect(PADROES.some(([, re]) => re.test(falso))).toBe(true);
+    expect(PADROES.some(([, re]) => re.test(`if (c.status === "ai_handling") {}`))).toBe(true);
+    expect(arquivosDeProducao().length).toBeGreaterThan(200);
   });
 });

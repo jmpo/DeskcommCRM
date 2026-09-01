@@ -23,8 +23,11 @@ import {
   horariosLivresDaOrg,
   idDoTipoPorSlug,
   listaAgendamentos,
+  listaTiposDeAtendimento,
   MAXIMO_DE_DIAS,
 } from "@/lib/agenda/consulta";
+import { rotuloDoLocal } from "@/lib/agenda/locais";
+import { rotuloLocal } from "@/lib/tempo/agora";
 import {
   alterarAgendamentoHandler,
   cancelarAgendamentoHandler,
@@ -36,6 +39,105 @@ import type { McpToolDefinition } from "@/lib/mcp/types";
 
 /** Teto do horizonte pedido — espelha o da rota, e o excesso é erro de chamada. */
 const DIAS_PADRAO = 14;
+
+/**
+ * Quantos horários voltam ao modelo, e por que existe um teto.
+ *
+ * ⚠️ NÃO HAVIA NENHUM. Medido no formato atual, a chamada PADRÃO de 14 dias
+ * devolve 177 horários — cerca de 3.600 tokens de lista, todos entrando inteiros
+ * no contexto do turno; no teto de 62 dias são 788. Isso é caro e é pior que
+ * caro: um modelo que recebe 177 opções escolhe mal, e a lista empurra para fora
+ * do contexto o que a pessoa disse.
+ *
+ * A irmã `crm_list_appointments` já tinha teto (`limite`, máx. 50). Esta não —
+ * a assimetria era descuido, não decisão.
+ */
+const HORARIOS_PADRAO = 24;
+const HORARIOS_MAX = 50;
+
+/**
+ * ⚠️ CORTAR PELA CABEÇA ENVIESA. 24 horários numa grade de 30 minutos sobre um
+ * expediente de 9h são um dia e meio: um pedido de "semana que vem" voltaria só
+ * com amanhã, e o modelo concluiria que não há vaga na semana que vem.
+ *
+ * Espalhar pega os primeiros de CADA dia até o teto, o que preserva a forma da
+ * janela pedida — a pessoa vê opções ao longo do período que ela citou.
+ */
+function espalhaPorDia(
+  slots: readonly { inicio: Date; fim: Date }[],
+  fuso: string,
+  teto: number,
+): { inicio: Date; fim: Date }[] {
+  const porDia = new Map<string, { inicio: Date; fim: Date }[]>();
+  for (const s of slots) {
+    const dia = rotuloLocal(s.inicio, fuso).slice(0, 20);
+    const lista = porDia.get(dia);
+    if (lista) lista.push(s);
+    else porDia.set(dia, [s]);
+  }
+  const escolhidos: { inicio: Date; fim: Date }[] = [];
+  // Rodadas: um de cada dia por vez, na ordem em que os dias aparecem.
+  for (let rodada = 0; escolhidos.length < teto; rodada += 1) {
+    let achouAlgum = false;
+    for (const lista of porDia.values()) {
+      const s = lista[rodada];
+      if (s === undefined) continue;
+      achouAlgum = true;
+      escolhidos.push(s);
+      if (escolhidos.length >= teto) break;
+    }
+    if (!achouAlgum) break;
+  }
+  return escolhidos.sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
+}
+
+/**
+ * ⚠️ SEM INPUT, e o precedente é `crm_list_team_members` (`operacao.ts`). Um
+ * filtro aqui só criaria como errar: o modelo passaria o nome que o paciente
+ * disse ("botox") e receberia lista vazia de uma organização que atende
+ * exatamente isso sob outro nome ("HOF e Botox").
+ */
+const tiposShape = {};
+
+export const crmListEventTypes: McpToolDefinition<typeof tiposShape> = {
+  name: "crm_list_event_types",
+  description:
+    "Lista o que esta organização atende — os tipos de atendimento que dá para marcar, quanto cada " +
+    "um dura e como é feito. " +
+    "CHAME ANTES de oferecer horário ou marcar qualquer coisa: `crm_find_free_slots` e " +
+    "`crm_book_appointment` exigem `event_type_slug`, e ele tem de ser um `slug` que voltou daqui. " +
+    "NUNCA invente um slug nem traduza o que a pessoa disse por conta própria: ela fala 'botox' e o " +
+    "atendimento pode se chamar outra coisa — é você que faz a ponte, olhando esta lista. " +
+    "Lista vazia significa que ninguém cadastrou o que a organização atende: não invente atendimento, " +
+    "avise que alguém da equipe confirma. " +
+    "`precisa_confirmacao: true` muda o que você diz depois de marcar — o horário fica reservado " +
+    "AGUARDANDO a pessoa confirmar, não confirmado.",
+  inputSchema: tiposShape,
+  category: "read",
+  requiresRole: "agent",
+  requiresScope: "mcp:read",
+  handler: async (_input, ctx) => {
+    const r = await listaTiposDeAtendimento(ctx.supabase, ctx.organizationId);
+    if (!r.ok) {
+      return { tipos: [], motivo: r.codigo, mensagem: r.motivoParaCliente };
+    }
+    return {
+      tipos: r.tipos.map((t) => ({
+        // O SLUG vem primeiro, e o `id` NÃO vem: o slug existe para dar à IA um
+        // handle que ela não alucina, e devolver o uuid ao lado convidaria o
+        // modelo a mandá-lo onde slug é esperado.
+        slug: t.slug,
+        nome: t.nome,
+        descricao: t.descricao,
+        duracao_minutos: t.duracaoMin,
+        // Traduzido: `in_person` é vocabulário de banco e o modelo repassa o que
+        // recebe. `rotuloDoLocal` é o MESMO tradutor que a tela usa.
+        onde: rotuloDoLocal(t.localKind, t.localDetalhes) ?? null,
+        precisa_confirmacao: t.precisaConfirmacao,
+      })),
+    };
+  },
+};
 
 const horariosLivresShape = {
   event_type_slug: z
@@ -58,6 +160,13 @@ const horariosLivresShape = {
   de: z.string().datetime({ offset: true }).optional(),
   ate: z.string().datetime({ offset: true }).optional(),
   owner_user_id: z.string().uuid().optional(),
+  limite: z
+    .number()
+    .int()
+    .min(1)
+    .max(HORARIOS_MAX)
+    .optional()
+    .describe(`quantos horários no máximo (padrão ${HORARIOS_PADRAO})`),
 };
 
 export const crmFindFreeSlots: McpToolDefinition<typeof horariosLivresShape> = {
@@ -67,6 +176,11 @@ export const crmFindFreeSlots: McpToolDefinition<typeof horariosLivresShape> = {
     "do atendente, folgas, o que ele já tem marcado e a agenda externa dele. " +
     "Use ANTES de oferecer horário ao cliente: oferecer um horário que não existe e depois voltar " +
     "atrás é pior do que demorar um instante a mais para responder. " +
+    "Cada horário vem em dois formatos: `inicio` é o instante que você COPIA para `starts_at` de " +
+    "`crm_book_appointment`, sem reescrever; `quando` já está na hora local da agenda e é o que você " +
+    "fala com a pessoa. " +
+    "A lista vem cortada no `limite` e espalhada ao longo do período: `total_de_horarios` diz quantos " +
+    "existem e `ha_mais` avisa que sobraram — lista cortada NÃO é agenda cheia. " +
     "QUANDO: informe `dias_a_frente` (a partir de agora — ex.: 7 para a próxima semana). " +
     "SE VOCÊ NÃO SABE QUE DIA É HOJE, USE `dias_a_frente` — não tente montar `de`/`ate`. " +
     "Lista vazia NÃO é erro e NÃO significa que a agenda está cheia: leia `publicou_horarios`. " +
@@ -120,11 +234,30 @@ export const crmFindFreeSlots: McpToolDefinition<typeof horariosLivresShape> = {
       };
     }
 
+    // O fuso é o DA REGRA (a jornada do atendente), nunca o da organização: é
+    // nele que os horários foram calculados, e é o que esta resposta já publica.
+    // Rotular com outro faria `quando` discordar de `fuso_da_regra` na mesma
+    // resposta.
+    const escolhidos = espalhaPorDia(
+      consulta.slots,
+      consulta.fusoDaRegra,
+      input.limite ?? HORARIOS_PADRAO,
+    );
+
     return {
-      horarios: consulta.slots.map((s) => ({
+      horarios: escolhidos.map((s) => ({
+        // `inicio` é o que volta em `starts_at` — copie, não reescreva.
         inicio: s.inicio.toISOString(),
         fim: s.fim.toISOString(),
+        // `quando` é para FALAR com a pessoa. Um só, e do início: o fim não
+        // responde pergunta nenhuma (a duração é do tipo) e dobraria o custo.
+        quando: rotuloLocal(s.inicio, consulta.fusoDaRegra),
       })),
+      // Sem estes dois, uma lista cortada é indistinguível de uma agenda que
+      // acabou — o mesmo modo de falha que `publicou_horarios` existe para
+      // evitar.
+      total_de_horarios: consulta.slots.length,
+      ha_mais: consulta.slots.length > escolhidos.length,
       fuso_da_regra: consulta.fusoDaRegra,
       /** false = o atendente NÃO publicou jornada. Diferente de "sem vaga" (DECISÃO 1.1). */
       publicou_horarios: consulta.publicouHorarios,
@@ -230,6 +363,9 @@ const ENSINO_POR_CODIGO: Record<string, string> = {
     "não consigo ler a agenda desse atendente agora. Não ofereça horários e não diga que está sem vaga — avise que alguém da equipe confirma.",
   agenda_ja_cancelado:
     "esse compromisso já estava desmarcado. Não é erro: siga sem desmarcar de novo.",
+  agenda_ainda_nao_aconteceu:
+    "esse compromisso ainda não começou, então não há desfecho a registrar. Se a pessoa avisou que " +
+    "não vem, use `crm_cancel_appointment`; se ela quer outro dia, `crm_reschedule_appointment`.",
   not_found: "não encontrei esse compromisso. Confirme com `crm_list_appointments` antes de tentar de novo.",
   internal_error: "não consegui completar agora. Avise que alguém da equipe confirma, e não repita a tentativa.",
 };
@@ -370,5 +506,76 @@ export const crmCancelAppointment: McpToolDefinition<typeof cancelarShape> = {
         { id: input.appointment_id, reason: input.reason },
       );
       return { cancelado: true, compromisso: r };
+    }),
+};
+
+const confirmarShape = {
+  appointment_id: z.string().uuid().describe("o compromisso, vindo de `crm_list_appointments`"),
+  notes: z.string().max(2000).optional(),
+};
+
+export const crmConfirmAppointment: McpToolDefinition<typeof confirmarShape> = {
+  name: "crm_confirm_appointment",
+  description:
+    "Confirma que o cliente VAI COMPARECER a um compromisso que estava aguardando a resposta dele. " +
+    "Use quando ele disser que vem — 'confirmado', 'pode marcar', 'estarei lá'. " +
+    "Serve só para compromisso na situação `pending`: chame `crm_list_appointments` antes e veja a " +
+    "situação. Confirmar o que já estava confirmado devolve `ja_estava: true` — não é erro, e não é " +
+    "motivo para avisar a pessoa de novo. " +
+    "NÃO use para dizer que o atendimento ACONTECEU: isso é `crm_set_appointment_outcome`, e é depois " +
+    "da hora.",
+  inputSchema: confirmarShape,
+  category: "write",
+  requiresRole: "ai_operator",
+  requiresScope: "mcp:write",
+  handler: async (input, ctx) =>
+    semDerrubarOTurno("confirmado", async () => {
+      const r = await alterarAgendamentoHandler(
+        ctx.supabase,
+        { organization_id: ctx.organizationId, actor: ctx.actor, requestId: ctx.requestId },
+        {
+          id: input.appointment_id,
+          status: "confirmed",
+          ...(input.notes ? { notes: input.notes } : {}),
+        },
+      );
+      return { confirmado: true, compromisso: r };
+    }),
+};
+
+const desfechoShape = {
+  appointment_id: z.string().uuid().describe("o compromisso, vindo de `crm_list_appointments`"),
+  outcome: z
+    .enum(["completed", "no_show"])
+    .describe("`completed` = a pessoa foi atendida; `no_show` = ela não apareceu e não avisou"),
+  notes: z.string().max(2000).optional(),
+};
+
+export const crmSetAppointmentOutcome: McpToolDefinition<typeof desfechoShape> = {
+  name: "crm_set_appointment_outcome",
+  description:
+    "Registra o que ACONTECEU num compromisso que JÁ PASSOU: a pessoa foi atendida (`completed`) ou " +
+    "não apareceu (`no_show`). " +
+    "SÓ DEPOIS DA HORA — compromisso futuro é recusado, porque você não sabe o que ainda vai " +
+    "acontecer. Veja a hora do compromisso em `crm_list_appointments` e compare com a data de hoje. " +
+    "NÃO use para quem AVISOU que não vem: isso é `crm_cancel_appointment`, que desmarca com o motivo " +
+    "registrado e libera o horário para outra pessoa. `no_show` é para quem não avisou e não veio — " +
+    "é um registro sobre o passado, e a equipe lê isso como falta.",
+  inputSchema: desfechoShape,
+  category: "write",
+  requiresRole: "ai_operator",
+  requiresScope: "mcp:write",
+  handler: async (input, ctx) =>
+    semDerrubarOTurno("registrado", async () => {
+      const r = await alterarAgendamentoHandler(
+        ctx.supabase,
+        { organization_id: ctx.organizationId, actor: ctx.actor, requestId: ctx.requestId },
+        {
+          id: input.appointment_id,
+          status: input.outcome,
+          ...(input.notes ? { notes: input.notes } : {}),
+        },
+      );
+      return { registrado: true, compromisso: r };
     }),
 };

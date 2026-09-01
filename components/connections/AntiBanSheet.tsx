@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { useUpdatePacingKnobs, type PacingKnobsItem } from "@/hooks/channels/usePacingKnobs";
+import { valorDeOverride } from "@/lib/ai/pacing-knobs";
 import { ApiError } from "@/lib/api/types";
 import { nomeDoCanal } from "@/lib/channels/estado";
 import { useT } from "@/hooks/i18n/useT";
@@ -98,7 +99,11 @@ export function AntiBanSheet({ item, canWrite, onClose }: Props) {
         window_end_hour: intOrNull(form.window_end_hour),
         throttle_ms: msOrNull(form.throttle_s),
         jitter_max_ms: msOrNull(form.jitter_s),
-        allow_sunday: form.allow_sunday,
+        // `null` quando o Switch está no default: salvar esta ficha por outro
+        // motivo (aquecimento, throttle) não pode congelar o padrão do dia como
+        // escolha permanente — foi assim que uma instalação ficou muda todo
+        // domingo. Ver `valorDeOverride`.
+        allow_sunday: valorDeOverride(form.allow_sunday, item.defaults.allowSunday),
         timezone: form.timezone.trim() === "" ? null : form.timezone.trim(),
         ...(form.daily_message_limit.trim() !== ""
           ? { daily_message_limit: Math.round(Number(form.daily_message_limit)) }

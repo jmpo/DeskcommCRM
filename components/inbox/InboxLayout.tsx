@@ -23,7 +23,6 @@ import { RetentionNotice } from "./RetentionNotice";
 import { CRMSidePanel } from "./CRMSidePanel";
 import type { Message as ConversationMensagem } from "@/lib/types/messaging";
 import { InboxKeyboardShortcuts } from "./InboxKeyboardShortcuts";
-import { CONVERSATION_QUEUE_STATUSES } from "@/lib/schemas";
 
 import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
 import { OpenConversationProvider } from "@/hooks/notifications/OpenConversationContext";
@@ -32,6 +31,8 @@ import { CaretLeft, IdentificationCard } from "@/lib/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { comandosDaFila } from "@/lib/inbox/comando-da-conversa";
+import { useAutomaticoAtivo } from "@/hooks/ai/useAutomaticoAtivo";
 
 /**
  * QUAL COLUNA APARECE NO CELULAR — as duas saem da MESMA pergunta.
@@ -63,15 +64,23 @@ export function colunasDoCelular(temSelecao: boolean): { lista: string; conversa
  * que este mapa já teve (Minhas mostrando tudo que o atendente fechou) não
  * aparece em nenhuma tela até alguém reclamar, então vale prender por teste.
  */
-export function tabToFilter(tab: InboxFiltersValue["tab"]): Partial<ConversationsFilters> {
+export function tabToFilter(
+  tab: InboxFiltersValue["tab"],
+  automaticoDaOrg?: boolean,
+): Partial<ConversationsFilters> {
   switch (tab) {
     case "unassigned":
-      // Os DOIS estados de espera, não só `open`. A conversa que o automático
-      // escalou é `pending` e não aparecia em aba nenhuma que o atendente vê —
-      // "Fila" pedia `open`, "Minhas" exige dono, "IA" filtra `ai_handling` e
-      // "Todas" é escondida do papel `agent` fora do modo `all`. A conversa que
-      // mais precisa de uma pessoa era a única invisível.
-      return { assigned_to: "unassigned", status: [...CONVERSATION_QUEUE_STATUSES] };
+      // A FILA PERGUNTA POR QUEM MANDA, NÃO POR STATUS.
+      //
+      // Antes ela pedia `assigned_to=unassigned` + os dois estados de espera. Só
+      // que "sem dono e aberta" é também a conversa que o robô está atendendo
+      // agora — medido na VPS em 2026-08-30, a aba dizia 83 e 47 daquelas tinham
+      // o automático no comando. O atendente abria a Fila e via como trabalho
+      // dele quase tudo que já estava sendo respondido.
+      //
+      // `comandosDaFila` é quem cruza isso com o fato org-wide: numa instalação
+      // sem nenhum agente no ar, `automatico` também é "esperando gente".
+      return { comando: comandosDaFila(automaticoDaOrg) };
     case "mine":
       // Sem `exclude_finished` a aba mostra tudo que o atendente JÁ atendeu —
       // `Fechar` muda o status mas não solta o dono (de propósito: quem atendeu
@@ -80,7 +89,10 @@ export function tabToFilter(tab: InboxFiltersValue["tab"]): Partial<Conversation
     case "closed":
       return { status: "closed" };
     case "ai":
-      return { status: "ai_handling" };
+      // `ai_handling` é escrito por UM caminho só em produção (a volta pelo botão
+      // "Devolver ao automático"), então a aba vivia mostrando 2 enquanto o robô
+      // atendia 47. Agora ela pergunta a régua do MOTOR.
+      return { comando: ["automatico"] };
     case "all":
     default:
       return {};
@@ -142,16 +154,34 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
    * quem MOSTRA é o composer — são irmãos, e o estado comum é do pai.
    */
   const [respondendo, setRespondendo] = useState<ConversationMensagem | null>(null);
+
+  /**
+   * A ORG tem automático de pé? Sobe para cá porque agora é a ABA que precisa —
+   * `ConversationList` e `ConversationHeader` continuam lendo o mesmo hook, e o
+   * react-query dedupa: segue sendo uma requisição só.
+   *
+   * `undefined` enquanto carrega, e `comandosDaFila` trata isso como "assume que
+   * há" — a mesma convenção da regra. Numa org SEM automático a Fila nasce menor
+   * e completa quando a resposta chega; a janela é de ~200ms e o rótulo nunca
+   * discorda do filtro, porque os dois usam a mesma convenção.
+   */
+  const { data: automaticoDaOrg } = useAutomaticoAtivo();
   const composerRef = useRef<ComposerHandle | null>(null);
 
   const filters: ConversationsFilters = useMemo(
     () => ({
-      ...tabToFilter(filterValue.tab),
+      ...tabToFilter(filterValue.tab, automaticoDaOrg),
       search: filterValue.search || undefined,
       channel_session_id: filterValue.channel_session_id,
       tag: filterValue.tag,
     }),
-    [filterValue.tab, filterValue.search, filterValue.channel_session_id, filterValue.tag],
+    [
+      filterValue.tab,
+      automaticoDaOrg,
+      filterValue.search,
+      filterValue.channel_session_id,
+      filterValue.tag,
+    ],
   );
 
   const clientFilter = useMemo(
