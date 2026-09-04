@@ -64,6 +64,21 @@ const DIR = join(process.cwd(), ".github/workflows");
  * que desliga um job de entrega fica visível em code review.
  */
 const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string }> = {
+  // --- os vigias DESTE FORK (não existem na upstream) -------------------------
+  "vigia-do-dominio.yml::sondar": {
+    condicao: null,
+    efeito:
+      "É o vigia externo dos quatro sites da VPS (CRM, Sandra, gymgo). Desligá-lo " +
+      "faz uma queda às 3 da manhã ser descoberta por um cliente reclamando — o " +
+      "e-mail de alerta do GitHub só existe enquanto este job roda e fica vermelho.",
+  },
+  "vigia-da-upstream.yml::vigiar": {
+    condicao: null,
+    efeito:
+      "É quem mede a distância da upstream toda manhã e abre o PR de sync. " +
+      "Desligá-lo faz o fork atrasar em silêncio — a descoberta é um sync de " +
+      "centenas de commits com conflitos, que é exatamente o que ele existe para evitar.",
+  },
   // --- a cadeia que leva o conserto até a VPS ---------------------------------
   "release.yml::abrir-pr-de-release": {
     condicao: "github.event_name == 'workflow_dispatch'",
