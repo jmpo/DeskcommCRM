@@ -78,6 +78,21 @@ if docker ps --format '{{.Names}}' | grep -q '^sandra-db-1$'; then
   find "$DEST" -name 'sandra-*.gz' -mtime +14 -delete
 fi
 
+# OpenGym (app de academia) guarda TUDO em arquivos — o db.json É a base de
+# dados. 160K hoje: o respaldo mais barato do servidor, e sem ele um rm errado
+# apaga a academia inteira. O `secret` vai junto de propósito: sem ele os
+# state-*.json não se recuperam.
+if [ -d /root/opengym/data ]; then
+  OG="$DEST/opengym-$(date +%Y%m%d).tar.gz"
+  if tar -czf "$OG.parcial" -C /root/opengym data 2>>"$LOG" \
+     && [ "$(stat -c%s "$OG.parcial")" -gt 1024 ]; then
+    mv "$OG.parcial" "$OG"; log "OK opengym: $(du -h "$OG" | cut -f1)"
+  else
+    rm -f "$OG.parcial"; echo "tar do opengym falhou — ver $LOG" > "$ERRO"; log "FALHA: opengym"
+  fi
+  find "$DEST" -name 'opengym-*.tar.gz' -mtime +14 -delete
+fi
+
 # Rotação: os diários além de 14 saem. `-name 'diario-*'` para NUNCA tocar nos
 # respaldos manuais pre-esquema, que têm outro prefixo e outra razão de existir.
 find "$DEST" -name 'diario-*.sql.gz' -mtime +14 -delete

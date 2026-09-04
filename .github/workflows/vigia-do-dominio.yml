@@ -31,16 +31,24 @@ jobs:
     steps:
       - name: O domínio responde?
         run: |
-          # Duas tentativas com 20s de intervalo: um soluço de rede do RUNNER
-          # não pode virar alarme de madrugada. Queda de verdade falha nas duas.
-          for tentativa in 1 2; do
-            CODIGO=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 https://crm.srv1872573.hstgr.cloud/ || echo 000)
-            if [ "$CODIGO" = "307" ] || [ "$CODIGO" = "200" ]; then
-              echo "no ar (HTTP $CODIGO, tentativa $tentativa)"
-              exit 0
-            fi
-            echo "tentativa $tentativa: HTTP $CODIGO"
-            [ "$tentativa" = "1" ] && sleep 20
+          # A VPS deixou de ser um site só: CRM, o WordPress de Sandra e o
+          # OpenGym dividem a máquina, e o vigia que só olhava o CRM daria
+          # verde com dois terços do servidor no chão. Cada linha diz o código
+          # que significa "vivo" PARA AQUELE site — o 307 do CRM é o redirect
+          # ao login, e um 200 ali seria suspeito, não saudável.
+          SITIOS="https://crm.srv1872573.hstgr.cloud/=307|200 https://sandramartinpy.com/=200|301 https://gymgo.online/=200 https://app.gymgo.online/=200"
+          CAIDOS=""
+          for par in $SITIOS; do
+            URL="${par%%=*}"; OK="${par##*=}"
+            for tentativa in 1 2; do
+              CODIGO=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "$URL" || echo 000)
+              echo "$CODIGO" | grep -qE "^(${OK})$" && { echo "vivo: $URL ($CODIGO)"; CODIGO=ok; break; }
+              [ "$tentativa" = "1" ] && sleep 20
+            done
+            [ "$CODIGO" != "ok" ] && CAIDOS="$CAIDOS $URL($CODIGO)"
           done
-          echo "::error::O domínio não responde (último código: $CODIGO). Ver a VPS: docker ps, docker logs crm-app-1, e o runbook de deploy."
-          exit 1
+          if [ -n "$CAIDOS" ]; then
+            echo "::error::Caído(s):$CAIDOS — ver a VPS: docker ps e os logs do contêiner."
+            exit 1
+          fi
+          exit 0
