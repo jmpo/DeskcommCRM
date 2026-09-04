@@ -110,6 +110,10 @@ fonte só (`lib/onboarding/passos.ts`) — eram três listas que discordavam. Ga
 | J3.14 | Ver se o que está ligado está funcionando (aba Capacidades) | usos, falhas, quantos vieram de teste, última vez — e o que fazer com cada número · **PASS** (números escritos pelo emissor real de audit) |
 | J3.15 | O teto recusa a passagem, explicando em português | **PASS** — exercitável desde que o catálogo cresceu (57 capacidades). `capacidades-do-agente.spec.ts` liga "Atender" sobre as 8 do seed e prova a recusa por 1 vaga. A afirmação "não exercitável hoje, com 16 capacidades no catálogo" VENCEU |
 
+## Chaves de acesso à IA `[P0]`
+
+- `[P0]` Colar chave inválida e entender o motivo — `tests/e2e/credenciais-de-ia.spec.ts`. Achados corrigidos em 2026-09-02: lista de modelos colada por vírgula no card; "Validando…" eterno após restart; erro em código (`auth_failed_401`, no card e no toast); diálogo sem dizer quando usar cada provedor nem onde pegar a chave; contagem "em uso" divergente do DELETE. **PASS** — executada de verdade contra browser real (Supabase local pg17 + baseline + Chromium) em 2026-09-02, depois que o Docker da máquina (antes indisponível) voltou. A própria execução achou um SEXTO defeito que a leitura de código não tinha achado: `descreverErroDeValidacao` não classificava `TypeError` (o nome que o `fetch()` do Node usa para falha de rede/DNS) como erro de rede, e o card mostrava "Falha na validação (TypeError)." cru em vez da frase amigável — corrigido em `lib/ai/credenciais/erro-de-validacao.ts`, com caso de teste. Evidência em `.superpowers/evidence/credenciais-de-ia.png`.
+
 ## J4 — CRM e Pipelines `[P1]`
 
 | # | Caso | Expectativa |
@@ -732,6 +736,87 @@ mínimo do `wait` é 5 min por regra de produto (`graph-schema.ts` recusa
 desligado (`RELOGIO_LIGADO`) e quem o exercitaria é o Actions de um fork, não
 este job. O que está provado é que **a batida faz efeito**; que o agendador do
 GitHub dispara no horário é do GitHub.
+
+---
+
+## J20 — A IA só atende quem tem origem elegível (gate opt-in por canal) `[P0]`
+
+**Por que P0:** achado pelo dono do produto num número que é também o WhatsApp
+pessoal/comercial dele — a IA respondeu automaticamente para cliente atual, dono
+de incorporadora, contato pessoal, fornecedor e conversa antiga. O
+DeskcommCRM responde `allow by default` (publicou agente para a sessão → atende
+todo inbound); num número compartilhado com gente isso é a IA assumindo conversa
+que não era dela.
+
+**Contexto do código:** gate OPT-IN por canal —
+`channel_sessions.metadata.ai_gate = 'allowlist'` (ausente / `'open'` =
+comportamento de hoje). Com o gate, a IA só responde quando
+`contacts.ai_authorized_at` está setado (por uma origem elegível) e dentro da
+janela `AI_ALLOWLIST_TTL_DAYS`. A decisão é `lib/ai/elegibilidade/gate.ts`
+(pura), consultada pelo drain (`lib/agent-engine/edge/crm/drain.ts`, decide
+enfileirar) e pelo turno (`lib/agent-engine/agent/inbound-turn.ts`, decide
+rodar). Origens que autorizam: webhook do Respondi
+(`app/api/v1/webhooks/in/[token]`), match de campanha na ingestão
+(`lib/channels/pos-entrada.ts` × `organizations.settings.campanhas_whatsapp`),
+ação `send_ai_message`, retomada manual (`lib/escalacao/retomada.ts`).
+
+| # | Caso | Expectativa | Cobertura |
+|---|---|---|---|
+| J20.1 | Cliente atual manda "boa noite" (gate allowlist, contato não autorizado) | IA NÃO responde; conversa fica humana | **UNIT** — `gate.test.ts` "teste 1/3/4/9", `drain.test.ts` "gate allowlist + contato NÃO autorizado" |
+| J20.2 | Cliente atual com conversa aberta, não autorizado | IA NÃO responde (estado da conversa não pesa) | **UNIT** — `gate.test.ts` "teste 2" |
+| J20.3 | Contato pessoal manda mensagem | IA NÃO responde | **UNIT** — coberto por J20.1 (mesma regra) |
+| J20.4 | Fornecedor manda proposta comercial | IA NÃO responde automaticamente | **UNIT** — coberto por J20.1 |
+| J20.5 | Conversa antiga de 3 dias; publicar agente | publicar NÃO dispara nada (`ai_agent.published` não tem consumidor) + o drain pula evento superado por inbound mais recente | **UNIT** — `drain.test.ts` "evento superado por inbound mais recente"; **CÓDIGO** — grep: zero consumidor de `ai_agent.published` |
+| J20.6 | Nova submissão Respondi → o contato fica elegível | IA pode responder o retorno do lead | **UNIT** — webhook seta `ai_authorized_reason='respondi:<form>:<sub>'`; **E2E** — `tests/e2e/j20-elegibilidade-respondi.spec.ts` (submissão real na URL da fonte → `ai_authorized_at` carimbado → o retorno pelo WhatsApp gera `job_queue` `inbound_turn`; CONTROLE: número sem Respondi no mesmo canal → evento `done` sem job) |
+| J20.7 | Segundo turno do Respondi (dias depois, conversa viva) | IA continua atendendo (keep-alive renova o carimbo) | **UNIT** — `gate.test.ts` "teste 6/7"; keep-alive em `inbound-turn.ts` |
+| J20.8 | Nova mensagem de campanha com identificador autorizado | IA pode assumir | **UNIT** — `campanha.test.ts` "teste 8" |
+| J20.9 | Nova mensagem genérica "oi" | IA NÃO responde | **UNIT** — `campanha.test.ts` "teste 9" + `gate.test.ts` |
+| J20.10 | Conversa marcada human_only (`force_human`) | IA nunca responde até reativação explícita | **UNIT** — `gate.test.ts` "teste 10", `drain.test.ts` "force_human" |
+| J20.11 | Follow-up em lead Respondi elegível | funciona | **CÓDIGO** — silence-sweep só barra quem o gate barra |
+| J20.12 | Follow-up em cliente atual (não autorizado, gate allowlist) | NÃO enrola | **CÓDIGO** — `silence-sweep.ts` `loadSilentContactIds` pula `gateAllowlist && !autorizado`; **E2E** — `tests/e2e/j20-elegibilidade-followup.spec.ts` (fluxo de silêncio publicado pela API + cron real: silencioso autorizado → nasce `followup_enrollments`; silencioso NÃO autorizado, mesmo canal → nenhum enrollment) |
+| J20.13 | Reinício do worker com backlog de eventos pending | zero disparos: cada evento cujo inbound já foi superado vira `done` sem job | **UNIT** — `drain.test.ts` "evento superado por inbound mais recente" |
+| J20.14 | Submissão antiga (fora do TTL) | NÃO reativa a IA sozinha | **UNIT** — `gate.test.ts` "submissão antiga (fora da janela)", `drain.test.ts` "autorização EXPIRADA" |
+| J20.15 | Org SEM versão de agente publicada (caminho legado `ai-response-worker`), gate allowlist, contato não autorizado | IA NÃO responde por este caminho tampouco | **UNIT** — `ai-response-worker-elegibilidade.test.ts` (skip `nao_elegivel_para_ia` antes de ler mensagem/agente; fail-closed em erro de leitura) |
+| J20.16 | Follow-up de TEXTO FIXO drenado inline (`enviarTextoFixoPendente`, sem worker), contato não autorizado | NÃO envia; job vira `done` | **UNIT** — `enviar-texto-fixo.test.ts` "conversa NÃO elegível" (+ fail-closed volta pra `pending`) |
+| J20.17 | Cliente antigo irritado (gate allowlist, não autorizado) → worker de sentimento dispara `low_sentiment` | `triggerHandoff` NÃO dispara: sem "um humano vai te atender", sem mexer no estado da conversa | **UNIT** — `handoff-orchestrator-elegibilidade.test.ts` (`bloqueioPorAllowlist` e `conversa_silenciada` barram; fail-closed em erro) |
+| J20.18 | Eu respondo o cliente à mão pelo meu WhatsApp numa conversa autorizada | IA para naquela conversa por um PRAZO (`PRAZO_DO_SILENCIO_MS`, 60 min) renovado a cada nova fala humana, SEM apagar `ai_authorized_at`; volta sozinha quando o prazo vence, ou antes por "devolver ao automático" | **UNIT** — `atendimento-manual.test.ts` (as duas pontas do prazo medidas pelo motor real `decidirElegibilidade`, renovação, e o que NUNCA encurta: `'infinity'` do handoff formal e janela mais longa) + `waha-ingest-atendimento-manual.test.ts` (via `dispatchWahaEvent` real; eco do próprio envio NÃO pausa) + guarda de fonte no Zernio + fiação em `handoff-fernando-fiacao.test.ts`; **E2E** — `tests/e2e/j20-elegibilidade-atendimento-manual.spec.ts` (webhook `fromMe` genuíno → `bot_silenced_until` finito e futuro, nunca `'infinity'`, + rastro; `ai_authorized_at` intacto; 2ª mensagem RENOVA o prazo; tela mostra o selo; "devolver ao automático" solta a trava e a autorização continua) |
+| J20.19 | Worker parado acorda com backlog; dois inbound antigos com o MESMO `sent_at` | a "última inbound" é a mais RECENTE (por `created_at`), nunca a de maior uuid — o evento antigo é pulado | **INVARIANTE** — `tests/invariants/drain-recencia-inbound.test.ts` (Postgres real) + `drain.test.ts` guarda a cláusula `coalesce(sent_at, created_at)` |
+
+**Sabotagem que confirma:** removendo o veto `sem_autorizacao` de
+`decidirElegibilidade`, `gate.test.ts` e `drain.test.ts` reprovam; restaurado,
+verde. Para J20.19: `order by id desc` sozinho elege a mensagem ANTIGA — o
+próprio invariante prova isso na asserção de sanidade.
+
+**Cobertura de caminhos de envio (R1 — nenhum atalho):** o gate
+(`lib/ai/elegibilidade/gate.ts`, regra pura) é consultado por TODOS os produtores
+de resposta automática: drain + turno do agent-engine (`consulta-pg.ts`),
+`ai-response-worker` legado, `enviarTextoFixoPendente`, `runAgent` legado
+(`lib/ai/runtime/agent.ts`), `triggerHandoff` e o worker de sentimento
+(`consulta-supabase.ts`). `send_ai_message` é origem elegível (autoriza e então
+envia). Todos fail-closed: erro de leitura da elegibilidade → não responde.
+
+**E2E (ambiente fresco estilo VPS):** J20.6, J20.12 e J20.18 têm spec própria
+(`tests/e2e/j20-elegibilidade-*.spec.ts`), rodando no job `e2e` do CI. Seed
+compartilhado `scripts/seed-e2e-elegibilidade.ts` (canal com `ai_gate='allowlist'`
++ credencial validada + fonte de captação); helpers de SQL cru
+`scripts/e2e-elegibilidade-helpers.ts` (roda 1 tick do `drainTick` real — a suíte
+não sobe worker —, lê `job_queue`/`event_log`/`followup_enrollments`, semeia os
+dois estados de partida do gate). A submissão do Respondi e as mensagens do WAHA
+entram pelas rotas REAIS do app (`/api/v1/webhooks/in/:token`,
+`/api/v1/webhooks/waha/:token`). O agente publicado é SETUP via helper porque
+`POST /api/v1/ai/agents` exige role `admin`/MFA e o agente não é o que está sob
+teste.
+
+**A tela do knob `ai_gate` e do editor de `campanhas_whatsapp` ainda não existe**
+— hoje se liga por script/SQL (`scripts/ativar-gate-elegibilidade-ia.ts`), como o
+`roteamento_de_formulario`. É a dívida declarada desta entrega.
+
+**Dívida no `campanhas_whatsapp`:** o campo `agent_id` de uma campanha é aceito
+no schema mas **NÃO é roteado** — o match só torna o contato elegível
+(`ai_authorized_reason = campanha:<id>`); quem assume o turno é sempre o
+roteador / agente publicado da sessão. Encaminhar por campanha exige levar
+`agent_id` no payload de `ai_agent.dispatch_requested` e o `resolve-turn-agent`
+respeitá-lo. `label`/`segmento` são display-only (dependem da tela).
 
 ---
 
@@ -1508,3 +1593,138 @@ ou ontem, e fora disso imprime `dd/MM/yyyy` — idêntico nos dois idiomas.
 
 **O que segue fora:** e-mail e o PDF de LGPD, com o motivo escrito em
 `tests/unit/i18n-a-data-segue-o-idioma.test.ts`.
+
+## A migração para o Tailwind 4 mudou 252 classes que ninguém sabia estarem mortas (2026-08-26)
+
+Origem: subir `tailwindcss` de 3.4 para 4, com o config saindo do
+`tailwind.config.ts` (deletado) para um `@theme inline` em `app/globals.css`.
+
+**O achado que a migração destapou.** No v3, um modificador de opacidade sobre
+cor declarada como `var(--…)` sem o marcador `<alpha-value>` fazia o Tailwind
+**não emitir a regra** — a classe simplesmente não existia no CSS, em silêncio.
+Todo token deste produto é `var(--color-*)`, então **62 classes distintas em 252
+usos** eram letra morta: `bg-destructive/10` num aviso de erro não pintava fundo
+nenhum, `border-destructive/30` caía na cor neutra da regra global de borda,
+`text-muted-foreground/60` herdava a cor do pai. O v4 resolve opacidade por
+`color-mix()`, que funciona com qualquer cor — então **as 252 passaram a pintar
+o que quem escreveu queria desde o começo**.
+
+Medido com o v3 real, e não deduzido: um `tailwindcss@3.4.19` de descarte,
+alimentado com 7 classes, emitiu **4** — nenhuma das 3 com barra.
+
+| caso | prioridade | estado |
+|---|---|---|
+| Tokens resolvem em claro e escuro depois do `@theme inline` | `[P0]` | **PASS**, medido por `getComputedStyle` em `tests/sonda-tailwind-4.ts`: `--color-bg` = `#faf9f6` claro / `#161510` escuro, e `body` acompanha |
+| A auto-referência do `@theme inline` (`--color-bg: var(--color-bg)`) não vence o `:root` autoral | `[P0]` | **PASS.** A teoria é de cascata (sem layer vence layer); a medida é a linha acima. Congelado em `tests/unit/tailwind-tokens.test.ts`, que reprova se alguém embrulhar `:root` num `@layer` |
+| `class="border"` sem cor continua na cor de borda do produto, e não em `currentColor` | `[P0]` | **PASS**: `rgb(231,227,218)` (claro) e `rgb(51,49,42)` (escuro) — os dois são o `--color-border` do tema |
+| As classes de opacidade revividas pintam de verdade | `[P1]` | **PASS parcial**: `bg-muted/40` medido em elemento real do onboarding, com alfa `0.4` nos dois temas. O antes/depois confirma 25 bordas e 8 fundos que passaram de cor chapada / transparente para cor com alfa. As demais estão no CSS construído, mas **não foram medidas uma a uma na tela** |
+| Onboarding completo (6 passos) em claro e escuro, instalação fresca | `[P0]` | **PASS**, 0 erro de console. Capturas em `evidence/tailwind-4/` |
+| **ANTES/DEPOIS**: as duas versões contra o MESMO banco, comparadas elemento a elemento | `[P0]` | **PASS**. `tests/sonda-tailwind-4-antes-depois.ts` sobe v3 em `:3002` e v4 em `:3001`, casa cada elemento pelo **caminho estrutural no DOM** (não pelo `className`, que a migração renomeou) e reporta todo estilo computado que divergiu, mais o diff de pixel. Pares em `evidence/tailwind-4/{antes,depois}/`, números em `antes-depois.json` |
+| Telas internas (`/app`, kanban, inbox, contatos) | — | **NÃO COBERTO.** Numa instalação fresca todas redirecionam para `/onboarding/welcome`; alcançá-las pede concluir o onboarding, o que pede WAHA e chave de IA. A sonda registra o redirecionamento em vez de fingir cobertura |
+| O efeito visual das 252 revividas foi *revisto por um designer* | — | **NÃO MEDIDO.** A migração provou que passaram a pintar; não provou que cada uma pinta o que a tela precisa. Onde a intenção original estava errada, o erro agora está visível |
+
+### O defeito que só o antes/depois encontrou: o rótulo colado no campo
+
+O `space-*` inverteu o lado da margem — e isso não é cosmético:
+
+```
+v3:  .space-y-2 > :not([hidden]) ~ :not([hidden])   { margin-top }      ← filho SEGUINTE
+v4:  :where(.space-y-2 > :not(:last-child))         { margin-block-end } ← filho ANTERIOR
+```
+
+Num grupo `<Label>` + campo, o filho anterior é o **rótulo**. E `<label>` nasce
+`display: inline`, que **ignora margem vertical** — a margem do grupo evaporava.
+Medido: todo grupo de formulário perdia exatamente um `--space-N`, e a tela de
+boas-vindas ficava 24px mais curta, com rótulo colado no campo. Zero erro, zero
+teste vermelho, no meio de 91 arquivos alterados.
+
+Conserto em `components/ui/label.tsx`: `inline-block` na classe base. Não é
+`block` porque medi os dois — `inline-block` preserva a largura shrink-to-fit que
+o `inline` dava e fica a **4px** do que o v3 rendia, contra 10px do `block`.
+
+| caso | prioridade | estado |
+|---|---|---|
+| O respiro entre rótulo e campo sobrevive à migração | `[P0]` | **PASS**, medido: 8px nos dois lados |
+| Rótulo inline não volta | `[P0]` | **PASS**, `tests/unit/tailwind-tokens.test.ts` — e provado por sabotagem: revertendo a classe, o teste reprova |
+| O `<label>` CRU tem o mesmo defeito, e o componente consertado não o alcança | `[P0]` | **PASS.** A sonda achou 1 na tela; a varredura estática achou **10** em 3 arquivos (`app/app/audit`, `webhooks/CapturasTab`, `onboarding/funil`), todos primeiro filho de `space-y-*`. Corrigidos, e a varredura virou teste — também provado por sabotagem. Confirmado depois na tela: **zero** filhos inline em container `space-*` nas 7 telas provadas |
+| Diferença residual de 4px por grupo | — | **CONHECIDA e não fechada.** É o `leading-none` da própria classe do rótulo finalmente valendo — enquanto ele era `inline`, quem mandava na altura da linha era o strut do pai. Fechar exige tirar o `leading-none`: decisão de design, não de migração |
+| `<option>` de `<select>` nativo perde 2px de `padding-left` e o fundo branco do popup | — | **MEDIDO, impacto visual NÃO PROVADO.** O preflight do v4 zera `padding` em `*` (o v3 não zerava). São 10 `<select>` no produto; o popup é desenhado pelo SO, então o Playwright não o captura |
+| `outline-none` → `outline-hidden` muda `outlineStyle` de `solid` para `none` em 2 campos | — | **ESPERADO, não é regressão.** O v3 punha contorno transparente SEMPRE; o v4 só sob `forced-colors`. O indicador de foco visível sempre foi o `ring`, e a regra `forced-colors` do `globals.css` cobre o resto |
+| Paleta default (amber, emerald) muda de sRGB para oklch | — | **NÃO MEDIDO** se o desvio é perceptível. São ~20 elementos, todos de aviso/estado |
+| Telas internas (`/app`, kanban, inbox, contatos) | — | **NÃO COBERTO**, mesmo motivo de antes: instalação fresca redireciona para o onboarding |
+
+### O risco que o dono do projeto nomeou antes da migração, medido
+
+Na issue #239 o mantenedor deixou um aviso específico: uma varredura de "tokens
+sem consumidor" apontaria `duration-fast/base/slow` como mortos, e deletar o
+bloco `transitionDuration` **apagaria a transição de todo botão, input, textarea
+e badge do produto** — em silêncio, com `typecheck`, `lint`, `test:unit`,
+`invariants` e `build-and-size` verdes, porque `grep -rn toHaveScreenshot tests/`
+devolve zero.
+
+No Tailwind 4 o risco é maior que no 3, e por um motivo novo: **não existe espaço
+de tema `--duration-*`**. Um `@theme inline` não tem onde declará-los, e a
+tradução ingênua do config os perderia sem erro nenhum. Aqui eles viraram
+`@utility` explícito em `app/globals.css`.
+
+| caso | prioridade | estado |
+|---|---|---|
+| Botão e campo mantêm a duração de transição | `[P0]` | **PASS**, medido em elemento real nas duas versões ao mesmo tempo: `transitionDuration` = `0.12s` no `<button type="submit">` e no `<input type="email">` do login, idêntico em v3 e v4 |
+| `duration-base` / `duration-slow` não aparecem no CSS construído | — | **ESPERADO, não é regressão.** Nenhum arquivo os usa, e o Tailwind só emite classe usada — no v3 era igual. O `--duration-slow` que o `.card-pulse` consome é a **variável**, não a classe, e continua no `:root` |
+
+### As provas versionadas
+
+Só os quatro pares que sustentam uma afirmação — o resto das capturas é artefato
+de execução e não entra no repositório (a regra é de
+`tests/unit/evidencia-citada.test.ts`, e ela reprovou esta entrega antes de eu
+podar). Para regerar todas: suba as duas versões e rode
+`tests/sonda-tailwind-4-antes-depois.ts`.
+
+| par | o que ele prova |
+|---|---|
+| `tailwind-4/antes/02-onboarding-welcome-claro.png` → `tailwind-4/depois/02-onboarding-welcome-claro.png` | O respiro entre rótulo e campo. É aqui que o defeito do `<label>` inline aparecia: a página inteira 24px mais curta, três grupos colados |
+| `tailwind-4/antes/02-onboarding-welcome-escuro.png` → `tailwind-4/depois/02-onboarding-welcome-escuro.png` | O tema escuro sobrevive à troca do `@theme inline` — mesma tela, tokens escuros resolvendo |
+| `tailwind-4/antes/05-onboarding-ia-escuro.png` → `tailwind-4/depois/05-onboarding-ia-escuro.png` | O cartão de aviso âmbar, que concentra as classes de opacidade revividas e a paleta default que passou a oklch |
+| `tailwind-4/antes/01-login-claro.png` → `tailwind-4/depois/01-login-claro.png` | A tela mais simples do produto, com borda, foco e anel — o controle: se algo básico tivesse quebrado, quebraria aqui |
+
+**Armadilha que custou duas medições falsas.** Sonda que injeta `<div
+class="p-7">` por JavaScript não mede nada: a classe nunca esteve na fonte, o
+scanner nunca a viu, e o zero medido é artefato da sonda. Pelo mesmo motivo, o
+primeiro elemento com `class="border"` da tela de login é o `<input>`
+autofocado — ele casa `focus-visible:border-accent-500` e devolve a cor do
+foco. A sonda só mede elemento real, e pula elemento em foco e elemento que já
+traga classe de cor própria.
+
+---
+
+## O campo que oferecia hoje e o servidor recusava (2026-09-03)
+
+Achado de varredura adversarial contra o PR #496, no SHA `f700f3e1`. Mesma tela
+do #496 — **Conexões › Proteção de envio** —, campo ao lado do que ele acabara
+de consertar, e o mesmo desfecho para quem opera: a ficha inteira deixa de
+salvar.
+
+`<input type="date">` fala em dia LOCAL; `AntiBanSheet` encaixa o dia escolhido
+às 12h UTC (meia-noite viraria o dia anterior a oeste); e a guarda do schema
+comparava esse encaixe com `Date.now()` — um DIA contra um RELÓGIO.
+
+| régua | recusa começa | recusa para | quem sente |
+|---|---|---|---|
+| dia que a tela mostra (`America/Sao_Paulo`, UTC−3) | 03:00 UTC | 12:00 UTC | 00:00 às 09:00 no relógio de quem opera |
+| dia UTC (o que o `max` do campo oferecia, vindo de `toISOString()`) | 00:00 UTC | 12:00 UTC | as primeiras 12 horas UTC do dia |
+
+Medido varrendo as 48 meias-horas do dia com relógio falso, chamando o schema
+real com a carga exata que a tela monta — não pela tela: **NÃO MEDIDO** pelo
+browser num ambiente fresco estilo VPS. O que a varredura de horas prova é a
+fronteira; o que ela não prova é o que o operador vê quando ela dispara.
+
+**A lição, e ela não é sobre fusos.** O produto oferece o dia num campo e o
+recusa no servidor: a mesma classe do controle decorativo, ao contrário — não é
+o controle que não faz nada, é o limite do campo que promete o que a outra ponta
+nega. Toda validação de data merece a pergunta *"as duas pontas falam do mesmo
+dia, ou uma delas fala de instante?"*.
+
+**Onde mais essa pergunta cabe** (levantado, **não medido**, e fora do escopo do
+conserto): `lib/kanban/filters.ts` e `lib/automation/throttle.ts` derivam "hoje"
+de `toISOString().slice(0, 10)`, que é o dia UTC. Se algum deles compara com dia
+local, é a mesma classe.

@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { useUpdatePacingKnobs, type PacingKnobsItem } from "@/hooks/channels/usePacingKnobs";
-import { valorDeOverride } from "@/lib/ai/pacing-knobs";
+import { diaDeHojeLocal, valorDeOverride } from "@/lib/ai/pacing-knobs";
 import { ApiError } from "@/lib/api/types";
 import { nomeDoCanal } from "@/lib/channels/estado";
 import { useT } from "@/hooks/i18n/useT";
@@ -144,7 +144,9 @@ export function AntiBanSheet({ item, canWrite, onClose }: Props) {
             <Input
               id="numero-em-uso-desde"
               type="date"
-              max={new Date().toISOString().slice(0, 10)}
+              // O dia LOCAL, que é o que este campo fala. Com o dia UTC, às 21h
+              // em São Paulo o limite já oferecia amanhã.
+              max={diaDeHojeLocal()}
               value={form.numero_em_uso_desde}
               onChange={(e) => set({ numero_em_uso_desde: e.target.value })}
               disabled={!canWrite || form.pular_aquecimento}
@@ -152,7 +154,7 @@ export function AntiBanSheet({ item, canWrite, onClose }: Props) {
             />
             <p className="text-xs text-muted-foreground">
               {t(
-                "A conexão pode ser nova sem que o número seja. O aquecimento conta a idade do NÚMERO — se você deixar em branco, ele é tratado como recém-criado e começa liberando pouco por dia.",
+                "A conexão pode ser nova sem que o número seja. O aquecimento conta a idade do NÚMERO — em branco, ele é tratado como recém-criado e começa liberando pouco por dia. Uma data já salva não some se você limpar o campo: para mudá-la, informe outra.",
               )}
             </p>
 

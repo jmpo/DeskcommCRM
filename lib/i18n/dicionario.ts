@@ -190,6 +190,9 @@ export const DICIONARIO: Traducoes = {
   Buscar: { es: "Buscar" },
 
   // ─── Inbox: filtros e lista ───
+  "Buscar por nome, telefone ou mensagem…": {
+    es: "Buscar por nombre, teléfono o mensaje…",
+  },
   "Buscar mensagens…": { es: "Buscar mensajes…" },
   "Todos os números": { es: "Todos los números" },
   "Todas as tags": { es: "Todas las etiquetas" },
@@ -604,6 +607,7 @@ export const DICIONARIO: Traducoes = {
   "A chave desta instalação": { es: "La clave de esta instalación" },
   validada: { es: "validada" },
   validando: { es: "validando" },
+  "não validada": { es: "no validada" },
   inativa: { es: "inactiva" },
   "Nenhuma credencial": { es: "Ninguna credencial" },
   cadastrada: { es: "registrada" },
@@ -1328,7 +1332,37 @@ export const DICIONARIO: Traducoes = {
     },
   "Adicionar credencial": { es: "Añadir credencial" },
   Validada: { es: "Validada" },
+  "Não validada": { es: "Sin validar" },
   Inválida: { es: "Inválida" },
+  "A validação não terminou. Clique em revalidar para testar a chave agora.": {
+    es: "La validación no terminó. Haz clic en revalidar para probar la clave ahora.",
+  },
+  "O provedor recusou a chave. Confira se copiou inteira ou gere uma nova.": {
+    es: "El proveedor rechazó la clave. Verifica que la copiaste entera o genera una nueva.",
+  },
+  "O provedor limitou as chamadas desta chave. Tente de novo em alguns minutos.": {
+    es: "El proveedor limitó las llamadas de esta clave. Inténtalo de nuevo en unos minutos.",
+  },
+  "O provedor está fora do ar. A chave pode estar certa; revalide mais tarde.": {
+    es: "El proveedor está caído. La clave puede estar bien; revalida más tarde.",
+  },
+  "Não foi possível falar com o provedor a partir deste servidor. Revalide mais tarde.": {
+    es: "No fue posible hablar con el proveedor desde este servidor. Revalida más tarde.",
+  },
+  "Falha na validação": { es: "Falla en la validación" },
+  "Pegar chave em": { es: "Obtener clave en" },
+  "O padrão recomendado para conversar com o cliente: é o que melhor segue instruções longas e usa as ferramentas do CRM.": {
+    es: "El estándar recomendado para conversar con el cliente: es el que mejor sigue instrucciones largas y usa las herramientas del CRM.",
+  },
+  "Necessário para transcrever áudio e para indexar o seu material — esses dois pontos usam tecnologia da OpenAI mesmo quando o resto está em outro provedor.": {
+    es: "Necesario para transcribir audio e indexar tu material: esos dos puntos usan tecnología de OpenAI aunque el resto esté en otro proveedor.",
+  },
+  "Alternativa com contexto muito longo e custo baixo para tarefas de classificação.": {
+    es: "Alternativa con contexto muy largo y bajo costo para tareas de clasificación.",
+  },
+  "Uma chave só dá acesso a centenas de modelos de dezenas de fabricantes, inclusive os gratuitos. É o caminho mais simples para experimentar sem abrir conta em cada provedor.": {
+    es: "Una sola clave da acceso a cientos de modelos de decenas de fabricantes, incluidos los gratuitos. Es el camino más simple para experimentar sin abrir cuenta en cada proveedor.",
+  },
   Inativa: { es: "Inactiva" },
   "Revalidando…": { es: "Revalidando…" },
   "Credencial removida.": { es: "Credencial eliminada." },
@@ -1344,12 +1378,10 @@ export const DICIONARIO: Traducoes = {
   "A chave é cifrada (AES-GCM) antes de gravar e nunca é retornada em texto claro.": {
     es: "La clave se cifra (AES-GCM) antes de guardarse y nunca se devuelve en texto plano.",
   },
-  Label: { es: "Etiqueta" },
   "Ex: Produção": { es: "Ej: Producción" },
   "Credencial salva. Validando…": { es: "Credencial guardada. Validando…" },
   "Credencial salva. Validação em segundo plano.": { es: "Credencial guardada. Validación en segundo plano." },
   "modelos disponíveis.": { es: "modelos disponibles." },
-  "Validação falhou": { es: "La validación falló" },
   "Salvar e validar": { es: "Guardar y validar" },
   "Obrigatório": { es: "Obligatorio" },
   "API key muito curta": { es: "API key demasiado corta" },
@@ -2976,9 +3008,12 @@ export const DICIONARIO: Traducoes = {
   "Estes limites protegem o número contra bloqueio do WhatsApp. Campo vazio usa o padrão seguro do sistema (mostrado no campo).": {
     es: "Estos límites protegen el número contra el bloqueo de WhatsApp. Campo vacío usa el valor seguro predeterminado del sistema (que se muestra en el campo).",
   },
+  "A ordem de preferência vai de 0 a 1000.": {
+    es: "El orden de preferencia va de 0 a 1000.",
+  },
   "Este número é usado desde": { es: "Este número se usa desde" },
-  "A conexão pode ser nova sem que o número seja. O aquecimento conta a idade do NÚMERO — se você deixar em branco, ele é tratado como recém-criado e começa liberando pouco por dia.": {
-    es: "La conexión puede ser nueva sin que el número lo sea. El calentamiento cuenta la antigüedad del NÚMERO — si lo dejas en blanco, se trata como recién creado y empieza liberando poco por día.",
+  "A conexão pode ser nova sem que o número seja. O aquecimento conta a idade do NÚMERO — em branco, ele é tratado como recém-criado e começa liberando pouco por dia. Uma data já salva não some se você limpar o campo: para mudá-la, informe outra.": {
+    es: "La conexión puede ser nueva sin que el número lo sea. El calentamiento cuenta la antigüedad del NÚMERO — en blanco, se trata como recién creado y empieza liberando poco por día. Una fecha ya guardada no desaparece si limpias el campo: para cambiarla, informa otra.",
   },
   "Este número já está aquecido — pular o aquecimento": {
     es: "Este número ya está calentado — saltar el calentamiento",
@@ -4681,6 +4716,12 @@ export const DICIONARIO: Traducoes = {
   "contatos": { es: "contactos" },
   "carregados — há mais resultados": { es: "cargados — hay más resultados" },
   "Contato já estava anonimizado.": { es: "El contacto ya estaba anonimizado." },
+  "Contato já estava anonimizado, e não faltava nada.": {
+    es: "El contacto ya estaba anonimizado, y no faltaba nada.",
+  },
+  "Anonimização retomada: o que faltava foi redigido agora.": {
+    es: "Anonimización retomada: lo que faltaba se ha redactado ahora.",
+  },
   "Contato anonimizado.": { es: "Contacto anonimizado." },
   "Anonimizar contato (LGPD)": { es: "Anonimizar contacto (LGPD)" },
   "Esta ação é irreversível. O nome será substituído por \"Contato Anonimizado #N\", email/telefone/CPF serão limpos, e atividades terão conteúdo redigido.": {
@@ -6346,6 +6387,62 @@ export const DICIONARIO: Traducoes = {
   "tokens": { es: "tokens" },
   "Voltar para": { es: "Volver a" },
   "Ir para outra organização": { es: "Ir a otra organización" },
+
+  // ─── Catálogo de produtos (app/app/products) ───
+  //
+  // O catálogo é a resposta do agente para "quanto custa". Quem opera uma loja
+  // em espanhol vê a mesma tela; um preço explicado em português numa tela
+  // espanhola é a primeira coisa que faz alguém desconfiar do sistema.
+  "Produtos": { es: "Productos" },
+  "O catálogo da loja. É daqui que o atendente de IA tira o preço quando alguém pergunta.": {
+    es: "El catálogo de la tienda. De aquí saca el precio el asistente de IA cuando alguien pregunta.",
+  },
+  "Nenhum produto cadastrado ainda": { es: "Aún no hay productos cargados" },
+  "Enquanto o catálogo estiver vazio, o atendente responde que não encontrou o produto — mesmo que a loja tenha.": {
+    es: "Mientras el catálogo esté vacío, el asistente responde que no encontró el producto — aunque la tienda lo tenga.",
+  },
+  "Buscar por nome, código ou marca": { es: "Buscar por nombre, código o marca" },
+  "Novo produto": { es: "Nuevo producto" },
+  "Importar planilha": { es: "Importar planilla" },
+  "Baixar planilha modelo": { es: "Descargar planilla modelo" },
+  "Produto cadastrado": { es: "Producto cargado" },
+  "Produto desativado": { es: "Producto desactivado" },
+  "Produto reativado": { es: "Producto reactivado" },
+  "Não consegui ler essa planilha.": { es: "No pude leer esa planilla." },
+  "Não consegui enviar o arquivo.": { es: "No pude enviar el archivo." },
+  "Preço inválido. Escreva assim: 5.499,00": { es: "Precio inválido. Escríbalo así: 5.499,00" },
+  "Custo inválido.": { es: "Costo inválido." },
+  "novos": { es: "nuevos" },
+  "atualizados": { es: "actualizados" },
+  "linhas na planilha": { es: "líneas en la planilla" },
+  "Não usei estas colunas:": { es: "No usé estas columnas:" },
+  "Linhas que não entraram:": { es: "Líneas que no entraron:" },
+  "…e mais": { es: "…y más" },
+  "Código": { es: "Código" },
+  "Preço de venda": { es: "Precio de venta" },
+  "(opcional)": { es: "(opcional)" },
+  "Serve para o atendente saber até onde pode negociar. Não aparece para o cliente.": {
+    es: "Sirve para que el asistente sepa hasta dónde puede negociar. No se le muestra al cliente.",
+  },
+  "Controlar estoque deste produto": { es: "Controlar el stock de este producto" },
+  "Quantidade": { es: "Cantidad" },
+  "Sem controle de estoque, este produto sempre aparece como disponível para o atendente — é o certo para item sob encomenda ou fracionado.": {
+    es: "Sin control de stock, este producto siempre aparece como disponible para el asistente — es lo correcto para un artículo por encargo o fraccionado.",
+  },
+  "Salvar produto": { es: "Guardar producto" },
+  "em estoque": { es: "en stock" },
+  "sem controle de estoque": { es: "sin control de stock" },
+
+  // ─── Importar leads de planilha (extraído do PR #418) ───
+  "Importar leads de uma planilha": { es: "Importar leads desde una planilla" },
+  "Um arquivo CSV com uma linha por lead. Os leads entram na primeira etapa do funil escolhido.": {
+    es: "Un archivo CSV con una línea por lead. Los leads entran en la primera etapa del embudo elegido.",
+  },
+  "Funil de destino": { es: "Embudo de destino" },
+  "Escolher o arquivo CSV": { es: "Elegir el archivo CSV" },
+  "leads criados": { es: "leads creados" },
+  "contatos novos": { es: "contactos nuevos" },
+  "Colunas que não reconheci:": { es: "Columnas que no reconocí:" },
 };
 
 /**
