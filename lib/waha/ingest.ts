@@ -14,6 +14,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { audit } from "@/lib/audit";
 import { sincronizarSaudeDaConexao } from "@/lib/channels/health";
 import { aplicarEfeitosPosEntrada } from "@/lib/channels/pos-entrada";
+import { pausarIaPorAtendimentoManual } from "@/lib/escalacao/atendimento-manual";
 import { acelerarPipelineDeEventos } from "@/lib/dev/kick-local-pipeline";
 import { canonicalPhoneBR } from "@/lib/channels/phone-variants";
 import { estamparAtribuicaoDoContato } from "@/lib/leads/atribuicao-de-anuncio";
@@ -27,64 +28,81 @@ import { logger } from "@/lib/logger";
 export type Admin = ReturnType<typeof createAdminClient>;
 
 /**
- * Janela de silêncio automático do bot quando um humano responde direto pelo
- * WhatsApp (fromMe=true, fora do composer/IA do CRM) — ver `handleOutboundFromUserPhone`.
- *
- * Antes disto, `ignore_self` (`lib/ai/dispatcher/triggers.ts`) só ignorava a PRÓPRIA
- * mensagem do humano (não disparava turno pra ela), mas não silenciava nada — a
- * PRÓXIMA mensagem do lead fazia o agente rodar normalmente, cego ao que o humano
- * acabou de tratar manualmente. Medido em produção (tenant YADEA): um humano
- * negociou preço/pagamento de peça direto no WhatsApp, e a IA, sem saber disso, se
- * meteu de volta na conversa afirmando que "os dados do PIX estão sendo
- * confirmados" — algo que ela não tem nenhuma ferramenta para saber.
- *
- * 3h é deliberadamente curto (não é um handoff formal, que usa `bot_silenced_until`
- * = 'infinity' até alguém reativar): dá ao humano que já está no WhatsApp uma
- * janela de controle sem precisar "assumir" a conversa no CRM, e o bot volta
- * sozinho depois — reduz o risco de um teste do próprio dono ("oi", só verificando
- * o número) travar o atendimento automático por muito tempo sem ninguém perceber.
+ * A pausa da IA quando uma pessoa responde pelo celular vive em
+ * `lib/escalacao/atendimento-manual.ts` (`pausarIaPorAtendimentoManual`), e não
+ * mais aqui. Era `silenciarBotPorRetomadaHumana`, exclusiva deste arquivo e do
+ * WhatsApp; o gesto é o mesmo em qualquer canal (o Zernio tem o mesmo caminho de
+ * saída-por-fora-do-CRM), e duas encarnações da mesma regra divergiriam na
+ * primeira vez que alguém mexesse numa só. O helper unificado mantém o que esta
+ * função garantia — prazo que expira sozinho, renovado a cada fala humana, e
+ * silêncio maior NUNCA encurtado — e acrescenta o rastro de handoff.
  */
-export const HUMAN_TAKEOVER_SILENCE_MS = 3 * 60 * 60 * 1000;
 
 /**
- * Silencia o bot na conversa por `HUMAN_TAKEOVER_SILENCE_MS`, best-effort — NUNCA
- * encurta um silêncio maior já em vigor (ex.: handoff formal com 'infinity'; um
- * `Date` inválido, como "infinity" vindo do Postgres, compara sempre `false` contra
- * qualquer timestamp finito, então o `if` abaixo naturalmente não regride). Falha
- * aqui não pode derrubar a ingestão da mensagem — só loga.
+ * Quanto tempo um envio nosso pode ficar "em voo" antes de o eco deixar de ser
+ * explicável por ele.
+ *
+ * 60s é folgado de propósito: o custo de errar para o lado permissivo é uma
+ * digitação real do celular não silenciar a IA por um minuto; o custo de errar
+ * para o outro lado é a IA muda por três horas. Os dois erros não são simétricos.
  */
-export async function silenciarBotPorRetomadaHumana(
+const JANELA_DO_ECO_MS = 60_000;
+
+/**
+ * A mensagem `fromMe` que chegou é o eco de um envio que ESTE CRM acabou de
+ * fazer — e não alguém digitando no celular?
+ *
+ * A prova exigida é forte: uma linha nossa na MESMA conversa, ainda sem
+ * `external_id` (portanto ainda em voo), com o MESMO corpo, dentro da janela.
+ * Qualquer uma dessas faltando, a resposta é "não sei" — e "não sei" silencia,
+ * porque é o desfecho seguro do lado do atendente humano (#371).
+ *
+ * Mídia não tem corpo comparável (o eco traz `media_url`, não texto): ali a
+ * prova cai para "existe envio nosso em voo do mesmo tipo na janela", que é mais
+ * permissivo e assumidamente mais fraco.
+ */
+async function ehEcoDeEnvioNosso(
   admin: Admin,
   organizationId: string,
   conversationId: string,
-): Promise<void> {
-  const proposto = new Date(Date.now() + HUMAN_TAKEOVER_SILENCE_MS);
-  const { data: conv, error: erroLeitura } = await admin
-    .from("conversations")
-    .select("bot_silenced_until")
-    .eq("id", conversationId)
+  p: WahaPayload,
+): Promise<boolean> {
+  const desde = new Date(Date.now() - JANELA_DO_ECO_MS).toISOString();
+  const { data, error } = await admin
+    .from("messages")
+    .select("id, body, type")
     .eq("organization_id", organizationId)
-    .maybeSingle();
-  if (erroLeitura) {
-    console.error("[waha.ingest] silenciar bot (retomada humana): leitura falhou", erroLeitura.message);
-    return;
+    .eq("conversation_id", conversationId)
+    .eq("direction", "outbound")
+    // `sent_via` separa o que NASCEU aqui do que veio do celular: a linha do
+    // celular é gravada como `external_device` e nunca pode servir de álibi.
+    .in("sent_via", ["ai", "user"])
+    // Sem `external_id` = ainda não confirmada pelo canal = ainda em voo. É esta
+    // a janela exata em que o eco é indistinguível de digitação humana.
+    .is("external_id", null)
+    .in("status", ["queued", "sending"])
+    .gte("created_at", desde)
+    .limit(20);
+
+  if (error) {
+    // Falha de leitura não pode virar "é eco": na dúvida, silencia — o
+    // desfecho seguro é o do atendente humano.
+    console.error("[waha.ingest] checagem de eco falhou", error.message);
+    return false;
   }
-  if (conv?.bot_silenced_until) {
-    const atualMs = new Date(conv.bot_silenced_until).getTime();
-    // `Number.isNaN` cobre 'infinity' (handoff formal, ver `lib/ai/handoff/orchestrator.ts`)
-    // e qualquer outro valor não-parseável — tratado como silêncio permanente, nunca
-    // encurtado. NaN não "vence" comparação nenhuma (`NaN >= x` é sempre false), por
-    // isso o caso precisa de checagem explícita em vez de reusar `>=` abaixo.
-    if (Number.isNaN(atualMs) || atualMs >= proposto.getTime()) return;
+
+  const corpo = (p.body ?? "").trim();
+  for (const linha of data ?? []) {
+    const l = linha as { body: string | null; type?: string | null };
+    if (p.type && p.type !== "chat") {
+      // Mídia: sem corpo para comparar, a existência do envio em voo é a prova
+      // possível. Mais fraco, e escrito para ninguém supor o contrário.
+      if ((l.type ?? "chat") !== "chat") return true;
+      continue;
+    }
+    if (corpo.length > 0 && (l.body ?? "").trim() === corpo) return true;
   }
-  const { error: erroUpdate } = await admin
-    .from("conversations")
-    .update({ bot_silenced_until: proposto.toISOString() })
-    .eq("id", conversationId)
-    .eq("organization_id", organizationId);
-  if (erroUpdate) {
-    console.error("[waha.ingest] silenciar bot (retomada humana): update falhou", erroUpdate.message);
-  }
+  return false;
 }
 
 interface Session {
@@ -851,10 +869,40 @@ async function handleOutboundFromUserPhone(
 
   await markConversation(admin, session.organization_id, conversationId, "outbound", previewFromMessage(p), now);
 
-  // Ver `silenciarBotPorRetomadaHumana` — um humano acabou de responder direto pelo
-  // WhatsApp dele, fora do composer/IA; dá a ele uma janela curta de controle da
-  // conversa sem precisar "assumir" formalmente no CRM.
-  await silenciarBotPorRetomadaHumana(admin, session.organization_id, conversationId);
+  // Uma PESSOA respondeu este cliente pelo celular, fora do composer/IA — a IA
+  // para NESTA conversa para não responder junto, por uma janela que expira
+  // sozinha (ver `PRAZO_DO_SILENCIO_MS`). NÃO mexe em `contacts.ai_authorized_at`
+  // — a origem do lead é outro estado.
+  //
+  // ⚠️ MAS ANTES: isto é MESMO um humano, ou é o eco do nosso próprio envio?
+  //
+  // ⚠️ NÃO basta o `jaRegistrada` acima. Este comentário já afirmou que bastava
+  // ("o eco do nosso próprio envio já saiu no dedup") e a afirmação é FALSA,
+  // medida na fonte: `jaRegistrada` casa por `.in("external_id", …)`, e todo
+  // envio do CRM grava a linha ANTES de falar com o canal (`status='queued'`,
+  // `external_id` NULL) — o id só existe depois que o WAHA responde. Nessa
+  // janela o dedup não casa nada, o eco chega com `fromMe`, e esta função
+  // concluía "humano assumiu". A tela mostrava "Automático pausado", um estado
+  // legítimo que ninguém investiga. (issue #519, consertada no #521)
+  //
+  // Aqui isso é PIOR do que era: o silêncio deste caminho é um estado que dura
+  // até vencer o prazo ou até alguém clicar — a IA passaria a se calar porque
+  // ela mesma falou.
+  //
+  // As DUAS decisões que eram uma só se separam aqui, e em direções OPOSTAS de
+  // propósito:
+  //   gravar a linha  -> tolerante  (na dúvida grava; perder mensagem é pior que
+  //                                  duplicar — é o #108, que já custou caro)
+  //   silenciar o bot -> ESTRITO    (na dúvida NÃO cala; calar a IA por engano é
+  //                                  pior que não calar)
+  // Quem reaproveitar esta condição para pular o INSERT reabre o #108.
+  if (!(await ehEcoDeEnvioNosso(admin, session.organization_id, conversationId, p))) {
+    await pausarIaPorAtendimentoManual(admin, {
+      organizationId: session.organization_id,
+      conversationId,
+      canal: "waha",
+    });
+  }
 
   await audit({
     action: "message.sent",
