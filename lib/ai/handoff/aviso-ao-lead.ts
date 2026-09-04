@@ -69,6 +69,39 @@ export async function avisarLeadDoCrm(
   input: AvisoDoCrmInput,
 ): Promise<{ avisado: boolean; porque?: string }> {
   try {
+    // ═══ DUAS GUARDAS ANTES DE QUALQUER TEXTO ═══
+    //
+    // 1. A IA precisa ter FALADO nesta conversa. O aviso existe para o cliente
+    //    não ficar falando com o vazio quando a IA se retira — mas numa
+    //    instalação sem agente publicado (ou numa conversa que sempre foi
+    //    humana), não há retirada a anunciar. Medido em produção em 02/09:
+    //    o worker de sentimento disparou handoff numa organização SEM agente
+    //    ativo, e dois clientes receberam "a IA acionou o time" do nada — em
+    //    português, numa operação em espanhol, sem nunca terem falado com IA.
+    //
+    // 2. UM aviso por conversa por janela. O mesmo incidente mandou o MESMO
+    //    aviso 4 vezes em 5 minutos ao mesmo cliente: o envio travou
+    //    (channel_session_not_working), o watchdog redirigiu, e cada redrive
+    //    virou mensagem nova. O requestId não segura porque cada disparo de
+    //    handoff gera chamada nova. A janela de 24h cobre o retrigger honesto
+    //    (novo handoff amanhã ainda avisa) e mata a metralhadora.
+    const { data: falas } = await admin
+      .from("messages")
+      .select("id, metadata, created_at")
+      .eq("conversation_id", input.conversationId)
+      .eq("direction", "outbound")
+      .eq("sent_via", "ai")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    const linhas = (falas ?? []) as { metadata: Record<string, unknown> | null; created_at: string }[];
+    const iaJaFalou = linhas.some((m) => m.metadata?.aviso_de_escalacao !== true);
+    if (!iaJaFalou) return { avisado: false, porque: "ia_nunca_falou_nesta_conversa" };
+    const corte = Date.now() - 24 * 60 * 60 * 1000;
+    const avisoRecente = linhas.some(
+      (m) => m.metadata?.aviso_de_escalacao === true && new Date(m.created_at).getTime() > corte,
+    );
+    if (avisoRecente) return { avisado: false, porque: "aviso_ja_enviado_na_janela" };
+
     const body = textoDoAviso(
       motivoDoAviso(input.reason),
       await quemPodeAssumir(admin, input.organizationId),
