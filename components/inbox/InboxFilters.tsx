@@ -169,15 +169,17 @@ export function InboxFilters({ value, onChange }: Props) {
         value={value.tab}
         onValueChange={(v) => onChange({ ...value, tab: v as InboxTab })}
       >
-        <TabsList
-          className="grid h-8 w-full"
-          style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
-        >
+        {/* Fila deslizante, NÃO grade de colunas iguais: com cinco abas e
+            contadores ("Cerradas 21", "Automático 15") a célula de 1fr fica
+            menor que o próprio texto e as abas se sobrepõem — medido no painel
+            de ~300px da lista. Largura natural + overflow-x resolve para
+            QUALQUER quantidade de abas; em tela larga nada muda. */}
+        <TabsList className="flex h-8 w-full justify-start overflow-x-auto">
           {tabs.map((tab) => {
             const meta = INBOX_TABS.find((t) => t.value === tab)!;
             const count = countFor[tab];
             return (
-              <TabsTrigger key={tab} value={tab} className="gap-1 text-[11px]">
+              <TabsTrigger key={tab} value={tab} className="shrink-0 gap-1 whitespace-nowrap text-[11px]">
                 {t(meta.label)}
                 {typeof count === "number" && count > 0 && (
                   <span className="text-[10px] tabular-nums text-muted-foreground">
