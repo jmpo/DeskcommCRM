@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/ai/agents/:id/duplicate (admin)
  *
@@ -15,6 +16,7 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { duplicateAgentWithVersion } from "@/lib/ai/agents/duplicate";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -23,12 +25,16 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(_req: NextRequest, ctx: Ctx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
   if (!UUID_RX.test(id)) return fail("invalid_request", "id inválido.", 400, { requestId });
 
   const authz = await requireRole("admin", { requestId, resource: "ai_agents" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
 
   const admin = createAdminClient();
@@ -44,14 +50,14 @@ export async function POST(_req: NextRequest, ctx: Ctx): Promise<Response> {
 
   if (!result.ok) {
     if (result.error === "not_found") {
-      return fail("not_found", "Agent não encontrado.", 404, { requestId });
+      return fail("not_found", t("Agent não encontrado."), 404, { requestId });
     }
     if (result.error === "no_version_to_duplicate") {
-      return fail("state_conflict", "Agent não tem versão para duplicar.", 409, { requestId });
+      return fail("state_conflict", t("Agent não tem versão para duplicar."), 409, { requestId });
     }
     return fail(
       "internal_error",
-      result.error === "version_insert_failed" ? "Erro ao duplicar versão." : "Erro ao duplicar agent.",
+      result.error === "version_insert_failed" ? t("Erro ao duplicar versão.") : "Erro ao duplicar agent.",
       500,
       { requestId },
     );

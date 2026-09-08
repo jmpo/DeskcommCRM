@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * GET    /api/v1/ai/routers/:id — detalhe do router + membros (agent+).
  * PATCH  /api/v1/ai/routers/:id — atualiza campos (admin), audit `ai.router_updated`.
@@ -14,6 +15,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +46,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
 
   const authz = await requireRole("agent", { requestId, resource: "ai_routers" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org } = authz;
 
   const admin = createAdminClient();
@@ -58,7 +61,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
     return fail("internal_error", "Erro ao buscar router.", 500, { requestId });
   }
   if (!router) {
-    return fail("not_found", "Router não encontrado.", 404, { requestId });
+    return fail("not_found", t("Router não encontrado."), 404, { requestId });
   }
 
   const { data: members, error: membersErr } = await admin
@@ -79,6 +82,9 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
 // ---------------------------------------------------------------------------
 
 export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
   if (!UUID_RX.test(id)) {
@@ -87,18 +93,19 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
 
   const authz = await requireRole("admin", { requestId, resource: "ai_routers" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org } = authz;
 
   let rawBody: unknown;
   try {
     rawBody = await req.json();
   } catch {
-    return fail("invalid_request", "Body JSON inválido.", 400, { requestId });
+    return fail("invalid_request", t("Body JSON inválido."), 400, { requestId });
   }
 
   const parsed = patchRouterSchema.safeParse(rawBody);
   if (!parsed.success) {
-    return fail("validation_failed", "Campos inválidos.", 422, {
+    return fail("validation_failed", t("Campos inválidos."), 422, {
       requestId,
       details: parsed.error.flatten(),
     });
@@ -117,7 +124,7 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
     return fail("internal_error", "Erro ao carregar router.", 500, { requestId });
   }
   if (!existing) {
-    return fail("not_found", "Router não encontrado.", 404, { requestId });
+    return fail("not_found", t("Router não encontrado."), 404, { requestId });
   }
 
   const update: Record<string, unknown> = {};
@@ -140,7 +147,7 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
     .eq("organization_id", org.orgId);
   if (updErr) {
     if (updErr.code === "23505") {
-      return fail("router_already_exists", "Este número já tem um roteador ativo.", 409, { requestId });
+      return fail("router_already_exists", t("Este número já tem um roteador ativo."), 409, { requestId });
     }
     return fail("internal_error", "Erro ao atualizar router.", 500, { requestId });
   }
@@ -163,6 +170,9 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
 // ---------------------------------------------------------------------------
 
 export async function DELETE(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
   if (!UUID_RX.test(id)) {
@@ -171,6 +181,7 @@ export async function DELETE(_req: NextRequest, ctx: RouteCtx): Promise<Response
 
   const authz = await requireRole("admin", { requestId, resource: "ai_routers" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org } = authz;
 
   const admin = createAdminClient();
@@ -185,7 +196,7 @@ export async function DELETE(_req: NextRequest, ctx: RouteCtx): Promise<Response
     return fail("internal_error", "Erro ao carregar router.", 500, { requestId });
   }
   if (!existing) {
-    return fail("not_found", "Router não encontrado.", 404, { requestId });
+    return fail("not_found", t("Router não encontrado."), 404, { requestId });
   }
 
   const { error: delErr } = await admin

@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * As definições aprovadas do canal INTERMEDIADO — listar, sincronizar, criar.
  *
@@ -38,6 +39,8 @@ import {
   type ChannelSessionRef,
 } from "@/lib/channels";
 import { findPartnerSession } from "@/lib/channels/connect";
+import { traduzir } from "@/lib/i18n/dicionario";
+import type { Idioma } from "@/lib/i18n/idiomas";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -48,6 +51,7 @@ interface Contexto {
   sessionId: string;
   sessionRef: string;
   provider: ChannelProvider;
+  idioma: Idioma;
 }
 
 /**
@@ -61,15 +65,16 @@ async function contexto(
 ): Promise<{ ok: true; ctx: Contexto } | { ok: false; res: Response }> {
   const user = await loadAuthUser();
   if (!user) return { ok: false, res: fail("unauthenticated", "Faça login.", 401, { requestId }) };
+  const t = (texto: string) => traduzir(texto, user.idioma);
   const org = await resolveActiveOrg(user);
-  if (!org) return { ok: false, res: fail("forbidden", "Sem organização ativa.", 403, { requestId }) };
+  if (!org) return { ok: false, res: fail("forbidden", t("Sem organização ativa."), 403, { requestId }) };
 
   const admin = createAdminClient();
   const sessao = await findPartnerSession(admin, org.orgId);
   if (!sessao || sessao.archivedAt) {
     return {
       ok: false,
-      res: fail("not_found", "Nenhuma conexão de parceiro ativa.", 404, { requestId }),
+      res: fail("not_found", t("Nenhuma conexão de parceiro ativa."), 404, { requestId }),
     };
   }
 
@@ -87,11 +92,14 @@ async function contexto(
   if (!sessionRef) {
     return {
       ok: false,
-      res: fail("failed_precondition", "Conexão sem identificador utilizável.", 409, { requestId }),
+      res: fail("failed_precondition", t("Conexão sem identificador utilizável."), 409, { requestId }),
     };
   }
 
-  return { ok: true, ctx: { orgId: org.orgId, sessionId: sessao.id, sessionRef, provider } };
+  return {
+    ok: true,
+    ctx: { orgId: org.orgId, sessionId: sessao.id, sessionRef, provider, idioma: user.idioma },
+  };
 }
 
 /** Lista o que está ESPELHADO. Rápido, e é o que a tela mostra. */
@@ -137,13 +145,17 @@ export async function GET(): Promise<Response> {
  * e separá-las obrigaria a tela a saber que criar também sincroniza.
  */
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const r = await contexto(requestId);
   if (!r.ok) return r.res;
+  const t = (texto: string) => traduzir(texto, r.ctx.idioma);
 
   const adapter = getAdapter(r.ctx.provider);
   if (!adapter.templates) {
-    return fail("not_implemented", "Este canal não gerencia definições.", 501, { requestId });
+    return fail("not_implemented", t("Este canal não gerencia definições."), 501, { requestId });
   }
 
   const corpo = (await req.json().catch(() => ({}))) as {
@@ -157,7 +169,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   try {
     if (corpo.acao === "criar") {
       if (!corpo.name || !corpo.language || !Array.isArray(corpo.components)) {
-        return fail("invalid_request", "Faltam nome, idioma ou conteúdo.", 400, { requestId });
+        return fail("invalid_request", t("Faltam nome, idioma ou conteúdo."), 400, { requestId });
       }
       // A plataforma valida o formato do nome e devolve o motivo com código. Não
       // duplicamos a regra: regra copiada envelhece separado da fonte.

@@ -15,11 +15,12 @@ import {
 } from "./gate";
 
 interface LinhaDeElegibilidade {
-  ai_gate: string | null;
+  channel_metadata: Record<string, unknown> | null;
   force_human: boolean | null;
   assignee_kind: string | null;
   bot_silenced_until: Date | string | null;
   ai_authorized_at: Date | string | null;
+  phone_number: string | null;
 }
 
 /**
@@ -32,11 +33,12 @@ export async function decidirElegibilidadeDaConversa(
 ): Promise<DecisaoDeElegibilidade | null> {
   const { rows } = await pool.query<LinhaDeElegibilidade>(
     `select
-       cs.metadata->>'ai_gate'      as ai_gate,
+       cs.metadata                  as channel_metadata,
        ct.force_human               as force_human,
        cv.assignee_kind             as assignee_kind,
        cv.bot_silenced_until        as bot_silenced_until,
-       ct.ai_authorized_at          as ai_authorized_at
+       ct.ai_authorized_at          as ai_authorized_at,
+       ct.phone_number              as phone_number
      from conversations cv
      join contacts ct
        on ct.id = cv.contact_id and ct.organization_id = cv.organization_id
@@ -50,7 +52,10 @@ export async function decidirElegibilidadeDaConversa(
 
   return decidirElegibilidade(
     montarEstadoDeElegibilidade({
-      aiGate: r.ai_gate,
+      aiGate: r.channel_metadata?.ai_gate,
+      aiGateMode: r.channel_metadata?.ai_gate_mode,
+      aiTestPhoneNumbers: r.channel_metadata?.ai_test_phone_numbers,
+      contactPhoneNumber: r.phone_number,
       forceHuman: r.force_human,
       assigneeKind: r.assignee_kind,
       botSilencedUntil: r.bot_silenced_until,

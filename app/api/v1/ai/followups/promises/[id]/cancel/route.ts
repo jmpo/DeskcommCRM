@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/ai/followups/promises/:id/cancel (manager+) — a pessoa desmarca
  * um RETORNO agendado (a promessa avulsa, `cron_jobs`), não um enrollment do
@@ -23,6 +24,7 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { cancelaRetornoNoCrm } from "@/lib/followup/retorno-crm";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +33,9 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 type RouteCtx = { params: Promise<{ id: string }> };
 
 export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
   if (!UUID_RX.test(id)) {
@@ -39,6 +44,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
 
   const authz = await requireRole("manager", { requestId, resource: "followup_promises" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org } = authz;
 
   // Admin client porque a operação compartilhada escreve atividade e lê o
@@ -59,9 +65,9 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
 
   if (!resultado.ok) {
     if (resultado.codigo === "nao_encontrado") {
-      return fail("not_found", "Retorno não encontrado.", 404, { requestId });
+      return fail("not_found", t("Retorno não encontrado."), 404, { requestId });
     }
-    return fail("already_terminal", "Este retorno já aconteceu ou já foi cancelado.", 409, {
+    return fail("already_terminal", t("Este retorno já aconteceu ou já foi cancelado."), 409, {
       requestId,
     });
   }

@@ -32,6 +32,9 @@ export default async function ConnectWhatsappPage() {
           )}
         </p>
       </header>
+      <p className="text-sm text-muted-foreground">
+        {traduzir("Novos canais começam em modo de teste. Após concluir a configuração, abra Conexões para autorizar seus números de teste ou liberar o público.", idioma)}
+      </p>
       <ConnectWhatsappClient
         wahaConfigured={wahaConfigured}
         sessionName={`org_${activeOrg.orgId.slice(0, 8)}`}

@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * GET  /api/v1/ai/followups/enrollments — lista enrollments da org ativa
  *   (any member), filtro opcional `?status=`.
@@ -9,9 +10,11 @@ import type { NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { createFollowupEnrollmentSchema } from "@/lib/followup/api-schemas";
 import { ENROLLMENT_LIST_COLUMNS, enrollFollowupFlow } from "@/lib/followup/enroll";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +32,12 @@ export async function GET(req: NextRequest): Promise<Response> {
   const requestId = randomUUID();
   const authz = await requireRole("viewer", { requestId, resource: "followup_enrollments" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org: activeOrg } = authz;
 
   const status = req.nextUrl.searchParams.get("status");
   if (status !== null && !ENROLLMENT_STATUSES.includes(status)) {
-    return fail("invalid_request", "status inválido.", 400, { requestId });
+    return fail("invalid_request", t("status inválido."), 400, { requestId });
   }
 
   const supabase = await createClient();
@@ -50,28 +54,31 @@ export async function GET(req: NextRequest): Promise<Response> {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("manager", { requestId, resource: "followup_enrollments" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org: activeOrg } = authz;
 
   let raw: unknown;
   try {
     raw = await req.json();
   } catch {
-    return fail("invalid_request", "Body JSON inválido.", 400, { requestId });
+    return fail("invalid_request", t("Body JSON inválido."), 400, { requestId });
   }
 
   const parsed = createFollowupEnrollmentSchema.safeParse(raw);
   if (!parsed.success) {
-    return fail("validation_failed", "Campos inválidos.", 422, {
+    return fail("validation_failed", t("Campos inválidos."), 422, {
       requestId,
       details: parsed.error.flatten(),
     });
   }
 
-  const supabase = await createClient();
-  const result = await enrollFollowupFlow(supabase, {
+  const result = await enrollFollowupFlow(createAdminClient(), {
     organizationId: activeOrg.orgId,
     pointerId: parsed.data.pointer_id,
     contactId: parsed.data.contact_id,

@@ -1,3 +1,4 @@
+import { createAdminClient } from "@/lib/supabase/admin";
 /**
  * Core handlers para /api/v1/conversations.
  *
@@ -8,6 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { ApiError } from "@/lib/api/types";
 import type { Actor, HandlerCtx } from "@/lib/api/handlers/types";
 import { audit } from "@/lib/audit";
+import { traduzir } from "@/lib/i18n/dicionario";
 import { CONVERSATION_TERMINAL_STATUSES } from "@/lib/schemas";
 import type {
   ListConversationsQuery,
@@ -15,11 +17,72 @@ import type {
 } from "@/lib/schemas";
 import type { Conversation } from "@/lib/types/messaging";
 
+/**
+ * Prepara o termo digitado para viajar dentro de um `or=` do PostgREST.
+ *
+ * Exportada para ser testável: o defeito que ela impede é de SINTAXE, e sintaxe
+ * se verifica sem subir banco. O comportamento contra o PostgREST de verdade
+ * está em `tests/e2e/`.
+ */
+export function termoSeguroParaOr(bruto: string): string {
+  return bruto
+    .trim()
+    // curingas do `ilike` (Postgres)
+    .replace(/[%_]/g, (m) => `\\${m}`)
+    // gramática do `or=` (PostgREST) — viram o próprio curinga
+    .replace(/[,()]/g, "*");
+}
+
 type SB = SupabaseClient;
+
+/**
+ * Quantos contatos a busca do Inbox casa antes de cortar.
+ *
+ * Não é um número estético: os ids viajam DENTRO da querystring do PostgREST
+ * (`contact_id.in.(<uuid>,<uuid>,…)`), e requisição GET tem teto no gateway.
+ */
+const TETO_DE_CONTATOS_NA_BUSCA = 120;
+
+/**
+ * O orçamento de bytes que a lista de ids pode ocupar na URL.
+ *
+ * O muro real é 8.192 B na linha de requisição (Kong e nginx, ambos no default),
+ * e a URL leva mais coisa além dos ids: caminho, `select` com todas as
+ * `SELECT_COLS`, o filtro de organização, o `order`, o `limit` e o próprio
+ * `ilike` do termo. Medido neste arquivo, com 1 id a URL já tem 892 B — então o
+ * que sobra para os ids é o resto, e 5.000 B deixa folga confortável para o
+ * termo de busca crescer sem que ninguém precise voltar aqui.
+ *
+ * Cortar por BYTES e não por quantidade é o que faz esta guarda sobreviver a
+ * uma coluna nova em `SELECT_COLS` ou a um formato de id diferente.
+ */
+const ORCAMENTO_DE_IDS_NA_URL = 5_000;
+
+/**
+ * Corta a lista de ids no que cabe no orçamento da URL.
+ *
+ * Devolver menos contatos torna a busca INCOMPLETA — o que é ruim — mas devolver
+ * todos torna a tela QUEBRADA, com `414` virando `500` na cara do operador. Entre
+ * uma lista pobre e uma tela que não abre, a lista pobre ganha; e a diferença
+ * aparece porque a busca por conteúdo (`last_message_preview`) continua rodando
+ * ao lado, sem depender desta lista.
+ */
+function idsQueCabemNaURL(ids: string[]): string[] {
+  const cabem: string[] = [];
+  let bytes = 0;
+  for (const id of ids) {
+    // +1 pela vírgula que separa; o último sobra do lado seguro.
+    const custo = id.length + 1;
+    if (bytes + custo > ORCAMENTO_DE_IDS_NA_URL) break;
+    cabem.push(id);
+    bytes += custo;
+  }
+  return cabem;
+}
 
 const SELECT_COLS = `
   id, organization_id, contact_id, channel_session_id, channel, status,
-  status_changed_at, assigned_to_user_id, assigned_to_user_name, assignee_kind, assigned_at, last_inbound_at,
+  status_changed_at, service_revision, service_closed_at, service_started_at, current_demanda_id, assigned_to_user_id, assigned_to_user_name, assignee_kind, assigned_at, last_inbound_at,
   last_outbound_at, last_message_at, last_message_preview,
   unread_count_for_assignee, is_group, group_chat_id, tags, metadata,
   snooze_until, created_at, updated_at,
@@ -144,7 +207,44 @@ export async function listConversationsHandler(
   }
 
   if (q.search) {
-    const s = q.search.trim().replace(/[%_]/g, (m) => `\\${m}`);
+    // ─── O TERMO NÃO PODE QUEBRAR A SINTAXE DO `.or()` ────────────────────
+    //
+    // Dois escapes diferentes, para dois parsers diferentes, e eles NÃO se
+    // substituem:
+    //
+    //   `%` e `_` são curingas do `ilike` (Postgres) — escapados com `\`.
+    //   `,` `(` `)` são a GRAMÁTICA do `or=` (PostgREST) — e para eles o
+    //   PostgREST não oferece escape nenhum dentro de um valor sem aspas.
+    //
+    // Medido contra o PostgREST v14.10 do stack local deste repo, buscando um
+    // contato que existe:
+    //
+    //   or=(display_name.ilike.*DIAG, 178*,…)   → HTTP 400 PGRST100
+    //                                             "failed to parse logic tree"
+    //   or=(display_name.ilike.*DIAG* 178*,…)   → 200, 3 resultados
+    //
+    // Ou seja: um cliente cadastrado como "Sobrenome, Nome" — que é como meia
+    // agenda de CRM é digitada — DERRUBA a busca do Inbox, não devolve lista
+    // vazia. E a vírgula não precisa estar no banco: basta o atendente digitá-la.
+    //
+    // AS DUAS SAÍDAS ÓBVIAS FORAM MEDIDAS E AS DUAS FALHAM:
+    //
+    //   aspas duplas no valor .... `ilike."*IAG*"` → 0 resultados contra
+    //                              `ilike.*IAG*` → 3. Dentro das aspas o `*`
+    //                              deixa de ser curinga; consertaria a sintaxe
+    //                              e mataria a busca.
+    //   barra invertida .......... `ilike.*I\,AG*` → HTTP 400. O PostgREST não
+    //                              tem escape para a vírgula fora de aspas.
+    //
+    // O que sobra, e é o que está aqui: trocar o metacaractere pelo PRÓPRIO
+    // curinga. "Silva, João" vira `*Silva* João*`, que casa "Silva, João" no
+    // banco — o `%` cobre a vírgula. A busca fica ligeiramente mais larga, e
+    // essa direção é a certa: o custo é achar um vizinho a mais; o custo do
+    // outro lado é a tela em branco com 400.
+    //
+    // O controle que impede o degenerado está no teste: termo inexistente
+    // continua devolvendo ZERO. Sem ele, "troque tudo por `*`" passaria.
+    const s = termoSeguroParaOr(q.search);
 
     // ─── A BUSCA ALCANÇA O CONTATO, NÃO SÓ A ÚLTIMA MENSAGEM ──────────────
     //
@@ -179,9 +279,28 @@ export async function listConversationsHandler(
       .or(camposDoContato)
       // Teto obrigatório: a lista de ids viaja na URL do PostgREST, e uma busca
       // por "a" sem limite estoura a requisição.
-      .limit(200);
+      //
+      // ⚠️ 200 ERA ACIMA DO MURO, e o comentário acima descrevia o perigo certo
+      // com o número errado. Medido com o `postgrest-js` real e as `SELECT_COLS`
+      // deste arquivo:
+      //
+      //     ids=  1 →   892 B      ids=186 →  8.098 B
+      //     ids=100 → 4.753 B      ids=200 →  8.653 B   ← acima de 8.192
+      //
+      // Kong 2.8.1 — o gateway que a Supabase põe na frente do PostgREST, e o
+      // mesmo que o stack local deste repo sobe — devolve `414 URI too long` a
+      // partir de ~187 ids. E o `error` desta consulta vira `500 internal_error`
+      // no handler, então o Inbox PARA: buscar "ana" ou "silva" numa base de
+      // milhares de contatos devolvia a tela quebrada, não uma lista pobre.
+      //
+      // O teto agora é de BYTES, não de linhas, porque é byte que estoura. O
+      // número de ids que cabe é consequência, e continua certo se as colunas
+      // ou o formato do id mudarem.
+      .limit(TETO_DE_CONTATOS_NA_BUSCA);
 
-    const ids = (contatos ?? []).map((c) => (c as { id: string }).id);
+    const ids = idsQueCabemNaURL(
+      (contatos ?? []).map((c) => (c as { id: string }).id),
+    );
     if (ids.length > 0) {
       query = query.or(
         `last_message_preview.ilike.*${s}*,contact_id.in.(${ids.join(",")})`,
@@ -196,7 +315,13 @@ export async function listConversationsHandler(
   if (q.cursor) {
     const c = decodeCursor(q.cursor);
     if (!c) {
-      throw new ApiError(400, "invalid_cursor", undefined, ctx.requestId, "Cursor inválido.");
+      throw new ApiError(
+        400,
+        "invalid_cursor",
+        undefined,
+        ctx.requestId,
+        traduzir("Cursor inválido.", ctx.idioma ?? "pt-BR"),
+      );
     }
     const op = asc ? "gt" : "lt";
     if (c.sort) {
@@ -247,7 +372,13 @@ export async function getConversationHandler(
     throw new ApiError(500, "internal_error", undefined, ctx.requestId, error.message);
   }
   if (!data) {
-    throw new ApiError(404, "not_found", undefined, ctx.requestId, "Conversa não encontrada.");
+    throw new ApiError(
+      404,
+      "not_found",
+      undefined,
+      ctx.requestId,
+      traduzir("Conversa não encontrada.", ctx.idioma ?? "pt-BR"),
+    );
   }
   return data as unknown as Conversation;
 }
@@ -262,7 +393,6 @@ export async function patchConversationHandler(
   conversationId: string,
   input: PatchConversationInput,
 ): Promise<Conversation> {
-  const now = new Date().toISOString();
   const update: Record<string, unknown> = {};
 
   /**
@@ -299,44 +429,41 @@ export async function patchConversationHandler(
   }
 
   if (input.status !== undefined) {
-    update.status = input.status;
-    update.status_changed_at = now;
+    const observed = await getConversationHandler(supabase, ctx, conversationId);
+    const { error: statusError } = await createAdminClient().rpc("fn_service_status", {
+      p_org: ctx.organization_id, p_conversation: conversationId, p_status: input.status,
+      p_expected: input.expected_revision ?? observed.service_revision,
+    });
+    if (statusError) throw new ApiError(statusError.code === "40001" ? 409 : statusError.code === "P0002" ? 404 : 500,
+      statusError.code === "40001" ? "conflict" : statusError.code === "P0002" ? "not_found" : "internal_error", undefined, ctx.requestId, statusError.message);
   }
   if (input.tags !== undefined) {
     update.tags = input.tags;
   }
 
-  const { data, error } = await supabase
-    .from("conversations")
-    .update(update)
+  const query = Object.keys(update).length > 0
+    ? supabase.from("conversations").update(update)
+    : supabase.from("conversations");
+  const { data, error } = await query.select(SELECT_COLS)
     .eq("id", conversationId)
     .eq("organization_id", ctx.organization_id)
-    .select(SELECT_COLS)
     .maybeSingle();
 
   if (error) {
     throw new ApiError(500, "internal_error", undefined, ctx.requestId, error.message);
   }
   if (!data) {
-    throw new ApiError(404, "not_found", undefined, ctx.requestId, "Conversa não encontrada.");
+    throw new ApiError(
+      404,
+      "not_found",
+      undefined,
+      ctx.requestId,
+      traduzir("Conversa não encontrada.", ctx.idioma ?? "pt-BR"),
+    );
   }
 
   const conv = data as unknown as Conversation;
 
-  // MESMA REGRA DO `POST /close`, senão existem dois jeitos de fechar com efeitos
-  // opostos sobre a trava do automático. Condicionado a `last_handoff_at is null`
-  // pelo mesmo motivo de lá: fechar encerra o EPISÓDIO, não desfaz uma escalação.
-  const virouTerminal =
-    input.status !== undefined &&
-    (CONVERSATION_TERMINAL_STATUSES as readonly string[]).includes(input.status);
-  if (virouTerminal) {
-    await supabase
-      .from("conversations")
-      .update({ bot_silenced_until: null })
-      .eq("id", conversationId)
-      .eq("organization_id", ctx.organization_id)
-      .is("last_handoff_at", null);
-  }
   const a = actorAuditPayload(ctx.actor);
 
   if (input.status !== undefined) {
@@ -392,7 +519,13 @@ export async function markConversationReadHandler(
     throw new ApiError(500, "internal_error", undefined, ctx.requestId, error.message);
   }
   if (!data) {
-    throw new ApiError(404, "not_found", undefined, ctx.requestId, "Conversa não encontrada.");
+    throw new ApiError(
+      404,
+      "not_found",
+      undefined,
+      ctx.requestId,
+      traduzir("Conversa não encontrada.", ctx.idioma ?? "pt-BR"),
+    );
   }
   return data as unknown as Conversation;
 }

@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * GET  /api/v1/products — o catálogo da organização ativa.
  * POST /api/v1/products — cadastra um produto.
@@ -12,8 +13,10 @@ import { type NextRequest } from "next/server";
 import { audit } from "@/lib/audit";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
+import { moedaDaOrganizacao } from "@/lib/catalogo/moeda-da-org";
 import { COLUNAS_DO_PRODUTO, produtoCreateSchema } from "@/lib/schemas/produtos";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -45,22 +48,28 @@ export async function GET(req: NextRequest): Promise<Response> {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("manager", { requestId, resource: "catalog_products" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
 
   const parsed = produtoCreateSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
-    return fail("validation_failed", "Dados inválidos.", 422, {
+    return fail("validation_failed", t("Dados inválidos."), 422, {
       requestId,
       details: parsed.error.flatten().fieldErrors as Record<string, unknown>,
     });
   }
 
   const supabase = await createClient();
+  // A moeda vem da organização, nunca do corpo — ver `moedaDaOrganizacao()`.
+  const moeda = await moedaDaOrganizacao(supabase, authz.org.orgId);
   const { data, error } = await supabase
     .from("catalog_products")
-    .insert({ ...parsed.data, organization_id: authz.org.orgId, origem: "manual" })
+    .insert({ ...parsed.data, moeda, organization_id: authz.org.orgId, origem: "manual" })
     .select(COLUNAS_DO_PRODUTO)
     .single();
 
@@ -68,7 +77,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     // 23505 = já existe produto com este código nesta organização. A recusa
     // nomeia o campo porque quem lê é quem digitou.
     if (error.code === "23505") {
-      return fail("conflict", "Já existe um produto com esse código.", 409, { requestId });
+      return fail("conflict", t("Já existe um produto com esse código."), 409, { requestId });
     }
     return fail("internal_error", "Erro ao salvar o produto.", 500, { requestId });
   }

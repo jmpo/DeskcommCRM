@@ -9,7 +9,9 @@
  * número para falar com cliente atual, fornecedor e contato pessoal — a IA
  * assume conversa que era de gente.
  *
- * O gate é OPT-IN, por canal: `channel_sessions.metadata.ai_gate`.
+ * Canais existentes preservam o gate opt-in. Novos canais criados pelo produto
+ * nascem no modo de teste (issue #573), configurável na Central de Conexões.
+ * Fonte: `channel_sessions.metadata.ai_gate`.
  *
  *   'open' (ausente / default)  → comportamento de hoje, nenhuma checagem nova.
  *   'allowlist'                 → a IA só responde quando há uma condição
@@ -28,10 +30,16 @@
  *
  * Mensagem nova sozinha. Conversa aberta. Conversa sem responsável. Conversa
  * aguardando resposta. Histórico. Cliente antigo. `channel_session` existir.
- * Nada disso. Só `contacts.ai_authorized_at` — carimbado por uma origem
+ * Nada disso. No modo de teste, somente a lista de números do canal. No
+ * allowlist por origem, `contacts.ai_authorized_at` — carimbado por uma origem
  * elegível (webhook do Respondi, match de campanha, ação de automação, retomada
  * manual pela tela) e dentro da janela de validade.
  */
+import {
+  AI_GATE_PRE_GO_LIVE,
+  lerNumerosDeTeste,
+  numeroPodeTestar,
+} from "./pre-go-live";
 
 /** Valores aceitos em `channel_sessions.metadata.ai_gate`. */
 export const AI_GATE_MODES = ["open", "allowlist"] as const;
@@ -57,6 +65,10 @@ export interface EstadoDeElegibilidade {
   assigneeKind: string | null;
   /** `contacts.ai_authorized_at`. `null` = nunca autorizado. */
   aiAuthorizedAt: Date | null;
+  /** O allowlist representa o período de teste deste canal. */
+  preGoLiveAtivo: boolean;
+  /** O telefone da conversa está na lista durável de testadores do canal. */
+  numeroDeTesteAutorizado: boolean;
   /** Agora, injetável para teste. */
   agora: Date;
   /** Janela de validade da autorização (`AI_ALLOWLIST_TTL_DAYS` em ms). */
@@ -68,6 +80,8 @@ export type MotivoDeElegibilidade =
   | "force_human"
   | "conversa_silenciada"
   | "conversa_de_humano"
+  | "fora_da_lista_de_teste"
+  | "numero_de_teste"
   | "sem_autorizacao"
   | "autorizacao_expirada"
   | "autorizado";
@@ -108,6 +122,15 @@ export function decidirElegibilidade(e: EstadoDeElegibilidade): DecisaoDeElegibi
 
   if (e.modo === "open") {
     return { permite: true, motivo: "gate_aberto", bloqueioPorAllowlist: false };
+  }
+
+  // No pré-go-live, a lista do canal é a ÚNICA autorização positiva. O carimbo
+  // global do contato pode ter vindo de campanha/automação e não pode furar a
+  // promessa de que o número ainda está fechado ao público.
+  if (e.preGoLiveAtivo) {
+    return e.numeroDeTesteAutorizado
+      ? { permite: true, motivo: "numero_de_teste", bloqueioPorAllowlist: false }
+      : { permite: false, motivo: "fora_da_lista_de_teste", bloqueioPorAllowlist: true };
   }
 
   // modo 'allowlist': exige condição positiva.
@@ -156,6 +179,9 @@ export function normalizarInstante(v: Date | string | number | null | undefined)
  */
 export function montarEstadoDeElegibilidade(raw: {
   aiGate: unknown;
+  aiGateMode?: unknown;
+  aiTestPhoneNumbers?: unknown;
+  contactPhoneNumber?: string | null;
   forceHuman: unknown;
   assigneeKind: string | null;
   botSilencedUntil: Date | string | number | null | undefined;
@@ -164,12 +190,18 @@ export function montarEstadoDeElegibilidade(raw: {
   ttlMs: number;
 }): EstadoDeElegibilidade {
   const autorizadoEm = normalizarInstante(raw.aiAuthorizedAt);
+  const modo = lerModoDoGate(raw.aiGate);
+  const preGoLive = modo === "allowlist" && raw.aiGateMode === AI_GATE_PRE_GO_LIVE;
+  const numerosDeTeste = lerNumerosDeTeste({ ai_test_phone_numbers: raw.aiTestPhoneNumbers });
   return {
-    modo: lerModoDoGate(raw.aiGate),
+    modo,
     forceHuman: raw.forceHuman === true,
     botSilencedUntil: normalizarInstante(raw.botSilencedUntil),
     assigneeKind: raw.assigneeKind,
     aiAuthorizedAt: autorizadoEm instanceof Date ? autorizadoEm : null,
+    preGoLiveAtivo: preGoLive,
+    numeroDeTesteAutorizado:
+      preGoLive && numeroPodeTestar(raw.contactPhoneNumber, numerosDeTeste),
     agora: raw.agora,
     ttlMs: raw.ttlMs,
   };

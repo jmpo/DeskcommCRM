@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/team/[user_id]/revoke — revoke a member.
  *
@@ -13,6 +14,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -20,14 +22,18 @@ export async function POST(
   _req: NextRequest,
   ctx: { params: Promise<{ user_id: string }> },
 ): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { user_id: targetUserId } = await ctx.params;
 
   const authz = await requireRole("admin", { requestId, resource: "team" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
   if (targetUserId === authUser.id) {
-    return fail("state_conflict", "Não é possível revogar o próprio acesso.", 409, { requestId });
+    return fail("state_conflict", t("Não é possível revogar o próprio acesso."), 409, { requestId });
   }
 
   const supabase = await createClient();
@@ -39,7 +45,7 @@ export async function POST(
     .eq("user_id", targetUserId)
     .maybeSingle();
   if (fetchErr) return fail("internal_error", fetchErr.message, 500, { requestId });
-  if (!target) return fail("not_found", "Membro não encontrado.", 404, { requestId });
+  if (!target) return fail("not_found", t("Membro não encontrado."), 404, { requestId });
   if (target.revoked_at) {
     return ok({ user_id: targetUserId, already_revoked: true }, { requestId });
   }
@@ -55,7 +61,7 @@ export async function POST(
     if ((count ?? 0) <= 1) {
       return fail(
         "state_conflict",
-        "Não é possível revogar o último admin do tenant.",
+        t("Não é possível revogar o último admin do tenant."),
         409,
         { requestId },
       );

@@ -17,6 +17,8 @@ const base: EstadoDeElegibilidade = {
   botSilencedUntil: null,
   assigneeKind: "ai",
   aiAuthorizedAt: null,
+  preGoLiveAtivo: false,
+  numeroDeTesteAutorizado: false,
   agora: AGORA,
   ttlMs: 21 * DIA,
 };
@@ -114,6 +116,49 @@ describe("decidirElegibilidade — gate 'allowlist' (deny by default)", () => {
       aiAuthorizedAt: new Date(AGORA.getTime() - DIA),
     });
     expect(d.permite).toBe(true);
+  });
+});
+
+describe("decidirElegibilidade — pré-go-live", () => {
+  it("permite o número escolhido mesmo sem autorização global", () => {
+    const d = decidirElegibilidade({
+      ...base,
+      modo: "allowlist",
+      preGoLiveAtivo: true,
+      numeroDeTesteAutorizado: true,
+      aiAuthorizedAt: null,
+    });
+    expect(d).toEqual({
+      permite: true,
+      motivo: "numero_de_teste",
+      bloqueioPorAllowlist: false,
+    });
+  });
+
+  it("barra quem está fora da lista mesmo que uma campanha já tenha autorizado", () => {
+    const d = decidirElegibilidade({
+      ...base,
+      modo: "allowlist",
+      preGoLiveAtivo: true,
+      numeroDeTesteAutorizado: false,
+      aiAuthorizedAt: AGORA,
+    });
+    expect(d).toEqual({
+      permite: false,
+      motivo: "fora_da_lista_de_teste",
+      bloqueioPorAllowlist: true,
+    });
+  });
+
+  it("vetos humanos continuam acima da lista de teste", () => {
+    const d = decidirElegibilidade({
+      ...base,
+      modo: "allowlist",
+      preGoLiveAtivo: true,
+      numeroDeTesteAutorizado: true,
+      forceHuman: true,
+    });
+    expect(d.motivo).toBe("force_human");
   });
 });
 

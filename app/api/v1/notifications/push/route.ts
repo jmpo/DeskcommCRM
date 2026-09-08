@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * GET  — chave VAPID pública (ou enabled=false se o operador não configurou).
  * PUT  — grava a inscrição deste navegador.
@@ -12,6 +13,7 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { vapidPronto, vapidPublica } from "@/lib/notifications/vapid";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -34,22 +36,26 @@ export async function GET(): Promise<Response> {
 }
 
 export async function PUT(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("viewer", { requestId, resource: "push_subscriptions" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   if (!vapidPronto()) {
-    return fail("unavailable", "Web Push não configurado nesta instalação.", 503, { requestId });
+    return fail("unavailable", t("Web Push não configurado nesta instalação."), 503, { requestId });
   }
 
   let raw: unknown;
   try {
     raw = await req.json();
   } catch {
-    return fail("invalid_request", "Body JSON inválido.", 400, { requestId });
+    return fail("invalid_request", t("Body JSON inválido."), 400, { requestId });
   }
   const parsed = subSchema.safeParse(raw);
   if (!parsed.success) {
-    return fail("validation_failed", "Campos inválidos.", 422, {
+    return fail("validation_failed", t("Campos inválidos."), 422, {
       requestId,
       details: parsed.error.flatten(),
     });
@@ -71,7 +77,7 @@ export async function PUT(req: NextRequest): Promise<Response> {
 
   if (error) {
     if (error.code === "PGRST205") {
-      return fail("unavailable", "Web Push ainda não está no banco desta instalação.", 503, { requestId });
+      return fail("unavailable", t("Web Push ainda não está no banco desta instalação."), 503, { requestId });
     }
     return fail("internal_error", error.message, 500, { requestId });
   }
@@ -89,19 +95,23 @@ export async function PUT(req: NextRequest): Promise<Response> {
 }
 
 export async function DELETE(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("viewer", { requestId, resource: "push_subscriptions" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
 
   let raw: unknown;
   try {
     raw = await req.json();
   } catch {
-    return fail("invalid_request", "Body JSON inválido.", 400, { requestId });
+    return fail("invalid_request", t("Body JSON inválido."), 400, { requestId });
   }
   const parsed = z.object({ endpoint: z.string().url() }).safeParse(raw);
   if (!parsed.success) {
-    return fail("validation_failed", "Campos inválidos.", 422, { requestId });
+    return fail("validation_failed", t("Campos inválidos."), 422, { requestId });
   }
 
   const supabase = await createClient();

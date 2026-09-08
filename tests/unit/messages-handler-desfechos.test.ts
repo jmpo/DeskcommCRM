@@ -90,12 +90,20 @@ function makeSupabase(
   conversation: Row,
   templateRow: Row | null = null,
   /** `semColunaArquivada`: banco em que a migration 0106 ainda não rodou. */
-  opts: { semColunaArquivada?: boolean } = {},
+  opts: { semColunaArquivada?: boolean; channelMetadata?: Row } = {},
 ) {
   const state: { message: Row | null } = { message: null };
 
   const client = {
     from(table: string) {
+      if (table === "channel_sessions") {
+        const query = {
+          select: () => query,
+          eq: () => query,
+          maybeSingle: async () => ({ data: { metadata: opts.channelMetadata ?? {} }, error: null }),
+        };
+        return query;
+      }
       if (table === 'conversations') {
         return {
           select: (cols?: string) => ({
@@ -146,11 +154,13 @@ function makeSupabase(
           },
           update: (patch: Row) => {
             state.message = { ...state.message, ...patch };
-            return {
-              eq: () => ({
-                select: () => ({ maybeSingle: async () => ({ data: { ...state.message }, error: null }) }),
-              }),
+            const query = {
+              eq: () => query,
+              select: () => query,
+              maybeSingle: async () => ({ data: { ...state.message }, error: null }),
+              single: async () => ({ data: { ...state.message }, error: null }),
             };
+            return query;
           },
         };
       }
@@ -194,6 +204,29 @@ afterEach(() => {
 });
 
 describe('sendMessageHandler — os 6 desfechos do envio', () => {
+  it("revalida a lista no sink, inclusive para automação, sem transformar teste em opt-out", async () => {
+    wahaConfigured(true);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    for (const actor of [{ type: "ai_agent", id: USER, role: "agent" }, { type: "webhook_source", id: USER }] as const) {
+      const message = await sendMessageHandler(makeSupabase(conversationRow(), null, {
+        channelMetadata: { ai_gate: "allowlist", ai_gate_mode: "pre_go_live", ai_test_phone_numbers: [] },
+      }), { ...ctx, actor }, textInput());
+      expect(message).toMatchObject({ status: "failed", error_code: "pre_go_live" });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("número autorizado passa pelo gate; resposta humana não depende da lista", async () => {
+    wahaConfigured(false);
+    const channelMetadata = { ai_gate: "allowlist", ai_gate_mode: "pre_go_live", ai_test_phone_numbers: ["+5531999998888"] };
+    const tester = await sendMessageHandler(makeSupabase(conversationRow(), null, { channelMetadata }),
+      { ...ctx, actor: { type: "ai_agent", id: USER, role: "agent" } }, textInput());
+    expect(tester.status).toBe("queued");
+    const human = await sendMessageHandler(makeSupabase(conversationRow(), null, {
+      channelMetadata: { ...channelMetadata, ai_test_phone_numbers: [] },
+    }), ctx, textInput());
+    expect(human.status).toBe("queued");
+  });
   it('1. WAHA não configurado: fica queued com queued_reason, nada sai pela rede', async () => {
     wahaConfigured(false);
     const fetchMock = vi.fn();

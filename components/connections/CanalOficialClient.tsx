@@ -13,6 +13,7 @@ import {
 } from "@/hooks/channels/useOfficialChannel";
 import { copyToClipboard } from "@/lib/clipboard";
 import { useT } from "@/hooks/i18n/useT";
+import { ChannelAiAccess } from "./ChannelAiAccess";
 
 /** Campo somente-leitura com botão de copiar — o que o operador cola na Meta. */
 function ParaColar({ rotulo, valor }: { rotulo: string; valor: string | null }) {
@@ -93,6 +94,7 @@ export function CanalOficialClient() {
           </p>
         </Card>
       ) : null}
+      {estado?.channel_session_id && <ChannelAiAccess channelId={estado.channel_session_id} />}
 
       {estado?.webhook ? (
         <Card className="flex flex-col gap-3 p-4">

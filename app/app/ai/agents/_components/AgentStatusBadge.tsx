@@ -2,6 +2,7 @@
 import { Badge } from "@/components/ui/badge";
 import { estadoDoAgente } from "@/lib/ai/agents/no-ar";
 import type { AgentRow } from "@/hooks/ai/useAgent";
+import { useT } from "@/hooks/i18n/useT";
 
 export type AgentStatus = "published" | "draft" | "paused" | "archived" | "invalid";
 
@@ -31,7 +32,10 @@ export type AgentStatus = "published" | "draft" | "paused" | "archived" | "inval
  * filtros da lista o consomem; ele deixou de ter emissor aqui.
  */
 export function deriveAgentStatus(agent: AgentRow): AgentStatus {
-  switch (estadoDoAgente(agent)) {
+  // `AgentRow` traz `paused_at` como opcional (o tipo vem da linha do banco),
+  // e `FatosDoAgente` o exige justamente para que consulta sem a coluna não
+  // compile. Aqui a página SELECIONA a coluna, então normalizar é honesto.
+  switch (estadoDoAgente({ ...agent, paused_at: agent.paused_at ?? null })) {
     case "arquivado":
       return "archived";
     case "no_ar":
@@ -59,9 +63,10 @@ const VARIANT: Record<AgentStatus, "default" | "secondary" | "outline" | "destru
 };
 
 export function AgentStatusBadge({ status }: { status: AgentStatus }) {
+  const t = useT();
   return (
-    <Badge variant={VARIANT[status]} aria-label={`status: ${LABEL[status]}`}>
-      {LABEL[status]}
+    <Badge variant={VARIANT[status]} aria-label={`status: ${t(LABEL[status])}`}>
+      {t(LABEL[status])}
     </Badge>
   );
 }

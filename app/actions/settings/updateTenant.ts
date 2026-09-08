@@ -1,5 +1,6 @@
 "use server";
 
+import { supportWriteError } from "@/lib/impersonate/support";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 
@@ -22,6 +23,7 @@ export async function updateTenant(input: TenantInput): Promise<UpdateTenantResu
 
   const authUser = await loadAuthUser();
   if (!authUser) return { ok: false, error: "unauthenticated" };
+  if (supportWriteError(authUser.support)) return { ok: false, error: "forbidden" };
   const activeOrg = await resolveActiveOrg(authUser);
   if (!activeOrg) return { ok: false, error: "forbidden_tenant" };
   if (!authUser.is_platform_admin && ROLE_RANK[activeOrg.role] < ROLE_RANK.admin) {
@@ -75,6 +77,7 @@ export async function updateTenant(input: TenantInput): Promise<UpdateTenantResu
       cnpj: parsed.data.cnpj ?? null,
       timezone: parsed.data.timezone,
       locale: parsed.data.locale,
+      currency: parsed.data.currency,
       media_retention_days: parsed.data.media_retention_days,
       dpo_email: parsed.data.dpo_email ?? null,
       privacy_policy_url: parsed.data.privacy_policy_url ?? null,

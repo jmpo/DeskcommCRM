@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type pg from "pg";
+import { createLogger } from "../../obs/logger";
 
-import { deveRetomarSessao } from "./session-reconciler";
+import { deveRetomarSessao, redriveQueued } from "./session-reconciler";
+
+afterEach(() => vi.restoreAllMocks());
 
 /**
  * A regra que decide se o watchdog RELIGA a sessão. Religar FAILED é o que o
@@ -19,4 +23,25 @@ describe("deveRetomarSessao", () => {
       expect(deveRetomarSessao(status)).toBe(false);
     },
   );
+});
+
+describe("redrive pré-go-live", () => {
+  it("não envia se a releitura da configuração falha", async () => {
+    const send = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response());
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [{
+        id: "message-test", organization_id: "org-test", body: "Resposta de teste",
+        waha_session_name: "session-test", phone_number: "+5511999998888",
+        wa_identity: null, wa_lid: null, is_group: false, group_chat_id: null,
+      }] })
+      .mockResolvedValueOnce({ rows: [{ n: "0" }] })
+      .mockRejectedValueOnce(new Error("banco indisponível"));
+
+    expect(await redriveQueued({ query } as unknown as pg.Pool, {
+      wahaBaseUrl: "http://127.0.0.1:9999", wahaApiKey: "test-key",
+      intervalMs: 1, redriveMinAgeMs: 0, redriveBatchSize: 10, redriveSpacingMs: 0,
+    }, createLogger())).toBe(0);
+    expect(send).not.toHaveBeenCalled();
+    expect(query).toHaveBeenLastCalledWith(expect.stringContaining("m.organization_id = $2"), ["message-test", "org-test"]);
+  });
 });

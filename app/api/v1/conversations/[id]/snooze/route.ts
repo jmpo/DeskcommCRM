@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST   /api/v1/conversations/[id]/snooze — define lembrete ("avise se o lead não responder em X h").
  * DELETE /api/v1/conversations/[id]/snooze — cancela o lembrete ativo.
@@ -20,6 +21,7 @@ import { fail, ok, noContent } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { snoozeSchema } from "@/lib/schemas/snooze";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -28,16 +30,20 @@ interface RouteParams {
 }
 
 export async function POST(req: NextRequest, { params }: RouteParams): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("agent", { requestId, resource: "conversations" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org } = authz;
   const { id } = await params;
 
   const raw = await req.json().catch(() => null);
   const parsed = snoozeSchema.safeParse(raw);
   if (!parsed.success) {
-    return fail("validation_failed", "Dados inválidos.", 422, {
+    return fail("validation_failed", t("Dados inválidos."), 422, {
       requestId,
       details: parsed.error.flatten().fieldErrors as Record<string, unknown>,
     });
@@ -56,7 +62,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
     .select("id")
     .maybeSingle();
   if (error) return fail("internal_error", error.message, 500, { requestId });
-  if (!data) return fail("not_found", "Conversa não encontrada.", 404, { requestId });
+  if (!data) return fail("not_found", t("Conversa não encontrada."), 404, { requestId });
 
   void audit({
     action: "conversation.snoozed",
@@ -71,9 +77,13 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
 }
 
 export async function DELETE(_req: NextRequest, { params }: RouteParams): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("agent", { requestId, resource: "conversations" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org } = authz;
   const { id } = await params;
 
@@ -86,7 +96,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams): Promis
     .select("id")
     .maybeSingle();
   if (error) return fail("internal_error", error.message, 500, { requestId });
-  if (!data) return fail("not_found", "Conversa não encontrada.", 404, { requestId });
+  if (!data) return fail("not_found", t("Conversa não encontrada."), 404, { requestId });
 
   void audit({
     action: "conversation.snooze_cancelled",

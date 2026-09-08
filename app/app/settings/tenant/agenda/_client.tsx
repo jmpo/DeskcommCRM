@@ -1,4 +1,6 @@
 "use client";
+import { AgendasConectadas } from "@/components/agenda/AgendasConectadas";
+import { PrazosDePresenca } from "@/components/agenda/PrazosDePresenca";
 
 import { useT } from "@/hooks/i18n/useT";
 
@@ -75,11 +77,13 @@ export function TiposDeAgendamentoClient({
   pessoas,
   podeEditar,
   usuarioAtualId,
+  podeConfigurarGoogle,
 }: {
   tiposIniciais: TipoRow[];
   pessoas: Array<{ id: string; papel: string; nome: string }>;
   podeEditar: boolean;
   usuarioAtualId: string;
+  podeConfigurarGoogle: boolean;
 }) {
   const t = useT();
   const router = useRouter();
@@ -127,6 +131,8 @@ export function TiposDeAgendamentoClient({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4" data-testid="tipos-de-agendamento-config">
+      {podeConfigurarGoogle && <AgendasConectadas />}
+      <PrazosDePresenca podeEditar={podeEditar}/>
       {podeEditar ? (
         <div>
           {criando ? (
@@ -205,7 +211,7 @@ export function TiposDeAgendamentoClient({
                 >
                   {LOCAIS.map((l) => (
                     <option key={l.valor} value={l.valor}>
-                      {l.rotulo}
+                      {t(l.rotulo)}
                     </option>
                   ))}
                 </select>
@@ -234,7 +240,7 @@ export function TiposDeAgendamentoClient({
               </label>
               <div className="flex justify-end gap-2 sm:col-span-2">
                 <Button type="button" variant="ghost" size="sm" onClick={() => setCriando(false)}>
-                  Cancelar
+                  {t("Cancelar")}
                 </Button>
                 <Button type="submit" size="sm" data-testid="salvar-novo-tipo" disabled={salvando}>
                   {salvando ? t("Criando…") : t("Criar tipo")}
@@ -243,7 +249,7 @@ export function TiposDeAgendamentoClient({
             </form>
           ) : (
             <Button size="sm" data-testid="abrir-novo-tipo" onClick={() => setCriando(true)}>
-              Novo tipo de agendamento
+              {t("Novo tipo de agendamento")}
             </Button>
           )}
         </div>
@@ -262,12 +268,15 @@ export function TiposDeAgendamentoClient({
             className={`rounded-lg border border-border bg-surface p-3 ${tipo.is_active ? "" : "opacity-60"}`}
           >
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-text">{t(tipo.name)}</span>
+              {/* Sem t(): é o nome que quem opera digitou no campo acima, não
+                  rótulo do sistema — traduzir trocaria "Retorno" por
+                  "Seguimiento" (chave existente, de outro contexto). */}
+              <span className="text-sm font-medium text-text">{tipo.name}</span>
               <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-text-muted">
-                {rotuloDe(CATEGORIAS, tipo.category)}
+                {t(rotuloDe(CATEGORIAS, tipo.category))}
               </span>
               <span className="text-xs tabular-nums text-text-muted">{tipo.duration_minutes} min</span>
-              <span className="text-xs text-text-muted">{rotuloDe(LOCAIS, tipo.location_kind)}</span>
+              <span className="text-xs text-text-muted">{t(rotuloDe(LOCAIS, tipo.location_kind))}</span>
               {!tipo.default_owner_user_id ? (
                 // O aviso existe porque o sintoma é MUDO: sem dono, a tela de
                 // marcar simplesmente não mostra horário, sem dizer por quê.

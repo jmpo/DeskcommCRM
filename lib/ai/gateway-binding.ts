@@ -36,7 +36,7 @@ export interface ModeloResolvido {
   model: LanguageModel;
   /** Para o log: qual modelo e de onde veio a decisão. */
   modelId: string;
-  origem: "binding" | "padrao";
+  origem: "binding" | "credencial_da_organizacao" | "padrao";
 }
 
 /**
@@ -46,8 +46,12 @@ export interface ModeloResolvido {
  * resolvedor que aceitasse organização opcional acabaria chamado sem ela no
  * caminho que mais importa, aplicando a configuração de ninguém.
  *
- * Sem binding, devolve exatamente o que `resolveLanguageModel` devolvia: este
- * módulo não muda o comportamento de quem não configurou nada.
+ * Sem binding, a ordem é a MESMA do resto do produto (`resolveOrgLlmConfig`):
+ * a credencial ativa e validada do provider da organização e, só então, a chave
+ * da instalação. Esta linha já disse "devolve exatamente o que
+ * `resolveLanguageModel` devolvia"; era verdade até o degrau do meio entrar, e
+ * deixá-la de pé faria a próxima pessoa concluir que a chave do `.env` ainda
+ * vence a chave que a organização cadastrou na tela.
  */
 export async function resolverModeloDoPonto(
   purpose: string,
@@ -57,6 +61,19 @@ export async function resolverModeloDoPonto(
   const binding = await lerBinding(purpose, organizationId);
 
   if (binding === null) {
+    // Antes da chave da instalação vem a credencial da PRÓPRIA organização —
+    // o degrau do meio de `resolveOrgLlmConfig`, que esta pilha pulava.
+    const daOrg = await credencialDaOrganizacao(organizationId);
+    const idNoProvider =
+      daOrg === null ? null : idParaOProvider(daOrg.provider, String(padrao));
+    if (daOrg !== null && idNoProvider !== null) {
+      const model = instanciar(daOrg.provider, daOrg.apiKey, idNoProvider, null);
+      if (model !== null) {
+        // `modelId` continua sendo o id CANÔNICO, não o traduzido: é ele que
+        // casa com o catálogo de preço no log de custo.
+        return { model, modelId: String(padrao), origem: "credencial_da_organizacao" };
+      }
+    }
     const model = resolveLanguageModel(padrao);
     return model === null ? null : { model, modelId: String(padrao), origem: "padrao" };
   }
@@ -123,6 +140,98 @@ async function lerBinding(
   }
 }
 
+/**
+ * O id canônico traduzido para o que o provider da organização entende — ou
+ * `null` quando ele não sabe executar aquele modelo.
+ *
+ * O prefixo de um id canônico (`anthropic/claude-haiku-4-5`) é ROTA, não nome
+ * de modelo: quem já está dentro do provedor recebe só o nome, e é o que
+ * `resolveLanguageModel` faz ao rotear pelo prefixo. A OpenRouter é a exceção
+ * porque é agregadora — lá o prefixo é parte do endereço e vai inteiro.
+ *
+ * O `null` é o freio do PR #151: id de outro provedor não vira chamada com a
+ * chave da organização, vira queda para `resolveLanguageModel`, que sabe achar
+ * a chave certa para aquele prefixo.
+ */
+function idParaOProvider(provider: string, id: string): string | null {
+  if (provider === "openrouter") return id;
+  if (!id.includes("/")) return id;
+  if (id.startsWith(`${provider}/`)) return id.slice(provider.length + 1);
+  return null;
+}
+
+/**
+ * A credencial que a organização cadastrou para o SEU provider.
+ *
+ * É o degrau que faltava a esta pilha. `resolveOrgLlmConfig`
+ * (lib/agent-engine/edge/llm/credentials.ts) já ordena assim há muito tempo:
+ * credencial escolhida, senão a mais recente ativa/validada do provider da
+ * organização, senão a chave da instalação. Aqui só havia o primeiro e o
+ * terceiro — e uma organização com chave própria cadastrada e validada ficava
+ * refém da chave do `.env`, que não é dela. Medido em produção: `.env` com
+ * `OPENROUTER_API_KEY` revogada derrubou `sentiment_classify` com 401
+ * `User not found.` enquanto os pontos do agent-engine, no mesmo minuto,
+ * respondiam pela credencial da organização.
+ *
+ * O MODELO não vem daqui — vem de quem chamou. Trocá-lo pelo `default_model`
+ * da organização mandaria o modelo de conversa fazer o trabalho do
+ * classificador barato, e é a metade errada do par que o PR #151 ensinou a não
+ * cruzar: aqui provider e credencial andam juntos, que é o par que importa.
+ *
+ * Nunca lança: leitura que falha devolve `null` e o chamador segue para a
+ * chave da instalação. Um clone sem o baseline aplicado não pode ficar sem
+ * atendimento por causa de uma consulta a mais.
+ */
+async function credencialDaOrganizacao(
+  organizationId: string,
+): Promise<{ provider: string; apiKey: string } | null> {
+  try {
+    const admin = createAdminClient();
+    const { data: org } = await admin
+      .from("organizations")
+      .select("settings")
+      .eq("id", organizationId)
+      .maybeSingle();
+    const provider = (org?.settings as { llm?: { provider?: string } } | null)?.llm?.provider;
+    if (typeof provider !== "string" || provider === "") return null;
+
+    // Admin client bypassa RLS: filtro por organização é PROGRAMÁTICO e
+    // obrigatório (CLAUDE.md, anti-pattern 10).
+    const { data } = await admin
+      .from("ai_provider_credentials")
+      .select("api_key_encrypted, api_key_iv, api_key_tag")
+      .eq("organization_id", organizationId)
+      .eq("provider", provider)
+      .eq("is_active", true)
+      .not("validated_at", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!data) return null;
+
+    return {
+      provider,
+      apiKey: decryptKey({
+        ciphertext: byteaToBuffer(data.api_key_encrypted),
+        iv: byteaToBuffer(data.api_key_iv),
+        tag: byteaToBuffer(data.api_key_tag),
+      }),
+    };
+  } catch (erro) {
+    // Falha FECHADA na ação (segue para a chave da instalação) e ABERTA na
+    // informação. Sem rastro, uma leitura quebrada — baseline sem a tabela,
+    // chave de decifragem trocada — é indistinguível de "esta organização não
+    // cadastrou credencial", e o operador vê a conta do `.env` sendo debitada
+    // sem nunca saber por quê. Vai só a CLASSE do erro: a mensagem pode
+    // carregar material da credencial, o nome do erro não.
+    logger.warn("credencial da organização não pôde ser lida; seguindo para a chave da instalação", {
+      organizationId,
+      erro: erro instanceof Error ? erro.name : typeof erro,
+    });
+    return null;
+  }
+}
+
 /** Decifra a chave da organização. Plaintext só existe no retorno. */
 async function decifrarChave(
   credentialId: string | null,
@@ -145,9 +254,13 @@ async function decifrarChave(
       iv: byteaToBuffer(data.api_key_iv),
       tag: byteaToBuffer(data.api_key_tag),
     });
-  } catch {
-    // Sem detalhe no log: qualquer eco aqui corre o risco de carregar material
-    // da credencial.
+  } catch (erro) {
+    // Mesma regra do catch acima: fecha a ação, abre a informação, e o log leva
+    // só a classe do erro.
+    logger.warn("credencial escolhida no painel não pôde ser decifrada; seguindo para o padrão", {
+      credentialId,
+      erro: erro instanceof Error ? erro.name : typeof erro,
+    });
     return null;
   }
 }

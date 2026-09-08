@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * GET  /api/v1/channels/official — estado da conexão oficial + o que colar na Meta.
  * POST /api/v1/channels/official — VALIDA a credencial e só então grava.
@@ -32,7 +33,9 @@ import { validateMetaCredentials } from "@/lib/channels/meta/validate-credential
 import { reactivateChannelSession } from "@/lib/channels/reactivate";
 import { env } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { metadataInicialDoCanal } from "@/lib/ai/elegibilidade/pre-go-live";
 import { encryptWebhookSecret } from "@/lib/webhooks/secrets";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -87,6 +90,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const base = publicBase(req);
   return ok({
     connected: Boolean(data),
+    channel_session_id: data?.id ?? null,
     // `hasToken` em vez do token: uma vez gravado, a tela mostra que EXISTE, nunca
     // qual é. Devolver o segredo para preencher o campo seria vazá-lo a cada render.
     hasToken: Boolean(data?.meta_token_encrypted),
@@ -107,15 +111,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("admin", { requestId, resource: "channels_official" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const orgId = authz.org.orgId;
   const userId = authz.user.id;
 
   const parsed = conectarSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
-    return fail("invalid_request", "phone_number_id, waba_id e token são obrigatórios", 422, {
+    return fail("invalid_request", t("phone_number_id, waba_id e token são obrigatórios"), 422, {
       requestId,
     });
   }
@@ -135,7 +143,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // recusar. O operador precisa saber que falta uma configuração de servidor.
     return fail(
       "invalid_request",
-      "cifra indisponível nesta instalação (GUC app.nuvemshop_oauth_key ausente) — o token não foi gravado",
+      t("cifra indisponível nesta instalação (GUC app.nuvemshop_oauth_key ausente) — o token não foi gravado"),
       422,
       { requestId },
     );
@@ -197,7 +205,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           metadata: { provider: CHANNEL_PROVIDER_META, phone_number: linha.phone_number },
         },
       )
-    : await admin.from("channel_sessions").insert({ ...linha, webhook_secret_encrypted: cifrado });
+    : await admin.from("channel_sessions").insert({
+        ...linha,
+        webhook_secret_encrypted: cifrado,
+        metadata: metadataInicialDoCanal(),
+      });
 
   if (error) {
     return fail("internal_error", error.message ?? "channel_session_write_failed", 500, {

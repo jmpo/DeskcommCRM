@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/leads/bulk
  *
@@ -19,19 +20,32 @@ import { emitLeadActivity, stageChangeReason } from "@/lib/leads/activity-emitte
 import { registraFalhaDeAtividade } from "@/lib/leads/activity-write-failure";
 import { bulkLeadActionSchema, validateRequest } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
+import { observeServiceOrigin } from "@/lib/atendimento/origem";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
 const MAX_BULK = 50;
 
+/** Uma linha do retorno de `fn_mover_leads_em_lote` (migration 0209). */
+interface LeadMovidoEmLote {
+  lead_id: string;
+  from_stage_id: string;
+  pipeline_id: string;
+}
+
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const supabase = await createClient();
 
   // spec 13 §4: escrita é agent+ (viewer é read-only).
   const authz = await requireRole("agent", { requestId, resource: "crm_leads" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const user = authz.user;
 
   let input;
@@ -48,7 +62,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   if (input.lead_ids.length > MAX_BULK) {
-    return fail("bulk_too_large", `Máximo ${MAX_BULK} leads por bulk.`, 422, { requestId });
+    return fail("bulk_too_large", `${t("Máximo")} ${MAX_BULK} ${t("leads por bulk.")}`, 422, { requestId });
   }
 
   // G3-04: assign é reatribuição de dono em lote → piso ≥manager (spec 04 §6.5,
@@ -71,7 +85,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (!isServiceRoleConfigured()) {
         return fail(
           "owner_validation_unavailable",
-          "Não foi possível validar o responsável agora. Tente novamente em instantes.",
+          t("Não foi possível validar o responsável agora. Tente novamente em instantes."),
           422,
           { requestId },
         );
@@ -88,7 +102,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (!member || member.role === "viewer") {
         return fail(
           "invalid_owner",
-          "Responsável não é um atendente ativo desta organização.",
+          t("Responsável não é um atendente ativo desta organização."),
           422,
           { requestId },
         );
@@ -103,7 +117,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const organizationId = authz.org.orgId;
   const { data: scoped } = await supabase
     .from("crm_leads")
-    .select("id, organization_id, tags, stage_id, pipeline_id")
+    .select("id, organization_id, tags, stage_id, pipeline_id, contact_id")
     .eq("organization_id", organizationId)
     .in("id", input.lead_ids);
 
@@ -112,7 +126,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!first) {
     return fail(
       "not_found",
-      "Nenhum lead acessível na operação.",
+      t("Nenhum lead acessível na operação."),
       404,
       { requestId },
     );
@@ -124,94 +138,110 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   switch (input.action) {
     case "move": {
-      const { data, error } = await supabase
-        .from("crm_leads")
-        .update({
-          stage_id: input.params.stage_id,
-          position_in_stage: input.params.position_in_stage,
-          updated_at: nowIso,
-        })
-        .in("id", visibleIds)
-        .select("id");
+      // Migration 0209: quem posiciona é o banco. Escrever aqui um
+      // `position_in_stage` escalar para N linhas dava a TODOS os cards do lote
+      // o mesmo número, e `midpoint(prev, next)` devolve NaN quando os vizinhos
+      // empatam — o primeiro arrasto para entre dois cards do lote mandava NaN
+      // como posição. A função dá uma posição distinta a cada um e faz do lote
+      // uma transação só: move todos ou não move nenhum.
+      //
+      // O tipo é declarado aqui porque `createClient()` deste repo devolve um
+      // cliente SEM o genérico `Database` — sem a anotação, `data` chega como
+      // `any` e a checagem some justamente no lugar que passou a depender de
+      // três campos vindos do banco.
+      const { data, error } = await supabase.rpc("fn_mover_leads_em_lote", {
+        p_organization_id: organizationId,
+        p_lead_ids: visibleIds,
+        p_stage_id: input.params.stage_id,
+      });
       if (error) return fail("internal_error", error.message, 500, { requestId });
-      updatedCount = data?.length ?? 0;
+      const movidosNoBanco = (data ?? []) as LeadMovidoEmLote[];
+      updatedCount = movidosNoBanco.length;
 
       // Per-lead lead.stage_changed so the automation engine (which only
       // consumes per-entity events) fires for bulk moves too — mirrors
       // moveLeadHandler's payload. Skip leads already at the target stage.
-      const movedIds = new Set((data ?? []).map((r) => r.id as string));
+      //
+      // A etapa de ORIGEM vem da função, não do `select` de antes: ela é lida
+      // dentro do mesmo `update`, então não existe janela em que outra escrita
+      // mova o card entre a leitura e a atualização e a timeline conte a
+      // transição errada.
+      const movidos = movidosNoBanco.filter((r) => r.from_stage_id !== input.params.stage_id);
 
       // Wave 3 (CORE 2): mover 30 cards de uma vez é 30 mudanças de estado —
       // cada uma entra no barramento, senão o lote inteiro fica invisível na
       // timeline e a operação em massa vira o buraco por onde a atividade some.
+      //
+      // Uma atividade POR LEAD, e não uma agregada: `crm_lead_activities` é a
+      // timeline DE UM LEAD. Trinta cards movidos são uma linha em cada uma de
+      // trinta timelines — não trinta linhas numa só. O ruído que uma agregada
+      // evitaria não existe aqui; o que existiria sem elas é o oposto, um card
+      // que mudou de etapa sem nada que conte por quê. `payload.bulk = true`
+      // marca a origem, para quem lê distinguir lote de arrasto à mão.
       const nomesEstagio = new Map<string, string>();
       const { data: stageRows } = await supabase
         .from("crm_stages")
         .select("id, name")
         .eq("organization_id", organizationId)
-        .in("id", [input.params.stage_id, ...visible.map((r) => r.stage_id as string)]);
+        .in("id", [input.params.stage_id, ...movidos.map((r) => r.from_stage_id)]);
       for (const s of (stageRows ?? []) as Array<{ id: string; name: string }>) {
         nomesEstagio.set(s.id, s.name);
       }
 
       await Promise.all(
-        visible
-          .filter((row) => movedIds.has(row.id) && row.stage_id !== input.params.stage_id)
-          .map(async (row) => {
-            const r = await emitLeadActivity(supabase, {
+        movidos.map(async (row) => {
+          const r = await emitLeadActivity(supabase, {
+            organizationId,
+            leadId: row.lead_id,
+            type: "stage_changed",
+            sourceModule: "crm",
+            sourceId: row.lead_id,
+            actor: { type: "user", id: user.id },
+            reason: stageChangeReason(
+              nomesEstagio.get(row.from_stage_id) ?? null,
+              nomesEstagio.get(input.params.stage_id) ?? null,
+            ),
+            payload: {
+              from_stage_id: row.from_stage_id,
+              to_stage_id: input.params.stage_id,
+              pipeline_id: row.pipeline_id,
+              bulk: true,
+            },
+          });
+          if (!r.ok) {
+            // O bulk é o pior caso dos três: N leads movidos, e uma falha de
+            // atividade some junto com as outras N-1 que deram certo. Sem o
+            // aviso, o buraco na timeline não tem nem tamanho conhecido.
+            await registraFalhaDeAtividade(supabase, {
               organizationId,
-              leadId: row.id as string,
-              type: "stage_changed",
-              sourceModule: "crm",
-              sourceId: row.id as string,
-              actor: { type: "user", id: user.id },
-              reason: stageChangeReason(
-                nomesEstagio.get(row.stage_id as string) ?? null,
-                nomesEstagio.get(input.params.stage_id) ?? null,
-              ),
-              payload: {
-                from_stage_id: row.stage_id,
-                to_stage_id: input.params.stage_id,
-                pipeline_id: row.pipeline_id,
-                bulk: true,
-              },
+              leadId: row.lead_id,
+              tipo: "stage_changed",
+              origem: "leads/bulk",
+              erro: r.error,
+              requestId,
             });
-            if (!r.ok) {
-              // O bulk é o pior caso dos três: N leads movidos, e uma falha de
-              // atividade some junto com as outras N-1 que deram certo. Sem o
-              // aviso, o buraco na timeline não tem nem tamanho conhecido.
-              await registraFalhaDeAtividade(supabase, {
-                organizationId: row.organization_id,
-                leadId: row.id,
-                tipo: "stage_changed",
-                origem: "leads/bulk",
-                erro: r.error,
-                requestId,
-              });
-            }
-          }),
+          }
+        }),
       );
       await Promise.all(
-        visible
-          .filter((row) => movedIds.has(row.id) && row.stage_id !== input.params.stage_id)
-          .map((row) =>
-            supabase
-              .rpc("emit_event", {
-                p_event_type: "lead.stage_changed",
-                p_entity_kind: "crm_lead",
-                p_entity_id: row.id,
-                p_payload: {
-                  pipeline_id: row.pipeline_id,
-                  from_stage_id: row.stage_id,
-                  to_stage_id: input.params.stage_id,
-                },
-                p_metadata: { request_id: requestId, actor_user_id: user.id },
-                p_organization_id: organizationId,
-              })
-              .then(({ error: emitError }) => {
-                if (emitError) console.error("[lead.bulk_moved] emit_event failed", emitError.message);
-              }),
-          ),
+        movidos.map((row) =>
+          supabase
+            .rpc("emit_event", {
+              p_event_type: "lead.stage_changed",
+              p_entity_kind: "crm_lead",
+              p_entity_id: row.lead_id,
+              p_payload: {
+                pipeline_id: row.pipeline_id,
+                from_stage_id: row.from_stage_id,
+                to_stage_id: input.params.stage_id,
+              },
+              p_metadata: { request_id: requestId, actor_user_id: user.id },
+              p_organization_id: organizationId,
+            })
+            .then(({ error: emitError }) => {
+              if (emitError) console.error("[lead.bulk_moved] emit_event failed", emitError.message);
+            }),
+        ),
       );
       break;
     }
@@ -224,7 +254,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (!owner.ok || !owner.patch) {
         return fail(
           "validation_failed",
-          "Um lead tem um dono: informe owner_user_id OU owner_agent_id.",
+          t("Um lead tem um dono: informe owner_user_id OU owner_agent_id."),
           422,
           { requestId },
         );
@@ -252,6 +282,9 @@ export async function POST(req: NextRequest): Promise<Response> {
       for (const row of visible) {
         const current = (row.tags ?? []) as string[];
         const next = Array.from(new Set([...current.filter((t) => !remove.has(t)), ...add]));
+        const tagServiceOrigin = add.some((tag) => !current.includes(tag))
+          ? await observeServiceOrigin(createAdminClient(), organizationId, row.contact_id)
+          : null;
         const { error } = await supabase
           .from("crm_leads")
           .update({ tags: next, updated_at: nowIso })
@@ -263,12 +296,12 @@ export async function POST(req: NextRequest): Promise<Response> {
         // updateLeadHandler, so the automation engine fires for bulk tags too.
         const addedTags = add.filter((t) => !current.includes(t));
         if (addedTags.length) {
-          await supabase
+          await createAdminClient()
             .rpc("emit_event", {
               p_event_type: "lead.tag_added",
               p_entity_kind: "crm_lead",
               p_entity_id: row.id,
-              p_payload: { added_tags: addedTags, tags: next },
+              p_payload: { added_tags: addedTags, tags: next, service_origin: tagServiceOrigin },
               p_metadata: { request_id: requestId, actor_user_id: user.id },
               p_organization_id: organizationId,
             })

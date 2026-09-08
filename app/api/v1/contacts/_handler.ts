@@ -8,9 +8,13 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { createAdminClient } from "@/lib/supabase/admin";
+import { observeServiceOrigin } from "@/lib/atendimento/origem";
 import { ApiError } from "@/lib/api/types";
 import type { Actor, HandlerCtx } from "@/lib/api/handlers/types";
 import { audit } from "@/lib/audit";
+import { traduzir } from "@/lib/i18n/dicionario";
+import type { Idioma } from "@/lib/i18n/idiomas";
 import { roleAtLeast } from "@/lib/auth/types";
 import { canonicalPhoneBR, phoneLookupVariants } from "@/lib/channels/phone-variants";
 import { hashCpf, encryptCpfSql } from "@/lib/contacts/cpf";
@@ -27,7 +31,7 @@ import { contactListQuerySchema } from "@/lib/schemas";
 type SB = SupabaseClient;
 
 const SELECT_COLS =
-  "id, organization_id, name, display_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, created_at, updated_at, last_activity_at";
+  "id, organization_id, name, display_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, custom_fields, created_at, updated_at, last_activity_at";
 
 interface CursorPayload {
   sort: string | null;
@@ -95,6 +99,24 @@ export async function listContactsHandler(
     .from("contacts")
     .select(SELECT_COLS)
     .eq("organization_id", ctx.organization_id)
+    // A LÁPIDE DE FUSÃO NÃO É UM CONTATO VIVO.
+    //
+    // `is_merged_into` marca o cadastro que foi absorvido por outro. Ele não é
+    // apagado de propósito (é o que libera telefone e e-mail para o vencedor
+    // herdar, e é o registro da fusão), mas ele deixou de ser uma pessoa da
+    // base — e o resto do produto já o trata assim: `contacts/duplicates`, o
+    // webhook de captação (`webhooks/in/[token]`) e as duas leituras de
+    // `lib/channels/contato-por-telefone` filtram `is_merged_into is null`.
+    // Esta listagem era a ÚNICA que não filtrava.
+    //
+    // Sem esta linha, a fusão parece não ter acontecido: medido pela tela em
+    // 2026-09-04, logo depois de juntar dois cadastros a lista seguia mostrando
+    // OS DOIS, com o mesmo telefone e ambos com status "ativo" — e quem opera
+    // ou tenta juntar de novo (o diálogo de duplicados já não os oferece) ou
+    // conclui que o recurso não funciona. Antes de a fusão existir na tela, a
+    // coluna só era escrita por uma data migration de mão única, e por isso
+    // ninguém tinha esbarrado nisto.
+    .is("is_merged_into", null)
     .order(sortCol, { ascending: asc, nullsFirst: false })
     .order("id", { ascending: asc })
     .limit(q.limit + 1);
@@ -149,7 +171,13 @@ export async function listContactsHandler(
   if (q.cursor) {
     const c = decodeCursor(q.cursor);
     if (!c) {
-      throw new ApiError(400, "invalid_cursor", undefined, ctx.requestId, "Cursor inválido.");
+      throw new ApiError(
+        400,
+        "invalid_cursor",
+        undefined,
+        ctx.requestId,
+        traduzir("Cursor inválido.", ctx.idioma ?? "pt-BR"),
+      );
     }
     const op = asc ? "gt" : "lt";
     if (c.sort) {
@@ -265,7 +293,13 @@ export async function getContactHandler(
     throw new ApiError(500, "internal_error", undefined, ctx.requestId, error.message);
   }
   if (!data) {
-    throw new ApiError(404, "not_found", undefined, ctx.requestId, "Contato não encontrado.");
+    throw new ApiError(
+      404,
+      "not_found",
+      undefined,
+      ctx.requestId,
+      traduzir("Contato não encontrado.", ctx.idioma ?? "pt-BR"),
+    );
   }
   const contact = data as Contact;
 
@@ -352,6 +386,7 @@ export async function createContactHandler(
     tags: input.tags ?? [],
     source: input.source,
     source_metadata: input.source_metadata ?? {},
+    custom_fields: input.custom_fields ?? {},
     consent: input.consent ?? {},
   };
 
@@ -433,7 +468,10 @@ export async function patchContactHandler(
     // e-mail foi substituído não tinha onde olhar. `consent` vem junto porque o
     // patch dele passou a ser MERGE (ver abaixo), e merge precisa do estado
     // anterior.
-    .select("id, organization_id, is_anonymized, tags, email, phone_number, name, display_name, consent")
+    .select(
+      "id, organization_id, is_anonymized, tags, email, phone_number, name, display_name, consent, custom_fields",
+    )
+    .eq("organization_id", ctx.organization_id)
     .eq("id", contactId)
     .maybeSingle();
 
@@ -441,7 +479,13 @@ export async function patchContactHandler(
     throw new ApiError(500, "internal_error", undefined, ctx.requestId, selErr.message);
   }
   if (!existing) {
-    throw new ApiError(404, "not_found", undefined, ctx.requestId, "Contato não encontrado.");
+    throw new ApiError(
+      404,
+      "not_found",
+      undefined,
+      ctx.requestId,
+      traduzir("Contato não encontrado.", ctx.idioma ?? "pt-BR"),
+    );
   }
   if (existing.is_anonymized) {
     throw new ApiError(
@@ -449,7 +493,7 @@ export async function patchContactHandler(
       "lgpd_anonymization_irreversible",
       undefined,
       ctx.requestId,
-      "Contato anonimizado — edição bloqueada (LGPD).",
+      traduzir("Contato anonimizado — edição bloqueada (LGPD).", ctx.idioma ?? "pt-BR"),
     );
   }
 
@@ -471,6 +515,11 @@ export async function patchContactHandler(
   if (input.tags !== undefined) patch.tags = input.tags;
   if (input.source !== undefined) patch.source = input.source;
   if (input.source_metadata !== undefined) patch.source_metadata = input.source_metadata;
+  // SUBSTITUIÇÃO, não merge — ao contrário de `consent`. O editor da tela manda
+  // o objeto inteiro que ele renderizou a partir do schema do funil; um merge
+  // aqui tornaria IMPOSSÍVEL apagar um campo pela tela, porque a chave removida
+  // voltaria do estado anterior a cada gravação.
+  if (input.custom_fields !== undefined) patch.custom_fields = input.custom_fields;
   if (input.consent !== undefined) {
     // MERGE por finalidade, nunca substituição.
     //
@@ -500,15 +549,19 @@ export async function patchContactHandler(
       "invalid_request",
       undefined,
       ctx.requestId,
-      "Nenhum campo para atualizar.",
+      traduzir("Nenhum campo para atualizar.", ctx.idioma ?? "pt-BR"),
     );
   }
 
+  const tagServiceOrigin = input.tags !== undefined
+    ? await observeServiceOrigin(createAdminClient(), ctx.organization_id, contactId)
+    : null;
   patch.updated_at = new Date().toISOString();
 
   const { data: updated, error: updErr } = await supabase
     .from("contacts")
     .update(patch)
+    .eq("organization_id", ctx.organization_id)
     .eq("id", contactId)
     .select(SELECT_COLS)
     .maybeSingle();
@@ -522,7 +575,7 @@ export async function patchContactHandler(
       "not_found",
       undefined,
       ctx.requestId,
-      "Contato não encontrado após update.",
+      traduzir("Contato não encontrado após update.", ctx.idioma ?? "pt-BR"),
     );
   }
 
@@ -572,12 +625,12 @@ export async function patchContactHandler(
     const prevTags: string[] = (existing as { tags?: string[] }).tags ?? [];
     const addedTags = input.tags.filter((t) => !prevTags.includes(t));
     if (addedTags.length) {
-      await supabase
+      await createAdminClient()
         .rpc("emit_event", {
           p_event_type: "contact.tag_added",
           p_entity_kind: "contact",
           p_entity_id: contact.id,
-          p_payload: { added_tags: addedTags, tags: input.tags },
+          p_payload: { added_tags: addedTags, tags: input.tags, service_origin: tagServiceOrigin },
           p_metadata: { request_id: ctx.requestId, ...a.metadataActor },
           p_organization_id: contact.organization_id,
         })
@@ -607,6 +660,7 @@ export async function patchContactHandler(
 function throwOnDbError(
   err: { code?: string; message: string } | null,
   requestId: string,
+  idioma: Idioma = "pt-BR",
 ): void {
   if (!err) return;
   // conversations/messages apontam para contacts com ON DELETE RESTRICT.
@@ -616,7 +670,7 @@ function throwOnDbError(
       "state_conflict",
       undefined,
       requestId,
-      "Não foi possível excluir: o contato ainda tem registros vinculados.",
+      traduzir("Não foi possível excluir: o contato ainda tem registros vinculados.", idioma),
     );
   }
   throw new ApiError(500, "internal_error", undefined, requestId, err.message);
@@ -638,7 +692,13 @@ export async function deleteContactHandler(
     throw new ApiError(500, "internal_error", undefined, ctx.requestId, selErr.message);
   }
   if (!existing) {
-    throw new ApiError(404, "not_found", undefined, ctx.requestId, "Contato não encontrado.");
+    throw new ApiError(
+      404,
+      "not_found",
+      undefined,
+      ctx.requestId,
+      traduzir("Contato não encontrado.", ctx.idioma ?? "pt-BR"),
+    );
   }
 
   // Mensagens e conversas RESTRICT no contato: apagar primeiro, senão o DELETE
@@ -648,14 +708,14 @@ export async function deleteContactHandler(
     .delete()
     .eq("contact_id", contactId)
     .eq("organization_id", ctx.organization_id);
-  throwOnDbError(msgErr, ctx.requestId);
+  throwOnDbError(msgErr, ctx.requestId, ctx.idioma);
 
   const { error: convErr } = await supabase
     .from("conversations")
     .delete()
     .eq("contact_id", contactId)
     .eq("organization_id", ctx.organization_id);
-  throwOnDbError(convErr, ctx.requestId);
+  throwOnDbError(convErr, ctx.requestId, ctx.idioma);
 
   const { data: deleted, error: delErr } = await supabase
     .from("contacts")
@@ -664,9 +724,15 @@ export async function deleteContactHandler(
     .eq("organization_id", ctx.organization_id)
     .select("id")
     .maybeSingle();
-  throwOnDbError(delErr, ctx.requestId);
+  throwOnDbError(delErr, ctx.requestId, ctx.idioma);
   if (!deleted) {
-    throw new ApiError(404, "not_found", undefined, ctx.requestId, "Contato não encontrado.");
+    throw new ApiError(
+      404,
+      "not_found",
+      undefined,
+      ctx.requestId,
+      traduzir("Contato não encontrado.", ctx.idioma ?? "pt-BR"),
+    );
   }
 
   const a = actorAuditPayload(ctx.actor);

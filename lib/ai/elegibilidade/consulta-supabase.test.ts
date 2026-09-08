@@ -25,7 +25,7 @@ function linha(over: Record<string, unknown> = {}) {
   return {
     bot_silenced_until: null,
     assignee_kind: "ai",
-    contacts: { force_human: false, ai_authorized_at: null },
+    contacts: { force_human: false, ai_authorized_at: null, phone_number: null },
     channel_sessions: { metadata: {} },
     ...over,
   };
@@ -61,6 +61,7 @@ describe("decidirElegibilidadeDaConversaViaSupabase", () => {
           contacts: {
             force_human: false,
             ai_authorized_at: new Date(AGORA.getTime() - 3 * DIA).toISOString(),
+            phone_number: null,
           },
         }),
         error: null,
@@ -78,6 +79,7 @@ describe("decidirElegibilidadeDaConversaViaSupabase", () => {
           contacts: {
             force_human: false,
             ai_authorized_at: new Date(AGORA.getTime() - 40 * DIA).toISOString(),
+            phone_number: null,
           },
         }),
         error: null,
@@ -98,12 +100,51 @@ describe("decidirElegibilidadeDaConversaViaSupabase", () => {
   it("force_human do contato: NÃO permite em qualquer canal", async () => {
     const d = await decidirElegibilidadeDaConversaViaSupabase(
       adminStub({
-        data: linha({ contacts: { force_human: true, ai_authorized_at: null } }),
+        data: linha({ contacts: { force_human: true, ai_authorized_at: null, phone_number: null } }),
         error: null,
       }),
       { organizationId: ORG, conversationId: CONV, agora: AGORA, ttlMs: TTL },
     );
     expect(d).toMatchObject({ permite: false, motivo: "force_human" });
+  });
+
+  it("pré-go-live: permite somente o telefone cadastrado no próprio canal", async () => {
+    const metadata = {
+      ai_gate: "allowlist",
+      ai_gate_mode: "pre_go_live",
+      ai_test_phone_numbers: ["+5585987654321"],
+    };
+    const permitido = await decidirElegibilidadeDaConversaViaSupabase(
+      adminStub({
+        data: linha({
+          channel_sessions: { metadata },
+          contacts: {
+            force_human: false,
+            ai_authorized_at: null,
+            phone_number: "+5585987654321",
+          },
+        }),
+        error: null,
+      }),
+      { organizationId: ORG, conversationId: CONV, agora: AGORA, ttlMs: TTL },
+    );
+    const bloqueado = await decidirElegibilidadeDaConversaViaSupabase(
+      adminStub({
+        data: linha({
+          channel_sessions: { metadata },
+          contacts: {
+            force_human: false,
+            ai_authorized_at: AGORA.toISOString(),
+            phone_number: "+5585987654000",
+          },
+        }),
+        error: null,
+      }),
+      { organizationId: ORG, conversationId: CONV, agora: AGORA, ttlMs: TTL },
+    );
+
+    expect(permitido?.motivo).toBe("numero_de_teste");
+    expect(bloqueado).toMatchObject({ permite: false, motivo: "fora_da_lista_de_teste" });
   });
 
   it("conversa inexistente → null", async () => {

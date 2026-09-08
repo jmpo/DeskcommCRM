@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * GET   /api/v1/ai/agents/:id/versions/:vid  — fetch (manager+).
  * PATCH /api/v1/ai/agents/:id/versions/:vid  — edit (admin) — apenas se status='draft'.
@@ -13,11 +14,12 @@ import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { versionPatchSchema } from "@/lib/ai/agents/validation";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
 const VERSION_COLUMNS =
-  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids";
+  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids,provisioning_origin";
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -32,6 +34,7 @@ export async function GET(_req: NextRequest, ctx: Ctx): Promise<Response> {
 
   const authz = await requireRole("manager", { requestId, resource: "ai_agents" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org: activeOrg } = authz;
 
   const supabase = await createClient();
@@ -44,11 +47,14 @@ export async function GET(_req: NextRequest, ctx: Ctx): Promise<Response> {
     .maybeSingle();
 
   if (error) return fail("internal_error", "Erro ao buscar version.", 500, { requestId });
-  if (!data) return fail("not_found", "Version não encontrada.", 404, { requestId });
+  if (!data) return fail("not_found", t("Version não encontrada."), 404, { requestId });
   return ok(data, { requestId });
 }
 
 export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id, vid } = await ctx.params;
   if (!UUID_RX.test(id) || !UUID_RX.test(vid)) {
@@ -57,17 +63,18 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
 
   const authz = await requireRole("admin", { requestId, resource: "ai_agents" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
 
   let raw: unknown;
   try {
     raw = await req.json();
   } catch {
-    return fail("invalid_request", "Body JSON inválido.", 400, { requestId });
+    return fail("invalid_request", t("Body JSON inválido."), 400, { requestId });
   }
   const parsed = versionPatchSchema.safeParse(raw);
   if (!parsed.success) {
-    return fail("validation_failed", "Campos inválidos.", 422, {
+    return fail("validation_failed", t("Campos inválidos."), 422, {
       requestId,
       details: parsed.error.flatten(),
     });
@@ -86,9 +93,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
     .eq("agent_id", id)
     .maybeSingle();
 
-  if (!existing) return fail("not_found", "Version não encontrada.", 404, { requestId });
+  if (!existing) return fail("not_found", t("Version não encontrada."), 404, { requestId });
   if (existing.status !== "draft") {
-    return fail("version_immutable", "Apenas versões 'draft' podem ser editadas.", 409, {
+    return fail("version_immutable", t("Apenas versões 'draft' podem ser editadas."), 409, {
       requestId,
       details: { current_status: existing.status },
     });

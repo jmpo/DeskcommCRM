@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * Épico Operação Visível (F1) — transição de status de um aviso do agente.
  * PATCH { status: 'ack' | 'resolved' | 'open' } — org-scoped, auditado.
@@ -11,6 +12,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +22,9 @@ const bodySchema = z.object({ status: z.enum(["open", "ack", "resolved"]) }).str
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
   if (!UUID_RX.test(id)) {
@@ -28,17 +33,18 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
 
   const authz = await requireRole("agent", { requestId, resource: "agent_inbox_items" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org } = authz;
 
   let raw: unknown;
   try {
     raw = await req.json();
   } catch {
-    return fail("invalid_request", "Body JSON inválido.", 400, { requestId });
+    return fail("invalid_request", t("Body JSON inválido."), 400, { requestId });
   }
   const parsed = bodySchema.safeParse(raw);
   if (!parsed.success) {
-    return fail("validation_failed", "Campos inválidos.", 422, {
+    return fail("validation_failed", t("Campos inválidos."), 422, {
       requestId,
       details: parsed.error.flatten(),
     });
@@ -53,10 +59,10 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
     .select("id, kind, severity, title, body, ref_kind, ref_id, status, created_at")
     .maybeSingle();
   if (error) {
-    return fail("internal_error", "Falha ao atualizar o aviso.", 500, { requestId });
+    return fail("internal_error", t("Falha ao atualizar o aviso."), 500, { requestId });
   }
   if (!data) {
-    return fail("not_found", "Aviso não encontrado nesta organização.", 404, { requestId });
+    return fail("not_found", t("Aviso não encontrado nesta organização."), 404, { requestId });
   }
 
   await audit({

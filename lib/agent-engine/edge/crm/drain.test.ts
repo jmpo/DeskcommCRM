@@ -147,6 +147,9 @@ function poolElegibilidade(
   opts: {
     ultimaInboundId?: string;
     aiGate?: string | null;
+    aiGateMode?: string | null;
+    aiTestPhoneNumbers?: string[];
+    phoneNumber?: string | null;
     aiAuthorizedAt?: string | null;
     forceHuman?: boolean;
     assigneeKind?: string | null;
@@ -162,15 +165,20 @@ function poolElegibilidade(
     if (sql.includes("direction = 'inbound'")) {
       return { rows: [{ id: opts.ultimaInboundId ?? inboundId }] };
     }
-    if (sql.includes("->>'ai_gate'")) {
+    if (sql.includes('channel_metadata')) {
       return {
         rows: [
           {
-            ai_gate: opts.aiGate ?? null,
+            channel_metadata: {
+              ai_gate: opts.aiGate ?? null,
+              ai_gate_mode: opts.aiGateMode ?? null,
+              ai_test_phone_numbers: opts.aiTestPhoneNumbers ?? [],
+            },
             force_human: opts.forceHuman ?? false,
             assignee_kind: opts.assigneeKind ?? 'ai',
             bot_silenced_until: null,
             ai_authorized_at: opts.aiAuthorizedAt ?? null,
+            phone_number: opts.phoneNumber ?? null,
           },
         ],
       };
@@ -192,9 +200,38 @@ it('evento superado por inbound mais recente: turno pulado, sem job, sem gasto',
 it("gate 'allowlist' + contato NÃO autorizado: turno pulado, sem job, sem gasto", async () => {
   const calls: string[] = [];
   await drainTick(poolElegibilidade(calls, { aiGate: 'allowlist', aiAuthorizedAt: null }), knobs, log);
-  expect(calls.some((s) => s.includes("->>'ai_gate'"))).toBe(true);
+  expect(calls.some((s) => s.includes('channel_metadata'))).toBe(true);
   expect(calls.some((s) => s.includes('job_queue'))).toBe(false);
   expect(calls.some((s) => s.includes("status = 'done'"))).toBe(true);
+});
+
+it("pré-go-live: número de teste segue e contato autorizado fora da lista para", async () => {
+  const callsPermitido: string[] = [];
+  await drainTick(
+    poolElegibilidade(callsPermitido, {
+      aiGate: 'allowlist',
+      aiGateMode: 'pre_go_live',
+      aiTestPhoneNumbers: ['+5585987654321'],
+      phoneNumber: '+5585987654321',
+    }),
+    knobs,
+    log,
+  );
+  expect(callsPermitido.some((s) => s.includes('job_queue'))).toBe(true);
+
+  const callsBloqueado: string[] = [];
+  await drainTick(
+    poolElegibilidade(callsBloqueado, {
+      aiGate: 'allowlist',
+      aiGateMode: 'pre_go_live',
+      aiTestPhoneNumbers: ['+5585987654321'],
+      phoneNumber: '+5585987654000',
+      aiAuthorizedAt: new Date().toISOString(),
+    }),
+    knobs,
+    log,
+  );
+  expect(callsBloqueado.some((s) => s.includes('job_queue'))).toBe(false);
 });
 
 it("gate 'allowlist' + contato autorizado agora: turno segue", async () => {

@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/ai/followup-flows/:id/publish — valida o draft_graph
  * (validateFlowForPublish, Task 2.2) e, se válido, publica atomicamente via
@@ -20,6 +21,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { validateFlowForPublish } from "@/lib/followup/validate-publish";
 import { publishFollowupFlowVersion } from "@/lib/followup/publish";
 import type { FlowGraph } from "@/lib/followup/graph-schema";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +30,9 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 type RouteCtx = { params: Promise<{ id: string }> };
 
 export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
   if (!UUID_RX.test(id)) {
@@ -36,6 +41,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
 
   const authz = await requireRole("manager", { requestId, resource: "followup_flows" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org: activeOrg } = authz;
 
   const admin = createAdminClient();
@@ -46,7 +52,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     .eq("organization_id", activeOrg.orgId)
     .maybeSingle();
   if (fetchErr) return fail("internal_error", fetchErr.message, 500, { requestId });
-  if (!pointer) return fail("not_found", "Fluxo não encontrado.", 404, { requestId });
+  if (!pointer) return fail("not_found", t("Fluxo não encontrado."), 404, { requestId });
 
   // ⚠️ ALLOWLIST, NÃO DENYLIST — e a diferença não é estilo.
   //
@@ -59,8 +65,9 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
   //
   // Kind entra neste conjunto só DEPOIS de ter motor de enrollment vivo:
   // `manual`/`webhook` (POST enroll + ação de regra), `silence` (silence-sweep),
-  // `stage_change` (gatilho-etapa) e `case_opened` (gatilho-caso).
-  const KINDS_COM_MOTOR = new Set(["manual", "webhook", "silence", "stage_change", "case_opened"]);
+  // `stage_change` (gatilho-etapa), `case_opened` (gatilho-caso) e
+  // `appointment_no_show` (followup-gatilho-presenca.v1, confirmação humana).
+  const KINDS_COM_MOTOR = new Set(["manual", "webhook", "silence", "stage_change", "case_opened", "appointment_no_show"]);
   const trigger = (pointer.trigger_config ?? { kind: "manual" }) as {
     kind?: string;
     params?: { stage_id?: string };
@@ -85,7 +92,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     if (!stageId || !UUID_RX.test(stageId)) {
       return fail(
         "trigger_stage_missing",
-        "Escolha a etapa do funil que dispara este fluxo antes de publicar.",
+        t("Escolha a etapa do funil que dispara este fluxo antes de publicar."),
         422,
         { requestId },
       );
@@ -100,7 +107,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     if (!stage) {
       return fail(
         "trigger_stage_not_found",
-        "A etapa escolhida para o gatilho não existe mais neste funil — escolha outra.",
+        t("A etapa escolhida para o gatilho não existe mais neste funil — escolha outra."),
         422,
         { requestId },
       );
@@ -116,14 +123,14 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
   }
 
   if (!pointer.draft_graph) {
-    return fail("validation_failed", "Fluxo não tem rascunho pronto para publicar.", 422, {
+    return fail("validation_failed", t("Fluxo não tem rascunho pronto para publicar."), 422, {
       requestId,
       details: {
         errors: [
           {
             node_id: null,
             code: "no_trigger",
-            message: "draft_graph ausente — monte o fluxo antes de publicar.",
+            message: t("draft_graph ausente — monte o fluxo antes de publicar."),
           },
         ],
       },
@@ -133,7 +140,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
   const graph = pointer.draft_graph as unknown as FlowGraph;
   const validation = validateFlowForPublish(graph);
   if (!validation.ok) {
-    return fail("validation_failed", "Fluxo reprovado na validação de publish.", 422, {
+    return fail("validation_failed", t("Fluxo reprovado na validação de publish."), 422, {
       requestId,
       details: { errors: validation.errors },
     });
@@ -147,7 +154,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
   });
   if (!result.ok) {
     if (result.code === "pointer_not_found") {
-      return fail("not_found", "Fluxo não encontrado.", 404, { requestId });
+      return fail("not_found", t("Fluxo não encontrado."), 404, { requestId });
     }
     return fail("internal_error", result.message, 500, { requestId });
   }
