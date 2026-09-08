@@ -27,6 +27,7 @@ import {
   MAXIMO_DE_DIAS,
 } from "@/lib/agenda/consulta";
 import { rotuloDoLocal } from "@/lib/agenda/locais";
+import { diaLocalISO } from "@/lib/agenda/fuso";
 import { rotuloLocal } from "@/lib/tempo/agora";
 import {
   alterarAgendamentoHandler,
@@ -157,8 +158,17 @@ const horariosLivresShape = {
     .max(MAXIMO_DE_DIAS)
     .optional()
     .describe(`quantos dias olhar a partir de agora (padrão ${DIAS_PADRAO}). Use ESTE campo se você não sabe a data de hoje.`),
-  de: z.string().datetime({ offset: true }).optional(),
-  ate: z.string().datetime({ offset: true }).optional(),
+  /**
+   * A data civil é deliberadamente diferente de um ISO com offset. O modelo sabe
+   * que o cliente pediu "dia 13", mas não sabe onde começa esse dia no fuso da
+   * agenda. Receber `de`/`ate` em UTC fez 13/09 terminar às 19:59 em Manaus e
+   * descartou um horário das 21h que a própria ferramenta tinha oferecido.
+   */
+  dia: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "dia deve estar em YYYY-MM-DD")
+    .optional()
+    .describe("dia civil pedido pelo cliente, em YYYY-MM-DD. Use para uma data específica; o servidor aplica o fuso da agenda."),
   owner_user_id: z.string().uuid().optional(),
   limite: z
     .number()
@@ -182,7 +192,8 @@ export const crmFindFreeSlots: McpToolDefinition<typeof horariosLivresShape> = {
     "A lista vem cortada no `limite` e espalhada ao longo do período: `total_de_horarios` diz quantos " +
     "existem e `ha_mais` avisa que sobraram — lista cortada NÃO é agenda cheia. " +
     "QUANDO: informe `dias_a_frente` (a partir de agora — ex.: 7 para a próxima semana). " +
-    "SE VOCÊ NÃO SABE QUE DIA É HOJE, USE `dias_a_frente` — não tente montar `de`/`ate`. " +
+    "Para uma data que o cliente nomeou, use `dia` em YYYY-MM-DD; o servidor aplica o fuso da agenda. " +
+    "NUNCA monte um intervalo UTC por conta própria. " +
     "Lista vazia NÃO é erro e NÃO significa que a agenda está cheia: leia `publicou_horarios`. " +
     "Se ele for false, o atendente ainda não publicou os horários dele — não invente horários e " +
     "não diga que está lotado; avise que alguém da equipe confirma. " +
@@ -194,25 +205,25 @@ export const crmFindFreeSlots: McpToolDefinition<typeof horariosLivresShape> = {
   requiresScope: "mcp:read",
   handler: async (input, ctx) => {
     const agora = new Date();
-    const de = input.de ? new Date(input.de) : agora;
-    const ate = input.ate
-      ? new Date(input.ate)
-      : new Date(de.getTime() + (input.dias_a_frente ?? DIAS_PADRAO) * 86_400_000);
+    if (input.dia !== undefined && input.dias_a_frente !== undefined) {
+      return {
+        horarios: [],
+        motivo: "periodo_ambiguo",
+        mensagem: "informe um dia específico ou quantos dias olhar, não os dois.",
+      };
+    }
 
-    if (ate.getTime() <= de.getTime()) {
-      return {
-        horarios: [],
-        motivo: "periodo_invalido",
-        mensagem: "o fim do período precisa ser depois do começo. Use `dias_a_frente` se não souber a data de hoje.",
-      };
-    }
-    if (ate.getTime() - de.getTime() > MAXIMO_DE_DIAS * 86_400_000) {
-      return {
-        horarios: [],
-        motivo: "periodo_longo_demais",
-        mensagem: `o período não pode passar de ${MAXIMO_DE_DIAS} dias. Peça um intervalo menor.`,
-      };
-    }
+    // A faixa larga contém o dia civil em QUALQUER fuso. Depois de a coleta
+    // revelar o fuso da regra, filtramos pelo mesmo dia local. Assim a IA não
+    // converte "13/09" em meia-noite UTC e não perde a noite de Manaus.
+    const inicioDoDiaUtc =
+      input.dia === undefined ? null : new Date(`${input.dia}T00:00:00.000Z`);
+    const de =
+      inicioDoDiaUtc === null ? agora : new Date(inicioDoDiaUtc.getTime() - 14 * 60 * 60 * 1000);
+    const ate =
+      inicioDoDiaUtc === null
+        ? new Date(de.getTime() + (input.dias_a_frente ?? DIAS_PADRAO) * 86_400_000)
+        : new Date(inicioDoDiaUtc.getTime() + 38 * 60 * 60 * 1000);
 
     const consulta = await horariosLivresDaOrg(ctx.supabase, ctx.organizationId, {
       eventTypeSlug: input.event_type_slug,
@@ -238,8 +249,12 @@ export const crmFindFreeSlots: McpToolDefinition<typeof horariosLivresShape> = {
     // nele que os horários foram calculados, e é o que esta resposta já publica.
     // Rotular com outro faria `quando` discordar de `fuso_da_regra` na mesma
     // resposta.
+    const slotsDoPeriodo =
+      input.dia === undefined
+        ? consulta.slots
+        : consulta.slots.filter((s) => diaLocalISO(s.inicio, consulta.fusoDaRegra) === input.dia);
     const escolhidos = espalhaPorDia(
-      consulta.slots,
+      slotsDoPeriodo,
       consulta.fusoDaRegra,
       input.limite ?? HORARIOS_PADRAO,
     );
@@ -256,8 +271,8 @@ export const crmFindFreeSlots: McpToolDefinition<typeof horariosLivresShape> = {
       // Sem estes dois, uma lista cortada é indistinguível de uma agenda que
       // acabou — o mesmo modo de falha que `publicou_horarios` existe para
       // evitar.
-      total_de_horarios: consulta.slots.length,
-      ha_mais: consulta.slots.length > escolhidos.length,
+      total_de_horarios: slotsDoPeriodo.length,
+      ha_mais: slotsDoPeriodo.length > escolhidos.length,
       fuso_da_regra: consulta.fusoDaRegra,
       /** false = o atendente NÃO publicou jornada. Diferente de "sem vaga" (DECISÃO 1.1). */
       publicou_horarios: consulta.publicouHorarios,
@@ -346,6 +361,8 @@ export const crmListAppointments: McpToolDefinition<typeof listarShape> = {
         fim: a.terminaEm,
         fuso: a.fuso,
         situacao: a.situacao,
+        meet_state: a.meetingState,
+        meeting_url: a.meetingState === "ready" ? a.meetingUrl : null,
         contato_id: a.contatoId,
         atendente_id: a.donoId,
       })),
@@ -421,7 +438,7 @@ export const crmBookAppointment: McpToolDefinition<typeof marcarShape> = {
   description:
     "Marca um compromisso com HORA COMBINADA entre o cliente e um atendente — consulta, sessão, " +
     "visita, reunião. Use quando o cliente ESCOLHEU um horário e vai comparecer: isto reserva o " +
-    "tempo de uma pessoa da equipe, e o cliente conta com ele. " +
+    "tempo de uma pessoa da equipe, e o cliente conta com ele. No atendimento atual, marcar Google Meet também agenda a entrega do link nesta conversa quando ficar pronto. " +
     "NÃO use para 'voltar a falar com o cliente depois' — isso é retorno, e a ferramenta é " +
     "`crm_schedule_followup`. A diferença: aqui as DUAS partes combinaram e alguém vai esperar; " +
     "lá é decisão interna nossa e o cliente não sabe de nada. " +
@@ -443,7 +460,7 @@ export const crmBookAppointment: McpToolDefinition<typeof marcarShape> = {
       }
       const r = await marcarAgendamentoHandler(
         ctx.supabase,
-        { organization_id: ctx.organizationId, actor: ctx.actor, requestId: ctx.requestId },
+        { organization_id: ctx.organizationId, actor: ctx.actor, requestId: ctx.requestId, meetingBooking: ctx.meetingBooking },
         {
           event_type_id: tipo.id,
           starts_at: input.starts_at,
@@ -453,7 +470,7 @@ export const crmBookAppointment: McpToolDefinition<typeof marcarShape> = {
           ...(input.notes ? { notes: input.notes } : {}),
         },
       );
-      return { marcado: true, compromisso: r };
+      return { marcado: true, compromisso: r, ...(r.meeting_state === "pending" ? { mensagem: "O compromisso foi marcado; o link ainda está sendo criado. Não invente um link nem afirme que ele já foi enviado." } : {}) };
     }),
 };
 
@@ -572,19 +589,18 @@ const desfechoShape = {
 export const crmSetAppointmentOutcome: McpToolDefinition<typeof desfechoShape> = {
   name: "crm_set_appointment_outcome",
   description:
-    "Registra o que ACONTECEU num compromisso que JÁ PASSOU: a pessoa foi atendida (`completed`) ou " +
-    "não apareceu (`no_show`). " +
-    "SÓ DEPOIS DA HORA — compromisso futuro é recusado, porque você não sabe o que ainda vai " +
-    "acontecer. Veja a hora do compromisso em `crm_list_appointments` e compare com a data de hoje. " +
-    "NÃO use para quem AVISOU que não vem: isso é `crm_cancel_appointment`, que desmarca com o motivo " +
-    "registrado e libera o horário para outra pessoa. `no_show` é para quem não avisou e não veio — " +
-    "é um registro sobre o passado, e a equipe lê isso como falta.",
+    "Propõe à equipe registrar comparecimento ou falta depois do início do compromisso. " +
+    "A presença exige confirmação humana na Agenda; texto interpretado pelo assistente não é autorização. " +
+    "Se a pessoa avisou que não vem, use crm_cancel_appointment para o cancelamento operacional.",
   inputSchema: desfechoShape,
   category: "write",
   requiresRole: "ai_operator",
   requiresScope: "mcp:write",
   handler: async (input, ctx) =>
     semDerrubarOTurno("registrado", async () => {
+      if (ctx.actor.type !== "user") return { registrado: false, requer_confirmacao_humana: true,
+        orientacao: "Peça à equipe para abrir o compromisso na Agenda e confirmar a presença.",
+        href: `/app/agenda?compromisso=${input.appointment_id}` };
       const r = await alterarAgendamentoHandler(
         ctx.supabase,
         { organization_id: ctx.organizationId, actor: ctx.actor, requestId: ctx.requestId },

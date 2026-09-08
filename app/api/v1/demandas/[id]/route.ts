@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * PATCH /api/v1/demandas/[id] — marca o PRÓXIMO PASSO de uma demanda aberta.
  *
@@ -34,43 +35,68 @@ import { audit } from "@/lib/audit";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
-const patchSchema = z.object({
+const passoSchema = z.object({
   proximo_passo: z.string().trim().min(3).max(500),
   /** ISO 8601 absoluto. Ausente é legítimo: nem todo passo tem hora marcada. */
   proximo_passo_em: z.string().datetime({ offset: true }).nullish(),
 });
 
+const encerrarSchema = z.object({
+  action: z.literal("encerrar"),
+  expected_revision: z.number().int().positive(),
+  desfecho: z.enum(["resolvida", "convertida", "nao_procede", "encerrada_pelo_cliente", "perdida", "expirada_sem_resposta"]),
+});
+const patchSchema = z.union([encerrarSchema, passoSchema]);
+
 export async function PATCH(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
 
   const authz = await requireRole("agent", { requestId, resource: "demandas" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org: activeOrg, user } = authz;
 
   let corpo: unknown;
   try {
     corpo = await req.json();
   } catch {
-    return fail("validation_failed", "Corpo inválido.", 422, { requestId });
+    return fail("validation_failed", t("Corpo inválido."), 422, { requestId });
   }
   const parsed = patchSchema.safeParse(corpo);
   if (!parsed.success) {
     return fail(
       "validation_failed",
-      "O próximo passo precisa ter de 3 a 500 caracteres.",
+      t("O próximo passo precisa ter de 3 a 500 caracteres."),
       422,
       { details: parsed.error.flatten().fieldErrors as Record<string, unknown>, requestId },
     );
   }
 
   const admin = createAdminClient();
+
+  if ("action" in parsed.data) {
+    const { data, error } = await admin.rpc("fn_demanda_encerrar", {
+      p_org: activeOrg.orgId, p_demanda: id, p_expected: parsed.data.expected_revision,
+      p_desfecho: parsed.data.desfecho, p_actor: user.id,
+    });
+    if (error) return fail(error.code === "40001" ? "conflict" : error.code === "P0002" ? "not_found" : "internal_error",
+      error.code === "40001" ? "Esta demanda mudou. Atualize antes de encerrar." : error.message,
+      error.code === "40001" ? 409 : error.code === "P0002" ? 404 : 500, { requestId });
+    void audit({ action: "demanda.encerrada", actorUserId: user.id, organizationId: activeOrg.orgId,
+      resourceType: "demanda", resourceId: id, requestId, metadata: { desfecho: parsed.data.desfecho } });
+    return ok(data, { requestId });
+  }
 
   // Service role bypassa RLS: o `organization_id` vem do CONTEXTO autenticado e
   // é filtro explícito no update, nunca do corpo. E `fechada_em is null` porque
@@ -94,7 +120,7 @@ export async function PATCH(
   // `organizations` engana exatamente assim. Aqui o `select` de volta é o que
   // separa "gravou" de "não achou/já fechada".
   if (!data) {
-    return fail("not_found", "Demanda não encontrada, ou já encerrada.", 404, { requestId });
+    return fail("not_found", t("Demanda não encontrada, ou já encerrada."), 404, { requestId });
   }
 
   void audit({

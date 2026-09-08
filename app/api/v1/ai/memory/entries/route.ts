@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * Épico Operação Visível (F1) — POST: cria entrada manual de memória da org
  * (migration 0067). source='manual', status='active' direto (sem gate de
@@ -11,6 +12,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -20,15 +22,19 @@ const postSchema = z.object({
 });
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("manager", { requestId, resource: "org_memory" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org } = authz;
 
   const body = await req.json().catch(() => null);
   const parsed = postSchema.safeParse(body);
   if (!parsed.success) {
-    return fail("validation_failed", "title e body são obrigatórios.", 422, {
+    return fail("validation_failed", t("title e body são obrigatórios."), 422, {
       requestId,
       details: parsed.error.flatten(),
     });
@@ -48,7 +54,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     .select("id")
     .single();
   if (error || !data) {
-    return fail("internal_error", "Erro ao criar entrada de memória.", 500, { requestId });
+    return fail("internal_error", t("Erro ao criar entrada de memória."), 500, { requestId });
   }
 
   await audit({

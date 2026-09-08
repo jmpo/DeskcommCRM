@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/channel-sessions/[id]/reconnect — reconecta um canal caído.
  *
@@ -34,12 +35,16 @@ import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { assertWahaConnectionIdle, ChannelConnectionError } from "@/lib/channels/connect-waha";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { mfaEmDivida } from "@/lib/auth/server";
 import { audit } from "@/lib/audit";
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { ARCHIVED_AT, queryTolerantToMissingArchived } from "@/lib/channels/archived";
 import { createClient } from "@/lib/supabase/server";
 import { getWahaClient, wahaFriendlyError } from "@/lib/waha/client";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +54,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await params;
 
@@ -67,7 +75,9 @@ export async function POST(
     allowPlatformAdmin: true,
   });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org: activeOrg } = authz;
+  if (await mfaEmDivida()) return fail("mfa_required", "Confirme a verificação em duas etapas.", 403, { requestId });
 
   const supabase = await createClient();
   const buscar = (colunas: string) =>
@@ -89,11 +99,11 @@ export async function POST(
     waha_session_name: string | null;
     archived_at?: string | null;
   } | null;
-  if (!session) return fail("not_found", "Canal não encontrado.", 404, { requestId });
+  if (!session) return fail("not_found", t("Canal não encontrado."), 404, { requestId });
   if (session.archived_at) {
     return fail(
       "channel_archived",
-      "Este número foi excluído da Central de Conexões — reconectar não o traz de volta. Conecte um número para voltar a atender.",
+      t("Este número foi excluído da Central de Conexões — reconectar não o traz de volta. Conecte um número para voltar a atender."),
       409,
       { requestId },
     );
@@ -107,7 +117,7 @@ export async function POST(
   if (!nomeSessao) {
     return fail(
       "channel_without_session",
-      "Este canal é o oficial (API da plataforma): ele não tem sessão de WhatsApp para reiniciar. Se parou de entregar, atualize a credencial na tela do canal oficial.",
+      t("Este canal é o oficial (API da plataforma): ele não tem sessão de WhatsApp para reiniciar. Se parou de entregar, atualize a credencial na tela do canal oficial."),
       422,
       { requestId },
     );
@@ -117,28 +127,24 @@ export async function POST(
   if (!waha) {
     return fail(
       "waha_not_configured",
-      "O WhatsApp (WAHA) não está configurado neste ambiente: faltam WAHA_API_BASE_URL e/ou WAHA_API_KEY. Configure-as e tente de novo.",
+      t("O WhatsApp (WAHA) não está configurado neste ambiente: faltam WAHA_API_BASE_URL e/ou WAHA_API_KEY. Configure-as e tente de novo."),
       503,
       { requestId },
     );
   }
 
   try {
+    await assertWahaConnectionIdle(createAdminClient(), activeOrg.orgId, id);
     await waha.stopSession(nomeSessao);
     // Só no modo forçado: descartar a credencial é irreversível — obriga a
     // reescanear o QR mesmo que ela ainda estivesse boa.
     if (force) await waha.logoutSession(nomeSessao);
     const remote = (await waha.startSession(nomeSessao)) as { status?: string };
     const nextStatus = remote.status ?? "STARTING";
-    await supabase
-      .from("channel_sessions")
-      .update({
-        status: "STARTING",
-        last_status_change_at: new Date().toISOString(),
-        consecutive_health_fails: 0,
-      })
-      .eq("organization_id", activeOrg.orgId)
-      .eq("id", id);
+    const patch = { status: nextStatus, status_reason: null, last_status_change_at: new Date().toISOString(), consecutive_health_fails: 0 };
+    const { error: syncError } = await supabase.from("channel_sessions").update(patch).eq("organization_id", activeOrg.orgId).eq("id", id);
+
+    if (syncError) throw new Error("connection_sync_failed");
 
     void audit({
       action: "channel.reconnected",
@@ -152,6 +158,9 @@ export async function POST(
 
     return ok({ id, status: nextStatus, force }, { requestId });
   } catch (err) {
+    if (err instanceof ChannelConnectionError) return fail(err.code, "Uma conexão está em andamento. Aguarde e tente novamente.", err.status, { requestId });
+    await supabase.from("channel_sessions").update({ status: "FAILED", status_reason: "connection_repair_required", last_status_change_at: new Date().toISOString() })
+      .eq("organization_id", activeOrg.orgId).eq("id", id);
     return fail("waha_error", wahaFriendlyError(err), 502, { requestId });
   }
 }

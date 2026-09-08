@@ -95,6 +95,8 @@ export interface ChannelTenantScope {
 }
 
 export interface OutboundEnvelope extends ChannelTenantScope {
+  /** Callback interno: revalida a origem depois do preparo assíncrono e antes do transporte. */
+  beforeSend?: () => Promise<void>;
   /** Identificador da sessão/número no provider (WAHA: nome da sessão). */
   sessionRef: string;
   /** Endereço já resolvido por `resolveRecipient`. */
@@ -305,6 +307,7 @@ export interface ChannelAdapter {
   }): Promise<FetchedMedia>;
 
   sendTemplate?(input: ChannelTenantScope & {
+    beforeSend?: () => Promise<void>;
     sessionRef: string;
     to: string;
     providerConversationId?: string | null;

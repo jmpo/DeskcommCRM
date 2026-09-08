@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { apiClient } from "@/lib/api/client";
 import { copyToClipboard } from "@/lib/clipboard";
 import { useT } from "@/hooks/i18n/useT";
+import { ChannelAiAccess } from "./ChannelAiAccess";
 
 /**
  * Conectar um número por um PROVEDOR PARCEIRO.
@@ -34,6 +35,7 @@ import { useT } from "@/hooks/i18n/useT";
  */
 
 interface Estado {
+  channel_session_id?: string | null;
   label: string;
   connected: boolean;
   account_id: string | null;
@@ -152,6 +154,7 @@ export function CanalParceiroClient() {
           </div>
         )}
 
+        {estado?.channel_session_id && <ChannelAiAccess channelId={estado.channel_session_id} />}
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="parceiro-conta">{t("Conta")}</Label>

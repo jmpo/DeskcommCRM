@@ -43,9 +43,11 @@ export interface ResumoDaImportacao {
  *     loja já entra, e ter dois jeitos de importar planilha neste produto seria
  *     duas verdades sobre o mesmo gesto.
  *  2. Não há escolha de ETAPA. Planilha traz gente NOVA, e gente nova entra na
- *     primeira etapa do funil. Perguntar seria uma pergunta a mais para uma
- *     resposta que já é a certa — e quem quiser outra etapa arrasta os cards,
- *     que é o gesto do quadro.
+ *     primeira etapa ABERTA do funil — etapa de ganho ou de perda fica de fora,
+ *     porque um lead não nasce fechado (a regra e o porquê estão em
+ *     `funilDeEntrada`, `lib/leads/nascimento-do-lead.ts`). Perguntar seria uma
+ *     pergunta a mais para uma resposta que já é a certa — e quem quiser outra
+ *     etapa arrasta os cards, que é o gesto do quadro.
  */
 export function ImportarLeads({ funis }: { funis: FunilDaLista[] }) {
   const t = useT();
@@ -101,7 +103,7 @@ export function ImportarLeads({ funis }: { funis: FunilDaLista[] }) {
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
               {t(
-                "Um arquivo CSV com uma linha por lead. Os leads entram na primeira etapa do funil escolhido.",
+                "Um arquivo CSV com uma linha por lead. Os leads entram na primeira etapa aberta do funil escolhido.",
               )}
             </p>
 

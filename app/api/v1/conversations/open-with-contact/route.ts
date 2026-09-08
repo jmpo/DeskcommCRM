@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/conversations/open-with-contact
  *
@@ -13,14 +14,19 @@ import { requireRole } from "@/lib/auth/require-role";
 import { openSharedContactConversation } from "@/lib/messaging/open-shared-contact-conversation";
 import { openConversationWithContactSchema, validateRequest } from "@/lib/schemas";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
 
   const authz = await requireRole("agent", { requestId, resource: "conversations" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
 
   let input;
   try {
@@ -42,13 +48,13 @@ export async function POST(req: NextRequest): Promise<Response> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "open_failed";
     if (msg === "contact_not_found") {
-      return fail("not_found", "Contato não encontrado.", 404, { requestId });
+      return fail("not_found", t("Contato não encontrado."), 404, { requestId });
     }
     if (msg === "session_not_found") {
-      return fail("not_found", "Sessão de canal não encontrada.", 404, { requestId });
+      return fail("not_found", t("Sessão de canal não encontrada."), 404, { requestId });
     }
     if (msg === "invalid_phone") {
-      return fail("validation_error", "Telefone inválido.", 422, { requestId });
+      return fail("validation_error", t("Telefone inválido."), 422, { requestId });
     }
     return fail("internal_error", msg, 500, { requestId });
   }

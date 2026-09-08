@@ -11,6 +11,17 @@
  *  - O mesmo telefone repetido vira UM contato. O original criava um contato por
  *    linha, e o produto passava a ter a duplicata que ele mesmo fabricou.
  *  - `viewer` não importa.
+ *  - `stage_id` é OPCIONAL: o `ImportarLeads.tsx` real NUNCA manda esse campo
+ *    (só tem seletor de FUNIL). Toda suíte anterior mandava `stage_id` no
+ *    `pedido()` por padrão — verde medindo um caminho que o usuário nunca
+ *    percorre, enquanto a importação de verdade morria com 422 "Escolha o
+ *    funil e a etapa de destino" antes de ler uma linha sequer. O teste
+ *    abaixo reproduz o form real (sem `stage_id`) e prova a resolução
+ *    automática da PRIMEIRA etapa do funil.
+ *  - E a primeira etapa é a primeira ABERTA: etapa de ganho ou de perda com
+ *    `position` menor não pode ser escolhida, senão a planilha inteira nasce
+ *    fechada (o trigger `fn_crm_lead_close_on_stage` decide isso no banco,
+ *    contra o `status: "open"` que o handler grava).
  */
 import { NextRequest } from "next/server";
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -66,6 +77,91 @@ function fazerSupabase(existente: { id: string } | null) {
   };
   vi.mocked(createClient).mockResolvedValue({ from } as never);
   return { inseridos };
+}
+
+interface EtapaDoFunil {
+  id: string;
+  position: number;
+  pipeline_id: string;
+  organization_id: string;
+  is_archived: boolean;
+  is_won: boolean;
+  is_lost: boolean;
+}
+
+/** Etapa aberta, deste funil e desta org — só o que difere disso é escrito. */
+function etapa(diferente: Partial<EtapaDoFunil> & { id: string; position: number }): EtapaDoFunil {
+  return {
+    pipeline_id: FUNIL,
+    organization_id: ORG,
+    is_archived: false,
+    is_won: false,
+    is_lost: false,
+    ...diferente,
+  };
+}
+
+/**
+ * Dublê de `crm_stages` que HONRA os `.eq()` — e essa é a diferença que importa.
+ *
+ * A versão anterior implementava `eq` como `() => elo`: o dublê ENGOLIA os
+ * filtros e devolvia a etapa fixa que o teste passasse. Consequência medida:
+ * apagar `.eq("organization_id", orgId)` da rota — a linha que o anti-pattern
+ * nº 10 da doutrina existe para exigir — deixava a suíte inteira verde. O
+ * mesmo valia para `is_won`/`is_lost`. Nenhum teste guardava a consulta;
+ * todos guardavam o dublê.
+ *
+ * Aqui a coleção é filtrada pelos pares registrados, ordenada pela coluna que a
+ * rota pediu em `order()` e cortada em `limit`. Uma etapa que o filtro deixaria
+ * passar por engano é uma etapa que ESTE dublê devolve — e é assim que a
+ * sabotagem de cada `.eq()` vira vermelho.
+ *
+ * `consultadas` existe para o caso do funil sem etapa aberta: 422 sozinho não
+ * distingue "o fallback rodou e não achou" de "o fallback nunca rodou".
+ */
+function fazerSupabaseComEtapas(etapas: EtapaDoFunil[]) {
+  const inseridos: Record<string, unknown>[] = [];
+  const consultadas: string[] = [];
+  const from = (tabela: string) => {
+    consultadas.push(tabela);
+    const filtros: [string, unknown][] = [];
+    let ordenadaPor: string | null = null;
+    let teto = Number.POSITIVE_INFINITY;
+    const elo: Record<string, unknown> = {};
+    for (const m of ["select", "in"]) elo[m] = () => elo;
+    elo.eq = (coluna: string, valor: unknown) => {
+      filtros.push([coluna, valor]);
+      return elo;
+    };
+    elo.order = (coluna: string) => {
+      ordenadaPor = coluna;
+      return elo;
+    };
+    elo.limit = (n: number) => {
+      teto = n;
+      return elo;
+    };
+    elo.insert = (linha: Record<string, unknown>) => {
+      if (tabela === "contacts") inseridos.push(linha);
+      return elo;
+    };
+    elo.single = () => Promise.resolve({ data: { id: `novo-${inseridos.length}` }, error: null });
+    elo.maybeSingle = () => {
+      if (tabela !== "crm_stages") return Promise.resolve({ data: null, error: null });
+      const campo = (linha: EtapaDoFunil, coluna: string) =>
+        (linha as unknown as Record<string, unknown>)[coluna];
+      const restantes = etapas.filter((linha) =>
+        filtros.every(([coluna, valor]) => campo(linha, coluna) === valor),
+      );
+      const coluna = ordenadaPor;
+      if (coluna) restantes.sort((a, b) => Number(campo(a, coluna)) - Number(campo(b, coluna)));
+      const escolhida = restantes.slice(0, teto)[0];
+      return Promise.resolve({ data: escolhida ? { id: escolhida.id } : null, error: null });
+    };
+    return elo;
+  };
+  vi.mocked(createClient).mockResolvedValue({ from } as never);
+  return { inseridos, consultadas };
 }
 
 /**
@@ -203,6 +299,89 @@ describe("POST /api/v1/leads/import", () => {
     expect(vi.mocked(createLeadHandler)).not.toHaveBeenCalled();
   });
 
+  it("sem stage_id no form (o caminho REAL do ImportarLeads.tsx) entra na primeira etapa do funil", async () => {
+    fazerSupabaseComEtapas([etapa({ id: ETAPA, position: 1000 })]);
+    const { POST } = await import("@/app/api/v1/leads/import/route");
+
+    const res = await POST(pedido("nome\nAna", { stage_id: null }));
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(createLeadHandler)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(createLeadHandler).mock.calls[0]![2]).toMatchObject({
+      pipeline_id: FUNIL,
+      stage_id: ETAPA,
+    });
+  });
+
+  it("sem stage_id e sem etapa ABERTA no funil, 422 — e o 422 é o do fallback, não o da guarda velha", async () => {
+    // ⚠️ ESTE CASO PRECISA SER DISCRIMINANTE. `status === 422` + handler não
+    // chamado é EXATAMENTE o que a guarda antiga (`if (!pipelineId || !stageId)`)
+    // também produzia — medido: sob a guarda velha este caso ficava verde,
+    // certificando o defeito que o #597 conserta. O que separa os dois mundos é
+    // a rota ter ido ao banco e a mensagem ser a do funil sem etapa aberta.
+    const espiao = fazerSupabaseComEtapas([etapa({ id: "so-ganho", position: 500, is_won: true })]);
+    const { POST } = await import("@/app/api/v1/leads/import/route");
+
+    const res = await POST(pedido("nome\nAna", { stage_id: null }));
+    const corpo = (await res.json()) as { error: { message: string } };
+
+    expect(res.status).toBe(422);
+    expect(espiao.consultadas).toContain("crm_stages");
+    expect(corpo.error.message).toBe("Este funil não tem etapas abertas.");
+    expect(vi.mocked(createLeadHandler)).not.toHaveBeenCalled();
+  });
+
+  it("etapa de OUTRA ORGANIZAÇÃO com position menor não é escolhida", async () => {
+    // A rota usa o client da sessão, mas o filtro por org é explícito (doutrina,
+    // anti-pattern nº 10) — e sem ele a planilha entraria no funil de outro
+    // tenant que por acaso tenha uma etapa mais acima.
+    fazerSupabaseComEtapas([
+      etapa({
+        id: "de-outra-org",
+        position: 100,
+        organization_id: "99999999-9999-4999-8999-999999999999",
+      }),
+      etapa({ id: ETAPA, position: 1000 }),
+    ]);
+    const { POST } = await import("@/app/api/v1/leads/import/route");
+
+    const res = await POST(pedido("nome\nAna", { stage_id: null }));
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(createLeadHandler).mock.calls[0]![2]).toMatchObject({ stage_id: ETAPA });
+  });
+
+  it("etapa de GANHO com position menor não é escolhida — a planilha não nasce vendida", async () => {
+    // Um funil com "Pago" arrastado para a primeira coluna. Sem o filtro, o
+    // trigger `fn_crm_lead_close_on_stage` sobrescreveria o `status: "open"` do
+    // handler e todo lead importado nasceria `won`.
+    fazerSupabaseComEtapas([
+      etapa({ id: "pago", position: 500, is_won: true }),
+      etapa({ id: ETAPA, position: 1000 }),
+    ]);
+    const { POST } = await import("@/app/api/v1/leads/import/route");
+
+    const res = await POST(pedido("nome\nAna", { stage_id: null }));
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(createLeadHandler).mock.calls[0]![2]).toMatchObject({ stage_id: ETAPA });
+  });
+
+  it("etapa de PERDA com position menor não é escolhida — a planilha não nasce perdida", async () => {
+    // Pior que o ganho: o trigger de perda aborta a linha com
+    // `lost_reason_required`, e a rota devolveria 200 com "0 leads criados".
+    fazerSupabaseComEtapas([
+      etapa({ id: "cancelado", position: 500, is_lost: true }),
+      etapa({ id: ETAPA, position: 1000 }),
+    ]);
+    const { POST } = await import("@/app/api/v1/leads/import/route");
+
+    const res = await POST(pedido("nome\nAna", { stage_id: null }));
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(createLeadHandler).mock.calls[0]![2]).toMatchObject({ stage_id: ETAPA });
+  });
+
   it("viewer não importa", async () => {
     sessao("viewer");
     fazerSupabase(null);
@@ -211,3 +390,10 @@ describe("POST /api/v1/leads/import", () => {
     expect(res.status).toBe(403);
   });
 });
+
+// Este teste isola o handler; autoridade de suporte é exercitada na suíte própria.
+vi.mock("@/lib/impersonate/support", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/impersonate/support")>(),
+  requireSupportWrite: vi.fn(async () => null),
+  authenticatedSessionId: vi.fn(async () => "f2200000-0000-4000-8000-000000000099"),
+}));

@@ -13,7 +13,12 @@ import { IdiomaProvider } from "@/lib/i18n/IdiomaProvider";
 export default async function OnboardingLayout({ children }: { children: React.ReactNode }) {
   const user = await requireAuth();
   const activeOrg = await resolveActiveOrg(user);
-  if (!activeOrg) redirect("/login");
+  // Acompanhamento observa a organização incompleta no shell com saída explícita.
+  if (user.support) redirect("/app/inbox");
+  // Sem organização o onboarding não tem o que mostrar — mas mandar para
+  // `/login` fechava o círculo: quem entrasse de novo voltaria para cá. A saída
+  // é a tela que CRIA a organização que falta.
+  if (!activeOrg) redirect("/get-started");
 
   const { state, onboardedAt } = await loadOnboardingState(activeOrg.orgId);
   if (onboardedAt) redirect("/app/inbox");

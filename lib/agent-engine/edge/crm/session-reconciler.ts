@@ -24,6 +24,7 @@
 import type pg from 'pg';
 
 import { parseWahaMessageId } from '@/lib/waha/message-id';
+import { lerNumerosDeTeste, numeroPodeTestar, preGoLiveAtivo } from '@/lib/ai/elegibilidade/pre-go-live';
 
 import type { Logger } from '../../obs/logger';
 
@@ -189,9 +190,9 @@ export async function redriveQueued(
     `select m.id, m.organization_id, m.body, s.waha_session_name,
             c.wa_identity, c.wa_lid, c.phone_number, v.is_group, v.group_chat_id
      from messages m
-     join channel_sessions s on s.id = m.channel_session_id
-     join conversations v on v.id = m.conversation_id
-     join contacts c on c.id = m.contact_id
+     join channel_sessions s on s.id = m.channel_session_id and s.organization_id = m.organization_id
+     join conversations v on v.id = m.conversation_id and v.organization_id = m.organization_id
+     join contacts c on c.id = m.contact_id and c.organization_id = m.organization_id
      where m.sent_via = 'ai' and m.status = 'queued'
        and s.status = 'WORKING'
        and c.is_blocked = false
@@ -242,6 +243,29 @@ export async function redriveQueued(
       continue;
     }
     try {
+      // A lista pode mudar enquanto a mensagem espera ou entre itens do lote.
+      // Este redrive fala direto com o WAHA, portanto também precisa da guarda
+      // do sink. Falha de leitura cai no catch e NÃO envia.
+      const { rows: acesso } = await pool.query<{ metadata: unknown; phone_number: string | null }>(
+        `select s.metadata, c.phone_number
+         from messages m
+         join channel_sessions s on s.id = m.channel_session_id and s.organization_id = m.organization_id
+         join contacts c on c.id = m.contact_id and c.organization_id = m.organization_id
+         where m.id = $1 and m.organization_id = $2 and m.status = 'queued'`,
+        [m.id, m.organization_id],
+      );
+      const atual = acesso[0];
+      if (!atual) continue;
+      if (preGoLiveAtivo(atual.metadata) && !numeroPodeTestar(atual.phone_number ?? '', lerNumerosDeTeste(atual.metadata))) {
+        await pool.query(
+          `update messages set status = 'failed', error_code = 'pre_go_live',
+             error_message = 'Envio automático bloqueado pelo modo de teste do canal.'
+           where id = $1 and organization_id = $2 and status = 'queued'`,
+          [m.id, m.organization_id],
+        );
+        log.info('watchdog: reenvio bloqueado pelo modo de teste', { message_id: m.id });
+        continue;
+      }
       const res = await fetch(`${cfg.wahaBaseUrl}/api/sendText`, {
         method: 'POST',
         headers: { 'X-Api-Key': cfg.wahaApiKey, 'Content-Type': 'application/json' },
@@ -262,8 +286,8 @@ export async function redriveQueued(
          set status = 'sent', ack = 0,
              external_id = coalesce($2, external_id),
              metadata = metadata || '{"redrive":"watchdog"}'::jsonb
-         where id = $1 and status = 'queued'`,
-        [m.id, externalId],
+         where id = $1 and organization_id = $3 and status = 'queued'`,
+        [m.id, externalId, m.organization_id],
       );
       sent += 1;
       log.info('watchdog: mensagem presa reenviada', { message_id: m.id, has_external_id: externalId !== null });

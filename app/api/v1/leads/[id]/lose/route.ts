@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/leads/[id]/lose
  *
@@ -16,6 +17,7 @@ import { ApiError } from "@/lib/api/types";
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { encerraDemanda } from "@/lib/leads/encerramento";
+import { traduzir } from "@/lib/i18n/dicionario";
 import { loseLeadSchema, validateRequest } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
 
@@ -25,6 +27,9 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id: leadId } = await ctx.params;
 
@@ -32,6 +37,7 @@ export async function POST(
   // spec 13 §4: escrita é agent+ (viewer é read-only).
   const authz = await requireRole("agent", { requestId, resource: "crm_leads" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
 
   try {
     const input = await validateRequest(loseLeadSchema, req);
@@ -41,6 +47,7 @@ export async function POST(
         organization_id: authz.org.orgId,
         actor: { type: "user", id: authz.user.id },
         requestId,
+        idioma: authz.user.idioma,
       },
       { leadId, desfecho: "lost", motivo: input.lost_reason },
     );
@@ -49,7 +56,7 @@ export async function POST(
     if (err instanceof ApiError) {
       const fieldErrors = (err.details as { fieldErrors?: Record<string, unknown> } | undefined)?.fieldErrors;
       if (err.code === "validation_error" && fieldErrors && "lost_reason" in fieldErrors) {
-        return fail("lost_reason_required", "Informe o motivo da perda.", 422, { requestId });
+        return fail("lost_reason_required", t("Informe o motivo da perda."), 422, { requestId });
       }
       return fail(err.code, err.message, err.status, {
         details: err.details as Record<string, unknown> | undefined,

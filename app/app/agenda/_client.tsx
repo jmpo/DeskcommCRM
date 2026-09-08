@@ -1,5 +1,7 @@
 "use client";
 
+import { EntradaDaAgenda } from "@/components/agenda/EntradaDaAgenda";
+import { VinculoDaMarcacao } from "@/components/agenda/VinculoDaMarcacao";
 import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
 
 import { useT } from "@/hooks/i18n/useT";
@@ -94,6 +96,9 @@ export function AgendaClient({
   const localeDaData = useLocaleDeData();
   const t = useT();
   const [marcando, setMarcando] = React.useState(false);
+  const [contactId,setContactId]=React.useState("");
+  const [conversationId,setConversationId]=React.useState("");
+  const onContext=React.useCallback((contact:string,conversation:string)=>{setContactId(contact);setConversationId(conversation);setMarcando(true);},[]);
   // O horário que veio de um CLIQUE NA GRADE. Preenchido, o painel abre já em
   // "confirmando" naquele instante; vazio, ele abre pedindo o dia, como sempre.
   const [horarioEscolhido, setHorarioEscolhido] = React.useState<HorarioLivre | null>(null);
@@ -106,6 +111,16 @@ export function AgendaClient({
   // o que a equipe lê ao ver o horário vago.
   const [cancelandoId, setCancelandoId] = React.useState<string | null>(null);
   const [motivo, setMotivo] = React.useState("");
+  // O CONVIDADO, opcional. Vazio mantém o comportamento de sempre: evento no
+  // Google do atendente, sem `attendees` e sem convite saindo para ninguém.
+  const [emailConvidado, setEmailConvidado] = React.useState("");
+  const emailConvidadoLimpo = emailConvidado.trim();
+  // A MESMA pergunta que a rota faz, feita aqui só para não gastar um 422 com
+  // uma letra faltando no domínio. A rota continua sendo a dona da recusa — esta
+  // checagem é conveniência, não autoridade, e por isso é deliberadamente frouxa
+  // (o e-mail de verdade se prova entregando, não com regex).
+  const emailConvidadoInvalido =
+    emailConvidadoLimpo.length > 0 && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailConvidadoLimpo);
   const marcar = useMarcarAgendamento();
   const remarcar = useRemarcarAgendamento();
   const cancelar = useCancelarAgendamento();
@@ -225,6 +240,31 @@ export function AgendaClient({
     [isolada, todos],
   );
 
+  // A GRADE não mostra cancelado — ele fica só na aba "Cancelados" do
+  // histórico, que lê `agendamentos` (cheio) e o separa sozinha em `separar()`.
+  // Mesma fonte, dois recortes: a grade responde "o que está de pé", o
+  // histórico responde "o que aconteceu", cancelado incluso.
+  const agendamentosDaGrade = React.useMemo(
+    () => agendamentos.filter((a) => a.situacao !== "cancelled"),
+    [agendamentos],
+  );
+
+  /**
+   * O que é ACIONÁVEL — o que a lista "Próximos" pode oferecer botão para fazer.
+   *
+   * Ocupação vinda do Google fica de fora: ela é bloco de terceiro, o id é de
+   * `calendar_external_events`, e as rotas de remarcar/cancelar procuram em
+   * `calendar_appointments`. Ver o comentário longo no `HistoricoDaAgenda`
+   * abaixo, com o 404 medido.
+   *
+   * A GRADE recebe `agendamentosDaGrade` (tudo menos cancelado) — é lá que a ocupação
+   * precisa aparecer, e é lá que ela já é desenhada inerte.
+   */
+  const agendamentosAcionaveis = React.useMemo(
+    () => agendamentos.filter((a) => a.origem !== "google_sync"),
+    [agendamentos],
+  );
+
   const passo = visao === "mes" ? 30 : visao === "semana" ? 7 : 1;
   // O PADRÃO de formato também muda de idioma, não só o locale: em português
   // "d 'de' MMMM" tem a preposição escrita à mão dentro do padrão, e em
@@ -252,6 +292,7 @@ export function AgendaClient({
       */}
       <React.Suspense fallback={null}>
         <AvisoDaConexaoGoogle />
+        <EntradaDaAgenda onContext={onContext}/>
       </React.Suspense>
 
       <CartaoDaConexaoGoogle
@@ -403,6 +444,10 @@ export function AgendaClient({
           if (!aberto) {
             setRemarcandoId(null);
             setHorarioEscolhido(null);
+            // Pelo mesmo motivo das duas linhas acima: um convidado digitado e
+            // não usado reapareceria na PRÓXIMA marcação, que é de outro
+            // cliente — convite para a pessoa errada, sem ninguém ter pedido.
+            setEmailConvidado("");
           }
         }}
       >
@@ -443,6 +488,7 @@ export function AgendaClient({
           <SheetHeader>
             <SheetTitle>{remarcandoId ? t("Remarcar agendamento") : t("Novo agendamento")}</SheetTitle>
           </SheetHeader>
+            {!remarcandoId?<VinculoDaMarcacao contactId={contactId} conversationId={conversationId} onChange={(contact,conversation)=>{setContactId(contact);setConversationId(conversation);}}/>:null}
           {tiposIniciais.length > 1 && (
             <div className="mt-4" data-testid="tipos-de-agendamento">
               <p className="mb-2 text-xs font-medium text-text-muted">{t("Tipo de agendamento")}</p>
@@ -468,6 +514,47 @@ export function AgendaClient({
               </div>
             </div>
           )}
+          {/*
+            O CONVIDADO — opcional, e é o que faz o convite do Google existir.
+            Sem e-mail aqui o evento nasce só na agenda do atendente, que é o
+            comportamento que este produto teve desde sempre.
+
+            Fica ACIMA do painel de horários de propósito: quem vai convidar
+            alguém decide isso ANTES de escolher o horário, e um campo abaixo de
+            uma lista rolável de horários é um campo que ninguém vê.
+          */}
+          <div className="mt-4">
+            <label className="block text-xs font-medium text-text-muted" htmlFor="email-do-convidado">
+              {t("E-mail do convidado")}{" "}
+              <span className="font-normal opacity-70">({t("opcional")})</span>
+            </label>
+            <input
+              id="email-do-convidado"
+              data-testid="email-do-convidado"
+              type="email"
+              inputMode="email"
+              autoComplete="off"
+              value={emailConvidado}
+              onChange={(e) => setEmailConvidado(e.target.value)}
+              className={cn(
+                // `outline-hidden`, não `outline-none`: no Tailwind 4 os dois
+                // trocaram de significado, e o `outline-none` do v4 apaga o
+                // contorno que o modo de alto contraste do sistema usa.
+                "mt-1 w-full rounded-md border bg-surface p-2 text-sm outline-hidden",
+                emailConvidadoInvalido
+                  ? "border-danger focus:border-danger"
+                  : "border-border focus:border-border-strong",
+              )}
+              placeholder={t("cliente@empresa.com")}
+              aria-invalid={emailConvidadoInvalido || undefined}
+              aria-describedby="ajuda-do-convidado"
+            />
+            <p id="ajuda-do-convidado" className="mt-1 text-xs text-text-muted">
+              {emailConvidadoInvalido
+                ? t("Endereço inválido — confira antes de marcar.")
+                : t("Preenchido, o Google envia o convite por e-mail para esta pessoa.")}
+            </p>
+          </div>
           {tipo && (
             <div className="mt-4 lg:min-h-0 lg:flex-1">
               <PainelDeMarcacao
@@ -502,6 +589,7 @@ export function AgendaClient({
                 erroAoCarregar={horariosFalharam}
                 fusoSuposto={horarios?.fuso_suposto ?? false}
                 fontesDefasadas={horarios?.fontes_defasadas}
+                googleCoberturaParcial={horarios?.google_cobertura_parcial}
                 horarioInicial={horarioEscolhido ?? undefined}
                 // ESTE é o fio que faltava. Sem ele o "Marcado ✓" era estado
                 // local do React e nenhuma linha nascia no banco.
@@ -520,16 +608,38 @@ export function AgendaClient({
                   // MESMA regra (`_handler.ts:96`), por construção e não por sorte.
                   // Remarcar é PATCH com o id; marcar é POST. A escolha do
                   // horário é o mesmo gesto, e por isso o mesmo painel.
+                  // Recusa ANTES da rede: o painel já pintou "Marcado ✓" quando
+                  // o 422 voltasse, e desfazer aquilo é pior do que não deixar
+                  // sair. O campo já está vermelho e explicado quando isto corta.
+                  if (emailConvidadoInvalido) {
+                    return Promise.reject(new Error("e-mail do convidado inválido"));
+                  }
+                  // `|| undefined` e não a string vazia: campo em branco tem de
+                  // ficar FORA do corpo, senão o PATCH leria "" como "apague o
+                  // convidado" e desconvidaria alguém a cada remarcação.
+                  const convidado = emailConvidadoLimpo || undefined;
                   if (remarcandoId) {
                     return remarcar
-                      .mutateAsync({ id: remarcandoId, starts_at: instante })
+                      .mutateAsync({ id: remarcandoId,revision:agendamentos.find(a=>a.id===remarcandoId)?.revision, starts_at: instante, guest_email: convidado })
                       .then((r) => {
                         setRemarcandoId(null);
                         setMarcando(false);
+                        setEmailConvidado("");
                         return r;
                       });
                   }
-                  return marcar.mutateAsync({ event_type_id: tipo.id, starts_at: instante });
+                  return marcar
+                    .mutateAsync({
+                      event_type_id: tipo.id,
+                      contact_id:contactId||undefined,
+                      conversation_id:conversationId||undefined,
+                      starts_at: instante,
+                      guest_email: convidado,
+                    })
+                    .then((r) => {
+                      setEmailConvidado("");
+                      return r;
+                    });
                 }}
                 // "VER NA AGENDA" — o botão que não fazia nada.
                 //
@@ -576,7 +686,7 @@ export function AgendaClient({
                 const alvo = todos.find((a) => a.id === cancelandoId);
                 if (!alvo) return t("Este agendamento não está mais na lista.");
                 const quem = alvo.quemSeraAtendido ? ` ${t("de")} ${alvo.quemSeraAtendido}` : "";
-                return `${t(alvo.titulo)}${quem}, ${format(new Date(alvo.comeca), t("d 'de' MMMM 'às' HH:mm"), { locale: localeDaData })}.`;
+                return `${alvo.titulo}${quem}, ${format(new Date(alvo.comeca), t("d 'de' MMMM 'às' HH:mm"), { locale: localeDaData })}.`;
               })()}
             </p>
             <label className="block text-xs font-medium text-text-muted" htmlFor="motivo-do-cancelamento">
@@ -604,7 +714,7 @@ export function AgendaClient({
                 onClick={() => {
                   const id = cancelandoId;
                   if (!id) return;
-                  void cancelar.mutateAsync({ id, reason: motivo.trim() }).then(
+                  void cancelar.mutateAsync({ id,revision:agendamentos.find(a=>a.id===id)?.revision, reason: motivo.trim() }).then(
                     () => setCancelandoId(null),
                     () => undefined,
                   );
@@ -617,8 +727,37 @@ export function AgendaClient({
         </SheetContent>
       </Sheet>
 
+      {/*
+        ⚠️ A LISTA DAQUI NÃO É A MESMA DA GRADE, e a diferença é uma linha.
+
+        `GradeDaAgenda` conhece `origem` e desenha o bloco do Google inerte
+        (`disabled`, sem arraste, rótulo "Ocupado"). `HistoricoDaAgenda` NÃO
+        conhece origem: ela decide o botão por `disabled={!onRemarcar}`, que é
+        uma prop do componente inteiro e não da linha. Passar a mesma lista aos
+        dois faz a ocupação do Google chegar em "Próximos" com **Remarcar e
+        Cancelar habilitados** — e cancelar responde 404, porque o id é de
+        `calendar_external_events` e a rota procura em `calendar_appointments`.
+
+        Medido pela tela em 2026-09-03, na triagem do PR #474:
+
+          DELETE /api/v1/agenda/agendamentos
+          → 404 {"error":{"code":"not_found","message":"Agendamento não encontrado."}}
+          toast vermelho aos 1,5s, o painel continua aberto, a linha continua na
+          lista, e `calendar_external_events.status` segue `confirmed`.
+
+        É o "controle decorativo" que o comentário de `GradeDaAgenda` diz que
+        esta base já pagou uma vez, replantado no componente irmão — e o #474 o
+        tornou PERMANENTE: antes dele a linha só existia no primeiro frame da
+        semana corrente (a semente do servidor) e sumia no primeiro refetch.
+
+        Filtrar é o conserto certo, e não é escolha estética: bloco anônimo do
+        Google não é um compromisso NOSSO. Não há o que remarcar, não há o que
+        cancelar, e "Ocupado · 15:00–16:00" numa lista de próximos atendimentos
+        não informa nada que a grade — que O DESENHA no horário — já não diga
+        melhor. A ocupação continua inteira onde ela serve.
+      */}
       <HistoricoDaAgenda
-        agendamentos={agendamentos}
+        agendamentos={agendamentosAcionaveis}
         pessoas={pessoas}
         agora={new Date()}
         className="max-h-[320px]"
@@ -643,8 +782,8 @@ export function AgendaClient({
         // Sem cerimônia de confirmação, ao contrário de cancelar: registrar
         // desfecho não avisa ninguém e se desfaz voltando o status. Cancelar
         // exige motivo porque é o que a equipe lê ao ver o horário vago.
-        onRealizado={(id) => desfecho.mutate({ id, status: "completed" })}
-        onFaltou={(id) => desfecho.mutate({ id, status: "no_show" })}
+        onRealizado={(id) => desfecho.mutate({ id,revision:agendamentos.find(a=>a.id===id)?.revision, status: "completed" })}
+        onFaltou={(id) => desfecho.mutate({ id,revision:agendamentos.find(a=>a.id===id)?.revision, status: "no_show" })}
       />
 
       {/* ⚠️ O VAZIO NÃO ESCONDE MAIS A GRADE, e o achado veio do CI.
@@ -676,7 +815,7 @@ export function AgendaClient({
         ancora={ancora}
         agora={new Date()}
         pessoas={pessoas}
-        agendamentos={agendamentos}
+        agendamentos={agendamentosDaGrade}
         recorte={recorteDaGrade}
         tipos={tiposIniciais.map((t) => ({ id: t.id, nome: t.nome, duracaoMin: t.duracaoMin }))}
         tipo={tipo ? { id: tipo.id, duracaoMin: tipo.duracaoMin } : null}

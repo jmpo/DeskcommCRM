@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * GET  /api/v1/settings/api-tokens — list tokens for the active org (no plaintext).
  * POST /api/v1/settings/api-tokens — create token. Plaintext returned UMA VEZ.
@@ -14,6 +15,7 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createApiTokenSchema, validateRequest } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -37,9 +39,13 @@ export async function GET(_req: NextRequest): Promise<Response> {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("admin", { requestId, resource: "api_tokens" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
 
   let input;
@@ -96,7 +102,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     {
       ...created,
       plaintext,
-      _warning: "Salve este token agora — ele não será mostrado novamente.",
+      _warning: t("Salve este token agora — ele não será mostrado novamente."),
     },
     { status: 201, requestId },
   );

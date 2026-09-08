@@ -165,3 +165,302 @@ describe("a superfície inteira — nenhum fetch fica de fora", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * O CORPO DA RESPOSTA DO WAHA NÃO SAI DAQUI — NEM NA EXCEÇÃO, NEM NA API.
+ *
+ * ─── O defeito, medido em 2005aea6 ──────────────────────────────────────────
+ *
+ *     $ grep -c 'body.slice(0, 200)' lib/waha/client.ts
+ *     8
+ *
+ * Os oito montavam `waha_<acao>_<status>: <corpo do WAHA>`, e essa string não
+ * morria no log: `wahaFriendlyError` a devolve inteira quando
+ * `classificarFalhaDeAlcance` não reconhece a falha — o caso de todo HTTP com
+ * status —, e as três rotas de `channel-sessions` a passam para `fail(...)`,
+ * que é o corpo da resposta da nossa API. Corpo de terceiro atravessando a
+ * fronteira do produto.
+ *
+ * ─── Por que o dublê é um servidor REAL ─────────────────────────────────────
+ *
+ * Um `vi.stubGlobal("fetch", ...)` provaria o mesmo texto sem passar pelo
+ * `fetchComTeto`, que é quem constrói a `Response` de verdade. Aqui o corpo
+ * atravessa a pilha inteira, como em produção.
+ *
+ * ─── As duas metades ────────────────────────────────────────────────────────
+ *
+ * Só provar que o segredo sumiu deixa verde um "conserto" que jogue fora a
+ * mensagem toda — e aí ninguém mais distingue 401 (credencial) de 500 (o WAHA
+ * quebrou). Por isso cada caso exige ALGO: o status tem de continuar lá.
+ *
+ * Achado de @prevprocesso-maker no PR #465.
+ */
+describe("o corpo devolvido pelo WAHA nunca entra na exceção", () => {
+  /** Tudo que um corpo de erro do WAHA pode carregar, junto numa linha. */
+  const CORPO_SENSIVEL =
+    '{"error":"session config","phone":"+5511987654321","webhook":' +
+    '{"url":"https://crm.exemplo.com/api/v1/webhooks/waha","hmac":{"key":"seg' +
+    'redo-do-hmac"}},"apiKey":"a1b2c3d4"}';
+  /** Os pedaços que, sozinhos, denunciam vazamento. */
+  const AGULHAS = ["+5511987654321", "segredo-do-hmac", "a1b2c3d4", "crm.exemplo.com"];
+
+  let quebrado: Server;
+  let urlQuebrado = "";
+
+  beforeAll(async () => {
+    quebrado = createServer((_req, res) => {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(CORPO_SENSIVEL);
+    });
+    await new Promise<void>((r) => quebrado.listen(0, "127.0.0.1", r));
+    urlQuebrado = `http://127.0.0.1:${(quebrado.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((r) => quebrado.close(() => r()));
+  });
+
+  /**
+   * Toda chamada que LANÇA quando o WAHA responde com status de erro. Enumerar
+   * a classe é o ponto: consertar por instância deixa a próxima passar.
+   */
+  const CHAMADAS: Array<[string, (c: WahaClient) => Promise<unknown>]> = [
+    ["startSession", (c) => c.startSession("sessao")],
+    ["stopSession", (c) => c.stopSession("sessao")],
+    ["logoutSession", (c) => c.logoutSession("sessao")],
+    ["deleteSession", (c) => c.deleteSession("sessao")],
+    ["getSessionQr", (c) => c.getSessionQr("sessao")],
+    ["sendMessage", (c) => c.sendMessage("sessao", "5511999@c.us", "oi")],
+    ["checkContactExists", (c) => c.checkContactExists("sessao", "5511999999999")],
+    [
+      "sendContactVcard",
+      (c) =>
+        c.sendContactVcard("sessao", "5511999@c.us", [
+          { fullName: "F", phoneNumber: "+5511999999999", whatsappId: "5511999@c.us", vcard: "x" },
+        ]),
+    ],
+    [
+      "sendMedia",
+      (c) => c.sendMedia("sessao", "5511999@c.us", { endpoint: "sendImage", payload: {} }),
+    ],
+  ];
+
+  it.each(CHAMADAS)("⭐ %s: a mensagem não carrega nada do corpo do WAHA", async (_nome, fn) => {
+    const c = new WahaClient(urlQuebrado, "chave-de-teste", { tetoMs: 3_000 });
+    const { erro } = await medir(() => fn(c));
+
+    // Controle: sem exceção, o resto do caso não mede nada.
+    expect(erro, "a chamada não lançou — o caso ficaria verde sem medir").not.toBe("");
+    for (const agulha of AGULHAS) {
+      expect(erro, `a exceção carrega "${agulha}", que veio do corpo do WAHA`).not.toContain(agulha);
+    }
+  });
+
+  it.each(CHAMADAS)("%s: mas o STATUS continua na mensagem", async (_nome, fn) => {
+    // Sem esta metade, jogar a mensagem inteira fora passaria — e aí ninguém
+    // mais distingue 401 (credencial errada) de 500 (o WAHA quebrou).
+    const c = new WahaClient(urlQuebrado, "chave-de-teste", { tetoMs: 3_000 });
+    const { erro } = await medir(() => fn(c));
+    expect(erro, "o status sumiu junto com o corpo — o diagnóstico foi a zero").toContain("500");
+  });
+
+  it("⭐ nenhum corpo de resposta é interpolado numa exceção deste arquivo", async () => {
+    // Guarda de CLASSE: os casos acima cobrem os nove caminhos de hoje; este
+    // reprova o décimo, que ainda não existe.
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const fonte = readFileSync(join(process.cwd(), "lib/waha/client.ts"), "utf8");
+
+    // Controle positivo: a sonda precisa achar `new Error(` aqui, senão o
+    // vazio abaixo seria "procurei errado" lido como "está limpo".
+    expect(fonte, "a sonda não achou nenhum `new Error(` — ela está cega").toContain("new Error(");
+
+    const vazando = fonte
+      .split("\n")
+      .map((l, i) => [i + 1, l] as const)
+      .filter(([, l]) => /new Error\(/.test(l) && /\$\{\s*(body|corpo|texto)\b/.test(l));
+    expect(
+      vazando.map(([n, l]) => `${n}: ${l.trim()}`),
+      "estas exceções carregam o corpo devolvido pelo WAHA, e ele sai na resposta da nossa API pelas rotas de channel-sessions",
+    ).toEqual([]);
+  });
+});
+
+/** Respostas locais independentes: não exercitam pairing nem envio WhatsApp. */
+describe("sessões: conflito conhecido só converge com identidade e pós-condição", () => {
+  type Step = { method: string; path: string; status: number; body?: unknown };
+  const name = "qa/session";
+  const sessionPath = "/api/sessions/qa%2Fsession";
+  const config = { ignore: { status: true, broadcast: true, channels: true, groups: true } };
+  const session = (status = "STOPPED", extra: Record<string, unknown> = {}) =>
+    ({ name, status, config, engine: { engine: "NOWEB" }, ...extra });
+  const duplicate = { statusCode: 422, error: "Unprocessable Entity", message: `Session '${name}' already exists. Use PUT to update it.` };
+  const create = (status = 201, body: unknown = session()): Step => ({ method: "POST", path: "/api/sessions", status, body });
+  const read = (body: unknown = session(), status = 200): Step => ({ method: "GET", path: sessionPath, status, body });
+  const start: Step = { method: "POST", path: `${sessionPath}/start`, status: 201, body: session("STARTING") };
+
+  async function receive(steps: Step[], run: (client: WahaClient, seen: string[]) => Promise<void>) {
+    const seen: string[] = [];
+    const unexpected: string[] = [];
+    const server = createServer((req, res) => {
+      const call = `${req.method} ${req.url}`;
+      seen.push(call);
+      const next = steps.shift();
+      if (!next || next.method !== req.method || next.path !== req.url || req.headers["x-api-key"] !== "plaintext-local") {
+        unexpected.push(call);
+        res.writeHead(500).end();
+        return;
+      }
+      res.writeHead(next.status, { "content-type": "application/json" });
+      res.end(JSON.stringify(next.body));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      await run(new WahaClient(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, "plaintext-local"), seen);
+      expect(unexpected).toEqual([]);
+      expect(steps).toEqual([]);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+
+  it("create 422 conhecido + GET compatível + start + GET correto converge sem PUT", async () => {
+    await receive([create(422, duplicate), read(), start, read(session("SCAN_QR_CODE"))], async (c) => {
+      await expect(c.startSession(name)).resolves.toMatchObject({ status: "SCAN_QR_CODE" });
+    });
+  });
+
+  it.each([409, 422])("create %i desconhecido não pode virar sucesso nem PUT", async (status) => {
+    await receive([create(status, { statusCode: status, message: "invalid apiKey=private-secret" })], async (c) => {
+      const error = await c.startSession(name).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(`waha_create_${status}`);
+    });
+  });
+
+  it.each([
+    ["outra identidade", { name: "outra" }],
+    ["outro engine", { engine: { engine: "WEBJS" } }],
+    ["config inválida", { config: null }],
+    ["filtro explícito incompatível", { config: { ignore: { groups: false } } }],
+  ])("conflito de create com %s falha sem tomar a sessão", async (_label, extra) => {
+    await receive([create(422, duplicate), read(session("STOPPED", extra))], async (c) => {
+      await expect(c.startSession(name)).rejects.toThrow("waha_create_422");
+    });
+  });
+
+  it("2xx também exige GET; resposta inicial STARTING não disfarça FAILED", async () => {
+    await receive([create(), read(), start, read(session("FAILED"))], async (c) => {
+      await expect(c.startSession(name)).rejects.toThrow("waha_start_201");
+    });
+  });
+
+  it("start 422 conhecido só converge com estado ativo da sessão certa", async () => {
+    const conflict = { ...start, status: 422, body: { statusCode: 422, error: "Unprocessable Entity", message: `Session '${name}' is already started.` } };
+    await receive([create(), read(), conflict, read(session("WORKING"))], async (c) => {
+      await expect(c.startSession(name)).resolves.toMatchObject({ status: "WORKING" });
+    });
+  });
+
+  it.each(["STOPPED", "FAILED"])("start em %s não é convergência", async (status) => {
+    const conflict = { ...start, status: 422, body: { statusCode: 422, error: "Unprocessable Entity", message: `Session '${name}' is already started.` } };
+    await receive([create(), read(), conflict, read(session(status))], async (c) => {
+      await expect(c.startSession(name)).rejects.toThrow("waha_start_422");
+    });
+  });
+
+  for (const operation of ["stop", "logout", "delete"] as const) {
+    const call = (c: WahaClient) => operation === "stop" ? c.stopSession(name) : operation === "logout" ? c.logoutSession(name) : c.deleteSession(name);
+    const operationStep = (status: number, body: unknown = {}) => ({ method: operation === "delete" ? "DELETE" : "POST", path: operation === "delete" ? sessionPath : `${sessionPath}/${operation}`, status, body });
+    it.each([409, 422])(`${operation} %i sem corpo conhecido mantém erro`, async (status) => {
+      await receive([operationStep(status, { statusCode: status, message: "private-secret" })], async (c) => {
+        await expect(call(c)).rejects.toThrow(`waha_${operation}_${status}`);
+      });
+    });
+    it(`${operation} 2xx com sessão ainda WORKING falha`, async () => {
+      await receive([operationStep(200), read(session("WORKING"))], async (c) => {
+        await expect(call(c)).rejects.toThrow(`waha_${operation}_200`);
+      });
+    });
+    it(`${operation} 2xx converge após leitura da pós-condição`, async () => {
+      const final = operation === "delete" ? read({ statusCode: 404, message: "Session not found", error: "Not Found" }, 404) : read(session("STOPPED", { me: null }));
+      await receive([operationStep(200), final], async (c) => {
+        await expect(call(c)).resolves.toBeUndefined();
+      });
+    });
+  }
+
+  it("logout STOPPED com identidade pareada ainda presente não é deslogado", async () => {
+    await receive([{ method: "POST", path: `${sessionPath}/logout`, status: 200 }, read(session("STOPPED", { me: { id: "paired" } }))], async (c) => {
+      await expect(c.logoutSession(name)).rejects.toThrow("waha_logout_200");
+    });
+  });
+
+  it("delete 404 precisa confirmar ausência no GET", async () => {
+    const absent = { statusCode: 404, message: "Session not found", error: "Not Found" };
+    await receive([{ method: "DELETE", path: sessionPath, status: 404, body: absent }, read(absent, 404)], async (c) => {
+      await expect(c.deleteSession(name)).resolves.toBeUndefined();
+    });
+  });
+  it("logout ativo reiniciado em STARTING sem me respeita contrato upstream", async () => {
+    await receive([{ method: "POST", path: `${sessionPath}/logout`, status: 200 }, read(session("STARTING", { me: null }))], async (c) => {
+      await expect(c.logoutSession(name)).resolves.toBeUndefined();
+    });
+  });
+
+  it("GET pós-start não aceita engine alterado mesmo com WORKING", async () => {
+    await receive([create(), read(), start, read(session("WORKING", { engine: { engine: "WEBJS" } }))], async (c) => {
+      await expect(c.startSession(name)).rejects.toThrow("waha_start_201");
+    });
+  });
+
+  it("convergência não faz PUT sobre engine incompatível", async () => {
+    await receive([read(session("STOPPED", { config: {}, engine: { engine: "WEBJS" } }))], async (c) => {
+      await c.convergirConfigDaSessao(name);
+    });
+  });
+
+  it("sessão STOPPED sem engine usa versão do servidor, e versão desconhecida permite tentar", async () => {
+    await receive([
+      create(), read(session("STOPPED", { engine: {} })),
+      { method: "GET", path: "/api/server/version", status: 200, body: { version: "2027.1.0", tier: "CORE", engine: "NOWEB" } },
+      start, read(session("SCAN_QR_CODE")),
+    ], async (c) => {
+      await expect(c.startSession(name)).resolves.toMatchObject({ status: "SCAN_QR_CODE" });
+    });
+  });
+
+  it.each([409, 422])("start %i desconhecido falha mesmo se o servidor disser estado desejado", async (status) => {
+    await receive([create(), read(), { ...start, status, body: { statusCode: status, error: "Unprocessable Entity", message: "invalid payload" } }], async (c) => {
+      await expect(c.startSession(name)).rejects.toThrow(`waha_start_${status}`);
+    });
+  });
+
+  it.each(["stop", "logout", "delete"] as const)("%s não aceita identidade divergente no GET", async (operation) => {
+    const step = { method: operation === "delete" ? "DELETE" : "POST", path: operation === "delete" ? sessionPath : `${sessionPath}/${operation}`, status: 200 };
+    await receive([step, read(session("STOPPED", { name: "outra", me: null }))], async (c) => {
+      const call = operation === "stop" ? c.stopSession(name) : operation === "logout" ? c.logoutSession(name) : c.deleteSession(name);
+      await expect(call).rejects.toThrow(`waha_${operation}_200`);
+    });
+  });
+
+  it("404 de gateway sem envelope não confirma delete", async () => {
+    await receive([{ method: "DELETE", path: sessionPath, status: 200 }, read({ message: "route not found" }, 404)], async (c) => {
+      await expect(c.deleteSession(name)).rejects.toThrow("waha_delete_404");
+    });
+  });
+
+  it("envelope de conflito referente a outro nome não concede start", async () => {
+    await receive([create(422, { ...duplicate, message: "Session 'outra' already exists. Use PUT to update it." })], async (c) => {
+      await expect(c.startSession(name)).rejects.toThrow("waha_create_422");
+    });
+  });
+
+  it("porta granular inicia sessão existente sem criar nem fazer PUT", async () => {
+    await receive([start, read(session("SCAN_QR_CODE"))], async (c) => {
+      await expect(c.startExistingSession(name)).resolves.toMatchObject({ name, status: "SCAN_QR_CODE" });
+    });
+  });
+
+});

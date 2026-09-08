@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/products/import — o catálogo a partir da planilha que a loja já tem.
  *
@@ -22,7 +23,9 @@ import { type NextRequest } from "next/server";
 import { audit } from "@/lib/audit";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
+import { moedaDaOrganizacao } from "@/lib/catalogo/moeda-da-org";
 import { lerPlanilha, type ErroDaLinha } from "@/lib/catalogo/planilha";
+import { traduzir } from "@/lib/i18n/dicionario";
 import { CSV_MAX_BYTES, CSV_MAX_DATA_ROWS, decodificarCsv } from "@/lib/contacts/csv";
 import { COLUNAS_DO_PRODUTO } from "@/lib/schemas/produtos";
 import { createClient } from "@/lib/supabase/server";
@@ -49,11 +52,15 @@ interface ResumoDaImportacao {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   // Preço de venda é escrita de gestão: o mesmo papel do POST unitário.
   const authz = await requireRole("manager", { requestId, resource: "catalog_products" });
   if (!authz.ok) return authz.response;
   const orgId = authz.org.orgId;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
 
   let arquivo: File;
   try {
@@ -62,7 +69,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (!(f instanceof File)) throw new Error("sem arquivo");
     arquivo = f;
   } catch {
-    return fail("validation_failed", "Envie o arquivo no campo 'file'.", 422, { requestId });
+    return fail("validation_failed", t("Envie o arquivo no campo 'file'."), 422, { requestId });
   }
 
   const nome = arquivo.name ?? "";
@@ -73,7 +80,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!tipoOk) {
     return fail(
       "validation_failed",
-      "Formato não suportado — envie um arquivo .csv. No Excel use 'Salvar como' → 'CSV UTF-8'.",
+      t("Formato não suportado — envie um arquivo .csv. No Excel use 'Salvar como' → 'CSV UTF-8'."),
       422,
       { requestId },
     );
@@ -81,7 +88,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (arquivo.size > CSV_MAX_BYTES) {
     return fail(
       "validation_failed",
-      `Arquivo maior que ${Math.floor(CSV_MAX_BYTES / 1024 / 1024)}MB.`,
+      t("Arquivo maior que ") + `${Math.floor(CSV_MAX_BYTES / 1024 / 1024)}MB.`,
       413,
       { requestId },
     );
@@ -92,9 +99,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   // catálogo sem um erro sequer, e é ele que o agente lê para o cliente (#483).
   const decodificado = decodificarCsv(await arquivo.arrayBuffer());
   if ("erro" in decodificado) {
-    return fail("validation_failed", decodificado.erro, 422, { requestId });
+    return fail("validation_failed", t(decodificado.erro), 422, { requestId });
   }
-  const lido = lerPlanilha(decodificado.texto);
+  const lido = lerPlanilha(decodificado.texto, t);
   // Problema do ARQUIVO (falta a coluna de preço) é 422 com a frase inteira —
   // e não um relatório com 300 erros idênticos.
   if ("erro" in lido) return fail("validation_failed", lido.erro, 422, { requestId });
@@ -103,7 +110,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (totalLinhas > CSV_MAX_DATA_ROWS) {
     return fail(
       "validation_failed",
-      `Máximo de ${CSV_MAX_DATA_ROWS} produtos por importação — divida a planilha.`,
+      `${t("Máximo de")} ${CSV_MAX_DATA_ROWS} ${t("produtos por importação — divida a planilha.")}`,
       422,
       { requestId },
     );
@@ -139,7 +146,19 @@ export async function POST(req: NextRequest): Promise<Response> {
   const erros: ErroDaLinha[] = [...lido.erros];
   let gravados = 0;
 
-  const paraGravar = lido.produtos.map((p) => ({
+  // A moeda vem da organização, igual ao cadastro manual — mas só entra na
+  // linha de produto NOVO. Um upsert do PostgREST monta UMA sentença
+  // `ON CONFLICT ... DO UPDATE SET col = EXCLUDED.col` para o lote inteiro: se
+  // a linha de um produto já existente também carregasse `moeda`, reimportar a
+  // MESMA planilha depois de trocar a moeda da organização reescreveria a
+  // moeda de todo produto já cadastrado — o oposto do que `descricao`,
+  // `imagem_url` e `ativo` já protegem (comentário no topo do arquivo). Por
+  // isso os dois grupos são upserts SEPARADOS, nunca misturados no mesmo lote:
+  // um shape por chamada, sem depender de o PostgREST tratar chave ausente
+  // linha a linha.
+  const moeda = await moedaDaOrganizacao(supabase, orgId);
+
+  const base = (p: (typeof lido.produtos)[number]) => ({
     linha: p.linha,
     organization_id: orgId,
     codigo: p.codigo,
@@ -151,35 +170,47 @@ export async function POST(req: NextRequest): Promise<Response> {
     controla_estoque: p.controla_estoque,
     quantidade: p.quantidade,
     origem: "planilha",
-  }));
+  });
 
-  for (let i = 0; i < paraGravar.length; i += LOTE) {
-    const lote = paraGravar.slice(i, i + LOTE);
-    const { error } = await supabase
-      .from("catalog_products")
-      .upsert(lote.map(semALinha), { onConflict: "organization_id,codigo" });
+  const paraGravar = lido.produtos.map((p) =>
+    antigos.has(p.codigo) ? base(p) : { ...base(p), moeda },
+  );
 
-    if (!error) {
-      gravados += lote.length;
-      continue;
-    }
-
-    // O lote é tudo-ou-nada. Uma linha ruim não pode derrubar as outras 199, e
-    // o relatório precisa nomear QUAL linha — então o lote que falhou é
-    // refeito produto a produto.
-    for (const produto of lote) {
-      const { error: individual } = await supabase
+  /** Grava um grupo de shape uniforme, em lotes, com reteste linha a linha no que falhar. */
+  async function gravarEmLotes(itens: typeof paraGravar): Promise<void> {
+    for (let i = 0; i < itens.length; i += LOTE) {
+      const lote = itens.slice(i, i + LOTE);
+      const { error } = await supabase
         .from("catalog_products")
-        .upsert([semALinha(produto)], { onConflict: "organization_id,codigo" });
-      if (individual) {
-        erros.push({ linha: produto.linha, motivo: `"${produto.nome}": ${individual.message}` });
+        .upsert(lote.map(semALinha), { onConflict: "organization_id,codigo" });
+
+      if (!error) {
+        gravados += lote.length;
         continue;
       }
-      gravados += 1;
+
+      // O lote é tudo-ou-nada. Uma linha ruim não pode derrubar as outras 199, e
+      // o relatório precisa nomear QUAL linha — então o lote que falhou é
+      // refeito produto a produto.
+      for (const produto of lote) {
+        const { error: individual } = await supabase
+          .from("catalog_products")
+          .upsert([semALinha(produto)], { onConflict: "organization_id,codigo" });
+        if (individual) {
+          erros.push({ linha: produto.linha, motivo: `"${produto.nome}": ${individual.message}` });
+          continue;
+        }
+        gravados += 1;
+      }
     }
   }
 
-  const atualizados = paraGravar.filter((p) => antigos.has(p.codigo)).length;
+  const novos = paraGravar.filter((p) => !antigos.has(p.codigo));
+  const existentes = paraGravar.filter((p) => antigos.has(p.codigo));
+  await gravarEmLotes(novos);
+  await gravarEmLotes(existentes);
+
+  const atualizados = existentes.length;
   const criados = Math.max(0, gravados - atualizados);
 
   await audit({
@@ -215,6 +246,7 @@ export async function GET(): Promise<Response> {
   const requestId = randomUUID();
   const authz = await requireRole("manager", { requestId, resource: "catalog_products" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
 
   const modelo = [
     "codigo,nome,marca,categoria,preco,custo,estoque",

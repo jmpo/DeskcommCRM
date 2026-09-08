@@ -27,7 +27,7 @@ import { InboxKeyboardShortcuts } from "./InboxKeyboardShortcuts";
 import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
 import { OpenConversationProvider } from "@/hooks/notifications/OpenConversationContext";
 // ADR-05: ícone de feature sai do mapa canônico, nunca do pacote direto.
-import { CaretLeft, IdentificationCard } from "@/lib/ui/icons";
+import { CaretLeft, ChatCircle, IdentificationCard } from "@/lib/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -115,7 +115,8 @@ interface InboxLayoutProps {
 
 export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {}) {
   const t = useT();
-  const { activeOrg } = useAuth();
+  const { activeOrg, user } = useAuth();
+  const supportReadonly = user.support?.access_mode === "support_readonly";
   const orgId = activeOrg?.orgId ?? null;
 
   const router = useRouter();
@@ -203,7 +204,35 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
   // Deep-link para conversa fora do filtro atual (ou fora do escopo do agent):
   // busca única RLS-scoped. 404/vazio ⇒ inacessível ⇒ estado vazio claro (GAP D),
   // nunca stack trace. A RLS (G4-01) é quem garante o não-vazamento.
-  const needsFetch = !!selectedId && !inList && !listQ.isLoading;
+  //
+  // ⚠️ ELA NÃO ESPERA A LISTA — e a espera custava DUAS voltas de rede inteiras.
+  //
+  // A condição tinha um terceiro termo, `&& !listQ.isLoading`, para poupar uma
+  // requisição quando a conversa fosse aparecer na lista de qualquer jeito. O
+  // preço real, medido no trace do CI (run 34226618108, deep-link para uma
+  // conversa FECHADA — que nenhuma aba da Fila devolve, então a busca única é a
+  // única fonte do objeto):
+  //
+  //   46.725  GET conversations?comando=aguardando               1091ms
+  //   48.275  GET conversations?comando=aguardando,automatico     896ms
+  //   49.183  GET conversations/<id>                              565ms
+  //   49.775  GET contacts/<id>/crm-summary                    (>1034ms)
+  //
+  // São QUATRO idas em série depois do documento. A lista é pedida duas vezes
+  // porque a `queryKey` muda quando `useAutomaticoAtivo` responde (ver
+  // `comandosDaFila`), e `isLoading` volta a ser verdadeiro na chave nova — ou
+  // seja, o gate segurava a busca única até a SEGUNDA lista assentar, e só
+  // então o painel do contato podia começar a carregar. O painel do contato
+  // aparecia ~4,7s depois da navegação, e é assim que `encerramento-atendimento`
+  // ficou intermitente: a Memória do contato chegava ~0,1–0,6s DEPOIS dos 5s da
+  // asserção (o screenshot de falha, tirado logo em seguida, já a mostra).
+  //
+  // Sem o gate, a busca única sai na primeira leva, em paralelo com a lista, e o
+  // objeto existe uma volta depois do documento em vez de três. O custo é UMA
+  // requisição extra por deep-link cuja conversa acabe aparecendo na lista —
+  // clicar numa conversa da lista já carregada continua sem pedir nada, porque
+  // aí `inList` já a tem no primeiro render.
+  const needsFetch = !!selectedId && !inList;
   const single = useConversation(selectedId, needsFetch);
   const selectedConversation: ConversationWithContact | null = inList ?? single.data ?? null;
   const selectionNotFound =
@@ -453,7 +482,7 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
             <Composer
               ref={composerRef}
               conversationId={selectedConversation.id}
-              blockedReason={blockedReason}
+              blockedReason={supportReadonly ? "Acompanhamento somente leitura" : blockedReason}
               janelaFechada={motivoDaJanela}
               disabled={selectedConversation.status === "closed"}
               contactName={selectedConversation.contacts?.name ?? null}
@@ -467,8 +496,10 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
             {t("Conversa não encontrada ou fora do seu acesso.")}
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            {t("Selecione uma conversa")}
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+            <ChatCircle size={36} weight="thin" className="text-text-subtle" aria-hidden />
+            <p className="text-sm font-medium text-text-muted">{t("Selecione uma conversa")}</p>
+            <p className="text-xs text-text-muted">{t("Ou navegue com J e K")}</p>
           </div>
         )}
       </div>
@@ -482,8 +513,8 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
         selectedId={selectedId}
         onSelect={handleSelect}
         onFocusReply={handleFocusReply}
-        onClaim={handleClaim}
-        onClose={handleClose}
+        onClaim={supportReadonly ? () => {} : handleClaim}
+        onClose={supportReadonly ? () => {} : handleClose}
         onToggleHelp={() => setHelpOpen((v) => !v)}
       />
       <ShortcutsHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />

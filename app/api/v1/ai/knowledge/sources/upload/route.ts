@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/ai/knowledge/sources/upload
  *
@@ -31,6 +32,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { temChaveDeEmbedding } from "@/lib/ai/embeddings/chave";
+import { traduzir } from "@/lib/i18n/dicionario";
 import {
   BUCKET_DE_CONHECIMENTO,
   ErroDeExtracao,
@@ -46,17 +48,21 @@ const nameSchema = z.string().trim().min(2).max(120);
 const agentIdSchema = z.string().uuid();
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
 
   const authz = await requireRole("manager", { requestId, resource: "ai_knowledge" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
 
   let formData: FormData;
   try {
     formData = await req.formData();
   } catch {
-    return fail("invalid_request", "Falha ao processar o envio do arquivo.", 400, { requestId });
+    return fail("invalid_request", t("Falha ao processar o envio do arquivo."), 400, { requestId });
   }
 
   const fileEntry = formData.get("file");
@@ -64,13 +70,13 @@ export async function POST(req: NextRequest): Promise<Response> {
   const nameRaw = formData.get("name");
 
   if (!(fileEntry instanceof File)) {
-    return fail("invalid_request", "Nenhum arquivo foi enviado.", 400, { requestId });
+    return fail("invalid_request", t("Nenhum arquivo foi enviado."), 400, { requestId });
   }
   const file = fileEntry;
 
   const nameParsed = nameSchema.safeParse(nameRaw);
   if (!nameParsed.success) {
-    return fail("validation_failed", "Dê um nome ao material (2 a 120 caracteres).", 422, {
+    return fail("validation_failed", t("Dê um nome ao material (2 a 120 caracteres)."), 422, {
       requestId,
     });
   }
@@ -83,7 +89,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (agentIdRaw !== null && String(agentIdRaw).length > 0) {
     const agentIdParsed = agentIdSchema.safeParse(agentIdRaw);
     if (!agentIdParsed.success) {
-      return fail("validation_failed", "Campo 'agent_id' deve ser UUID válido.", 422, { requestId });
+      return fail("validation_failed", t("Campo 'agent_id' deve ser UUID válido."), 422, { requestId });
     }
     const supabase = await createClient();
     const { data: agent, error: agentErr } = await supabase
@@ -97,7 +103,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       return fail("internal_error", "Erro ao validar agent_id.", 500, { requestId });
     }
     if (!agent) {
-      return fail("not_found", "Assistente não encontrado nesta organização.", 404, { requestId });
+      return fail("not_found", t("Assistente não encontrado nesta organização."), 404, { requestId });
     }
     agentId = agentIdParsed.data;
   }
@@ -110,7 +116,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!ext) {
     return fail(
       "unsupported_media_type",
-      "Não sei ler esse tipo de arquivo. Envie PDF, Markdown (.md) ou texto (.txt).",
+      t("Não sei ler esse tipo de arquivo. Envie PDF, Markdown (.md) ou texto (.txt)."),
       415,
       { requestId },
     );
@@ -150,7 +156,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   } catch (err) {
     await admin.storage.from(BUCKET_DE_CONHECIMENTO).remove([blobPath]);
     if (err instanceof ErroDeExtracao) {
-      return fail("unprocessable_entity", err.message, 422, { requestId });
+      return fail("unprocessable_entity", t(err.message), 422, { requestId });
     }
     console.error("[conhecimento-upload] extração falhou:", err);
     return fail("internal_error", "Erro ao ler o arquivo.", 500, { requestId });

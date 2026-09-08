@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type * as AgendaConsulta from "@/lib/agenda/consulta";
 import type { ResultadoDaConsulta } from "@/lib/agenda/consulta";
 import type { McpContext } from "@/lib/mcp/types";
 
@@ -29,7 +30,7 @@ vi.mock("@/app/api/v1/agenda/agendamentos/_handler", () => ({
 }));
 
 vi.mock("@/lib/agenda/consulta", async (original) => {
-  const real = await original<typeof import("@/lib/agenda/consulta")>();
+  const real = await original<typeof AgendaConsulta>();
   return { ...real, horariosLivresDaOrg: vi.fn(), listaAgendamentos: vi.fn(), idDoTipoPorSlug: vi.fn() };
 });
 
@@ -71,6 +72,7 @@ const SUCESSO: ResultadoDaConsulta = {
   fusoSuposto: false,
   fontesDefasadas: [],
   agendaExternaNuncaLida: false,
+    googleCoberturaParcial: false,
 };
 
 describe("crm_find_free_slots", () => {
@@ -109,24 +111,43 @@ describe("crm_find_free_slots", () => {
     expect(vi.mocked(horariosLivresDaOrg).mock.calls[0]![2].eventTypeSlug).toBe("consulta-inicial");
   });
 
-  it("período invertido é RESPOSTA, não exceção", async () => {
-    // Exceção mata o turno e o assistente emudece na frente do cliente
-    // (`pesquisa/repo-mcp.md` §7.5). Limite de negócio volta como texto de ensino.
+  it("um dia civil inclui a noite em Manaus, sem pedir que o modelo calcule UTC", async () => {
+    respondeCom({
+      ...SUCESSO,
+      fusoDaRegra: "America/Manaus",
+      slots: [
+        // 21h do dia 12 em Manaus: a faixa larga o alcança, e ele é do dia
+        // ANTERIOR ao pedido. Sem o filtro pelo dia LOCAL ele vazaria para dentro
+        // de uma resposta sobre o dia 13 — a mesma troca de fuso, na outra borda.
+        { inicio: new Date("2026-09-13T01:00:00.000Z"), fim: new Date("2026-09-13T01:30:00.000Z") },
+        // 21h do dia 13 em Manaus: este foi o horário que o agente perdeu ao
+        // consultar 00:00–23:59 UTC, que termina às 19:59 no fuso da regra.
+        { inicio: new Date("2026-09-14T01:00:00.000Z"), fim: new Date("2026-09-14T01:30:00.000Z") },
+        // Já é madrugada do dia 14 local; a faixa larga pode vê-lo, mas a
+        // resposta de um pedido pelo dia 13 não pode oferecê-lo.
+        { inicio: new Date("2026-09-14T05:00:00.000Z"), fim: new Date("2026-09-14T05:30:00.000Z") },
+      ],
+    });
     const r = (await crmFindFreeSlots.handler(
-      { event_type_slug: "c", de: "2026-09-10T00:00:00Z", ate: "2026-09-01T00:00:00Z" },
+      { event_type_slug: "c", dia: "2026-09-13" },
       ctx,
-    )) as { motivo: string; mensagem: string };
-    expect(r.motivo).toBe("periodo_invalido");
-    expect(r.mensagem).toMatch(/dias_a_frente/);
+    )) as { horarios: { inicio: string }[]; total_de_horarios: number };
+    expect(r.horarios.map((h) => h.inicio)).toEqual(["2026-09-14T01:00:00.000Z"]);
+    expect(r.total_de_horarios).toBe(1);
+
+    const params = vi.mocked(horariosLivresDaOrg).mock.calls[0]![2];
+    expect(params.de.toISOString()).toBe("2026-09-12T10:00:00.000Z");
+    expect(params.ate.toISOString()).toBe("2026-09-14T14:00:00.000Z");
   });
 
-  it("período longo demais é recusado com o número, não com um 'não'", async () => {
+  it("não aceita dia específico e período relativo juntos", async () => {
     const r = (await crmFindFreeSlots.handler(
-      { event_type_slug: "c", de: "2026-09-01T00:00:00Z", ate: "2027-09-01T00:00:00Z" },
+      { event_type_slug: "c", dia: "2026-09-13", dias_a_frente: 7 },
       ctx,
     )) as { motivo: string; mensagem: string };
-    expect(r.motivo).toBe("periodo_longo_demais");
-    expect(r.mensagem).toMatch(/62/);
+    expect(r.motivo).toBe("periodo_ambiguo");
+    expect(r.mensagem).toMatch(/não os dois/);
+    expect(horariosLivresDaOrg).not.toHaveBeenCalled();
   });
 
   it("⚠️ a recusa que sai é a do CLIENTE, nunca a do OPERADOR", async () => {
@@ -320,4 +341,21 @@ describe("as escritas de agenda", () => {
     );
     expect(vi.mocked(handlers.cancelarAgendamentoHandler).mock.calls[0]![1].organization_id).toBe("org-1");
   });
+});
+
+describe('Meet no contrato do atendimento',()=>{
+ it('booking pendente transporta contexto interno e não promete link pronto/enviado',async()=>{
+  vi.mocked(idDoTipoPorSlug).mockResolvedValue({id:'tipo'} as never);
+  vi.mocked(handlers.marcarAgendamentoHandler).mockResolvedValue({id:'appointment',meeting_state:'pending',meeting_url:null});
+  const meetingBooking={sourceJobId:'job',claim:{worker_id:'worker',acquired_at:'2026-09-06 10:00:00.123456+00'},boundary:{organization_id:ctx.organizationId,contact_id:'contact',conversation_id:'conversation',service_revision:1,demanda_id:null,demanda_revision:null}};
+  const result=await crmBookAppointment.handler({event_type_slug:'meet',starts_at:'2030-01-01T12:00:00Z',contact_id:'contact'},{...ctx,meetingBooking});
+  expect(handlers.marcarAgendamentoHandler).toHaveBeenCalledWith(ctx.supabase,expect.objectContaining({meetingBooking}),expect.anything());
+  expect(result).toMatchObject({marcado:true,compromisso:{meeting_state:'pending',meeting_url:null},mensagem:expect.stringContaining('link ainda está sendo criado')});
+  expect(crmBookAppointment.inputSchema).not.toHaveProperty('meetingBooking');expect(crmBookAppointment.inputSchema).not.toHaveProperty('authorized');
+ });
+ it('lista retorna URL pronta utilizável, mas não URL quando pendente',async()=>{
+  vi.mocked(listaAgendamentos).mockResolvedValue({ok:true,agendamentos:[{id:'ready',meetingState:'ready',meetingUrl:'https://meet.google.com/abc-defg-hij'},{id:'pending',meetingState:'pending',meetingUrl:'https://meet.google.com/old-link'}]} as never);
+  const result=await crmListAppointments.handler({contact_id:'contact'},ctx);
+  expect(JSON.stringify(result)).toContain('https://meet.google.com/abc-defg-hij');expect(JSON.stringify(result)).not.toContain('old-link');
+ });
 });

@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
 
@@ -192,9 +193,13 @@ export function HistoricoDaAgenda({
                     </div>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">{a.quemSeraAtendido ?? t(a.titulo)}</div>
+                    {/* `titulo` e `tipo` são DADO DO OPERADOR (o nome que ele
+                        cadastrou em Tipos de agendamento) e saem como ele
+                        escreveu. Só o fallback "Agendamento" é rótulo nosso, e
+                        esse traduz. */}
+                    <Link className="block truncate text-sm underline" href={`/app/agenda?compromisso=${a.id}`}>{a.quemSeraAtendido ?? a.titulo}</Link>
                     <div className="truncate text-[11px] text-text-muted">
-                      {a.tipo ? t(a.tipo) : t("Agendamento")}
+                      {a.tipo || t("Agendamento")}
                       {pessoa ? ` · ${t("com")} ${pessoa.nome}` : ""}
                     </div>
                   </div>

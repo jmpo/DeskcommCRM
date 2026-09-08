@@ -16,12 +16,12 @@
  * renderiza. Regra dentro de `onChange` é regra que nunca é exercitada.
  */
 import * as React from "react";
-import { useT } from "@/hooks/i18n/useT";
 import { useQuery } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { apiClient } from "@/lib/api/client";
+import { useT } from "@/hooks/i18n/useT";
 import {
   PACOTES,
   riscoMeta,
@@ -77,7 +77,7 @@ function BadgeRisco({ risco }: { risco: ToolRisk }) {
   const t = useT();
   const meta = riscoMeta(risco);
   return (
-    <Badge variant="outline" className={`text-[11px] ${CLASSE_RISCO[risco]}`} title={meta.explicacao}>
+    <Badge variant="outline" className={`text-[11px] ${CLASSE_RISCO[risco]}`} title={t(meta.explicacao)}>
       {t(meta.rotulo)}
     </Badge>
   );
@@ -121,9 +121,9 @@ function FichaCapacidade({
         <span className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{t(capacidade.rotulo)}</span>
           <BadgeRisco risco={capacidade.risco} />
-          <span className="text-xs text-muted-foreground">· {capacidade.o_que_toca}</span>
+          <span className="text-xs text-muted-foreground">· {t(capacidade.o_que_toca)}</span>
         </span>
-        <span className="block text-xs text-muted-foreground">{capacidade.explicacao}</span>
+        <span className="block text-xs text-muted-foreground">{t(capacidade.explicacao)}</span>
         {mostrarNomeTecnico ? (
           <code className="block font-mono text-[11px] text-muted-foreground">
             {capacidade.name}
@@ -281,7 +281,7 @@ export function ToolPicker({ value, onChange, disabled }: Props) {
                   checked={estado === "ligado"}
                   onCheckedChange={(v) => alternarPacote(pacote.id, v)}
                   disabled={disabled || vazio}
-                  aria-label={t(pacote.rotulo)}
+                  aria-label={pacote.rotulo}
                 />
                 <div className="flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -289,7 +289,7 @@ export function ToolPicker({ value, onChange, disabled }: Props) {
                       htmlFor={`pacote-${pacote.id}`}
                       className="cursor-pointer text-sm font-medium"
                     >
-                      {t(pacote.rotulo)}
+                      {pacote.rotulo}
                     </label>
                     {estado === "parcial" ? (
                       <Badge variant="outline" className="text-[11px]">

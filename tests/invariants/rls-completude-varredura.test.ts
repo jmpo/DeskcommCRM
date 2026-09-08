@@ -75,6 +75,12 @@ interface Excecao {
  * linhas da OUTRA organização, não uma leitura como superusuário.
  */
 const PROVA_PROPRIA: readonly Excecao[] = [
+  { tabela: "channel_routing_policies", razao: "tests/invariants/channel-routing.test.ts — dois tenants reais, leitura positiva local e negativa cruzada por JWT; FK composta rejeita canal de outra org" },
+  { tabela: "channel_routing_responsibles", razao: "tests/invariants/channel-routing.test.ts — JWT do tenant B não lê responsáveis de A; revogação remove vínculo e claim revalida membro ativo" },
+  { tabela: "channel_connection_requests", razao: "tests/invariants/channel-routing.test.ts — recibo privado sem SELECT authenticated; reserva admin com MFA e finalização service-only cercada por org e lease" },
+  { tabela: "appointment_recovery_receipts", razao: "tests/invariants/agenda-presenca-acl.test.ts — leitura/escrita direta anon/authenticated negadas, escrita service_role negada e RPC service-only valida a tupla org/evento nos dois sentidos A/B" },
+  { tabela: "event_service_origins", razao: "tests/invariants/service-event-origin.test.ts — recibo server-only, authenticated sem leitura/escrita, RPC rejeita tenant B real" },
+  { tabela: "platform_support_sessions", razao: "tests/invariants/suporte-temporario.test.ts — grant por sessão, readonly e nenhuma escrita direta authenticated" },
   {
     tabela: "webhook_lead_captures",
     razao:
@@ -161,6 +167,48 @@ const PROVA_PROPRIA: readonly Excecao[] = [
       "tests/invariants/gov-1b-team-manager-read.test.ts (\"cross-org: " +
       "manager da org A NÃO lê linhas da org B (0 rows)\") prova isolamento " +
       "com `countAs` real, além do self-read do agent.",
+  },
+  // ─── As três do eixo de anúncios (migrations 0213/0214) ───
+  //
+  // ⚠️ PROVA DE OUTRO TIPO, e a diferença está escrita de propósito: as demais
+  // entradas desta lista citam um teste que SIMULA JWT e CONTA linhas cross-org.
+  // Estas três não contam linha nenhuma — elas provam que `authenticated` não
+  // alcança a tabela DE JEITO NENHUM (privilégio NENHUM em
+  // `role_table_grants` + `permission denied` medido sob `set role`), que é a
+  // postura de `platform_google_oauth` (0201): RLS ligada, ZERO policies,
+  // grants revogados de anon/authenticated.
+  //
+  // É MAIS restritivo que isolamento por tenant, não menos: sem privilégio não
+  // há regra para errar. E é por isso que elas não podem entrar em `TABLES` —
+  // lá o `countAs` receberia `permission denied` em vez de `0`, o caso ficaria
+  // vermelho, e a "correção" natural seria criar uma policy: isto é, passar a
+  // SERVIR pelo PostgREST justamente a tabela que guarda o token da conta de
+  // anúncios do cliente. O teste citado tem um caso que reprova essa migração.
+  //
+  // NÃO é DEBITO_CONHECIDO: há prova comportamental, escrita no mesmo PR.
+  {
+    tabela: "ad_platform_connections",
+    razao:
+      "tests/invariants/credencial-de-anuncios-e-server-side.test.ts — privilégio " +
+      "NENHUM para anon e authenticated, `permission denied` medido sob `set role`, " +
+      "RLS ligada, zero policies, e `organization_id` NOT NULL com FK em cascata. " +
+      "Deny-all em vez de policy de tenant porque a linha guarda o token que ESCREVE " +
+      "conversões na conta de anúncios do cliente.",
+  },
+  {
+    tabela: "ad_insights_connections",
+    razao:
+      "tests/invariants/credencial-de-anuncios-e-server-side.test.ts — mesmo " +
+      "`describe.each` da linha acima. Guarda o token `ads_read`, que expõe " +
+      "orçamento, criativo e performance de quem anuncia.",
+  },
+  {
+    tabela: "ad_conversion_dispatches",
+    razao:
+      "tests/invariants/credencial-de-anuncios-e-server-side.test.ts — mesmo " +
+      "`describe.each`. Não guarda segredo, mas é o livro-razão de quais leads " +
+      "da organização viraram venda, e quem o lê é o servidor com o admin client " +
+      "filtrando organization_id à mão (a tela `/app/settings/conversoes`).",
   },
 ];
 

@@ -90,6 +90,8 @@ Detalham schema SQL e payloads exatos. **Consulte antes de modelar qualquer cois
 | [`doctrine/packaging.md`](doctrine/packaging.md) | **Doutrina de Packaging — a LEI.** 8 invariantes + política de canais + checklist de release (item 15 do DoD) |
 | [`adr/0001-packaging-e-distribuicao.md`](adr/0001-packaging-e-distribuicao.md) | ADR do packaging: namespace, os 3 packages, e o que foi recusado |
 | [`architecture/agent-turn.html`](architecture/agent-turn.html) | Diagrama do turno do agente (inbound → guardrails → outbound) |
+| [`specs/pre-go-live-whatsapp.md`](specs/pre-go-live-whatsapp.md) | Modo de teste do WhatsApp por canal: lista de telefones, abertura ao público e compatibilidade com autorização por origem |
+| [`architecture/pre-go-live-whatsapp.architecture.json`](architecture/pre-go-live-whatsapp.architecture.json) | Mapa do pré-go-live, configuração administrativa e gate compartilhado |
 | [`architecture/teto-de-orcamento.architecture.json`](architecture/teto-de-orcamento.architecture.json) | **Mapa vivo do teto de gasto com IA** — quem alimenta o gate, o que a parada NÃO desfaz sozinha, e o laço de retorno (invariante 7) |
 | [`release/teto-de-orcamento.md`](release/teto-de-orcamento.md) | **Nota de release para quem opera uma VPS** — o que muda, o que fazer (nada), a troca de rótulo de R$ para US$ e como ligar a proteção |
 | [`research/architecture-diagrams.md`](research/architecture-diagrams.md) | Diagramas de arquitetura |
@@ -168,13 +170,12 @@ anterior à v1.0.0; regenere (`/graphify .`) antes de confiar em detalhe fino.
   "Próximo", apesar de o gatilho (`loop/checkpoints/G6.approved`) existir.
 - `docs/diagrams/` não tem `.md` e não foi inventariado. `docs/evidence/` é evidência visual
   (18 PNGs), não documentação de leitura.
-- `docs/architecture/` tem **13 entradas** — 10 `*.architecture.json`, 1 `*.workflow.json`, 1
-  `.html` e o `README.md` (medido em 2026-08-15: `ls docs/architecture/ | wc -l` = 13,
-  `ls docs/architecture/*.architecture.json | wc -l` = 10). A frase anterior deste índice dizia
-  "só o diagrama do agent-turn"
-  e envelheceu. Só dois deles estão listados na tabela acima; os demais entraram com as features
-  que descrevem. A doutrina (`CLAUDE.md`, DoD item 13) pede que o "mapa vivo" reflita toda peça
-  nova com ≥2 arestas, e `tests/unit/mapas-de-arquitetura.test.ts` cobra a forma de TODOS —
-  o que continua **NÃO IDENTIFICADO** é se toda feature entregue tem o seu.
+- `docs/architecture/` reúne mapas JSON e seus renders disponíveis. Consulte o
+  [catálogo de mapas](architecture/README.md) e os arquivos do diretório; a contagem
+  muda com as entregas. A doutrina exige representar peças novas e suas relações,
+  e `tests/unit/mapas-de-arquitetura.test.ts` verifica a forma e os kinds do runtime.
+  Esse gate não comprova, sozinho, que toda funcionalidade tem um mapa.
 - `docs/growth/` (3 docs) e `docs/brand/` (1) não foram lidos em detalhe — classificados por
   nome de pasta, portanto **INFERIDO**.
+
+- [Acompanhamento administrativo por sessão](support-sessions.md) — autoridade, somente leitura, saída e contratos OAuth.

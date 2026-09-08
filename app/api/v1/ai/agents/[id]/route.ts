@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * GET    /api/v1/ai/agents/:id  — fetch um agent (manager+)
  * PATCH  /api/v1/ai/agents/:id  — atualiza campos (admin)
@@ -13,6 +14,7 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traduzir } from "@/lib/i18n/dicionario";
 import {
   agentPatchSchema,
   AGENT_CONFIG_DEFAULTS,
@@ -22,7 +24,7 @@ import {
 export const dynamic = "force-dynamic";
 
 const AGENT_COLUMNS =
-  "id, organization_id, name, description, model, system_prompt, is_active, is_default, kind, priority, published_version_id, archived_at, config, guardrails, active_kb_version_id, created_at, updated_at";
+  "id, organization_id, name, description, model, system_prompt, is_active, is_default, kind, priority, published_version_id, paused_at, operation_mode, operation_revision, archived_at, config, guardrails, active_kb_version_id, created_at, updated_at";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -42,6 +44,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
 
   const authz = await requireRole("manager", { requestId, resource: "ai_agents" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org: activeOrg } = authz;
 
   const supabase = await createClient();
@@ -56,7 +59,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
     return fail("internal_error", "Erro ao buscar agent.", 500, { requestId });
   }
   if (!data) {
-    return fail("not_found", "Agent não encontrado.", 404, { requestId });
+    return fail("not_found", t("Agent não encontrado."), 404, { requestId });
   }
 
   return ok(data, { requestId });
@@ -67,6 +70,9 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
 // ---------------------------------------------------------------------------
 
 export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
 
@@ -76,13 +82,14 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
 
   const authz = await requireRole("admin", { requestId, resource: "ai_agents" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org: activeOrg } = authz;
 
   let rawBody: unknown;
   try {
     rawBody = await req.json();
   } catch {
-    return fail("invalid_request", "Body JSON inválido.", 400, { requestId });
+    return fail("invalid_request", t("Body JSON inválido."), 400, { requestId });
   }
 
   // Extract priority (mcp_agent-only) before strict-schema parse so we don't
@@ -96,7 +103,7 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
       p < 0 ||
       p > 1000
     ) {
-      return fail("validation_failed", "priority inválido (0..1000).", 422, { requestId });
+      return fail("validation_failed", t("priority inválido (0..1000)."), 422, { requestId });
     }
     priorityPatch = p;
     delete (rawBody as Record<string, unknown>).priority;
@@ -104,7 +111,7 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
 
   const parsed = agentPatchSchema.safeParse(rawBody);
   if (!parsed.success) {
-    return fail("validation_failed", "Campos inválidos.", 422, {
+    return fail("validation_failed", t("Campos inválidos."), 422, {
       requestId,
       details: parsed.error.flatten(),
     });
@@ -125,7 +132,7 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
     return fail("internal_error", "Erro ao carregar agent.", 500, { requestId });
   }
   if (!existing) {
-    return fail("not_found", "Agent não encontrado.", 404, { requestId });
+    return fail("not_found", t("Agent não encontrado."), 404, { requestId });
   }
 
   // ─── CONTEÚDO DE VERSÃO PUBLICADA NÃO SE EDITA PELO CADASTRO ───────────
@@ -151,7 +158,10 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
           `Mudança de conteúdo (${barrados.join(", ")}) = versão draft nova; publica. ` +
           `Edite pela aba Modelo do editor de versões.`,
         409,
-        { requestId, details: { campos: barrados, published_version_id: existing.published_version_id } },
+        {
+          requestId,
+          details: { campos: barrados, published_version_id: existing.published_version_id },
+        },
       );
     }
   }
@@ -159,6 +169,8 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
   // Build UPDATE payload. Para `config`, faz merge preservando defaults.
   const update: Record<string, unknown> = {};
 
+  if (patch.operation_mode !== undefined) update.operation_mode = patch.operation_mode;
+  if (patch.paused_at !== undefined) update.paused_at = patch.paused_at;
   if (patch.name !== undefined) update.name = patch.name;
   if (patch.description !== undefined) update.description = patch.description;
   if (patch.is_active !== undefined) update.is_active = patch.is_active;
@@ -202,6 +214,9 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
 // ---------------------------------------------------------------------------
 
 export async function DELETE(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
 
@@ -211,6 +226,7 @@ export async function DELETE(_req: NextRequest, ctx: RouteCtx): Promise<Response
 
   const authz = await requireRole("admin", { requestId, resource: "ai_agents" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
 
   const admin = createAdminClient();
@@ -226,12 +242,12 @@ export async function DELETE(_req: NextRequest, ctx: RouteCtx): Promise<Response
     return fail("internal_error", "Erro ao carregar agent.", 500, { requestId });
   }
   if (!existing) {
-    return fail("not_found", "Agent não encontrado.", 404, { requestId });
+    return fail("not_found", t("Agent não encontrado."), 404, { requestId });
   }
   if (existing.is_default) {
     return fail(
       "state_conflict",
-      "Não é possível desativar o agent default da organização.",
+      t("Não é possível desativar o agent default da organização."),
       409,
       { requestId },
     );

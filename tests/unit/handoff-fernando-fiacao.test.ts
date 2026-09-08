@@ -55,7 +55,12 @@ describe("fiação — lead urgente represado pelo cap de warm-up gera alerta cr
     const i = FONTE_INBOUND.indexOf("pacingCapVeto !== null && outcomes.length === 0");
     expect(i).toBeGreaterThan(-1);
     const janela = FONTE_INBOUND.slice(i, i + 2000);
-    expect(janela).toContain("detectUrgencySignal(inboundSignal)");
+    // A fonte do sinal mudou de "a última inbound do histórico" para "todo inbound
+    // ainda não respondido", porque o drain COALESCE rajada: um relato de risco
+    // que chega na 2ª mensagem entra de carona no job da 1ª e, lido só pela
+    // mensagem do job, não existiria. O que esta guarda protege é o mesmo — o
+    // bloco do cap CHECA urgência antes de adiar — e agora protege mais.
+    expect(janela).toContain("inboundsPendentes.some((texto) => detectUrgencySignal(texto))");
     expect(janela).toMatch(/kind:\s*'handoff'/);
     expect(janela).toMatch(/severity:\s*'critical'/);
   });

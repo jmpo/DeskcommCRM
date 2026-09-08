@@ -13,6 +13,7 @@
  * não na primeira mensagem que não sai — com o lead do outro lado esperando.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { metadataInicialDoCanal } from "@/lib/ai/elegibilidade/pre-go-live";
 
 import { ARCHIVED_AT, queryTolerantToMissingArchived } from "./archived";
 import { CHANNEL_PROVIDER_ZERNIO } from "./capabilities";
@@ -216,7 +217,9 @@ export async function savePartnerSession(
 
   const { error } = input.existingId
     ? await admin.from("channel_sessions").update(linha).eq("id", input.existingId)
-    : await admin.from("channel_sessions").insert(linha);
+    : await admin
+        .from("channel_sessions")
+        .insert({ ...linha, metadata: metadataInicialDoCanal() });
 
   return { error: error?.message ?? null };
 }

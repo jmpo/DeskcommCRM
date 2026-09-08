@@ -195,4 +195,37 @@ describe("4A-2 — watchdog reconcilia o espelho e reenvia queued", () => {
     expect(redriven).toBe(0);
     expect(sendTextCalls).toHaveLength(1); // nenhum sendText novo
   });
+
+  it("pré-go-live: testador recebe o reenvio, mas removê-lo barra a próxima queued", async () => {
+    await pool.query(
+      `update channel_sessions set metadata = '{"ai_gate":"allowlist","ai_gate_mode":"pre_go_live","ai_test_phone_numbers":["+5511900000002"]}'
+       where id = $1 and organization_id = $2`,
+      [SESSION, ORG],
+    );
+    await pool.query("update messages set status = 'queued', external_id = null where id = $1", [QUEUED_MSG]);
+    sendTextCalls.length = 0;
+    expect(await redriveQueued(pool, watchdogCfg(), log)).toBe(1);
+    expect(sendTextCalls).toHaveLength(1);
+
+    // A mensagem já existia quando o operador retirou o número da lista.
+    await pool.query("update messages set status = 'queued', external_id = null where id = $1", [QUEUED_MSG]);
+    await pool.query(
+      `update channel_sessions set metadata = jsonb_set(metadata, '{ai_test_phone_numbers}', '[]')
+       where id = $1 and organization_id = $2`,
+      [SESSION, ORG],
+    );
+    sendTextCalls.length = 0;
+    expect(await redriveQueued(pool, watchdogCfg(), log)).toBe(0);
+    expect(sendTextCalls).toHaveLength(0);
+    const { rows } = await pool.query("select status, error_code from messages where id = $1", [QUEUED_MSG]);
+    expect(rows[0]).toMatchObject({ status: "failed", error_code: "pre_go_live" });
+
+    // Abrir ao público não ressuscita uma resposta velha já bloqueada.
+    await pool.query(
+      `update channel_sessions set metadata = jsonb_set(metadata, '{ai_gate}', '"open"') where id = $1`,
+      [SESSION],
+    );
+    expect(await redriveQueued(pool, watchdogCfg(), log)).toBe(0);
+    expect(sendTextCalls).toHaveLength(0);
+  });
 });

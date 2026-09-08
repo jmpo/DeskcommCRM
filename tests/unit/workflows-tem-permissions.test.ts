@@ -60,6 +60,9 @@ const ESCRITA_JUSTIFICADA: Record<string, string> = {
     "abre o PR de sync, ou comenta no que já existe quando a distância muda",
   "vigia-da-upstream.yml::issues: write":
     "conflito vira issue: branch quebrada empurrada é pior que nenhuma, porque ninguém revisa um merge pela metade",
+  "acolhida.yml::pull-requests: write":
+    "comenta a acolhida no PR de fork; é o ÚNICO escopo do workflow (o bloco zera o resto), " +
+    "e o job não faz checkout nem usa action nenhuma — ver tests/unit/acolhida-nao-toca-no-fork.test.ts",
 };
 
 interface Workflow {

@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/conversations/[id]/mark-read — zera unread_count_for_assignee.
  *
@@ -21,6 +22,9 @@ interface RouteCtx {
 }
 
 export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
   const supabase = await createClient();
@@ -35,6 +39,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
         organization_id: authz.org.orgId,
         actor: { type: "user", id: authz.user.id },
         requestId,
+        idioma: authz.user.idioma,
       },
       id,
     );

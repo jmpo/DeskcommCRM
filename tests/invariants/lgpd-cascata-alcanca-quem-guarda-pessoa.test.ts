@@ -57,6 +57,18 @@ const DIVIDA_LGPD_CONHECIDA: Record<string, string> = {
   lead_notes:
     "Anotação livre do atendente SOBRE o contato (coluna body). Dívida anterior à agenda; " +
     "nenhum commit a declarou. Sai quando o cascade a alcançar.",
+  crm_tasks:
+    "Migration 0210 (extração do PR #418). A tabela guarda `title` — texto livre que " +
+    "na prática nomeia a pessoa (\"Ligar para Fulano confirmar o orçamento\"). " +
+    "⚠️ ELA JÁ ESTÁ PROTEGIDA: o trigger `trg_redigir_tarefas_ao_anonimizar` troca o " +
+    "título e apaga a descrição na transição `is_anonymized false → true`, e " +
+    "`tests/invariants/lgpd-tarefa-do-contato-anonimizado.test.ts` prova o efeito " +
+    "pelo comportamento, não pelo símbolo. A entrada existe só porque ESTE instrumento " +
+    "lê UMA função (`fn_lgpd_cascade_redact_contact`) e não enxerga trigger — a mesma " +
+    "razão pela qual `webhook_lead_captures` (0174) e `calendar_appointments` (0184) " +
+    "estão aqui, as duas também já cobertas por trigger. Sai no dia em que " +
+    "`tabelasNaCascata()` passar a derivar do catálogo também os triggers de " +
+    "`contacts`, ou no dia em que a função ganhar o passo.",
   webhook_lead_captures:
     "captured_name, captured_email e captured_phone — o payload cru de captação. " +
     "A própria migration 0174 escreveu que 'o cascade de anonimização precisa alcançar esta tabela' " +
@@ -87,7 +99,14 @@ function tabelasComDadoDePessoa(): string[] {
     .filter(Boolean);
 }
 
-/** Tabelas que a função REALMENTE toca — lida do corpo no banco, não do arquivo. */
+/**
+ * Tabelas tocadas pela cascata e pelo redator0227 instalado em contacts.
+ * A cobertura do trigger vem do corpo REAL no banco, nunca de uma isenção da tabela.
+ * Prova de efeito: autonomia-authority.test.ts, "redação limpa todos os corpos...".
+ * A integração da RPC canônica e o controle de vizinho vivem em
+ * comunidade-integracao.test.ts, "mutex e cascata0229 alcançam drafts0227...".
+ * Outros triggers legados permanecem sujeitos ao censo e à catraca existentes.
+ */
 function tabelasNaCascata(): string[] {
   return sql(`
     select distinct m[1]
@@ -96,6 +115,21 @@ function tabelasNaCascata(): string[] {
              pg_get_functiondef(p.oid),
              '(?:update|delete from)\\s+(?:public\\.)?"?([a-z_]+)"?', 'gi') m
      where p.proname = 'fn_lgpd_cascade_redact_contact'
+        or (
+          p.pronamespace = 'public'::regnamespace
+          and p.proname = 'fn_reply_redact'
+          and exists (
+            select 1 from pg_trigger t
+             where t.tgfoid = p.oid
+               and t.tgrelid = 'public.contacts'::regclass
+               and t.tgname = 'trg_reply_redact'
+               and not t.tgisinternal
+               and t.tgenabled in ('O', 'A')
+               and t.tgtype = 17 -- AFTER UPDATE FOR EACH ROW
+               and (select attnum from pg_attribute
+                     where attrelid = t.tgrelid and attname = 'is_anonymized') = any(t.tgattr)
+          )
+        )
      order by 1;
   `)
     .trim()
@@ -118,6 +152,10 @@ describe("LGPD: a cascata alcança toda tabela que guarda dado de pessoa", () =>
     const naCascata = tabelasNaCascata();
     expect(naCascata.length).toBeGreaterThanOrEqual(5);
     expect(naCascata).toContain("contacts");
+  });
+
+  it("CONTROLE: o redator0227 ativo alcança ai_reply_drafts pelo corpo instalado", () => {
+    expect(tabelasNaCascata()).toContain("ai_reply_drafts");
   });
 
   it("nenhuma tabela NOVA guarda dado de pessoa fora da cascata", () => {

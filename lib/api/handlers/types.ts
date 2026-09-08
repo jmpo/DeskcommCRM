@@ -1,3 +1,9 @@
+import type { AgentOperationContext } from "@/lib/ai/agents/operation";
+import type { ApprovedReplyContext } from "@/lib/ai/replies/delivery";
+import type { MeetingDeliveryContext, MeetingBookingContext } from "@/lib/agenda/meet-delivery";
+import type { ProactiveContext } from "@/lib/agenda/efeito";
+import type { ServiceOrigin } from "@/lib/atendimento/origem";
+import type { ServiceBoundary } from "@/lib/atendimento/fronteira";
 /**
  * Shared types for `app/api/v1/<resource>/_handler.ts` core functions.
  *
@@ -5,6 +11,7 @@
  * (S-13.03). O `Actor` discriminado permite que o mesmo handler atenda usuário
  * humano (cookie session) ou agente de IA (Bearer token com actor_type='ai_agent').
  */
+import type { Idioma } from "@/lib/i18n/idiomas";
 
 export type Actor =
   | { type: "user"; id: string; role?: string }
@@ -27,7 +34,25 @@ export type Actor =
   | { type: "webhook_source"; id: string };
 
 export interface HandlerCtx {
+  agentOperation?: AgentOperationContext;
+  meetingDelivery?: MeetingDeliveryContext;
+  approvedReply?: ApprovedReplyContext;
+  meetingBooking?: MeetingBookingContext;
+  internalMessageId?: string;
+  proactiveContext?: ProactiveContext;
+  /** Trusted origin captured by the runtime, never request-body metadata. */
+  serviceBoundary?: ServiceBoundary | null;
+  /** Origem de evento derivado; não é campo de input público. */
+  serviceOrigin?: ServiceOrigin;
   organization_id: string;
   actor: Actor;
   requestId: string;
+  /**
+   * Idioma de quem chamou, só quando é um usuário humano de verdade — as
+   * rotas REST passam `authz.user.idioma`. MCP e webhook não têm preferência
+   * de idioma humana, então ficam `undefined` de propósito: mensagem de erro
+   * que atravessa o handler degrada para português (o fallback de
+   * `traduzir()`), que é o comportamento de sempre para esses dois canais.
+   */
+  idioma?: Idioma;
 }

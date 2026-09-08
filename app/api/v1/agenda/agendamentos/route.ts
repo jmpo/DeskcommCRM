@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * `/api/v1/agenda/agendamentos` — a rota, FINA.
  *
@@ -31,6 +32,7 @@ type AgendamentoDaResposta = AgendamentoListado & { origem?: "google_sync" };
 import { ApiError } from "@/lib/api/types";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 import {
   alterarAgendamentoHandler,
@@ -52,18 +54,43 @@ const listarSchema = z.object({
   limite: z.coerce.number().int().min(1).max(500).optional(),
 });
 
+/**
+ * O e-mail do convidado — opcional, e a string VAZIA é significativa.
+ *
+ * Vazio não é "não mandou": é "apague o que estava lá". O formulário devolve
+ * `""` quando a pessoa limpa o campo, e sem este ramo não haveria como
+ * DESCONVIDAR alguém pela tela — só editando o banco à mão.
+ *
+ * O `preprocess` apara antes de decidir, então um campo com espaços cai no ramo
+ * do vazio em vez de virar recusa de formato — quem apagou o texto e deixou um
+ * espaço para trás quis limpar, não errar.
+ *
+ * 320 é o teto do RFC 5321 (64 da parte local + @ + 255 do domínio). Não é
+ * enfeite: sem teto, um campo de texto livre entra inteiro no corpo que vai ao
+ * Google, e a recusa viria de lá, em inglês e sem apontar o campo.
+ */
+const emailDoConvidado = z.preprocess(
+  (v) => (typeof v === "string" ? v.trim() : v),
+  z.union([z.literal(""), z.string().email().max(320)]),
+);
+
 const marcarSchema = z.object({
   event_type_id: z.string().uuid(),
   starts_at: z.string().datetime({ offset: true }),
   owner_user_id: z.string().uuid().optional(),
   contact_id: z.string().uuid().optional(),
+  conversation_id: z.string().uuid().optional(),
   title: z.string().min(1).max(200).optional(),
   notes: z.string().max(2000).optional(),
+  guest_email: emailDoConvidado.optional(),
 });
 
 const alterarSchema = z
   .object({
     id: z.string().uuid(),
+    revision: z.number().int().positive().optional(),
+    outcome_message_id: z.string().uuid().optional(),
+    confirmation_next_at: z.string().datetime({offset:true}).optional(),
     /** Remarcar: o novo início. A duração vem do tipo, como na criação. */
     starts_at: z.string().datetime({ offset: true }).optional(),
     /**
@@ -72,13 +99,23 @@ const alterarSchema = z
      */
     status: z.enum(["confirmed", "completed", "no_show"]).optional(),
     notes: z.string().max(2000).optional(),
+    guest_email: emailDoConvidado.optional(),
   })
-  .refine((c) => c.starts_at !== undefined || c.status !== undefined || c.notes !== undefined, {
-    message: "Informe pelo menos um campo para alterar.",
-  });
+  .refine(
+    (c) =>
+      c.confirmation_next_at !== undefined ||
+      c.starts_at !== undefined ||
+      c.status !== undefined ||
+      c.notes !== undefined ||
+      c.guest_email !== undefined,
+    {
+      message: "Informe pelo menos um campo para alterar.",
+    },
+  );
 
 const cancelarSchema = z.object({
   id: z.string().uuid(),
+  revision: z.number().int().positive().optional(),
   /**
    * ⚠️ OBRIGATÓRIO, e não é burocracia: é o que a equipe lê ao ver o horário
    * vago. "Cancelado" sem motivo faz alguém ligar para o cliente perguntando o
@@ -109,6 +146,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   // `viewer`: olhar a agenda é o menor privilégio desta feature.
   const authz = await requireRole("viewer", { requestId, resource: "agenda" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org: activeOrg } = authz;
 
   const url = new URL(req.url);
@@ -123,7 +161,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     limite: url.searchParams.get("limite") ?? undefined,
   });
   if (!parsed.success) {
-    return fail("validation_failed", "Consulta inválida.", 422, {
+    return fail("validation_failed", t("Consulta inválida."), 422, {
       details: parsed.error.flatten().fieldErrors as Record<string, unknown>,
       requestId,
     });
@@ -144,7 +182,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (!resultado.ok) {
     return fail(
       resultado.codigo === "sem_alvo" ? "agenda_listagem_sem_recorte" : "internal_error",
-      resultado.motivoParaOperador,
+      t(resultado.motivoParaOperador),
       resultado.codigo === "sem_alvo" ? 422 : 500,
       { requestId },
     );
@@ -172,7 +210,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const externos: AgendamentoDaResposta[] = [];
   if (parsed.data.de && parsed.data.ate) {
     const { data: ocupacao, error: erroOcupacao } = await supabase
-      .from("calendar_external_events")
+      .from("calendar_selected_external_events")
       .select("id, starts_at, ends_at, calendar_connections!inner(user_id)")
       .eq("organization_id", activeOrg.orgId)
       .gte("starts_at", parsed.data.de)
@@ -218,14 +256,23 @@ export async function GET(req: NextRequest): Promise<Response> {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   return despachar(req, marcarSchema, marcarAgendamentoHandler, 201);
 }
 
 export async function PATCH(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   return despachar(req, alterarSchema, alterarAgendamentoHandler, 200);
 }
 
 export async function DELETE(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   return despachar(req, cancelarSchema, cancelarAgendamentoHandler, 200);
 }
 
@@ -250,11 +297,12 @@ async function despachar<T>(
 
   const authz = await requireRole("agent", { requestId, resource: "agenda" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org: activeOrg, user } = authz;
 
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
-    return fail("validation_failed", "Dados inválidos.", 422, {
+    return fail("validation_failed", t("Dados inválidos."), 422, {
       details: (parsed.error as z.ZodError).flatten().fieldErrors as Record<string, unknown>,
       requestId,
     });
@@ -277,7 +325,7 @@ async function despachar<T>(
     return ok(resultado, { requestId, status });
   } catch (err) {
     if (err instanceof ApiError) {
-      return fail(err.code, err.message, err.status, {
+      return fail(err.code, t(err.message), err.status, {
         details: err.details as Record<string, unknown> | undefined,
         requestId,
       });

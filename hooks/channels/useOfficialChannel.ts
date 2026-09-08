@@ -5,6 +5,7 @@ import { showApiError } from "@/components/feedback/ApiErrorToast";
 import { apiClient } from "@/lib/api/client";
 
 export interface OfficialChannelState {
+  channel_session_id?: string | null;
   connected: boolean;
   /** Existe token gravado? O token em si NUNCA volta — ver a rota. */
   hasToken: boolean;

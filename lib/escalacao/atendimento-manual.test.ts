@@ -65,6 +65,8 @@ function iaCaladaEm(ate: Date, quando: Date): boolean {
     botSilencedUntil: normalizarInstante(ate.toISOString()),
     assigneeKind: null,
     aiAuthorizedAt: null,
+    preGoLiveAtivo: false,
+    numeroDeTesteAutorizado: false,
     agora: quando,
     ttlMs: 21 * 24 * 60 * 60 * 1000,
   });

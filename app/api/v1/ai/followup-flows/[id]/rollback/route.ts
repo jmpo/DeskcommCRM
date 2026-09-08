@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/ai/followup-flows/:id/rollback  body: { version_id }
  * Aponta o pointer pra uma version já existente (manager+), sem criar uma
@@ -19,6 +20,7 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { rollbackFollowupFlowSchema } from "@/lib/followup/api-schemas";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +29,9 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 type RouteCtx = { params: Promise<{ id: string }> };
 
 export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
   if (!UUID_RX.test(id)) {
@@ -35,18 +40,19 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
 
   const authz = await requireRole("manager", { requestId, resource: "followup_flows" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org: activeOrg } = authz;
 
   let raw: unknown;
   try {
     raw = await req.json();
   } catch {
-    return fail("invalid_request", "Body JSON inválido.", 400, { requestId });
+    return fail("invalid_request", t("Body JSON inválido."), 400, { requestId });
   }
 
   const parsed = rollbackFollowupFlowSchema.safeParse(raw);
   if (!parsed.success) {
-    return fail("validation_failed", "Campos inválidos.", 422, {
+    return fail("validation_failed", t("Campos inválidos."), 422, {
       requestId,
       details: parsed.error.flatten(),
     });
@@ -60,7 +66,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
     .eq("organization_id", activeOrg.orgId)
     .maybeSingle();
   if (fetchErr) return fail("internal_error", fetchErr.message, 500, { requestId });
-  if (!pointer) return fail("not_found", "Fluxo não encontrado.", 404, { requestId });
+  if (!pointer) return fail("not_found", t("Fluxo não encontrado."), 404, { requestId });
 
   const { data: version, error: versionErr } = await supabase
     .from("followup_flow_versions")
@@ -70,7 +76,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
     .eq("pointer_id", id)
     .maybeSingle();
   if (versionErr) return fail("internal_error", versionErr.message, 500, { requestId });
-  if (!version) return fail("not_found", "Version não encontrada.", 404, { requestId });
+  if (!version) return fail("not_found", t("Version não encontrada."), 404, { requestId });
 
   const { data: updated, error: updErr } = await supabase
     .from("followup_flow_pointers")

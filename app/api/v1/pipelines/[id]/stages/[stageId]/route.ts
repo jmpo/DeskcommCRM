@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * PATCH/DELETE /api/v1/pipelines/[id]/stages/[stageId] — renomear, marcar
  * ganho/perda, reordenar e arquivar uma etapa.
@@ -23,6 +24,7 @@ import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { arquivarEtapa, atualizarEtapa } from "@/lib/leads/stage-operations";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -47,9 +49,13 @@ const bodySchema = z
   .refine((b) => Object.keys(b).length > 0, { message: "Nada para alterar." });
 
 export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("manager", { requestId, resource: "crm_stages" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
 
   const { id: pipelineId, stageId } = await ctx.params;
 
@@ -57,12 +63,12 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
   try {
     json = await req.json();
   } catch {
-    return fail("invalid_request", "Corpo não é JSON válido.", 400, { requestId });
+    return fail("invalid_request", t("Corpo não é JSON válido."), 400, { requestId });
   }
 
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return fail("unprocessable_entity", "Não entendi o que mudar nesta etapa.", 422, {
+    return fail("unprocessable_entity", t("Não entendi o que mudar nesta etapa."), 422, {
       requestId,
       details: parsed.error.flatten(),
     });
@@ -86,6 +92,9 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
 }
 
 export async function DELETE(req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("manager", { requestId, resource: "crm_stages" });
   if (!authz.ok) return authz.response;

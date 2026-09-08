@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * GET  /api/v1/message-templates — lista os templates visíveis (pessoais + compartilhados
  *      da org ativa; a RLS `message_templates_select` já filtra).
@@ -14,6 +15,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { roleAtLeast } from "@/lib/auth/types";
 import { createTemplateSchema } from "@/lib/schemas/templates";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 const COLS = "id, organization_id, owner_user_id, title, body, shortcut, created_by_user_id, created_at, updated_at";
@@ -36,15 +38,19 @@ export async function GET(_req: NextRequest): Promise<Response> {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("agent", { requestId, resource: "message_templates" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org } = authz;
 
   const raw = await req.json().catch(() => null);
   const parsed = createTemplateSchema.safeParse(raw);
   if (!parsed.success) {
-    return fail("validation_failed", "Dados inválidos.", 422, {
+    return fail("validation_failed", t("Dados inválidos."), 422, {
       requestId,
       details: parsed.error.flatten().fieldErrors as Record<string, unknown>,
     });
@@ -54,7 +60,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   // banco em org.role — reusar em vez de uma 2ª chamada/RPC. A RLS with_check
   // barra de qualquer forma; isto só dá um erro claro antes do insert.
   if (shared && !roleAtLeast(org.role, "manager")) {
-    return fail("forbidden", "Só manager+ cria template compartilhado.", 403, { requestId });
+    return fail("forbidden", t("Só manager+ cria template compartilhado."), 403, { requestId });
   }
   const supabase = await createClient();
   const { data, error } = await supabase

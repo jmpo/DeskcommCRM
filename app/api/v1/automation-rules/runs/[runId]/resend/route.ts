@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/automation-rules/runs/[runId]/resend — reexecuta SÓ as ações
  * `call_webhook` da regra do run, contra o evento original (`event_log` do
@@ -16,6 +17,7 @@ import { buildContext } from "@/lib/automation/engine";
 import { executeCallWebhook } from "@/lib/automation/actions/call-webhook";
 import type { ActionCtx, ActionResultDetail } from "@/lib/automation/types";
 import type { EventRow } from "@/lib/event-log/dispatcher";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +31,14 @@ interface RuleAction {
 }
 
 export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { runId } = await ctx.params;
   const authz = await requireRole("manager", { requestId, resource: "automation_rules" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org: activeOrg } = authz;
 
   const supabase = await createClient();
@@ -44,10 +50,10 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     .eq("organization_id", activeOrg.orgId)
     .maybeSingle();
   if (runErr) return fail("internal_error", runErr.message, 500, { requestId });
-  if (!run) return fail("not_found", "Run não encontrado.", 404, { requestId });
+  if (!run) return fail("not_found", t("Run não encontrado."), 404, { requestId });
 
   if (!run.event_id) {
-    return fail("event_gone", "O evento original deste run foi removido.", 409, { requestId });
+    return fail("event_gone", t("O evento original deste run foi removido."), 409, { requestId });
   }
 
   const { data: rule, error: ruleErr } = await supabase
@@ -57,7 +63,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     .eq("organization_id", activeOrg.orgId)
     .maybeSingle();
   if (ruleErr) return fail("internal_error", ruleErr.message, 500, { requestId });
-  if (!rule) return fail("not_found", "Regra do run não encontrada.", 404, { requestId });
+  if (!rule) return fail("not_found", t("Regra do run não encontrada."), 404, { requestId });
 
   const { data: eventRow, error: eventErr } = await supabase
     .from("event_log")
@@ -67,7 +73,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     .maybeSingle();
   if (eventErr) return fail("internal_error", eventErr.message, 500, { requestId });
   if (!eventRow) {
-    return fail("event_gone", "O evento original deste run foi removido.", 409, { requestId });
+    return fail("event_gone", t("O evento original deste run foi removido."), 409, { requestId });
   }
 
   const typedEvent = eventRow as unknown as EventRow;
@@ -94,7 +100,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
   if (callWebhookActions.length === 0) {
     return fail(
       "no_actions_to_resend",
-      "Esta automação não tem mais nenhuma ação de webhook — não há o que reenviar.",
+      t("Esta automação não tem mais nenhuma ação de webhook — não há o que reenviar."),
       409,
       { requestId },
     );

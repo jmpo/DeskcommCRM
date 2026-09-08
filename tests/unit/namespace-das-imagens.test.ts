@@ -68,9 +68,25 @@ const RECADO_AO_FORK =
   "Publicando as próprias imagens? Troque o namespace em três lugares, e só neles: " +
   "IMG_NS em hostgator-setup-kit/_common.sh, o default das três linhas `image:` de " +
   "docker-compose.prod.yml, e as três *_IMAGE de .env.hostgator.example. Depois " +
-  "atualize NAMESPACE_DESTE_REPO neste arquivo. Nenhum OUTRO arquivo do repo " +
-  "repete esse valor — todos derivam de IMG_NS, e a catraca no fim deste arquivo " +
-  "existe para que continue assim.";
+  "atualize NAMESPACE_DESTE_REPO neste arquivo, e a URL do repositório em " +
+  "install.sh, comecar.sh, _common.sh e nos três Dockerfiles (os casos abaixo " +
+  "prendem os seis). Todo o resto deriva de IMG_NS.";
+
+/*
+ * ⚠️ ESTA FRASE JÁ FOI FALSA, e a falsidade custava caro a quem a seguia.
+ *
+ * Ela dizia "troque em três lugares, e só neles — nenhum OUTRO arquivo do repo
+ * repete esse valor". @galeonel seguiu à risca (PR #605) e descobriu que
+ * `ghcr_status`, em `_common.sh`, tinha `melgarafael` cravado nas duas URLs: o
+ * fork ficava com o pré-voo conferindo os pacotes do UPSTREAM enquanto
+ * `gravar_imagens` escrevia no `.env` do cliente as referências do FORK.
+ *
+ * A catraca não pegava por acidente de forma: ela procura a string contígua
+ * `ghcr.io/melgarafael`, e a URL do token parte o valor em
+ * `ghcr.io/token?scope=repository:melgarafael/`. Instrução que promete mais do
+ * que o gate confere é pior que instrução nenhuma — quem a segue conclui que
+ * terminou.
+ */
 
 function imgNs(): string {
   const m = COMUM.match(/^IMG_NS="([^"]+)"$/m);
@@ -146,6 +162,62 @@ describe("o default do compose diz o mesmo que o kit", () => {
 });
 
 describe("o kit aponta para o que o CI realmente publica", () => {
+  it("os defaults de código e os labels de origem apontam para este repositório", () => {
+    const repo = "https://github.com/melgarafael/DeskcommCRM";
+    for (const script of ["install.sh", "comecar.sh"]) {
+      const texto = fs.readFileSync(path.join(RAIZ, "hostgator-setup-kit", script), "utf8");
+      expect(texto).toContain(`REPO_URL="\${REPO_URL:-${repo}.git}"`);
+    }
+    expect(COMUM).toContain(`local url="\${1:-${repo}.git}" ref`);
+    for (const dockerfile of ["Dockerfile", "Dockerfile.worker", "Dockerfile.scheduler"]) {
+      expect(fs.readFileSync(path.join(RAIZ, dockerfile), "utf8")).toContain(
+        `org.opencontainers.image.source="${repo}"`,
+      );
+    }
+  });
+
+  it.each([undefined, "registry.example/outro-dono"])(
+    "ghcr_status consulta token e manifesto no IMG_NS (%s)",
+    (namespace) => {
+      const ns = namespace ?? imgNs();
+      const [registry, owner] = ns.split("/");
+      const saida = execFileSync(
+        "bash",
+        [
+          "-c",
+          `
+        source hostgator-setup-kit/_common.sh
+        if [ -n "$1" ]; then IMG_NS="$1"; fi
+        curl() {
+          local arg
+          for arg in "$@"; do
+            case "$arg" in
+              https://*/token[?]*) printf '%s\\n' "$arg" >> "$log"; printf '{"token":"teste"}'; return;;
+              https://*/v2/*) printf '%s\\n' "$arg" >> "$log"; printf '200'; return;;
+            esac
+          done
+          return 1
+        }
+        log=$(mktemp)
+        trap 'rm -f "$log"' EXIT
+        # O dublê registra em arquivo porque a função captura stdout do curl.
+        ghcr_status deskcommcrm 1.2.3
+        printf '\\n'
+        cat "$log"
+      `,
+          "teste",
+          namespace ?? "",
+        ],
+        { cwd: RAIZ, encoding: "utf8" },
+      );
+      expect(saida.trim().split("\n")).toEqual([
+        "200",
+        `https://${registry}/token?scope=repository:${owner}/deskcommcrm:pull&service=${registry}`,
+        `https://${registry}/v2/${owner}/deskcommcrm/manifests/1.2.3`,
+      ]);
+    },
+  );
+
   it("o registry do kit é o mesmo do workflow de publicação", () => {
     const m = PUBLICA.match(/^\s*REGISTRY:\s*(\S+)$/m);
     expect(m, "não achei `REGISTRY:` em .github/workflows/publish-image.yml").not.toBeNull();

@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * DELETE /api/v1/conversations/[id]/notes/[noteId] — apaga uma nota interna.
  * Autor da nota OU manager+ pode apagar; qualquer outro agent recebe 403.
@@ -10,6 +11,7 @@ import { fail, noContent } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { roleAtLeast } from "@/lib/auth/types";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -18,9 +20,13 @@ interface RouteParams {
 }
 
 export async function DELETE(_req: NextRequest, { params }: RouteParams): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("agent", { requestId, resource: "conversation_notes" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org } = authz;
   const { id, noteId } = await params;
 
@@ -35,10 +41,10 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams): Promis
     .eq("conversation_id", id)
     .eq("organization_id", org.orgId)
     .maybeSingle();
-  if (!note) return fail("not_found", "Nota não encontrada.", 404, { requestId });
+  if (!note) return fail("not_found", t("Nota não encontrada."), 404, { requestId });
 
   if (note.created_by_user_id !== user.id && !roleAtLeast(org.role, "manager")) {
-    return fail("forbidden", "Só o autor ou manager+ pode apagar esta nota.", 403, { requestId });
+    return fail("forbidden", t("Só o autor ou manager+ pode apagar esta nota."), 403, { requestId });
   }
 
   const { data: deleted, error } = await supabase
@@ -50,7 +56,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams): Promis
     .select("id")
     .maybeSingle();
   if (error) return fail("internal_error", "Erro ao excluir nota.", 500, { requestId });
-  if (!deleted) return fail("not_found", "Nota não encontrada.", 404, { requestId });
+  if (!deleted) return fail("not_found", t("Nota não encontrada."), 404, { requestId });
 
   void audit({
     action: "conversation.note_deleted",
