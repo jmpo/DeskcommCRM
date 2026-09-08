@@ -375,117 +375,6 @@ export const DICIONARIO: Traducoes = {
   "Evolução da IA": { es: "Evolución de la IA" },
   "Audit Log": { es: "Registro de auditoría" },
   Configurações: { es: "Configuración" },
-  // ── citação (responder "em cima") ─────────────────────────────────────────
-  "Cancelar resposta": { es: "Cancelar respuesta" },
-  // A faixa da citação: quem escreveu a mensagem citada.
-  Cliente: { es: "Cliente" },
-  Você: { es: "Tú" },
-  "(sem texto)": { es: "(sin texto)" },
-
-  // ── Editor do agente (EPIC-13) — as três abas ─────────────────────────────
-  "Conversa com o cliente": { es: "Conversa con el cliente" },
-  "Organiza o sistema": { es: "Organiza el sistema" },
-  "Confere antes de enviar": { es: "Verifica antes de enviar" },
-
-  // ── Editor do agente — títulos de seção ───────────────────────────────────
-  "Quem é este agente": { es: "Quién es este agente" },
-  "As instruções dele": { es: "Sus instrucciones" },
-  "A inteligência que ele usa": { es: "La inteligencia que usa" },
-  "Empresa de inteligência artificial": { es: "Empresa de inteligencia artificial" },
-  "Por qual número ele atende": { es: "Por qué número atiende" },
-  "Número conectado": { es: "Número conectado" },
-  "Quando ele entra em ação": { es: "Cuándo entra en acción" },
-  "Estilo de resposta": { es: "Estilo de respuesta" },
-  "O que o agente pode fazer": { es: "Qué puede hacer el agente" },
-  "Passar para uma pessoa": { es: "Pasar a una persona" },
-  "Pedir ajuda sem sair da conversa": { es: "Pedir ayuda sin salir de la conversación" },
-  "Freios de segurança": { es: "Frenos de seguridad" },
-  "Follow-up": { es: "Seguimiento" },
-
-  // ── Capacidades (pacotes) ─────────────────────────────────────────────────
-  "Atender e responder": { es: "Atender y responder" },
-  "Vender e mover o funil": { es: "Vender y mover el embudo" },
-  "Não perder o cliente": { es: "No perder al cliente" },
-  "Passar para um humano": { es: "Pasar a un humano" },
-  "Organizar a operação": { es: "Organizar la operación" },
-  "Aprender e evoluir": { es: "Aprender y evolucionar" },
-  "Só consulta": { es: "Solo consulta" },
-  "Altera dados": { es: "Modifica datos" },
-  "Efeito que não dá para desfazer": { es: "Efecto que no se puede deshacer" },
-
-  // ── Os dez freios — rótulo ────────────────────────────────────────────────
-  "Respeitar quem pediu para parar": { es: "Respetar a quien pidió parar" },
-  "Respeitar dados apagados e a base legal": { es: "Respetar datos borrados y la base legal" },
-  "Segurar o ritmo de envio": { es: "Controlar el ritmo de envío" },
-  "Respeitar a janela do WhatsApp": { es: "Respetar la ventana de WhatsApp" },
-  "Variar o texto das mensagens iguais": { es: "Variar el texto de los mensajes iguales" },
-  "Não prometer preço ou prazo por conta própria": { es: "No prometer precio ni plazo por cuenta propia" },
-  "Conferir promessas em texto livre": { es: "Verificar promesas en texto libre" },
-  "Não prometer atendimento humano que não existe": { es: "No prometer atención humana que no existe" },
-  "Não falar a nossa língua com o seu cliente": { es: "No hablar nuestra jerga con tu cliente" },
-  "Dizer que é um assistente quando perguntam": { es: "Decir que es un asistente cuando le preguntan" },
-  "Detectar tentativa de manipular o assistente": { es: "Detectar intentos de manipular al asistente" },
-
-  // ── Os dez freios — o que protege ─────────────────────────────────────────
-  "Se a pessoa respondeu STOP, SAIR ou pediu para não receber mais, nada é enviado a ela.":
-    { es: "Si la persona respondió STOP, BAJA o pidió no recibir más, no se le envía nada." },
-  "Contato anonimizado a pedido não recebe mensagem, e prospecção sem base legal não sai.":
-    { es: "Un contacto anonimizado a pedido no recibe mensajes, y la prospección sin base legal no sale." },
-  "Espaça as mensagens para o seu número não parecer robô e ser bloqueado pelo WhatsApp.":
-    { es: "Espacia los mensajes para que tu número no parezca un robot y sea bloqueado por WhatsApp." },
-  "Fora da janela de 24 horas, só modelo aprovado sai — é o que o próprio WhatsApp permite.":
-    { es: "Fuera de la ventana de 24 horas solo sale plantilla aprobada — es lo que el propio WhatsApp permite." },
-  "Evita mandar a mesma frase idêntica para muita gente, que é o padrão que denuncia disparo em massa.":
-    { es: "Evita mandar la misma frase idéntica a mucha gente, que es el patrón que delata el envío masivo." },
-  "Barra a mensagem em que o assistente inventa desconto, valor ou data de entrega.":
-    { es: "Frena el mensaje en que el asistente inventa un descuento, un precio o una fecha de entrega." },
-  "Uma segunda leitura, feita por um modelo, para pegar a promessa escrita de um jeito que a regra fixa não reconhece.":
-    { es: "Una segunda lectura, hecha por un modelo, para atrapar la promesa escrita de una forma que la regla fija no reconoce." },
-  "Barra nome de ferramenta, nome de tabela e código de erro na mensagem que o cliente lê.":
-    { es: "Frena nombres de herramientas, de tablas y códigos de error en el mensaje que lee el cliente." },
-  "Se o cliente pergunta se está falando com um robô, a resposta não pode enganar.":
-    { es: "Si el cliente pregunta si habla con un robot, la respuesta no puede engañar." },
-  "Lê a mensagem que chega e reconhece quem está tentando fazer o assistente ignorar as suas instruções.":
-    { es: "Lee el mensaje que llega y reconoce a quien intenta hacer que el asistente ignore sus instrucciones." },
-
-  // ── Os dez freios — por que não se desliga ────────────────────────────────
-  "Quem pediu para parar tem o direito de ser deixado em paz — e insistir é infração, não estratégia.":
-    { es: "Quien pidió parar tiene derecho a que lo dejen en paz — insistir es infracción, no estrategia." },
-  "É obrigação legal. Apagar dados é irreversível por desenho, e escrever para quem foi apagado desfaria isso.":
-    { es: "Es obligación legal. Borrar datos es irreversible por diseño, y escribirle a quien fue borrado lo desharía." },
-  "É o que impede seu número de ser bloqueado — e o número é o seu negócio.":
-    { es: "Es lo que impide que bloqueen tu número — y el número es tu negocio." },
-  "Quem impõe é o WhatsApp, não nós. Desligar aqui não libera nada: a mensagem seria recusada lá, ou cobrada.":
-    { es: "Lo impone WhatsApp, no nosotros. Apagarlo acá no libera nada: el mensaje sería rechazado allá, o cobrado." },
-  "Texto idêntico em massa é o gatilho de spam do WhatsApp — mesmo risco do ritmo de envio.":
-    { es: "Texto idéntico en masa es el disparador de spam de WhatsApp — el mismo riesgo que el ritmo de envío." },
-  "Uma promessa escrita obriga o seu negócio. A conferência é uma regra fixa, não custa nada e não tem troca a oferecer.":
-    { es: "Una promesa escrita obliga a tu negocio. La verificación es una regla fija, no cuesta nada y no hay nada que negociar." },
-  "É promessa que só você pode cumprir, e o cliente fica esperando. Regra fixa, sem custo.":
-    { es: "Es una promesa que solo vos podés cumplir, y el cliente queda esperando. Regla fija, sin costo." },
-  "É a conferência que derrubou o vazamento medido de 30% para zero. Desligar reabre exatamente o defeito que ela fechou.":
-    { es: "Es la verificación que bajó la fuga medida del 30% a cero. Apagarla reabre exactamente el defecto que cerró." },
-  "Esconder que é um assistente é enganar o cliente.":
-    { es: "Ocultar que es un asistente es engañar al cliente." },
-
-  // ── Seguimentos (construtor de fluxos) ────────────────────────────────────
-  "Adicionar nó": { es: "Agregar nodo" },
-  Gatilho: { es: "Disparador" },
-  Aguardar: { es: "Esperar" },
-  Condição: { es: "Condición" },
-  "Classificar (IA)": { es: "Clasificar (IA)" },
-  Ação: { es: "Acción" },
-  Fim: { es: "Fin" },
-  Rascunho: { es: "Borrador" },
-  Ativo: { es: "Activo" },
-  Desativado: { es: "Desactivado" },
-  Salvar: { es: "Guardar" },
-  "Salvando…": { es: "Guardando…" },
-  Publicar: { es: "Publicar" },
-  "Publicando…": { es: "Publicando…" },
-  Desativar: { es: "Desactivar" },
-  Rollback: { es: "Revertir" },
-  "Pausar durante handoff": { es: "Pausar durante el traspaso" },
   Recolher: { es: "Contraer" },
   Buscar: { es: "Buscar" },
 
@@ -571,6 +460,7 @@ export const DICIONARIO: Traducoes = {
   Descrição: { es: "Descripción" },
   "Fechamento previsto": { es: "Cierre previsto" },
   "Tags (separadas por vírgula)": { es: "Etiquetas (separadas por coma)" },
+  Salvar: { es: "Guardar" },
   vazio: { es: "vacío" },
   "Abrir conversa no Inbox": { es: "Abrir conversación en el Inbox" },
 
@@ -608,6 +498,7 @@ export const DICIONARIO: Traducoes = {
   "Dados inválidos.": { es: "Datos inválidos." },
   "Perfil atualizado.": { es: "Perfil actualizado." },
   "Organização atualizada.": { es: "Organización actualizada." },
+  "Salvando…": { es: "Guardando…" },
   "Nome completo": { es: "Nombre completo" },
   "Trocar email — em breve.": { es: "Cambiar email — próximamente." },
   "Fuso horário": { es: "Huso horario" },
@@ -737,6 +628,7 @@ export const DICIONARIO: Traducoes = {
   status: { es: "estado" },
   Todos: { es: "Todos" },
   Publicado: { es: "Publicado" },
+  Rascunho: { es: "Borrador" },
   Pausado: { es: "Pausado" },
   Arquivado: { es: "Archivado" },
   Inválido: { es: "Inválido" },
@@ -827,26 +719,39 @@ export const DICIONARIO: Traducoes = {
   "Salvar rascunho": { es: "Guardar borrador" },
   "Criar agente": { es: "Crear agente" },
   "Publicar v": { es: "Publicar v" },
+  Publicar: { es: "Publicar" },
+  "Publicando…": { es: "Publicando…" },
   "Papéis do agente": { es: "Roles del agente" },
+  "Conversa com o cliente": { es: "Conversa con el cliente" },
+  "Organiza o sistema": { es: "Organiza el sistema" },
+  "Confere antes de enviar": { es: "Revisa antes de enviar" },
+  "Quem é este agente": { es: "Quién es este agente" },
   "Ordem de preferência (0 a 1000)": { es: "Orden de preferencia (0 a 1000)" },
   "Quando mais de um agente puder atender a mesma conversa, o de número maior tenta primeiro. Se você só tem um agente, pode deixar como está.": {
     es: "Cuando más de un agente pueda atender la misma conversación, el de número mayor lo intenta primero. Si solo tienes un agente, puedes dejarlo como está.",
   },
+  "A inteligência que ele usa": { es: "La inteligencia que usa" },
+  "Empresa de inteligência artificial": { es: "Empresa de inteligencia artificial" },
   "Credencial selecionada está com status": {
     es: "La credencial seleccionada tiene el estado",
   },
   ". Publish bloqueado até validar.": { es: ". Publicación bloqueada hasta validar." },
+  "Por qual número ele atende": { es: "Por cuál número atiende" },
   "Este agente é acionado pelo roteador": { es: "Este agente se activa mediante el enrutador" },
   "— o campo de número abaixo não se aplica.": {
     es: "— el campo de número de abajo no aplica.",
   },
+  "Número conectado": { es: "Número conectado" },
   "Selecione um número": { es: "Selecciona un número" },
   "Nenhum número conectado": { es: "Ningún número conectado" },
+  "Freios de segurança": { es: "Frenos de seguridad" },
   "Ações por atendimento (1 a 25)": { es: "Acciones por atención (1 a 25)" },
   "Volume de texto por atendimento": { es: "Volumen de texto por atención" },
   "Custo máximo por atendimento (centavos)": { es: "Costo máximo por atención (centavos)" },
   "Mensagens anteriores que ele lê": { es: "Mensajes anteriores que lee" },
   "Tamanho máximo desse histórico": { es: "Tamaño máximo de ese historial" },
+  "As instruções dele": { es: "Sus instrucciones" },
+  "Estilo de resposta": { es: "Estilo de respuesta" },
   "Responder em várias mensagens curtas (como uma pessoa digita)": {
     es: "Responder en varios mensajes cortos (como escribe una persona)",
   },
@@ -854,18 +759,23 @@ export const DICIONARIO: Traducoes = {
     es: "En vez de un solo bloque, la respuesta sale en burbujas separadas, espaciadas con el mismo ritmo anti-bloqueo del envío. Al agente también se le indica que escriba en párrafos cortos.",
   },
   "Tamanho máximo por bolha (80–4000)": { es: "Tamaño máximo por burbuja (80–4000)" },
+  "O que o agente pode fazer": { es: "Lo que el agente puede hacer" },
   "Ligue por jornada de trabalho. O agente só consegue fazer o que estiver ligado aqui — e o que estiver ligado, ele fará sozinho durante o atendimento.": {
     es: "Actívalo según la jornada de trabajo. El agente solo puede hacer lo que esté activado aquí — y lo que esté activado, lo hará solo durante la atención.",
   },
+  "Quando ele entra em ação": { es: "Cuándo entra en acción" },
+  "Passar para uma pessoa": { es: "Pasar a una persona" },
   "Deixar o agente chamar uma pessoa quando perceber que não é caso dele": {
     es: "Dejar que el agente llame a una persona cuando note que no es un caso suyo",
   },
+  "Pedir ajuda sem sair da conversa": { es: "Pedir ayuda sin salir de la conversación" },
   "Deixar o agente pedir uma tarefa a alguém e seguir conversando": {
     es: "Dejar que el agente pida una tarea a alguien y siga conversando",
   },
   "Diferente de passar a conversa: aqui o agente continua atendendo. Quando esbarra em algo que só uma pessoa resolve — aprovar um desconto, por exemplo — ele abre um pedido interno e retoma assim que for respondido.": {
     es: "A diferencia de transferir la conversación: aquí el agente sigue atendiendo. Cuando se topa con algo que solo una persona puede resolver — aprobar un descuento, por ejemplo — abre un pedido interno y retoma en cuanto se lo respondan.",
   },
+  "Follow-up": { es: "Seguimiento" },
   "Retomar sozinho quem parou de responder, para o interessado não sumir sem ninguém perceber.": {
     es: "Retomar solo a quien dejó de responder, para que el interesado no desaparezca sin que nadie lo note.",
   },
@@ -999,6 +909,7 @@ export const DICIONARIO: Traducoes = {
   "Um de cada vez por cliente": { es: "Una a la vez por cliente" },
   "Só atender em horário de funcionamento": { es: "Solo atender en horario de funcionamiento" },
   Início: { es: "Inicio" },
+  Fim: { es: "Fin" },
   Dias: { es: "Días" },
   Dom: { es: "Dom" },
   Seg: { es: "Lun" },
@@ -1268,6 +1179,8 @@ export const DICIONARIO: Traducoes = {
   publicada: { es: "publicada" },
   Handoff: { es: "Transferencia" },
   "Atualizado em": { es: "Actualizado el" },
+  Ativo: { es: "Activo" },
+  Desativado: { es: "Desactivado" },
   // ─── Follow-up: fila e estados de enrollment/promessa ───
   "Não consegui criar o fluxo. Tente de novo.": {
     es: "No pude crear el flujo. Intenta de nuevo.",
@@ -1330,6 +1243,7 @@ export const DICIONARIO: Traducoes = {
   pausar: { es: "pausar" },
   cancelar: { es: "cancelar" },
   permitir: { es: "permitir" },
+  "Adicionar nó": { es: "Añadir nodo" },
   "Início do fluxo": { es: "Inicio del flujo" },
   min: { es: "min" },
   adaptativo: { es: "adaptativo" },
@@ -1342,6 +1256,11 @@ export const DICIONARIO: Traducoes = {
   Convertido: { es: "Convertido" },
   Esgotado: { es: "Agotado" },
   Personalizado: { es: "Personalizado" },
+  Gatilho: { es: "Disparador" },
+  Aguardar: { es: "Esperar" },
+  Condição: { es: "Condición" },
+  "Classificar (IA)": { es: "Clasificar (IA)" },
+  "Ação": { es: "Acción" },
   "Verificar condição": { es: "Verificar condición" },
   "Classificar resposta": { es: "Clasificar respuesta" },
   "Enviar mensagem": { es: "Enviar mensaje" },
@@ -1436,9 +1355,12 @@ export const DICIONARIO: Traducoes = {
     es: "El flujo no pasó la validación — corrige los nodos resaltados.",
   },
   "Alterações não salvas": { es: "Cambios sin guardar" },
+  "Pausar durante handoff": { es: "Pausar durante la transferencia" },
   "Cancelar durante handoff": { es: "Cancelar durante la transferencia" },
   "Permitir durante handoff": { es: "Permitir durante la transferencia" },
   "Política de handoff": { es: "Política de transferencia" },
+  Desativar: { es: "Desactivar" },
+  Rollback: { es: "Revertir" },
   Silêncio: { es: "Silencio" },
   "entrou em": { es: "entró en" },
   em: { es: "en" },
@@ -4315,6 +4237,10 @@ export const DICIONARIO: Traducoes = {
     es: "Pega la dirección de arriba en el campo \"Action\" (o \"URL de envío\") de tu formulario.",
   },
   Descartar: { es: "Descartar" },
+  Você: { es: "Tú" },
+  Cliente: { es: "Cliente" },
+  "(sem texto)": { es: "(sin texto)" },
+  "Cancelar resposta": { es: "Cancelar respuesta" },
   // ─── Saúde do canal (bolinha da sidebar + estado do canal) ───
   "Todas as conexões ativas": { es: "Todas las conexiones activas" },
   "Conectando…": { es: "Conectando…" },
@@ -5129,6 +5055,17 @@ export const DICIONARIO: Traducoes = {
   "Ver as etapas de um funil": { es: "Ver las etapas de un embudo" },
 
   // ─── Onboarding: conferências de saída (guardrails), "E nunca vai fazer" ───
+  "Respeitar quem pediu para parar": { es: "Respetar a quien pidió parar" },
+  "Respeitar dados apagados e a base legal": { es: "Respetar datos borrados y la base legal" },
+  "Segurar o ritmo de envio": { es: "Mantener el ritmo de envío" },
+  "Respeitar a janela do WhatsApp": { es: "Respetar la ventana de WhatsApp" },
+  "Variar o texto das mensagens iguais": { es: "Variar el texto de los mensajes iguales" },
+  "Não prometer preço ou prazo por conta própria": { es: "No prometer precio o plazo por cuenta propia" },
+  "Conferir promessas em texto livre": { es: "Verificar promesas en texto libre" },
+  "Não prometer atendimento humano que não existe": { es: "No prometer atención humana que no existe" },
+  "Não falar a nossa língua com o seu cliente": { es: "No hablar nuestro idioma con tu cliente" },
+  "Dizer que é um assistente quando perguntam": { es: "Decir que es un asistente cuando preguntan" },
+  "Detectar tentativa de manipular o assistente": { es: "Detectar intento de manipular al asistente" },
 
   // ─── Onboarding: welcome/_form.tsx — cidades do fuso horário ───
   "São Paulo, Rio, Brasília, Sul e Sudeste": { es: "São Paulo, Río, Brasilia, Sur y Sudeste" },
@@ -8033,7 +7970,7 @@ export const DICIONARIO: Traducoes = {
     es: "No prometer revisar la agenda sin revisarla de verdad",
   },
   "Se a pessoa respondeu STOP, SAIR ou pediu para não receber mais, nada é enviado a ela.": {
-    es: "Si la persona respondió STOP, SALIR o pidió no recibir más, no se le envía nada.",
+    es: "Si la persona respondió STOP, BAJA o pidió no recibir más, no se le envía nada.",
   },
   "Contato anonimizado a pedido não recebe mensagem, e prospecção sem base legal não sai.": {
     es: "Un contacto anonimizado a pedido no recibe mensajes, y la prospección sin base legal no sale.",
@@ -8196,6 +8133,18 @@ export const DICIONARIO: Traducoes = {
   // ─── lib/ai/pontos/resolver.ts (avisos do painel de Provedores de IA) ───
   "Este ponto usa o modelo definido na versão publicada do agente; a escolha do painel não se aplica.": {
     es: "Este punto usa el modelo definido en la versión publicada del agente; la elección del panel no se aplica.",
+  },
+
+  // ── entradas DESTE FORK que a upstream ainda não tem ──────────────────────
+  "Atender e responder": { es: "Atender y responder" },
+  "Vender e mover o funil": { es: "Vender y mover el embudo" },
+  "Não perder o cliente": { es: "No perder al cliente" },
+  "Passar para um humano": { es: "Pasar a un humano" },
+  "Organizar a operação": { es: "Organizar la operación" },
+  "Aprender e evoluir": { es: "Aprender y evolucionar" },
+  "Validando...": { es: "Validando..." },
+  "Um arquivo CSV com uma linha por lead. Os leads entram na primeira etapa do funil escolhido.": {
+    es: "Un archivo CSV con una línea por lead. Los leads entran en la primera etapa del embudo elegido.",
   },
 };
 

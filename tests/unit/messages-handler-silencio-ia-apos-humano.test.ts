@@ -64,6 +64,7 @@ function conversationRow(botSilencedUntil: string | null): Row {
 /** Captura o patch do UPDATE em `conversations` — é isso que os casos verificam. */
 function makeSupabase(botSilencedUntil: string | null, snapshot?: () => Record<string, unknown>) {
   const patches: Row[] = [];
+  const mensagensInseridas: Row[] = [];
   const client = {
     from(table: string) {
       if (table === "channel_sessions") {
@@ -97,12 +98,32 @@ function makeSupabase(botSilencedUntil: string | null, snapshot?: () => Record<s
       if (table === 'messages') {
         return {
           insert: (row: Row) => {
-            const nova = { id: 'msg-1', external_id: null, ack: null, error_code: null, error_message: null, ...row };
+            const nova = { id: 'msg-1', external_id: null, ack: null, error_code: null, error_message: null, created_at: new Date().toISOString(), ...row };
+            // O dublê ACUMULA o que foi inserido: a guarda do aviso-ao-lead
+            // pergunta ao banco se a IA já falou nesta conversa, e um dublê que
+            // só insere sem lembrar responderia "nunca" para uma conversa onde
+            // este mesmo teste acabou de mandar três respostas de IA — o aviso
+            // legítimo seria barrado pelo esquecimento do dublê, não pela regra.
+            mensagensInseridas.push(nova as Row);
             return { select: () => ({ single: async () => ({ data: nova, error: null }) }) };
           },
           update: (patch: Row) => ({
             eq: () => ({ select: () => ({ maybeSingle: async () => ({ data: { id: 'msg-1', ...patch }, error: null }) }) }),
           }),
+          select: () => {
+            // Encadeável sem limite, como o dublê de contacts logo abaixo — e
+            // devolve o acumulado: os `eq` da consulta real filtram por
+            // conversa/direção/via, e aqui tudo que foi inserido é desta
+            // conversa e saiu como 'ai'.
+            const cadeia: Record<string, unknown> = {
+              eq: () => cadeia,
+              order: () => cadeia,
+              limit: () => cadeia,
+              then: (resolve: (v: unknown) => unknown) =>
+                Promise.resolve({ data: [...mensagensInseridas], error: null }).then(resolve),
+            };
+            return cadeia;
+          },
         };
       }
       if (table === "contacts") {

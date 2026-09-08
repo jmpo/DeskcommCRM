@@ -163,7 +163,9 @@ describe("o default do compose diz o mesmo que o kit", () => {
 
 describe("o kit aponta para o que o CI realmente publica", () => {
   it("os defaults de código e os labels de origem apontam para este repositório", () => {
-    const repo = "https://github.com/melgarafael/DeskcommCRM";
+    // Este fork: a segunda linha que muda por sync, junto com a âncora lá em
+    // cima. As duas dizem a MESMA identidade; divergirem é o teste reprovando.
+    const repo = "https://github.com/jmpo/DeskcommCRM";
     for (const script of ["install.sh", "comecar.sh"]) {
       const texto = fs.readFileSync(path.join(RAIZ, "hostgator-setup-kit", script), "utf8");
       expect(texto).toContain(`REPO_URL="\${REPO_URL:-${repo}.git}"`);
