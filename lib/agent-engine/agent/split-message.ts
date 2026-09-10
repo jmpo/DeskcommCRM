@@ -111,6 +111,29 @@ export interface SendInBubblesOpts<T extends BubbleOutcome = BubbleOutcome> {
   sleep: (ms: number) => Promise<void>;
   /** ms de jitter humano entre bolhas (só entre, não antes da 1ª). */
   jitter: () => number;
+  /**
+   * Roda UMA vez, antes do 1º envio, recebendo a 1ª bolha — é o gancho do
+   * atraso humano do turno ("digitando…" + espera proporcional; ver
+   * `atraso-humano.ts`).
+   *
+   * Recebe a 1ª BOLHA, não o corpo inteiro, e a diferença é a que se vê no
+   * aparelho: quem escreve em bolhas manda a primeira assim que ela fica
+   * pronta, não depois de digitar as cinco. Dimensionar a espera pelo corpo
+   * todo faria uma resposta longa e picotada ficar parada no teto antes da
+   * primeira palavra aparecer.
+   *
+   * UMA vez, e não por bolha, porque entre bolhas já existe o jitter anti-ban:
+   * chamá-lo a cada uma somaria duas esperas na mesma pausa.
+   *
+   * OPCIONAL — sem ele o comportamento é exatamente o de antes, que é o que
+   * mantém os testes existentes intactos. Chamador de produção há UM só
+   * (`inbound-turn.ts`); o turno de follow-up NÃO passa por aqui — ele fala com
+   * `channel.send` direto (`followup-turn.ts:604`), então a mensagem proativa
+   * segue saindo sem pausa humana. É escopo deliberado: o "rápido demais" que
+   * este gancho conserta é o da RESPOSTA que chega junto com o "✓✓" do cliente,
+   * e um follow-up não responde a nada que ele acabou de mandar.
+   */
+  antesDaPrimeira?: (primeiraBolha: string) => Promise<void>;
 }
 
 /**
@@ -134,7 +157,10 @@ export async function sendInBubbles<T extends BubbleOutcome>(
   if (bubbles.length === 0) return opts.send(body); // corpo vazio: deixa o canal decidir
   let last: T | undefined;
   for (let i = 0; i < bubbles.length; i++) {
-    if (i > 0) await opts.sleep(opts.jitter());
+    // Antes da 1ª: o atraso humano do turno. Entre as demais: o jitter anti-ban
+    // que já existia. Nunca os dois na mesma pausa.
+    if (i === 0) await opts.antesDaPrimeira?.(bubbles[0]!);
+    else await opts.sleep(opts.jitter());
     last = await opts.send(bubbles[i]!);
     if (!OK_KINDS.has(last.kind)) return last; // veto/bloqueio/falha: para aqui
   }

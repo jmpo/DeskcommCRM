@@ -243,6 +243,29 @@ export interface ChannelAdapter {
   templates?: ChannelTemplateOps;
 
   /**
+   * Acende o "digitando…" na conversa do cliente.
+   *
+   * Existe porque o agente de IA responde no instante em que o modelo termina,
+   * e isso é inconfundivelmente robótico do lado de quem recebe. O conserto tem
+   * duas metades — esperar um tempo proporcional ao texto (que é de quem envia,
+   * e vale em qualquer canal) e MOSTRAR que está digitando (que é do canal, e é
+   * esta). Ver `lib/agent-engine/agent/atraso-humano.ts`.
+   *
+   * OPCIONAL como os demais: canal que não sabe sinalizar presença não
+   * implementa, e quem chama testa a presença do método em vez de perguntar
+   * QUAL provider é. Sem ele o cliente ainda ganha a espera — que é a parte do
+   * conserto que carrega o valor.
+   *
+   * LANÇA quando o transporte recusa, e é de propósito: a decisão de engolir é
+   * de quem chama (o indicador é decoração; a mensagem é o produto), e engolir
+   * aqui esconderia de todo chamador futuro que a chamada nem chega.
+   */
+  signalTyping?(input: ChannelTenantScope & {
+    sessionRef: string;
+    recipient: string;
+  }): Promise<void>;
+
+  /**
    * A conexão está de pé AGORA? Pergunta feita ao transporte, não ao banco.
    *
    * Existe porque o banco guarda o último estado que alguém CONTOU, e a falha

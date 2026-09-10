@@ -106,6 +106,19 @@ export const wahaAdapter: ChannelAdapter = {
   },
 
   /**
+   * "digitando…" no aparelho do cliente, antes da 1ª bolha do turno da IA.
+   *
+   * Transporte não configurado é NOOP, não erro — mesmo critério do `send`
+   * logo abaixo: numa instalação sem o container de pé o produto não pode
+   * parar por causa de um indicador decorativo.
+   */
+  async signalTyping(input: { sessionRef: string; recipient: string }): Promise<void> {
+    const client = getWahaClient();
+    if (!client) return;
+    await client.setPresence(input.sessionRef, input.recipient, "typing");
+  },
+
+  /**
    * Pergunta ao transporte se a conexão está de pé.
    *
    * Três desfechos, e a diferença entre eles é o que o operador vai FAZER:

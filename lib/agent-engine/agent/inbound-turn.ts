@@ -150,6 +150,7 @@ import { loadChannelProvider, runBeforeSend } from '../guardrails/before-send';
 import { isStatusSendable } from '../../channels/meta/template-binding';
 import { capabilitiesOf } from '@/lib/channels/capabilities';
 import { renderTemplateBody } from '@/lib/channels/meta/render-template';
+import { esperarComoHumano } from './atraso-humano';
 import { sendInBubbles } from './split-message';
 import type { DisclosureMode } from '../guardrails/disclosure/template';
 import { decidePromise } from '../guardrails/promise/engine';
@@ -2194,6 +2195,14 @@ async function executarTurnoDoAgente(
   // Uma recusa deste tipo devolve o texto confirmado ao modelo para que ele
   // reescreva antes de falar com o cliente. Não gasta envio nem toca no canal.
   let falseEmptyInboundVetoCount = 0;
+  // A pausa humana (atraso-humano.ts) já foi paga NESTE turno? Por turno
+  // (closure), como os contadores acima. O turno pode passar pela cadeia
+  // `before_send` mais de uma vez — o modelo pode chamar `send_message` várias
+  // vezes, e os fail-safes de promessa/vocabulário re-rodam a cadeia inteira.
+  // Sem este flag, cada passagem cobraria do cliente uma espera nova, e um
+  // turno com dois vetos ficaria mudo por mais de 20 segundos: o conserto do
+  // "rápido demais" viraria o defeito simétrico, mais caro que o original.
+  let jaEsperouComoHumano = false;
   // Cap de envio (warm-up/diário) vetado neste turno — capturado aqui porque o veto
   // não empurra outcome nenhum a `outcomes` (ver comentário no ponto de captura, mais
   // abaixo). Diferente da janela horária (checada ANTES do modelo rodar, linha ~1233):
@@ -2627,6 +2636,34 @@ async function executarTurnoDoAgente(
                 maxChars: agentConfig?.splitMaxChars ?? 600,
                 sleep: deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
                 jitter: () => 1200 + Math.floor(Math.random() * 800), // piso no throttle anti-ban (1.2s) — bolhas são mensagens físicas
+                // ANTES da 1ª bolha: "digitando…" + espera proporcional ao texto.
+                // É o conserto do "responde rápido demais" (ver atraso-humano.ts).
+                // NÃO substitui o jitter acima: aquele é throttle anti-ban entre
+                // mensagens físicas, este é a pausa humana do turno. Só uma vez
+                // por TURNO — o flag impede que um re-run do fail-safe (veto de
+                // promessa/vocabulário) cobre a espera de novo do mesmo cliente.
+                antesDaPrimeira: async (primeiraBolha: string): Promise<void> => {
+                  if (jaEsperouComoHumano) return;
+                  jaEsperouComoHumano = true;
+                  // `liveChannel()`, não `channel`: o transporte é anulável (preview
+                  // não tem canal) e este é o MESMO acessor que o `send` logo abaixo
+                  // usa. Resolver aqui, antes da espera, mantém o desfecho de preview
+                  // idêntico ao de antes deste recurso — `preview_transport_forbidden`
+                  // na hora, e não depois de segurar o turno por vários segundos.
+                  const canal = liveChannel();
+                  const ms = await esperarComoHumano({
+                    texto: primeiraBolha,
+                    sleep: deps.sleep ?? ((s) => new Promise((resolve) => setTimeout(resolve, s))),
+                    log: runLog,
+                    ...(canal.signalTyping
+                      ? {
+                          sinalizarDigitando: (): Promise<void> =>
+                            canal.signalTyping!({ tenantId, conversationId: input.conversationId }),
+                        }
+                      : {}),
+                  });
+                  runLog.info('atraso humano antes da 1ª bolha', { atraso_ms: ms });
+                },
                 send: (bubble): Promise<ChannelSendResult> => {
                   seq += 1;
                   return liveChannel().send({
