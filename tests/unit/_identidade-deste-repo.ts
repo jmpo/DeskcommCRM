@@ -46,7 +46,13 @@
  * reprova lá. Não remova essa derivação pensando que é redundante — ela é o que
  * torna a âncora não-falsificável de dentro do diff.
  */
-export const NAMESPACE_DESTE_REPO = "ghcr.io/melgarafael";
+// ── ESTE FORK ────────────────────────────────────────────────────────────────
+// `jmpo` publica as PRÓPRIAS imagens no GHCR. Desde a extração deste módulo
+// (upstream, 18/09/2026) esta é a ÚNICA linha do repositório que muda por
+// causa da identidade: a URL do repo nos 6 arquivos e o dono do runner
+// derivam daqui. Trocar só isto e deixar o resto divergente reprova — de
+// propósito, para a âncora não ser falsificável de dentro do diff.
+export const NAMESPACE_DESTE_REPO = "ghcr.io/jmpo";
 
 /**
  * O dono de uma referência `<registry>/<dono>`.

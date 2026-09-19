@@ -116,8 +116,16 @@ describe("os fusos OFERECIDOS — a lista, não o padrão", () => {
    */
   it("oferece Luanda, e a tela da empresa também", () => {
     expect(FUSOS_OFERECIDOS.map((f) => f.codigo)).toContain("Africa/Luanda");
+    // A tela satisfaz isto de dois jeitos, e os dois valem: escrevendo a lista
+    // à mão (como a upstream faz) ou DERIVANDO de `FUSOS_OFERECIDOS` (como este
+    // fork faz desde 22/08). A derivação é a garantia mais forte — a tela não
+    // tem como divergir da canônica, que é justamente o defeito que o caso
+    // acima existe para pegar —, então o que se cobra é a OFERTA, não a forma
+    // de escrevê-la. Uma tela que não faça nenhuma das duas reprova igual.
     const formulario = readFileSync("app/app/settings/tenant/_form.tsx", "utf8");
-    expect(formulario).toContain("Africa/Luanda");
+    const ofereceLuanda =
+      formulario.includes("Africa/Luanda") || formulario.includes("FUSOS_OFERECIDOS");
+    expect(ofereceLuanda, "a tela da empresa não oferece a lista canônica nem Luanda").toBe(true);
   });
 
   it("e o padrão de quem não escolheu segue sendo São Paulo", () => {

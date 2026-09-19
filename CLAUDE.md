@@ -415,6 +415,15 @@ Duas armadilhas irmãs, as duas pagas no mesmo dia:
   divergência falsa: `2 failed` de arquivos contra `7` de casos parece defeito
   da sonda e é só régua trocada.)
 
+**Vermelho local que NÃO é seu — `jq` ausente:** `executor-proprio-so-roda-o-que-e-nosso.test.ts`
+reprova 1 caso (`aceita pull_request de dentro do repositório`) em máquina sem `jq`. A guarda
+`infra/executor-proprio/so-o-que-e-nosso.sh` lê o payload do evento com `jq`; sem ele, `origem`
+sai vazia e a guarda recusa — o teste lê isso como defeito. Provado nos dois sentidos: com um
+`jq` de mentira no PATH, 17/17. No CI (`ubuntu-latest`) o `jq` vem instalado. Mesma família:
+`tests/shell/hooks-nao-acusam-a-main.test.sh` reprova 3 de 110 aqui **e também no clone limpo da
+upstream** — quando um vermelho aparecer, rode-o num worktree de `upstream/main` antes de
+consertar: se ele já está lá, não é seu.
+
 **Vermelho local que NÃO é seu:** `lib/ai/dispatcher/rate-limit.test.ts` falha em 5 casos, com
 15s de timeout cada, quando o `.env.local` tem `UPSTASH_REDIS_REST_URL`/`TOKEN` e o Redis para o
 qual eles apontam **não está de pé** (neste repo é o `serverless-redis-http` local, não a nuvem).

@@ -9009,7 +9009,7 @@ export const DICIONARIO: Traducoes = {
     es: "No prometer revisar la agenda sin revisarla de verdad",
   },
   "Se a pessoa respondeu STOP, SAIR ou pediu para não receber mais, nada é enviado a ela.": {
-    es: "Si la persona respondió STOP, SALIR o pidió no recibir más, no se le envía nada.",
+    es: "Si la persona respondió STOP, BAJA o pidió no recibir más, no se le envía nada.",
   },
   "Contato anonimizado a pedido não recebe mensagem, e prospecção sem base legal não sai.": {
     es: "Un contacto anonimizado a pedido no recibe mensajes, y la prospección sin base legal no sale.",
