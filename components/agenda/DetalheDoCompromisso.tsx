@@ -10,12 +10,16 @@ import { Button } from "@/components/ui/button";
 import { useT } from "@/hooks/i18n/useT";
 import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
+import { rotuloDoLocal } from "@/lib/agenda/locais";
 
 type Detalhe = {
   meeting?: MeetingDetail | null;
   google_sync?: SyncDetail;
   id: string;
   title: string;
+  description: string | null;
+  location_kind: string | null;
+  location_details: string | null;
   starts_at: string;
   ends_at: string;
   time_zone: string;
@@ -126,8 +130,22 @@ export function DetalheDoCompromisso({
         <SheetHeader>
           <SheetTitle>{a?.title ?? t("Compromisso")}</SheetTitle>
         </SheetHeader>
-        {a?.google_sync && <SincronizacaoDoCompromisso key={a.id} id={a.id} sync={a.google_sync} onSaved={() => void query.refetch()} />}
-        {a?.meeting && <MeetDoCompromisso id={a.id} revision={a.google_sync?.revision ?? String(a.revision)} meeting={a.meeting} onSaved={() => void query.refetch()} />}
+        {a?.google_sync && (
+          <SincronizacaoDoCompromisso
+            key={a.id}
+            id={a.id}
+            sync={a.google_sync}
+            onSaved={() => void query.refetch()}
+          />
+        )}
+        {a?.meeting && (
+          <MeetDoCompromisso
+            id={a.id}
+            revision={a.google_sync?.revision ?? String(a.revision)}
+            meeting={a.meeting}
+            onSaved={() => void query.refetch()}
+          />
+        )}
         {query.isPending ? (
           <p>{t("Carregando…")}</p>
         ) : query.isError ? (
@@ -140,6 +158,16 @@ export function DetalheDoCompromisso({
             <p data-testid="compromisso-horario">
               {formatoDeData.formatRange(new Date(a.starts_at), new Date(a.ends_at))}
             </p>
+            {rotuloDoLocal(a.location_kind, a.location_details) ? (
+              <p data-testid="compromisso-local">
+                {rotuloDoLocal(a.location_kind, a.location_details)}
+              </p>
+            ) : null}
+            {a.description?.trim() ? (
+              <p data-testid="compromisso-observacao" className="whitespace-pre-wrap">
+                {a.description}
+              </p>
+            ) : null}
             <p>
               {t(
                 (
@@ -272,6 +300,23 @@ export function DetalheDoCompromisso({
                     </Button>
                   ))}
                 </div>
+                {/*
+                  O SIM que faltava. `pending` é pré-reserva: o horário já está
+                  segurado, e só vira compromisso quando alguém aprova. A rota
+                  aceita `confirmed` desde sempre, a IA escreve por
+                  `crm_confirm_appointment` — e a tela, não. Sem este botão, num
+                  negócio com `requires_confirmation` o pedido ou é confirmado
+                  pelo cliente via IA, ou expira em `agenda-expira-pendentes`.
+                */}
+                {a.status === "pending" ? (
+                  <Button
+                    data-testid="confirmar-compromisso"
+                    disabled={mutation.isPending || staleDraft}
+                    onClick={() => decide({ status: "confirmed" })}
+                  >
+                    {t("Confirmar horário")}
+                  </Button>
+                ) : null}
                 {["pending", "confirmed"].includes(a.status) ? (
                   <Button
                     variant="outline"

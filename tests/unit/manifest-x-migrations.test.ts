@@ -134,6 +134,37 @@ describe("MANIFEST × arquivos de migration", () => {
     ).toEqual([]);
   });
 
+  /**
+   * REGRA SEPARADA das duas abaixo, e não um detalhe delas: aquelas comparam
+   * ARQUIVOS (`nomesDeMigration()`, `arquivosComTimestamp()`); esta compara
+   * LINHAS do MANIFEST. A diferença não é acadêmica — ela foi medida.
+   *
+   * `supabase/migrations/MANIFEST.md` é declarado `merge=union` no
+   * `.gitattributes`: o git CONCATENA os dois lados sem deduplicar. Numa branch
+   * que recebe a `main` mais de uma vez, ou que renumerou uma migration, isso
+   * **reintroduz a linha antiga** — e as quatro asserções existentes passam:
+   * a linha duplicada aponta para um arquivo que existe, a migration tem linha
+   * (duas), e as duas checagens de duplicidade olham arquivos, não linhas.
+   *
+   * Medido em 2026-09-19: a `main` carregava `0310_csv_como_material_de_conhecimento`
+   * em DUAS linhas idênticas (325 e 326) com UM arquivo só, e este arquivo de
+   * teste passava 6/6 sobre ela — verde sobre o caso exato que deveria reprovar.
+   * A linha duplicada saiu no mesmo PR que este caso entrou, então não há dívida
+   * congelada aqui: se esta asserção ficar vermelha, é porque o union acabou de
+   * reintroduzir alguma coisa.
+   */
+  it("nenhuma linha do MANIFEST se repete (o merge=union concatena sem deduplicar)", () => {
+    const porNome = new Map<string, number>();
+    for (const nome of nomesDoManifest()) porNome.set(nome, (porNome.get(nome) ?? 0) + 1);
+    const repetidos = [...porNome.entries()]
+      .filter(([, n]) => n > 1)
+      .map(([nome, n]) => `${nome}: ${n} linhas`);
+    expect(
+      repetidos,
+      "linha repetida no MANIFEST — o arquivo é merge=union e concatena sem deduplicar; traga a main de novo e apague a linha reintroduzida",
+    ).toEqual([]);
+  });
+
   it("nenhum número de migration é usado duas vezes", () => {
     // Quatro waves em paralelo colidem em numeração; o merge renumera. Se duas
     // sobreviverem com o mesmo número, a ordem de aplicação vira loteria.

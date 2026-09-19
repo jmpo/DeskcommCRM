@@ -101,6 +101,7 @@ beforeAll(() => {
       v_stage uuid;
       v_agent uuid;
       v_version uuid;
+      v_case uuid;
       v_boundary jsonb;
     begin
       foreach v_org in array array['${ORG_A}'::uuid, '${ORG_B}'::uuid] loop
@@ -148,6 +149,55 @@ beforeAll(() => {
               (select reply_context_revision from public.conversations where organization_id = v_org and id = v_conv),
               (select operation_revision from public.ai_agents where organization_id = v_org and id = v_agent),
               'pending', 'RLS invariant private reply');
+        end if;
+
+        -- 0281: a conversa INTERNA da equipe com a IA sobre um caso. Guarda o
+        -- texto que a pessoa perguntou e a resposta que a IA deu sobre um
+        -- contato identificável — vazar entre organizações entregaria ao
+        -- vizinho a deliberação inteira sobre um cliente que não é dele.
+        --
+        -- ⚠️ ARMADILHA DESTA SEMENTE, escrita para o próximo não cair nela: o
+        -- controle positivo só passa porque a conversa semeada tem
+        -- 'assigned_to_user_id' NULO e o default de 'visibility_mode' é
+        -- 'own_and_unassigned'. A policy desta tabela chama
+        -- 'fn_can_view_conversation', e o usuário semeado aqui é 'agent' — quem
+        -- atribuir a conversa a OUTRA pessoa neste seed deixa o caso vermelho
+        -- por ACERTO, e a "correção" natural seria afrouxar a policy. O eixo de
+        -- visibilidade (que é a razão de a tabela existir com 'conversation_id'
+        -- dentro) é medido em 'conversa-do-caso-visibilidade.test.ts', com
+        -- organização em 'visibility_mode = 'own'' e dois atendentes.
+        if not exists (select 1 from public.agent_case_chat_messages where organization_id = v_org) then
+          select id into v_case from public.agent_cases
+            where organization_id = v_org and conversation_id = v_conv limit 1;
+          if v_case is null then
+            insert into public.agent_cases (organization_id, conversation_id, title, summary, blocker)
+              values (v_org, v_conv, 'RLS Invariant Case', 'RLS invariant private summary',
+                      'RLS invariant private blocker')
+              returning id into v_case;
+          end if;
+          insert into public.agent_case_chat_messages
+            (organization_id, case_id, conversation_id, contact_id, turn_id, author_kind, body)
+          values
+            (v_org, v_case, v_conv, v_contact, gen_random_uuid(), 'human',
+             'RLS invariant private question');
+        end if;
+
+        -- 0291: a passagem do atendimento para uma pessoa. A coluna body é a
+        -- narrativa que a IA escreveu sobre o cliente, e notes são as palavras
+        -- literais dele — vazar entre organizações entrega ao vizinho o
+        -- atendimento inteiro de alguém que não é cliente dele.
+        -- (sem crase nesta prosa: o bloco inteiro é um template literal de JS.)
+        --
+        -- ⚠️ A MESMA ARMADILHA da semente acima: o controle positivo só passa
+        -- porque 'v_conv' está SEM dono e o default de 'visibility_mode' é
+        -- 'own_and_unassigned'. Atribuir a conversa aqui deixa o caso vermelho
+        -- por ACERTO, e a "correção" natural seria afrouxar a policy.
+        if not exists (select 1 from public.passagens_de_atendimento where organization_id = v_org) then
+          insert into public.passagens_de_atendimento
+            (organization_id, contact_id, conversation_id, motor, origem, motivo_codigo, body, notes)
+          values
+            (v_org, v_contact, v_conv, 'engine', 'pedido_explicito', 'requested_human',
+             'RLS invariant private briefing', 'RLS invariant literal words');
         end if;
 
         select id into v_pipe from public.crm_pipelines
@@ -232,6 +282,28 @@ beforeAll(() => {
                     (select id from public.crm_leads where organization_id = v_org limit 1));
         end if;
 
+        -- voice_calls (0232): a chamada pendurada na sessão de canal da org.
+        -- O wacalls_call_id varia por organizacao porque a tabela tem
+        -- unique (organization_id, wacalls_call_id) — mesmo cuidado do endpoint
+        -- de push_subscriptions logo abaixo.
+        -- (sem crase nesta prosa: o bloco inteiro é um template literal de JS.)
+        if not exists (select 1 from public.voice_calls where organization_id = v_org) then
+          insert into public.voice_calls
+            (organization_id, channel_session_id, contact_id, wacalls_call_id,
+             direction, peer_phone, status)
+            values (v_org, v_sess, v_contact, 'rls-' || v_org::text,
+                    'inbound', '5511900000000', 'ended');
+        end if;
+
+        -- org_voice_calls (0236): o opt-in da chamada de voz, uma linha por
+        -- organizacao. A PK e o proprio organization_id, entao a semente e
+        -- idempotente por construcao — mas o if not exists fica pelo mesmo
+        -- motivo das vizinhas: o seed roda duas vezes, uma por org.
+        if not exists (select 1 from public.org_voice_calls where organization_id = v_org) then
+          insert into public.org_voice_calls (organization_id, enabled)
+            values (v_org, false);
+        end if;
+
         if not exists (select 1 from public.push_subscriptions where organization_id = v_org) then
           insert into public.push_subscriptions
             (organization_id, user_id, endpoint, p256dh, auth)
@@ -242,6 +314,12 @@ beforeAll(() => {
               'p256dh-rls',
               'auth-rls'
             );
+        end if;
+
+        if not exists (select 1 from public.ai_provider_credentials where organization_id = v_org) then
+          insert into public.ai_provider_credentials
+            (organization_id, provider, label, api_key_encrypted, api_key_iv, api_key_tag, api_key_last4)
+            values (v_org, 'anthropic', 'rls-invariant', '\\x00'::bytea, '\\x00'::bytea, '\\x00'::bytea, '0000');
         end if;
       end loop;
     end
@@ -294,6 +372,40 @@ export const TABLES = [
   "crm_tasks",
   // 0227 — texto de sugestões: org + visibilidade da conversa por authenticated.
   "ai_reply_drafts",
+  // 0232/0235 — chamada de voz. Guarda `peer_phone` (telefone da outra ponta) e
+  // `owner_user_id` (quem atendeu): vazar a linha entrega ao vizinho com quem a
+  // organização falou, quando, por quanto tempo e por meio de quem. A policy
+  // nasceu SEM o `for all` explícito, e o comportamento casava com o nome
+  // `_all` por default do Postgres, não por declaração — a 0235 a reescreve e
+  // este é o caso que mede a reescrita pelo desfecho.
+  "voice_calls",
+  // migration 0236 — o opt-in por organizacao da chamada de voz. Guarda quem
+  // aceitou o risco do segundo aparelho vinculado: vazar entre organizacoes
+  // diria a uma empresa quem, na outra, ligou a feature e quando.
+  "org_voice_calls",
+  // migration 0207 — as credenciais de IA da organização. A 0150 apagou a policy
+  // de leitura por organização sem que nada acusasse, e a 0207 a restaurou; esta
+  // linha é o que passa a acusar se ela sumir de novo (issue #545). A leitura é
+  // org-scoped sem gate de papel, então o `agent` semeado serve de controle
+  // positivo. O SELECT de `authenticated` é por COLUNA, sem as colunas cifradas:
+  // a contagem abaixo usa só `organization_id` e mede o que um membro enxerga.
+  "ai_provider_credentials",
+  // migration 0281 — a conversa interna da equipe com a IA sobre um caso. `body`
+  // é texto livre que descreve uma pessoa identificável do OUTRO tenant, e a
+  // leitura é o único comando que a tabela concede a `authenticated` (a escrita
+  // é do servidor). Ver a armadilha do seed, escrita ao lado da semente: o
+  // controle positivo depende de a conversa semeada estar SEM dono.
+  "agent_case_chat_messages",
+  // migration 0291 — a passagem do atendimento para uma pessoa. `body` é a
+  // narrativa que a IA escreveu sobre um cliente identificável do OUTRO tenant,
+  // e `notes` guarda as palavras LITERAIS dele. Mesmo desenho da vizinha acima:
+  // leitura é o único comando concedido a `authenticated`, a escrita é do
+  // servidor, e a MESMA armadilha de seed vale aqui — o controle positivo só
+  // passa porque a conversa semeada está sem dono e o default de
+  // `visibility_mode` é `own_and_unassigned`. O eixo de visibilidade entre
+  // atendentes da MESMA organização é medido em
+  // `passagem-isolamento-e-visibilidade.test.ts`, com `visibility_mode = 'own'`.
+  "passagens_de_atendimento",
   // ⚠️ `webhook_lead_captures` (migration 0174) NÃO entra nesta lista, e a
   // ausência é deliberada: a policy dela exige `manager`, e o usuário semeado
   // aqui é `agent` — o controle positivo falharia por ACERTO, e a "correção"

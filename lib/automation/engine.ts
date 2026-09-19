@@ -20,17 +20,13 @@ import { evaluateConditions, type RuleCondition } from "@/lib/automation/conditi
 import { getAction } from "@/lib/automation/actions";
 import type { ActionResultDetail } from "@/lib/automation/types";
 import { audit } from "@/lib/audit";
+import { regraDoEvento } from "@/lib/automation/gatilho-de-data-do-funil";
+import { ENTIDADE_ESPERADA_POR_GATILHO } from "@/lib/schemas/webhooks";
 import { logger } from "@/lib/logger";
 
 export const AUTOMATION_CONSUMER_KEY = "automation-rules";
 
-const EXPECTED_ENTITY_KIND: Record<string, string> = {
-  "lead.created": "crm_lead",
-  "lead.stage_changed": "crm_lead",
-  "lead.tag_added": "crm_lead",
-  "contact.tag_added": "contact",
-  "message.received": "message",
-};
+const EXPECTED_ENTITY_KIND: Record<string, string> = ENTIDADE_ESPERADA_POR_GATILHO;
 
 interface RuleRow {
   id: string;
@@ -72,6 +68,28 @@ export async function buildContext(admin: SupabaseClient, row: EventRow): Promis
       .eq("organization_id", org)
       .maybeSingle();
     if (contact) context.contact = contact;
+  } else if (row.entity_kind === "calendar_appointment" && row.entity_id) {
+    const { data: appointment } = await admin
+      .from("calendar_appointments")
+      .select("*")
+      .eq("id", row.entity_id)
+      .eq("organization_id", org)
+      .maybeSingle();
+    if (appointment) {
+      context.appointment = appointment;
+      // O contato sai do COMPROMISSO, não do payload: quem escreve a regra vai
+      // querer `contact.name` no texto da mensagem, e a linha do banco é a
+      // versão de agora — o payload é a de quando o evento nasceu.
+      if (appointment.contact_id) {
+        const { data: contact } = await admin
+          .from("contacts")
+          .select("*")
+          .eq("id", appointment.contact_id)
+          .eq("organization_id", org)
+          .maybeSingle();
+        if (contact) context.contact = contact;
+      }
+    }
   } else if (row.entity_kind === "message" && row.entity_id) {
     const contactId = row.payload.contact_id as string | undefined;
     if (contactId) {
@@ -161,7 +179,25 @@ export async function runAutomationForEvent(
   if (error) {
     return { consumer_key: AUTOMATION_CONSUMER_KEY, status: "error", detail: error.message };
   }
-  const matched = (rules ?? []) as unknown as RuleRow[];
+  const todas = (rules ?? []) as unknown as RuleRow[];
+  if (!todas.length) {
+    return { consumer_key: AUTOMATION_CONSUMER_KEY, status: "ok", detail: "no_rules" };
+  }
+
+  // ═══ EVENTO DIRIGIDO: A REGRA QUE O RELÓGIO APONTOU ═══
+  //
+  // O gatilho de data do funil (`lead.date_field_due`) não nasce de uma ação de
+  // ninguém: quem o emite é a varredura `cron/lead-date-field-due`, e ela sabe
+  // PARA QUAL REGRA — o payload traz `rule_id`. Sem este recorte, duas regras do
+  // mesmo gatilho com `dias` diferentes (240 dias antes do casamento e 60
+  // depois dele) rodariam as duas no mesmo evento, porque aqui só se casa
+  // `event_type`: a confirmação de entrega sairia junto com o aviso de 240 dias.
+  //
+  // Todo outro gatilho emite payload sem `rule_id`, então `regraDoEvento`
+  // devolve `null` e a seleção segue exatamente como sempre foi: todas as
+  // regras ativas daquele tipo.
+  const regraApontada = regraDoEvento(row.payload);
+  const matched = regraApontada ? todas.filter((r) => r.id === regraApontada) : todas;
   if (!matched.length) {
     return { consumer_key: AUTOMATION_CONSUMER_KEY, status: "ok", detail: "no_rules" };
   }

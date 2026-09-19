@@ -15,8 +15,10 @@
 import { z } from 'zod';
 import type pg from 'pg';
 
+import { insertInboxItem } from '../../db/repository';
 import type { Logger } from '../../obs/logger';
 import { enqueueJob } from '../../queue/queue';
+import { avisoDeEventoMorto, IA_QUE_NAO_RESPONDEU } from '@/lib/event-log/aviso-de-evento-morto';
 import { TIPOS_DERIVAVEIS, DERIVACAO_TERMINADA } from '@/lib/messaging/media/derivable';
 import { decidirElegibilidadeDaConversa } from '@/lib/ai/elegibilidade/consulta-pg';
 
@@ -117,9 +119,59 @@ export async function drainTick(pool: pg.Pool, knobs: DrainKnobs, log: Logger): 
         [event.id, terminal ? 'dead' : 'pending', message],
       );
       log.error('drain: evento falhou', { event_id: event.id, terminal, error: message });
+      if (terminal) await avisarDespachoMorto(pool, event, message, log);
     }
   }
   return events.length;
+}
+
+/**
+ * O DESPACHO DA IA QUE MORRE AVISA A CENTRAL — como o dreno de handlers já avisa.
+ *
+ * `lib/event-log/drain.ts` passou a abrir `event_dead` quando desiste de um
+ * evento; este dreno marca `dead` o `ai_agent.dispatch_requested` pelo mesmo
+ * critério (5 tentativas) e seguia sem avisar ninguém. É o pior dos dois
+ * silêncios: o efeito que não aconteceu é a resposta ao cliente.
+ *
+ * Mesmo texto do outro dreno, mas dedupe POR TÍTULO (`kind_e_titulo`), só
+ * enquanto houver um aberto: um `event_dead` de mídia ou de automação aberto não
+ * engole este, que é o único que diz que um cliente ficou sem resposta (ver
+ * `aviso-de-evento-morto.ts`, "as duas famílias"). SQL de uma instrução
+ * (`insertInboxItem`, `insert … where not exists`) em vez de consulta seguida
+ * de insert. Mil despachos mortos numa pane abrem um aviso, não mil: medido em
+ * `tests/invariants/evento-morto-nao-inunda-a-central.test.ts`; o aviso de
+ * outra família aberto não cala este: medido em
+ * `tests/invariants/aviso-da-ia-nao-some-atras-de-outro-evento-morto.test.ts`.
+ *
+ * Fire-and-forget: falhar ao avisar não pode derrubar o tick, que ainda tem o
+ * resto do lote para drenar.
+ */
+async function avisarDespachoMorto(
+  pool: pg.Pool,
+  event: EventRow,
+  motivo: string,
+  log: Logger,
+): Promise<void> {
+  const { title, body } = avisoDeEventoMorto({
+    eventType: 'ai_agent.dispatch_requested',
+    // `attempts` já foi incrementado no claim: é a contagem com esta tentativa.
+    tentativas: event.attempts,
+    motivo,
+    efeito: IA_QUE_NAO_RESPONDEU,
+  });
+  try {
+    await insertInboxItem(
+      pool,
+      event.organization_id,
+      { kind: 'event_dead', severity: 'critical', title, body },
+      'kind_e_titulo',
+    );
+  } catch (err) {
+    log.error('drain: aviso de despacho morto falhou', {
+      event_id: event.id,
+      error: (err instanceof Error ? err.message : String(err)).slice(0, 300),
+    });
+  }
 }
 
 /** Quanto esperar entre uma checagem e outra da derivação de mídia. */
@@ -375,11 +427,24 @@ async function processEvent(
 
   // Coalescência: já existe job PENDING futuro deste contato → esta mensagem
   // entra de carona (o turno lê o histórico completo). Evento vira done.
+  //
+  // ⚠️ `run_after > now()` sozinho casa com um job em HOLD (`enforceHolds`,
+  // session-watchdog.ts) — que usa `run_after = 'infinity'` como marcador, e
+  // 'infinity' É maior que `now()`. Um job em hold por sessão MORTA (WhatsApp
+  // reconectado, sessão antiga arquivada) nunca libera — a condição de
+  // liberação exige a MESMA sessão antiga voltar a 'WORKING', o que não
+  // acontece nunca. Sem esta exclusão, TODA mensagem nova do mesmo contato —
+  // inclusive na sessão NOVA — coalescia nesse job morto para sempre: o
+  // cliente escrevia, o evento saía "done" sem erro nenhum, e nenhum turno
+  // rodava. Medido em produção (2026-09-14): 6 mensagens ao longo de 7h,
+  // zero resposta, zero job novo — só o coalescing silencioso repetido no
+  // mesmo job com `held_run_after` no payload.
   if (knobs.debounceMs > 0) {
     const { rows: pendingRows } = await pool.query<{ id: string }>(
       `select id from job_queue
        where organization_id = $1 and contact_id = $2
          and kind = 'inbound_turn' and status = 'pending' and run_after > now()
+         and not (payload ? 'held_run_after')
        limit 1`,
       [event.organization_id, p.contact_id],
     );
@@ -426,17 +491,24 @@ export async function runDrainLoop(
         error: (err instanceof Error ? err.message : String(err)).slice(0, 300),
       });
     }
-    const waitMs = drained > 0 ? knobs.intervalMs : knobs.idleIntervalMs;
+    if (signal.aborted) break;
+    // Lote CHEIO é sinal de backlog: há mais evento esperando do que caberia no
+    // lote, e pagar o intervalo antes de voltar só empurra a fila para frente.
+    // Ocioso e lote parcial mantêm o ritmo de sempre — este ramo não muda o
+    // custo de quem não tem atendimento nenhum.
+    const waitMs =
+      drained >= knobs.batchSize ? 0 : drained > 0 ? knobs.intervalMs : knobs.idleIntervalMs;
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, waitMs);
-      signal.addEventListener(
-        'abort',
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        { once: true },
-      );
+      // O listener é REMOVIDO no fim de cada espera. Sem isso, um loop de dias
+      // acumula um listener por tick no mesmo AbortSignal — vazamento que só
+      // aparece como memória crescendo no worker, sem erro nenhum.
+      const finish = (): void => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, waitMs);
+      signal.addEventListener('abort', finish, { once: true });
     });
   }
 }

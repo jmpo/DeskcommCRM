@@ -85,10 +85,15 @@ import { completeTurnForEnrollment, createPgAdminClient } from "@/lib/followup/t
 import { seedPlatformPlaybook } from "@/lib/agent-engine/agent/playbook-seed";
 import { runCronLoop } from "@/lib/agent-engine/cron/scheduler";
 import { createPool } from "@/lib/agent-engine/db/pool";
+import {
+  carregarComportamentoPorPool,
+  pisoDoComportamentoDoMotor,
+} from "@/lib/instalacao/comportamento-sql";
 import { runDrainLoop } from "@/lib/agent-engine/edge/crm/drain";
-import { runEventLogDrainLoop } from "@/lib/event-log/drain-loop";
+import { runEventLogDrainLoop, prontidaoDoLacoDeEventLog } from "@/lib/event-log/drain-loop";
 import { crmEdgeConfigFromEnv } from "@/lib/agent-engine/edge/crm/mcp-client";
 import { enforceHolds, sessionHealthMetrics } from "@/lib/agent-engine/edge/crm/session-watchdog";
+import { runVoiceCallsBridgeLoop } from "@/lib/wacalls/events-bridge";
 import { runSessionWatchdogLoop } from "@/lib/agent-engine/edge/crm/session-reconciler";
 import { runHealthLoop } from "@/lib/agent-engine/health/circuit";
 import { runFlywheelLoop } from "@/lib/agent-engine/flywheel/live";
@@ -219,10 +224,31 @@ export function createHealthzServer(
         if (row.status in queue) queue[row.status as keyof typeof queue] = row.n;
       }
       const sessions = await sessionHealthMetrics(pool);
-      respond(res, 200, { status: "ok", db: "ok", queue, sessions, uptime_s });
+      // O laço do event_log é informação de saúde de PRIMEIRA classe (#604): na
+      // #648 este mesmo handler respondia 200 com o laço parado havia dez dias.
+      // `event_log_drain` vai nos DOIS ramos, 200 e 503, de propósito — a
+      // prontidão do laço não depende do banco estar de pé, e é ela que o gate
+      // de publicação exige antes de publicar.
+      respond(res, 200, {
+        status: "ok",
+        db: "ok",
+        queue,
+        sessions,
+        event_log_drain: prontidaoDoLacoDeEventLog(),
+        uptime_s,
+      });
     } catch (err) {
       log.error("healthz: banco indisponível", { error: errMsg(err) });
-      respond(res, 503, { status: "degraded", db: "error", queue: null, sessions: null, uptime_s });
+      respond(res, 503, {
+        status: "degraded",
+        db: "error",
+        queue: null,
+        sessions: null,
+        // Mesmo com o banco fora, a prontidão do laço aparece: é ela que o gate
+        // de publicação (#604) lê antes de deixar as imagens irem para o canal.
+        event_log_drain: prontidaoDoLacoDeEventLog(),
+        uptime_s,
+      });
     }
   };
   return http.createServer((req, res) => void handle(req, res));
@@ -255,6 +281,13 @@ export async function startWorker(
     log.warn("órfãos soltos no boot", bootReap);
   }
 
+  // O comportamento da INSTALAÇÃO entra no processo ANTES dos laços que
+  // consomem turnos: a releitura abaixo só acontece no primeiro tique do reaper
+  // (QUEUE_REAPER_INTERVAL_MS, 60 s por padrão), e até lá o orçamento e os knobs
+  // do turno responderiam com o piso do `.env`, não com a escolha da tela.
+  // Nunca lança: sem leitura boa, vale o piso — o comportamento de antes.
+  await carregarComportamentoPorPool(pool, pisoDoComportamentoDoMotor(env));
+
   const server = createHealthzServer(pool, log, env.METRICS_WINDOW_MS);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -267,6 +300,14 @@ export async function startWorker(
   const inFlight = new Set<Promise<void>>();
 
   const reaperTimer = setInterval(() => {
+    // Recarrega o comportamento da INSTALAÇÃO no ritmo do reaper: é o que faz
+    // uma escolha feita na tela de admin alcançar ESTE processo sem restart
+    // (issue #1034). O memo de 30 s evita ir ao banco a cada tique, e o
+    // carregador nunca lança — o `.catch` cobre o caso impossível sem deixar
+    // rejeição solta (o worker morre com promise rejeitada não tratada).
+    carregarComportamentoPorPool(pool, pisoDoComportamentoDoMotor(env)).catch((err: unknown) =>
+      log.error("comportamento da instalação: releitura falhou", { error: errMsg(err) }),
+    );
     reapExpiredJobs(pool, { visibilityTimeoutMs: env.QUEUE_VISIBILITY_TIMEOUT_MS })
       .then((reaped) => {
         if (reaped.revived + reaped.dead > 0) log.warn("reaper devolveu jobs órfãos", reaped);
@@ -344,6 +385,23 @@ export async function startWorker(
         )
       : (log.warn("watchdog de sessão OFF — WAHA_API_BASE_URL/WAHA_API_KEY ausentes no env", {}),
         Promise.resolve());
+
+  // Ponte de eventos WaCalls (spec 18, §4.2) — chamada de voz, opt-in por
+  // org. Sem a env, fica OFF: instalação que não usa a feature não paga o
+  // custo de uma conexão SSE tentando alcançar um serviço que não existe.
+  const voiceCallsBridgeLoop =
+    env.WACALLS_API_BASE_URL !== undefined && env.WACALLS_API_TOKEN !== undefined
+      ? runVoiceCallsBridgeLoop(
+          pool,
+          {
+            baseUrl: env.WACALLS_API_BASE_URL,
+            apiToken: env.WACALLS_API_TOKEN,
+            maxBackoffMs: env.WACALLS_BRIDGE_MAX_BACKOFF_MS,
+          },
+          log,
+          loopsAbort.signal,
+        )
+      : (log.info('ponte WaCalls OFF — endereço ou credencial ausente no env', {}), Promise.resolve());
 
   // Circuito de saúde do número (block/response rate → hold).
   const healthLoop = runHealthLoop(
@@ -524,6 +582,7 @@ export async function startWorker(
       cronLoop,
       sessionWatchdogLoop,
       flywheelLoop,
+      voiceCallsBridgeLoop,
     ]);
     await workerLoop;
     let graceTimer: NodeJS.Timeout | undefined;

@@ -44,6 +44,10 @@ export const FUSOS_OFERECIDOS: { codigo: string; rotulo: string }[] = [
   { codigo: "America/Belem", rotulo: "Belém (Brasil)" },
   { codigo: "America/Recife", rotulo: "Recife (Brasil)" },
   { codigo: "America/Fortaleza", rotulo: "Fortaleza (Brasil)" },
+  // Fora da América do Sul, e de propósito: quem instala em Angola fala
+  // português e usava a lista inteira errada. Aditivo — `FUSO_PADRAO` segue
+  // `America/Sao_Paulo`, então ninguém que já escolheu muda de relógio.
+  { codigo: "Africa/Luanda", rotulo: "Luanda (Angola)" },
   { codigo: "UTC", rotulo: "UTC" },
 ];
 

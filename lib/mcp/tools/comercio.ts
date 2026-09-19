@@ -128,6 +128,33 @@ export function avisosDaBusca(input: { empate: boolean; ignorados: readonly stri
   return avisos.join(" ");
 }
 
+/**
+ * O vocabulário fechado do vazio desta busca. Quem contar "não achei" depois —
+ * por loja, por termo — conta por estes valores, não por texto de mensagem.
+ */
+export type MotivoDeVazio = "sem_estoque" | "varredura_parcial" | "nao_encontrado";
+
+/**
+ * "Não achei" NÃO é sucesso.
+ *
+ * A busca já sabe distinguir "não achei" de "falhei" — é o que as três respostas
+ * vazias dizem ao modelo. O que faltava era DIZER ISSO À AUDITORIA: a chamada
+ * terminava bem, `metadata.success` virava `true`, e o painel de capacidades
+ * (`fn_agent_tool_usage`) contava `falhas: 0` enquanto o agente nunca achava um
+ * produto e o dono lia "nenhuma falha" (issue #484). A busca que não acha nada é
+ * exatamente a que o dono precisa ver.
+ *
+ * Quem lê este predicado é a auditoria em `lib/ai/runtime/tools.ts`. Vazio
+ * declarado = o vazio que carrega `motivo`; resposta com item = sucesso, como
+ * sempre foi.
+ */
+export function motivoDoVazioDaBusca(resultado: unknown): string | null {
+  if (resultado === null || typeof resultado !== "object") return null;
+  const r = resultado as { produtos?: unknown; motivo?: unknown };
+  if (!Array.isArray(r.produtos) || r.produtos.length > 0) return null;
+  return typeof r.motivo === "string" && r.motivo.length > 0 ? r.motivo : null;
+}
+
 export const crmSearchProducts: McpToolDefinition<typeof produtosInputShape> = {
   name: "crm_search_products",
   description:
@@ -139,12 +166,19 @@ export const crmSearchProducts: McpToolDefinition<typeof produtosInputShape> = {
     "('ifone') e acha por marca, categoria ou código. " +
     "⚠️ SE VOLTAR MAIS DE UM produto com `empate: true`, NÃO escolha por conta própria — os dois " +
     "casam igualmente o que ela disse, e a diferença entre eles é de preço. Pergunte qual é. " +
-    "Lista vazia significa que a loja não tem esse item cadastrado: não invente, ofereça consultar " +
-    "com a equipe.",
+    "Lista vazia só significa que a loja não tem esse item quando a busca conseguiu varrer o " +
+    "catálogo INTEIRO: se a resposta disser que a varredura foi parcial, não afirme que a loja não " +
+    "tem — diga que vai confirmar com a equipe. Em qualquer caso, não invente preço e nunca " +
+    "invente um valor que você lembra.",
   inputSchema: produtosInputShape,
   category: "read",
   requiresRole: "agent",
   requiresScope: "mcp:read",
+  // Vazio aqui não é sucesso: `produtos: []` com motivo é "não achei" e passa a
+  // ser auditado como falha, para o painel parar de dizer "nenhuma falha"
+  // enquanto ninguém acha nada (#484). Tool sem este campo segue tratando vazio
+  // como sucesso — agenda vazia numa janela é resposta, não falha.
+  motivoDoVazio: motivoDoVazioDaBusca,
   handler: async (input, ctx) => {
     // Traz os ativos da org e pontua em memória. A busca por token (palavra
     // difusa, número exato) não é exprimível num `ilike` — e é ela que impede o
@@ -243,6 +277,9 @@ export const crmSearchProducts: McpToolDefinition<typeof produtosInputShape> = {
       if (achados.length > 0) {
         return {
           produtos: [],
+          // Existe, mas ninguém pode comprar. Para a auditoria isto é vazio
+          // declarado — "não achei um produto que dê para vender" —, não sucesso.
+          motivo: "sem_estoque" satisfies MotivoDeVazio,
           mensagem:
             "esse produto existe no catálogo, mas está sem estoque. Não prometa: ofereça avisar quando chegar.",
         };
@@ -250,12 +287,27 @@ export const crmSearchProducts: McpToolDefinition<typeof produtosInputShape> = {
       // Afirmar ausência exige ter varrido o catálogo inteiro. Sobre uma
       // amostra, a frase honesta é outra — e ela leva o agente a uma conduta
       // diferente com o cliente, que é o ponto.
+      //
+      // ⚠️ E O TAMANHO ENTRA NA MESMA REGRA: `total` é `number | null` e o
+      // `null` é "o servidor não disse os quantos", não "zero". Interpolar
+      // `${total}` sem olhar entregava ao agente a frase "o catálogo desta
+      // loja tem null" — uma afirmação sobre o tamanho que ninguém mediu, no
+      // lugar exato onde a regra é declarar a dúvida. Quando o count não veio,
+      // o tamanho desconhecido é DITO como desconhecido: medido, o agente
+      // repetia "tem null" (tests/unit/catalogo-nao-corta-cego.test.ts).
       return {
         produtos: [],
+        // Os dois vazios NÃO são o mesmo vazio, e a auditoria agora os separa:
+        // varredura parcial é "não sei", ausência é "não tem" (#484).
+        motivo: (varreduraParcial ? "varredura_parcial" : "nao_encontrado") satisfies MotivoDeVazio,
         mensagem: varreduraParcial
-          ? `não encontrei entre os ${linhas.length} produtos que consegui consultar, e o catálogo ` +
-            `desta loja tem ${total}. NÃO diga que a loja não tem — diga que vai confirmar com a ` +
-            "equipe. Se a pessoa souber o código ou o nome exato, peça: com ele a busca acha."
+          ? `não encontrei entre os ${linhas.length} produtos que consegui consultar, e ` +
+            (total === null
+              ? "o servidor não informou quantos produtos o catálogo desta loja tem ao todo: " +
+                "eu não sei. "
+              : `o catálogo desta loja tem ${total}. `) +
+            "NÃO diga que a loja não tem — diga que vai confirmar com a equipe. Se a pessoa souber " +
+            "o código ou o nome exato, peça: com ele a busca acha."
           : "não há nada com esse nome no catálogo da loja. Não invente preço — diga que vai confirmar com a equipe.",
       };
     }

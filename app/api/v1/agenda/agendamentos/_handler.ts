@@ -23,14 +23,21 @@ import type { Json } from "@/lib/database.types";
  * A recusa sai como `ApiError`: a rota a traduz em `fail()`, a tool a traduz
  * para o modelo, e nenhum dos dois reimplementa a decisão.
  */
-import { horariosLivresDaOrg } from "@/lib/agenda/consulta";
+import { coletaOQueOcupa, horariosLivresDaOrg } from "@/lib/agenda/consulta";
+import { colide } from "@/lib/agenda/horarios-livres";
 import {
   atividadeDaTransicao,
   autorParaTimeline,
+  gatilhoDaTransicao,
   type SituacaoAnterior,
   type Transicao,
 } from "@/lib/agenda/laco";
-import { ALVO_DE_VINCULO_DO_AGENDAMENTO, VINCULO_DE_AGENDAMENTO } from "@/lib/agenda/tipos";
+import {
+  ALVO_DE_VINCULO_DO_AGENDAMENTO,
+  ENTIDADE_DO_AGENDAMENTO,
+  NOME_GENERICO_DO_TIPO,
+  VINCULO_DE_AGENDAMENTO,
+} from "@/lib/agenda/tipos";
 import { ApiError } from "@/lib/api/types";
 import type { Actor, HandlerCtx } from "@/lib/api/handlers/types";
 import { audit } from "@/lib/audit";
@@ -61,11 +68,25 @@ export interface MarcarInput {
   title?: string;
   notes?: string;
   /**
+   * Observação do compromisso — o campo `description` do calendário externo.
+   *
+   * Distinto de `notes`: `notes` é anotação INTERNA (numa clínica, queixa) e
+   * não entra na revisão publicável (`fn_google_projection_stamp`). Sem este
+   * campo a observação gravava em `notes` e o calendário nascia mudo.
+   */
+  description?: string;
+  /**
+   * Endereço/local DESTE compromisso. Ausente herda o do tipo; `""` grava
+   * vazio — quem apagou o que o tipo sugeria quis apagar, não herdar de novo.
+   */
+  location_details?: string;
+  /**
    * Convidado externo, digitado na tela. `""` limpa; ausente não mexe.
    *
-   * NÃO é `contact_id`, e a distinção é o motivo de a coluna existir: o contato
-   * é quem recebe o atendimento, e quem precisa entrar na sala pode ser outra
-   * pessoa. Quem transforma isto em convite do Google é o worker de push.
+   * NÃO é o e-mail da ficha do contato. O contato (quem é atendido) entra no
+   * convite do Google pelo e-mail da ficha, quando existe. Este campo é a outra
+   * pessoa — acompanhante, responsável. Quem transforma os dois em `attendees`
+   * é o worker de push.
    */
   guest_email?: string;
 }
@@ -186,7 +207,11 @@ export async function marcarAgendamentoHandler(
       conversation_id: booking?.boundary.conversation_id ?? input.conversation_id ?? null,
       meeting_delivery: delivery as unknown as Json,
       location_kind: tipo.location_kind,
-      location_details: tipo.location_details,
+      location_details:
+        input.location_details !== undefined
+          ? input.location_details.trim() || null
+          : tipo.location_details,
+      description: input.description !== undefined ? input.description.trim() || null : null,
       notes: input.notes ?? null,
       // `|| null` e não `?? null`: a rota deixa passar `""` (o campo limpo na
       // tela), e string vazia gravada seria um convidado sem e-mail — que faz o
@@ -207,6 +232,7 @@ export async function marcarAgendamentoHandler(
     appointmentId: criado.id,
     contactId: input.contact_id ?? null,
     atividade: atividadeDaTransicao(null, transicao),
+    gatilho: gatilhoDaTransicao(null, transicao),
     transicao,
     fusoDoCompromisso: criado.time_zone,
     nomeDoTipo: tipo.name,
@@ -300,11 +326,15 @@ export async function alterarAgendamentoHandler(
     // a si mesmo.
     const mesmoHorario = new Date(atual.starts_at as string).getTime() === novoInicio.getTime();
     if (!mesmoHorario) {
+      // REMARCAR segue a mesma assimetria de marcar (`exigeHorarioLivre`): a
+      // pessoa que combinou o encaixe por fora da grade precisa poder movê-lo
+      // também, senão o compromisso nasce possível e fica preso.
       const consulta = await exigeHorarioLivre(supabase, ctx, {
         eventTypeId: tipo.id,
         donoId: atual.owner_user_id as string,
         inicio: novoInicio,
         fim: novoFim,
+        ignorarAgendamentoId: atual.id as string,
       });
       mudanca.starts_at = novoInicio.toISOString();
       mudanca.ends_at = novoFim.toISOString();
@@ -361,9 +391,10 @@ export async function alterarAgendamentoHandler(
       appointmentId: atual.id as string,
       contactId: (atual.contact_id as string | null) ?? null,
       atividade: atividadeDaTransicao(atual.status as SituacaoAnterior, transicao),
+      gatilho: gatilhoDaTransicao(atual.status as SituacaoAnterior, transicao),
       transicao,
       fusoDoCompromisso: String(salvo.time_zone),
-      nomeDoTipo: "Agendamento",
+      nomeDoTipo: await nomeDoTipoDoCompromisso(supabase, ctx, atual.event_type_id as string | null),
       outcome: {revision:salvo.revision,source_kind:salvo.outcome_source_kind,message_id:salvo.outcome_message_id,recorded_at:salvo.outcome_recorded_at},
     });
 
@@ -398,6 +429,7 @@ export async function cancelarAgendamentoHandler(
     "id",
     "revision",
     "contact_id",
+    "event_type_id",
     "status",
     "time_zone",
   ]);
@@ -417,9 +449,10 @@ export async function cancelarAgendamentoHandler(
     appointmentId: atual.id as string,
     contactId: (atual.contact_id as string | null) ?? null,
     atividade: atividadeDaTransicao(atual.status as SituacaoAnterior, "cancelled"),
+    gatilho: gatilhoDaTransicao(atual.status as SituacaoAnterior, "cancelled"),
     transicao: "cancelled",
     fusoDoCompromisso: atual.time_zone as string,
-    nomeDoTipo: "Agendamento",
+    nomeDoTipo: await nomeDoTipoDoCompromisso(supabase, ctx, atual.event_type_id as string | null),
   });
 
   void audit({
@@ -436,6 +469,43 @@ export async function cancelarAgendamentoHandler(
 }
 
 /** O compromisso, ou 404 — sempre com o filtro de organização. */
+/**
+ * O NOME DO TIPO DE ATENDIMENTO — lido da linha, nunca digitado aqui.
+ *
+ * Ele viaja no payload do gatilho de automação (`event.event_type_name`) e é o
+ * ÚNICO campo por onde uma regra distingue "Limpeza" de "Avaliação": a linha do
+ * compromisso guarda `event_type_id`, um uuid que ninguém digita numa condição.
+ * O editor de regras oferece exatamente essa condição ("Tipo de atendimento
+ * contém …").
+ *
+ * ⚠️ ISTO JÁ FOI UM LITERAL, e o literal é o defeito. `alterar` e `cancelar`
+ * passavam `"Agendamento"` cravado, então três dos quatro gatilhos
+ * (`confirmed`, `rescheduled`, `cancelled`) emitiam sempre a mesma palavra —
+ * a condição aparecia na tela, o operador a salvava, e ela não casava nunca.
+ * Controle decorativo é pior que controle ausente: a pessoa acredita que
+ * configurou.
+ *
+ * Uma consulta a mais por transição, e só quando há transição. `marcar` não
+ * chama esta função porque já tem a linha do tipo em mãos.
+ */
+async function nomeDoTipoDoCompromisso(
+  supabase: SB,
+  ctx: HandlerCtx,
+  eventTypeId: string | null,
+): Promise<string> {
+  if (!eventTypeId) return NOME_GENERICO_DO_TIPO;
+  const { data } = await supabase
+    .from("calendar_event_types")
+    .select("name")
+    .eq("organization_id", ctx.organization_id)
+    .eq("id", eventTypeId)
+    .maybeSingle();
+  const nome = (data as { name?: string | null } | null)?.name;
+  // O tipo apagado depois do compromisso é o único caminho até aqui. Falhar a
+  // leitura NÃO pode desfazer um cancelamento já gravado.
+  return nome?.trim() ? nome : NOME_GENERICO_DO_TIPO;
+}
+
 async function exigeAgendamento(
   supabase: SB,
   ctx: HandlerCtx,
@@ -456,18 +526,101 @@ async function exigeAgendamento(
 }
 
 /**
- * O horário pedido está entre os que esta agenda oferece?
+ * Quem pode marcar FORA da grade de horários.
+ *
+ * A grade (início da jornada + múltiplos da duração) é o que o sistema OFERECE.
+ * Uma pessoa da equipe precisa poder marcar o que combinou por fora dela — o
+ * cliente que só pode 10:30, o encaixe, o atendimento que começa mais cedo. Era
+ * o que o sistema anterior deste negócio permitia, e a falta disso obrigaria a
+ * equipe a mudar o horário do cliente para caber numa régua interna.
+ *
+ * ⚠️ A IA NÃO PODE, e essa é a assimetria inteira. Ela oferece o que a agenda
+ * publicou; escolher um horário que ninguém publicou é decisão de quem responde
+ * pelo negócio. É a mesma separação que o envio já faz — pessoa passa por cima
+ * do modo de teste do canal, agente não.
+ *
+ * Integração por token também não: `deriveActor` (`lib/mcp/auth.ts`) devolve
+ * `api_token` para token sem escopo de agente, e `webhook_source` não é gente.
+ * Só `"user"` — a sessão de alguém da equipe — escolhe o encaixe.
+ */
+export function podeMarcarForaDaGrade(actor: Actor): boolean {
+  return actor.type === "user";
+}
+
+/**
+ * O horário pedido pode ser marcado por QUEM está pedindo?
  *
  * ⚠️ Pela MESMA coleta que responde o GET e as ferramentas de leitura
  * (`horariosLivresDaOrg`), nunca por uma segunda. Duas coletas divergem no
  * primeiro ajuste: se a regra do que OCUPA mudar, uma muda e a outra não — e aí
  * a tela oferece horário que a escrita recusa, ou a escrita aceita um que a tela
  * não ofereceu e alguém chega numa hora que já tinha dono.
+ *
+ * Duas perguntas, conforme o ator (`podeMarcarForaDaGrade`):
+ *
+ * - **A grade** (IA, token, webhook): o horário é um dos slots que
+ *   `horariosLivres` calcula para a janela `[inicio, fim]` DO PRÓPRIO PEDIDO —
+ *   não para o dia. Essa conta segura o alinhamento ao expediente, o aviso
+ *   mínimo, a janela de reserva e a ocupação que CRUZA o pedido.
+ *
+ *   Alguns furos em que esta conta deixava passar o que o GET do dia esconde,
+ *   anteriores ao encaixe, foram medidos em 2026-09-15 chamando este handler
+ *   com a coleta de verdade sobre o banco em memória de
+ *   `tests/unit/pessoa-marca-fora-da-grade.test.ts`. Os três estão fechados:
+ *   · **buffer contra vizinho** (issue #876, PR #1027) — `coletaOQueOcupa` só
+ *     trazia o que cruza `[inicio, fim]`, e com `buffer_before_minutes = 30` o
+ *     pedido de 13:00Z não via o vizinho que termina 12:45Z. `horariosLivresDaOrg`
+ *     agora alarga a coleta por `buffer_before`/`buffer_after`. Vigiado pelos
+ *     casos de intervalo antes do atendimento no mesmo arquivo de teste.
+ *
+ *   · **remarcar contando a si mesmo** (issue #1084) — o efeito colateral do
+ *     alargamento acima: a coleta passou a ver também o PRÓPRIO compromisso de
+ *     saída. Com 30 min de intervalo antes, a IA remarcando 13:00Z → 14:00Z
+ *     levava 422 `agenda_horario_indisponivel`; sem intervalo, o mesmo movimento
+ *     era aceito. A grade agora repassa `ignorarAgendamentoId` a
+ *     `horariosLivresDaOrg`. Vigiado pelos casos de remarcação com intervalo no
+ *     mesmo arquivo de teste — inclusive um CONTROLE de que o intervalo segue
+ *     valendo contra OUTRO compromisso.
+ *
+ *   · **exceção de data à noite** foi fechada (issue #878, PR #882): era colhida
+ *   pela data UTC de `inicio`/`fim`, e em São Paulo 21:00 do dia 07 é 00:00Z do
+ *   dia 08 — o pedido era ACEITO num dia inteiro bloqueado. `horariosLivresDaOrg`
+ *   agora a busca no dia LOCAL do fuso da jornada, com um dia de margem de cada
+ *   lado. Vigiado por "a exceção de data é do dia LOCAL" em
+ *   `tests/unit/pessoa-marca-fora-da-grade.test.ts`.
+ * - **O encaixe** (pessoa): as regras da grade são dispensadas — é a escolha
+ *   explícita de quem atende —, mas a OCUPAÇÃO REAL não
+ *   (`exigeSemSobreposicao`).
+ *
+ * ⚠️ A decisão mora AQUI DENTRO, e não em quem chama, de propósito: quando cada
+ * chamador relaxava a grade e lembrava de chamar a sobreposição ao lado, nada
+ * impedia um terceiro caminho de relaxar e esquecer. Um chamador novo desta
+ * função não tem como dispensar a grade sem levar a conferência junto.
+ *
+ * A leitura de `horariosLivresDaOrg` acontece nos dois ramos porque é dela que
+ * sai `fusoDaRegra`, que vira `time_zone` do compromisso e viaja até o lembrete.
  */
 async function exigeHorarioLivre(
   supabase: SB,
   ctx: HandlerCtx,
-  args: { eventTypeId: string; donoId: string; inicio: Date; fim: Date },
+  args: {
+    eventTypeId: string;
+    donoId: string;
+    inicio: Date;
+    fim: Date;
+    /**
+     * O compromisso sendo remarcado: ocupa o horário de ONDE SAI, não o de DESTINO.
+     *
+     * Vale para os DOIS ramos. A pergunta é a mesma nos dois — "o que já está
+     * tomado?" — e a resposta tem de excluir este compromisso. No encaixe quem
+     * exclui é `exigeSemSobreposicao`; na grade o id vai a `horariosLivresDaOrg`,
+     * que o repassa à coleta. Sem isso, com intervalo configurado, o próprio
+     * compromisso cruzava a janela alargada e a IA remarcando para logo depois do
+     * próprio fim levava 422 `agenda_horario_indisponivel` por causa de si mesma
+     * (issue #1084).
+     */
+    ignorarAgendamentoId?: string;
+  },
 ): Promise<{ fusoDaRegra: string }> {
   const consulta = await horariosLivresDaOrg(supabase, ctx.organization_id, {
     eventTypeId: args.eventTypeId,
@@ -475,6 +628,7 @@ async function exigeHorarioLivre(
     de: args.inicio,
     ate: args.fim,
     agora: new Date(),
+    ignorarAgendamentoId: args.ignorarAgendamentoId,
   });
 
   if (!consulta.ok) {
@@ -490,7 +644,11 @@ async function exigeHorarioLivre(
       "Este responsável ainda não publicou horários de atendimento.",
     );
   }
-  if (!consulta.slots.some((s) => s.inicio.getTime() === args.inicio.getTime())) {
+
+  const foraDaGrade = podeMarcarForaDaGrade(ctx.actor);
+  if (foraDaGrade) {
+    await exigeSemSobreposicao(supabase, ctx, args);
+  } else if (!consulta.slots.some((s) => s.inicio.getTime() === args.inicio.getTime())) {
     throw new ApiError(
       422,
       "agenda_horario_indisponivel",
@@ -502,9 +660,82 @@ async function exigeHorarioLivre(
   return { fusoDaRegra: consulta.fusoDaRegra };
 }
 
-/** `Actor` → o vocabulário de `calendar_appointments.created_by_kind`. */
+/**
+ * O encaixe não cruza a OCUPAÇÃO REAL do dono — a metade da grade que vale para
+ * todo mundo.
+ *
+ * Ocupação real é o que `coletaOQueOcupa` devolve, a mesma coleta da grade:
+ * outro agendamento que não liberou o horário (`LIBERAM_O_HORARIO`, em
+ * `lib/agenda/ocupados.ts`) e evento do Google Agenda selecionado que ocupa. SEM
+ * buffer, sem exceção de data e sem expediente — essas são regras de oferta, e o
+ * encaixe existe para passar por cima delas. Ignorar a ocupação, ao contrário,
+ * produz duas pessoas na mesma cadeira.
+ *
+ * Existe porque não há nada no schema que impeça a sobreposição: sem `exclude`
+ * com `tstzrange` nem índice, a única guarda do produto é esta leitura.
+ *
+ * O GOOGLE QUE ELA VÊ NÃO DEPENDE DE QUEM PERGUNTA (issue #879, PR #883). Até
+ * aqui dependia: a coleta chegava aos eventos pelo embed
+ * `calendar_connections!inner`, tabela cuja RLS só mostra a conexão ao próprio
+ * dono e a `manager`+, e para um `agent` marcando na agenda de OUTRA pessoa o
+ * Google dela ficava fora da conta — medido num Postgres descartável com o
+ * `baseline.sql`: dono 1 evento, gerente 1, atendente 0. `coletaOQueOcupa` lê
+ * agora por `fn_agenda_ocupacao_google_do_dono` (migration 0260), `security
+ * definer` que confere o pertencimento e devolve só ocupação — e a rota continua
+ * passando o client de SESSÃO. Vigiado no banco por
+ * `tests/invariants/agenda-ocupacao-google-do-dono.test.ts` e aqui por "o
+ * ENCAIXE do atendente em cima do Google do dono é RECUSADO".
+ */
+async function exigeSemSobreposicao(
+  supabase: SB,
+  ctx: HandlerCtx,
+  args: { donoId: string; inicio: Date; fim: Date; ignorarAgendamentoId?: string },
+): Promise<void> {
+  const oQueOcupa = await coletaOQueOcupa(supabase, ctx.organization_id, {
+    donoId: args.donoId,
+    de: args.inicio,
+    ate: args.fim,
+    ignorarAgendamentoId: args.ignorarAgendamentoId,
+  });
+  if (!oQueOcupa.ok) {
+    throw new ApiError(500, "internal_error", undefined, ctx.requestId, "Não foi possível conferir a agenda.");
+  }
+  const pedido = { inicio: args.inicio.getTime(), fim: args.fim.getTime() };
+  const cruza = oQueOcupa.ocupados.some((o) => colide(o.inicio.getTime(), o.fim.getTime(), pedido));
+  if (cruza) {
+    throw new ApiError(
+      422,
+      "agenda_horario_indisponivel",
+      undefined,
+      ctx.requestId,
+      "Este horário já está ocupado na agenda de quem atende — por outro compromisso ou pelo Google Agenda.",
+    );
+  }
+}
+
+/**
+ * `Actor` → o vocabulário de `calendar_appointments.created_by_kind`.
+ *
+ * ⚠️ O TOKEN DE SERVIDOR NÃO É A IA. Este ternário dizia `ai` para TUDO que não
+ * fosse pessoa, e a MESMA ação saía com duas autorias no MESMO request: a
+ * timeline, logo abaixo, grava `autorParaTimeline(ctx.actor.type)` — que manda
+ * `api_token` para `system` —, e a coluna do compromisso dizia `ai`. A tela
+ * (`ROTULO_DO_AUTOR`) anunciava "Marcado pelo atendente de IA" para compromisso
+ * que algoritmo nenhum escreveu (issue #866). Fora daqui, `actorParaAtividade`
+ * (lib/leads/activity-emitter.ts) e `especieDe` (lib/operacao/autoria.ts) já
+ * diziam o mesmo: quem age por token é o PRODUTO, não a IA.
+ *
+ * `webhook_source` continua `ai` — e isso é divergência CONHECIDA, não
+ * esquecimento: a automação do motor se apresenta como IA no balão da conversa
+ * (`components/inbox/MessageBubble.tsx`), e mover as duas colunas juntas é
+ * decisão de produto com efeito de leitura (as telas que contam "o que a IA
+ * marcou/falou" passam a excluir automação). Fica para issue própria, com o
+ * mesmo argumento escrito no mapeamento de `messages.sent_via`.
+ */
 function autorParaCriacao(actor: Actor): string {
-  return actor.type === "user" ? "user" : "ai";
+  if (actor.type === "user") return "user";
+  if (actor.type === "api_token") return "system";
+  return "ai";
 }
 
 /**
@@ -526,6 +757,8 @@ async function fecharOLaco(
     appointmentId: string;
     contactId: string | null;
     atividade: string | null;
+    /** Gatilho de automação, ou `null` quando a transição não é notícia para uma regra. */
+    gatilho: string | null;
     transicao: Transicao;
     fusoDoCompromisso: string;
     nomeDoTipo: string;
@@ -533,6 +766,56 @@ async function fecharOLaco(
   },
 ): Promise<void> {
   // Pendência Google é derivada da revisão publicável; não emite evento sem consumer.
+
+  // O gatilho de automação, ANTES de qualquer early-return. Ele não depende de
+  // haver negócio aberto: uma regra de "avise a cliente que confirmou" vale
+  // igual para quem não tem lead nenhum — e todo o resto desta função é sobre a
+  // timeline do lead, que é outra pergunta.
+  //
+  // Fire-and-forget, como a atividade: falhar em emitir NÃO pode desfazer um
+  // compromisso que já está gravado. O consumidor é o motor de regras
+  // (`lib/automation/engine.ts`), que casa por `trigger_event`.
+  //
+  // POR `emit_event`, E NUNCA POR INSERT EM `event_log` (issue #877). O
+  // `event_log` não tem policy PERMISSIVA de INSERT para `authenticated` — a
+  // `support_write_insert` é RESTRITIVA, só estreita. Pela tela o `supabase`
+  // daqui é o cliente da SESSÃO, então o INSERT direto voltava `new row
+  // violates row-level security policy` em TODA marcação e confirmação, o
+  // compromisso era gravado e nenhuma automação da Agenda rodava. A tool MCP
+  // não via o defeito porque chega com service role.
+  //
+  // `emit_event` é o caminho de evento de domínio do produto: security definer,
+  // executável por `authenticated`, e confere que quem chama é membro da
+  // organização (`fn_role_at_least`, que também cobre a sessão de suporte).
+  // Serve igual aos dois chamadores — o mesmo `registraFalhaDeAtividade` logo
+  // abaixo já emite assim. A organização vem do contexto autenticado.
+  if (args.gatilho) {
+    const { error } = await supabase.rpc("emit_event", {
+      p_organization_id: ctx.organization_id,
+      p_event_type: args.gatilho,
+      p_entity_kind: ENTIDADE_DO_AGENDAMENTO,
+      p_entity_id: args.appointmentId,
+      p_payload: {
+        appointment_id: args.appointmentId,
+        contact_id: args.contactId,
+        event_type_name: args.nomeDoTipo,
+        time_zone: args.fusoDoCompromisso,
+        transicao: args.transicao,
+      },
+      // `request_id` sem o prefixo `rule:` de propósito: ele correlaciona com o
+      // audit log e NÃO aciona o anti-loop do motor, que só barra o que uma
+      // regra causou.
+      p_metadata: { request_id: ctx.requestId },
+    });
+    if (error) {
+      logger.error("[agenda] gatilho de automação não foi emitido", {
+        appointment_id: args.appointmentId,
+        organization_id: ctx.organization_id,
+        gatilho: args.gatilho,
+        error: error.message,
+      });
+    }
+  }
 
   const leadId = args.contactId ? await leadAtivoDoContato(supabase, ctx, args.contactId) : null;
 

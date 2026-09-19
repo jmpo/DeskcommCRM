@@ -13,6 +13,8 @@ function payload(): ExportPayload {
     organization_id: "8c1d4e20-0000-4000-8000-000000000002",
     organization_legal_name: "Bem Viver Servicos Medicos LTDA",
     organization_display_name: "MARCA_DO_REVENDEDOR_NAO_USAR",
+    lei_citada: "LGPD Art. 18, II (Lei nº 13.709/2018)",
+    documento_rotulo: "CPF",
     dpo_email: "encarregado@bemviver.test",
     generated_at: "2030-01-02T13:05:00Z",
     no_local_footprint: false,
@@ -44,7 +46,14 @@ function payload(): ExportPayload {
         run_after: "2030-01-03T14:00:00Z",
       },
     ],
-    appointment_notices: [
+    voice_calls: [],
+    cases: [],
+    case_events: [],
+    case_chat_messages: [],
+    passagens: [],
+    avisos_de_caso: [],
+    demandas: [],
+  appointment_notices: [
       {
         id: "aviso-aberto",
         ref_id: "compromisso-confirmado",

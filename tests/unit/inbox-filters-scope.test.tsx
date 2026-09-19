@@ -34,8 +34,15 @@ vi.mock("@/hooks/channels/useChannelSessions", async (original) => {
   const real = await original<typeof CanaisModule>();
   return { ...real, useChannelSessions: () => ({ data: canaisRef.current }) };
 });
+/** `undefined` = vocabulário ainda carregando — não é "zero etiquetas". */
+const tagsRef: { current: string[] | undefined } = { current: [] };
+/** A OUTRA caixa: marcadores do contato. Separada para os casos da união. */
+const tagsDoContatoRef: { current: string[] | undefined } = { current: [] };
 vi.mock("@/hooks/inbox/useConversationTags", () => ({
-  useConversationTagVocabulary: () => ({ data: [] }),
+  useConversationTagVocabulary: () => ({ data: tagsRef.current }),
+}));
+vi.mock("@/hooks/contacts/useContactTagVocabulary", () => ({
+  useContactTagVocabulary: () => ({ data: tagsDoContatoRef.current }),
 }));
 vi.mock("@/hooks/inbox/useConversationCounts", () => ({
   useConversationCounts: () => ({ data: { unassigned: 3, mine: 2, all: 5 } }),
@@ -69,6 +76,8 @@ const SELETOR = "Filtrar por número de WhatsApp";
 beforeEach(() => {
   setOrg("agent", "own_and_unassigned");
   canaisRef.current = [];
+  tagsRef.current = [];
+  tagsDoContatoRef.current = [];
 });
 afterEach(cleanup);
 
@@ -151,6 +160,54 @@ describe("InboxFilters — seletor de número e o filtro órfão", () => {
     const seletor = screen.getByLabelText(SELETOR);
     expect(seletor).toBeInTheDocument();
     expect(seletor).toHaveTextContent("Número removido");
+  });
+
+  /**
+   * O MESMO tratamento, agora para a etiqueta.
+   *
+   * O canal já tinha: filtro apontando para algo fora da lista mantinha o seletor
+   * e nomeava o removido. A etiqueta não tinha — o seletor inteiro sumia com o
+   * filtro AINDA APLICADO, e a lista ficava num subconjunto, às vezes vazio, sem
+   * nada na tela dizendo que havia filtro nem como tirá-lo.
+   */
+  it("etiqueta fora do vocabulário: o seletor FICA e oferece a etiqueta órfã", () => {
+    setOrg("manager", "all");
+    tagsRef.current = [];
+    render(
+      <InboxFilters value={{ ...VALUE, tag: "etiqueta-orfa" }} onChange={() => {}} />,
+    );
+    const seletor = screen.getByLabelText("Filtrar por tag");
+    expect(seletor).toBeInTheDocument();
+    expect(seletor).toHaveTextContent("etiqueta-orfa");
+  });
+
+  /**
+   * O filtro da lista casa a caixa da CONVERSA ou a do CONTATO; o seletor tem
+   * de oferecer as duas. Cada caso abaixo vigia um lado: ler só a conversa
+   * esconde o marcador do contato (o relato do #1206), e ler só o contato
+   * esconde o que o atendente ou a IA marcou na conversa.
+   */
+  it("marcador que só existe no CONTATO faz o seletor aparecer", () => {
+    setOrg("manager", "all");
+    tagsDoContatoRef.current = ["vip"];
+    render(<InboxFilters value={VALUE} onChange={() => {}} />);
+    expect(screen.getByLabelText("Filtrar por tag")).toBeInTheDocument();
+  });
+
+  it("marcador que só existe na CONVERSA faz o seletor aparecer", () => {
+    setOrg("manager", "all");
+    tagsRef.current = ["reclamacao"];
+    render(<InboxFilters value={VALUE} onChange={() => {}} />);
+    expect(screen.getByLabelText("Filtrar por tag")).toBeInTheDocument();
+  });
+
+  it("CONTROLE: sem vocabulário e SEM filtro, o seletor de tag não aparece", () => {
+    // Sem este caso, mostrar o seletor SEMPRE passaria no de cima — e a barra
+    // ganharia um controle vazio em toda instalação que nunca usou etiqueta.
+    setOrg("manager", "all");
+    tagsRef.current = [];
+    render(<InboxFilters value={VALUE} onChange={() => {}} />);
+    expect(screen.queryByLabelText("Filtrar por tag")).not.toBeInTheDocument();
   });
 
   it("filtro que casa com a lista: nada de 'Número removido'", () => {

@@ -2,7 +2,7 @@ import type { JobClaim } from "@/lib/agent-engine/queue/claim";
 import { assertAgendaEffectSupabase } from "@/lib/agenda/efeito";
 import { AgendaDeferredError } from "@/lib/agenda/protecao-followup";
 import type { ServiceBoundary } from "@/lib/atendimento/fronteira";
-import { StaleServiceBoundaryError } from "@/lib/atendimento/fronteira";
+import { isFollowupCasRecusado, StaleServiceBoundaryError } from "@/lib/atendimento/fronteira";
 import { assertServiceBoundarySupabase } from "@/lib/atendimento/origem";
 /**
  * Follow-up flow engine — worker tick (Task 4.1). Orchestrates DB access
@@ -27,12 +27,14 @@ import {
   ehConfirmacao,
   latestRepeatIndex,
   occupancyEventCount,
+  rechecksOciososDaAcao,
   actionTurnCompleted,
   processNode,
   repeatTakenFromEvents,
   repeatTotalFromEvents,
   resolveWaitPhase,
   selectEdge,
+  ultimoDesfechoDe,
   type EnrollmentEventRef,
   type EnrollmentOutcome,
   type EnrollmentRow,
@@ -41,6 +43,10 @@ import {
   type NodeResult,
 } from "./node-handlers";
 import { coletarEsperasAdaptativas, type EsperaAdaptativa, type TimingPlan } from "./timing-plan";
+import {
+  avisoDeRecuperacaoEsgotada,
+  type AvisoRecuperacaoEsgotada,
+} from "./no-show-recuperacao-esgotada";
 import { interpolarDestino, persistirRespostaFollowupSupabase } from "./persistir-resposta";
 
 const MAX_STEPS = 80;
@@ -125,6 +131,13 @@ export interface AdminClient {
   updateEnrollment(id: string, orgId: string, patch: EnrollmentPatch): Promise<void>;
   loadFlowPointerName(orgId: string, pointerId: string): Promise<string | null>;
   insertDeadInboxItem(item: { organization_id: string; title: string; body: string; ref_id: string }): Promise<void>;
+  /**
+   * Régua de recuperação de falta esgotada sem resposta — abre um item na
+   * Central referenciando o COMPROMISSO. Opcional: só a produção precisa; os
+   * adaptadores de teste que não exercitam no-show podem omitir. Ver
+   * `no-show-recuperacao-esgotada.ts`.
+   */
+  abrirAvisoRecuperacaoEsgotada?(item: AvisoRecuperacaoEsgotada): Promise<void>;
   persistirRespostaFollowup(input: {
     organization_id: string;
     contact_id: string;
@@ -449,6 +462,16 @@ async function applyResult(
       break;
   }
 
+  // Aviso ANTES do `status='completed'`, mesma ordem (e mesma razão) de
+  // `markDead`: se cair entre as duas escritas, o enrollment continua
+  // claimable e um tick futuro re-executa `complete` → re-tenta o aviso (o
+  // índice único da 0224 torna a repetição um no-op). A ordem inversa
+  // arriscaria o aviso NUNCA sair.
+  const avisoEsgotada = avisoDeRecuperacaoEsgotada(enrollment, result, isReplay);
+  if (avisoEsgotada) {
+    await db.abrirAvisoRecuperacaoEsgotada?.(avisoEsgotada);
+  }
+
   await db.updateEnrollment(enrollment.id, enrollment.organization_id, patch);
 
   if (
@@ -516,6 +539,33 @@ async function processEnrollment(
       return;
     }
     if (!(error instanceof StaleServiceBoundaryError)) throw error;
+    // ⚠️ A ESPERA LONGA MORRE AQUI, E NÃO PODE MORRER CALADA.
+    //
+    // A fronteira é congelada quando a inscrição nasce, e fica stale quando a
+    // conversa fecha, a demanda fecha ou `service_revision` muda — o que, num
+    // retorno de semanas, é provável e é justamente o que caracteriza um
+    // retorno: o atendimento que o originou ACABOU. Quem espera dias volta e
+    // encontra a inscrição cancelada com um motivo que parece rotina.
+    //
+    // Reancorar aqui não é opção: `beginServiceAtOrigin` é explícito em
+    // "nunca usado por job/tick/retry", e fronteira nula é recusada de
+    // propósito (`assertCurrentServiceBoundary`, e o teste que a vigia). Enquanto
+    // a decisão de arquitetura não vem, o dever é tornar a perda VISÍVEL — um
+    // acompanhamento que some sem aviso é a ilha que a doutrina proíbe.
+    if (enrollment.status === "dormente") {
+      const nome =
+        (await db.loadFlowPointerName(enrollment.organization_id, enrollment.pointer_id)) ??
+        enrollment.pointer_id;
+      await db.insertDeadInboxItem({
+        organization_id: enrollment.organization_id,
+        title: "Um retorno programado não pôde ser enviado",
+        body:
+          `O fluxo "${nome}" esperava a data do retorno, mas o atendimento que o originou ` +
+          `foi encerrado ou substituído no meio da espera, e o envio foi cancelado ` +
+          `(enrollment ${enrollment.id}). Fale com o contato por outro caminho se ainda fizer sentido.`,
+        ref_id: enrollment.id,
+      });
+    }
     await db.updateEnrollment(enrollment.id, enrollment.organization_id, { status: "cancelled", cancel_reason: "Atendimento encerrado ou substituído", claimed_until: null, completed_at: clock().toISOString() });
     return;
   }
@@ -541,6 +591,8 @@ async function processEnrollment(
     lead_stage: leadRow.lead_stage,
     tags: leadRow.tags,
     steps_taken: enrollment.steps_taken,
+    // Preenchido LOGO ABAIXO, depois que os eventos forem lidos: o desfecho do
+    // passo anterior é dado que mora nos eventos, não na linha do lead.
     last_outcome: null,
     contact_name: leadRow.contact_name ?? null,
     custom_fields: leadRow.custom_fields,
@@ -565,10 +617,18 @@ async function processEnrollment(
     node.type === "ai_classify" ||
     node.type === "match_reply" ||
     node.type === "action" ||
-    node.type === "repeat";
+    node.type === "repeat" ||
+    // O `condition` só entra aqui por causa de `last_outcome`: o desfecho do
+    // passo anterior mora nos eventos (evento `ai_classified`), e sem lê-los o
+    // motor avaliava a condição contra `null` fixo — controle decorativo.
+    node.type === "condition";
 
   if (precisaEventos) {
     events = await db.loadEnrollmentEvents(enrollment.id);
+  }
+
+  if (node.type === "condition") {
+    lead.last_outcome = ultimoDesfechoDe(events);
   }
 
   if (vaiPlanejar) {
@@ -591,7 +651,10 @@ async function processEnrollment(
     }
     if (node.type === "action") {
       actionEnqueued = waitElapsed;
-      actionRecheckCount = occupancyEventCount(events, node.id);
+      // NÃO é `occupancyEventCount`: o dead-man mede ociosidade DESDE A ÚLTIMA
+      // prova de vida do turno, e um adiamento de janela é prova de vida. Ver
+      // `rechecksOciososDaAcao` / `EVENTO_ACAO_ADIADA` em node-handlers.ts.
+      actionRecheckCount = rechecksOciososDaAcao(events, node.id);
       actionCompleted = actionTurnCompleted(events, node.id);
     }
   }
@@ -795,14 +858,14 @@ export function createSupabaseAdminClient(admin: SupabaseClient): AdminClient {
       const revision=revisions.get(id);if(revision===undefined) throw new StaleServiceBoundaryError();
       const {data,error}=await admin.rpc("fn_followup_apply_step",{p_org:orgId,p_id:id,p_revision:revision,p_patch:patch,p_event:event});
       if(error?.code==="23505") return;
-      if(error?.code==="40001") throw new StaleServiceBoundaryError();
+      if(isFollowupCasRecusado(error)) throw new StaleServiceBoundaryError();
       if(error) throw error;revisions.set(id,Number(data));
     },
     async updateEnrollment(id, orgId, patch) {
       const revision=revisions.get(id);
       if(revision===undefined) throw new StaleServiceBoundaryError();
       const {data,error}=await admin.rpc("fn_followup_patch",{p_org:orgId,p_id:id,p_revision:revision,p_patch:patch});
-      if(error?.code==="40001") throw new StaleServiceBoundaryError();
+      if(isFollowupCasRecusado(error)) throw new StaleServiceBoundaryError();
       if(error) throw new Error(error.message);
       revisions.set(id,Number(data));
     },
@@ -827,6 +890,71 @@ export function createSupabaseAdminClient(admin: SupabaseClient): AdminClient {
         ref_id: item.ref_id,
       });
       if (error) throw new Error(error.message);
+    },
+    async abrirAvisoRecuperacaoEsgotada(item) {
+      // ── A GUARDA DE ANONIMIZAÇÃO DESTA PORTA (issue #701) ──
+      //
+      // Esta é a QUARTA porta para `appointment_recovery_review`, e era a única
+      // sem guarda: as outras três moram em SQL — `fn_meet_redact_contact`
+      // resolve os avisos abertos, `fn_appointment_recover` recusa contato
+      // anonimizado, e há um bloco de cura no histórico — e quem escreve este
+      // `kind` pelo TypeScript não as encontra.
+      //
+      // Sem guarda, a régua de um contato anonimizado chega ao fim e abre um
+      // aviso apontando para o compromisso que a anonimização tinha desligado:
+      // o aviso ressuscitando o vínculo que a LGPD mandou cortar.
+      //
+      // A checagem vem ANTES do insert porque o PostgREST não expressa
+      // `insert ... select` — é por isso que o adaptador pg de `turn-bridge.ts`
+      // guarda dentro da escrita, e este não pode. O que sustenta esta versão é
+      // a CASCATA: desde esta issue ela cancela `followup_enrollments` do mesmo
+      // contato, então uma régua viva aqui é uma régua que existia ANTES da
+      // redação (a corrida de um turno já reivindicado é o que a guarda cobre).
+      //
+      // Ler em duas consultas simples, e não com `contacts!inner(is_anonymized)`
+      // num join embutido, pelo mesmo motivo declarado em `lib/lgpd/cascata.ts`:
+      // o join embutido depende do nome da FK e nenhum teste local o exercita.
+      const { data: compromisso, error: compromissoErr } = await admin
+        .from("calendar_appointments")
+        .select("contact_id")
+        .eq("organization_id", item.organization_id)
+        .eq("id", item.appointment_id)
+        .maybeSingle();
+      if (compromissoErr) throw new Error(compromissoErr.message);
+
+      const contatoId = (compromisso as { contact_id: string | null } | null)?.contact_id ?? null;
+      if (contatoId) {
+        const { data: contato, error: contatoErr } = await admin
+          .from("contacts")
+          .select("is_anonymized")
+          .eq("organization_id", item.organization_id)
+          .eq("id", contatoId)
+          .maybeSingle();
+        // Leitura que falha não vira aviso: a dúvida não pode ser respondida com
+        // uma escrita que ressuscita vínculo cortado.
+        if (contatoErr) throw new Error(contatoErr.message);
+        if ((contato as { is_anonymized: boolean | null } | null)?.is_anonymized === true) return;
+      }
+
+      const { error } = await admin.from("agent_inbox_items").insert({
+        organization_id: item.organization_id,
+        // Reusa o kind da 0224 (mesma família: "a recuperação desta falta
+        // precisa de olhar humano") — evita migration só para um rótulo, e a
+        // Central já sabe renderizar `ref_kind='appointment'`.
+        kind: "appointment_recovery_review",
+        severity: "warn",
+        title: "Cliente faltou e não respondeu à recuperação",
+        body:
+          "As mensagens de reengajamento pós-falta foram enviadas e o cliente não respondeu. " +
+          "Decida o próximo passo e mova o card no funil.",
+        ref_kind: "appointment",
+        ref_id: item.appointment_id,
+        appointment_revision: item.appointment_revision,
+      });
+      // 23505 = já há aviso para esta (compromisso, revisão): o índice único
+      // `inbox_appointment_revision_unique` (0224) garante um por revisão,
+      // inclusive depois de resolvido. Repetição é no-op, não erro.
+      if (error && error.code !== "23505") throw new Error(error.message);
     },
     async persistirRespostaFollowup(input) {
       await persistirRespostaFollowupSupabase(admin, input);

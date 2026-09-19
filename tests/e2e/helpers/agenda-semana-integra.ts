@@ -174,7 +174,7 @@ export async function escolherDiaDesenhado(page: Page, dias: readonly string[]):
     await page.getByTestId("mes-seguinte").click();
     await expect(
       page.locator('[data-testid^="dia-"][data-disponivel="true"]').first(),
-      "nem o mês seguinte oferece dia — a janela de busca do painel é de 30 dias",
+      "nem o mês seguinte oferece dia — a consulta deveria ter pedido o mês visível",
     ).toBeVisible({ timeout: 20_000 });
     candidatos = await disponiveis();
   }
@@ -254,7 +254,7 @@ async function diasCheios(page: Page): Promise<string[]> {
   await page.getByTestId("mes-seguinte").click();
   await expect(
     page.locator('[data-testid^="dia-"][data-disponivel="true"]').first(),
-    "nem o mês seguinte oferece dia — a janela de busca da tela é de 30 dias",
+      "nem o mês seguinte oferece dia — a consulta deveria ter pedido o mês visível",
   ).toBeVisible({ timeout: 20_000 });
   return varrer();
 }

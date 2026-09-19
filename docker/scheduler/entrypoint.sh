@@ -64,7 +64,7 @@ CRONS="
 * * * * *|25|api/v1/cron/recover-stuck-messages
 */5 * * * *|25|api/v1/cron/storage-redaction?limit=50
 */5 * * * *|25|api/v1/cron/snooze-watcher
-*/5 * * * *|25|api/v1/cron/attendant-heartbeat
+*/5 * * * *|60|api/v1/cron/handoff-devolucao
 */5 * * * *|60|api/v1/cron/webhook-log-retention
 */5 * * * *|45|api/v1/cron/channel-health
 */10 * * * *|60|api/v1/cron/contact-avatars
@@ -75,9 +75,34 @@ CRONS="
 # manda o que mudou). A volta é cara — varre calendário inteiro — e por isso
 # roda a cada 15.
 */5 * * * *|60|api/v1/cron/agenda-google-push
+# O LEMBRETE. A cada 5 minutos porque a antecedência é escolhida pelo dono no
+# tipo de agendamento; uma varredura mais lenta transformaria avisar 30 minutos
+# antes em avisar entre 30 e 45 minutos antes. Barato: só olha compromisso
+# confirmado, futuro e ainda não avisado.
+*/5 * * * *|45|api/v1/cron/agenda-reminder
+*/15 * * * *|45|api/v1/cron/agenda-expira-pendentes
 */15 * * * *|60|api/v1/cron/risk-watcher
+# O CASO PARADO. De hora em hora, e não a cada 5 minutos: o prazo é de 24h, e
+# uma varredura mais frequente só gastaria consulta para descobrir o mesmo nada.
+7 * * * *|60|api/v1/cron/case-stale-watcher
 */30 * * * *|60|api/v1/cron/contact-phones
 17 * * * *|60|api/v1/cron/contact-proposals-watcher
+23 * * * *|60|api/v1/cron/followup-sem-agente
+# O ANIVERSÁRIO. De hora em hora, e não uma vez ao dia, porque quem decide o
+# momento é o relógio de parede de CADA organização: a rodada só age naquela
+# cujo fuso marca a hora de parabenizar. Uma varredura diária em UTC felicitaria
+# no dia errado metade do mundo e de madrugada boa parte do resto. Barato: quem
+# não configurou a automação não chega a ser varrido.
+7 * * * *|60|api/v1/cron/contact-birthdays
+# A DATA DO FUNIL (#989). Mesma cadência e mesmo motivo do aniversário: de hora
+# em hora, e quem decide o momento é o relógio de parede de CADA organização —
+# a rodada só age naquela que marca a hora da varredura. Minuto diferente do
+# aniversário para as duas não disputarem a mesma batida num self-host pequeno.
+23 * * * *|60|api/v1/cron/lead-date-field-due
+# O canal mudo (doc 11, decisão B): varredura de banco, sem rede, com régua em
+# DIAS. Diária e de madrugada porque o estado que ela lê muda em dias — de 5 em
+# 5 minutos seriam 288 varreduras para nada, e o aviso chegaria na mesma hora.
+50 5 * * *|60|api/v1/cron/canal-mudo-watcher
 0 12 * * *|60|api/v1/cron/lgpd-sla-watcher
 30 3 * * *|120|api/v1/cron/kb-conversations-batch
 15 4 * * *|60|api/v1/cron/sync-model-catalog

@@ -13,10 +13,18 @@ import {
   ShieldCheck,
   CalendarBlank,
   Palette,
+  Key,
+  EnvelopeSimple,
+  Gear,
+  Plugs,
+  WebhooksLogo,
   ArrowRight,
+  Lock,
 } from "@/lib/ui/icons";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
+import { SimboloDoProduto } from "@/components/branding/MarcaDoProduto";
+import { marcaEhADoProduto } from "@/lib/branding";
 import { useMarcaDaInstalacao } from "@/lib/branding/contexto";
 import { useT } from "@/hooks/i18n/useT";
 
@@ -44,6 +52,40 @@ const NAV_ITEMS: NavItem[] = [
   // A porta da tela do app OAuth do Google — mesma razão da de cima: é
   // configuração da INSTALAÇÃO, e /admin tem navegação própria.
   { href: "/admin/google", label: "Google Agenda", icon: CalendarBlank },
+  // A porta da tela do App da Meta (chave secreta e token de verificação do
+  // webhook) — mesma razão da de cima: é da INSTALAÇÃO. O rótulo é o da aba de
+  // Conexões, para quem vem de lá reconhecer o mesmo nome.
+  { href: "/admin/meta", label: "API Oficial (Meta)", icon: WebhooksLogo },
+  // A porta da tela que decide quem pode criar conta nesta instalação — mesma
+  // razão das duas de cima: é configuração da INSTALAÇÃO, e /admin tem
+  // navegação própria (o registro de `lib/navigation/` cobre só `app/app/**`).
+  { href: "/admin/cadastro", label: "Cadastro", icon: Key },
+  // A porta da tela do servidor de e-mail (SMTP) — mesma razão das de cima: um
+  // servidor de e-mail manda o e-mail de todas as empresas desta VPS, então é
+  // configuração da INSTALAÇÃO, e /admin tem navegação própria (o registro de
+  // `lib/navigation/` cobre só `app/app/**`). O rótulo é "E-mail" e não "SMTP"
+  // porque quem instala não precisa conhecer a sigla para achar a tela.
+  { href: "/admin/email", label: "E-mail", icon: EnvelopeSimple },
+  // A porta da tela do COMPORTAMENTO da instalação (issue #1034) — mesma razão
+  // das três de cima: são chaves da INSTALAÇÃO, e /admin tem navegação própria.
+  // O rótulo é o do assunto da tela para quem chega por aqui sabendo o que foi
+  // mexer, e não o nome de um arquivo de configuração.
+  { href: "/admin/sistema", label: "Comportamento", icon: Gear },
+  // A porta da tela que libera endereços da rede interna (decisão 22-d, #1004).
+  // Mesma razão das de cima: o objeto é a MÁQUINA, não uma empresa — e a
+  // decisão pede explicitamente que o lugar onde o dono controla seja visível.
+  // Sem esta linha a tela existiria e só se chegaria nela digitando a URL.
+  { href: "/admin/destinos-internos", label: "Destinos internos", icon: Plugs },
+  // A porta das CREDENCIAIS da instalação (migration 0341): a chave do serviço
+  // de e-mail, o remetente, os contatos — o que antes só se trocava por SSH.
+  //
+  // ⚠️ RÓTULO E ÍCONE ESCOLHIDOS CONTRA A VIZINHA DE CIMA. A tela
+  // "Comportamento" (/admin/sistema, issue #1034) nasceu em paralelo e usa
+  // `Gear`. Uma segunda engrenagem chamada "Configuração" ao lado dela deixaria
+  // o operador sem saber qual abrir — "comportamento" e "configuração" são quase
+  // sinônimos para quem não programa. "Credenciais" diz o que tem lá dentro, e
+  // o cadeado diz que é algo guardado.
+  { href: "/admin/configuracao", label: "Credenciais", icon: Lock },
 ];
 
 interface AdminSidebarProps {
@@ -71,7 +113,11 @@ export function AdminSidebar({ userEmail, variant = "desktop" }: AdminSidebarPro
         isMobile ? "h-full w-full" : "hidden w-60 shrink-0 lg:flex",
       )}
     >
-      <div className="flex h-14 items-center border-b px-4">
+      <div className="flex h-14 items-center gap-3 border-b px-4">
+        {/* O nome já está escrito ao lado — o símbolo é reforço, não legenda. */}
+        {marcaEhADoProduto(marca) && (
+          <SimboloDoProduto nome={marca.name} decorativo className="h-8 w-8" />
+        )}
         <div className="flex flex-col">
           <span className="text-xs uppercase tracking-wider text-muted-foreground">
             {marca.name}

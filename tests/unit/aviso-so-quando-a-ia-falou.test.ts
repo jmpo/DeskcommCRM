@@ -57,6 +57,7 @@ describe("as guardas do aviso ao lead", () => {
       ENTRADA,
     );
     expect(r.avisado).toBe(false);
+    if (r.avisado) throw new Error("guarda não barrou");
     expect(r.porque).toBe("ia_nunca_falou_nesta_conversa");
   });
 
@@ -84,6 +85,9 @@ describe("as guardas do aviso ao lead", () => {
     // passa das guardas; o envio em si falha no dublê (sem handler real), e o
     // contrato do orquestrador é NUNCA lançar — o que se mede é que as guardas
     // não barraram por motivo de guarda.
-    expect(r.porque === "ia_nunca_falou_nesta_conversa" || r.porque === "aviso_ja_enviado_na_janela").toBe(false);
+    const barradoPorGuarda =
+      !r.avisado &&
+      (r.porque === "ia_nunca_falou_nesta_conversa" || r.porque === "aviso_ja_enviado_na_janela");
+    expect(barradoPorGuarda).toBe(false);
   });
 });

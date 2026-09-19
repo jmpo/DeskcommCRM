@@ -1,17 +1,61 @@
 /**
  * Zod schemas for webhook-sources e automation-rules (feature Webhooks, Task 12).
- * TRIGGER_EVENTS deve espelhar exatamente os 5 eventos que o motor
- * (`lib/automation/engine.ts` → EXPECTED_ENTITY_KIND) reconhece.
+ *
+ * `ENTIDADE_ESPERADA_POR_GATILHO`, logo abaixo, é a fonte única dos gatilhos:
+ * `lib/automation/engine.ts` e `lib/automation/engine.handler.ts` leem daqui.
+ * (Este cabeçalho já afirmou "exatamente os 5 eventos" — número que envelheceu
+ * na primeira vez que alguém acrescentou um. Agora não há número a envelhecer.)
  */
 import { z } from "zod";
 
-export const TRIGGER_EVENTS = [
-  "lead.created",
-  "lead.stage_changed",
-  "message.received",
-  "lead.tag_added",
-  "contact.tag_added",
-] as const;
+import {
+  GATILHO_DE_DATA_DO_FUNIL,
+  configDoGatilhoDeData,
+} from "@/lib/automation/gatilho-de-data-do-funil";
+
+/**
+ * Os gatilhos que o motor reconhece, e a entidade que cada um tem que trazer.
+ *
+ * É UMA FONTE, e não três, porque as três divergiam: este arquivo listava os
+ * gatilhos para o Zod, `engine.ts` repetia o mapa de entidade, e
+ * `engine.handler.ts` repetia a lista de novo para se registrar no dispatcher.
+ * Acrescentar um gatilho exigia lembrar dos três lugares, e esquecer o terceiro
+ * produz o pior desfecho possível: a regra aparece na tela, o operador a salva,
+ * o evento acontece — e nada roda, porque o handler não assinou aquele evento.
+ * Sem erro, sem log, sem run.
+ *
+ * A entidade existe porque o trigger legado `fn_emit_event_on_lead_change` emite
+ * `lead.created` com `entity_kind='lead'` (derivado por `split_part` do
+ * event_type) enquanto os handlers desta feature emitem `crm_lead`. Sem o guard,
+ * o motor rodaria a regra duas vezes por mudança de lead.
+ */
+export const ENTIDADE_ESPERADA_POR_GATILHO = {
+  "lead.created": "crm_lead",
+  "lead.stage_changed": "crm_lead",
+  "message.received": "message",
+  "lead.tag_added": "crm_lead",
+  "contact.tag_added": "contact",
+  // O aniversário nasce do cron `contact-birthdays`, e não de uma ação de
+  // alguém: a entidade que ele traz é o próprio contato que faz aniversário.
+  "contact.birthday": "contact",
+  "appointment.created": "calendar_appointment",
+  "appointment.confirmed": "calendar_appointment",
+  "appointment.rescheduled": "calendar_appointment",
+  "appointment.cancelled": "calendar_appointment",
+  // O gatilho de DATA do funil (#989) também nasce do relógio, e não de uma
+  // ação de alguém — quem o emite é a varredura `lead-date-field-due`, e a
+  // entidade que ele traz é o NEGÓCIO dono do campo de data. É `crm_lead`, e
+  // não `lead`: é a entidade que os handlers desta feature emitem, e a que o
+  // `buildContext` do motor sabe hidratar (o negócio, e o contato dele).
+  "lead.date_field_due": "crm_lead",
+} as const;
+
+export type GatilhoDeAutomacao = keyof typeof ENTIDADE_ESPERADA_POR_GATILHO;
+
+export const TRIGGER_EVENTS = Object.keys(ENTIDADE_ESPERADA_POR_GATILHO) as [
+  GatilhoDeAutomacao,
+  ...GatilhoDeAutomacao[],
+];
 
 export const conditionSchema = z.object({
   field: z.string().min(1).max(200),
@@ -72,15 +116,63 @@ export const updateWebhookSourceSchema = createWebhookSourceSchema.partial().ext
   is_active: z.boolean().optional(),
 });
 
-export const createAutomationRuleSchema = z.object({
-  name: z.string().min(1).max(120),
-  trigger_event: z.enum(TRIGGER_EVENTS),
-  conditions: z.array(conditionSchema).max(10).default([]),
-  actions: z.array(actionSchema).min(1).max(10),
-});
-export const updateAutomationRuleSchema = createAutomationRuleSchema.partial().extend({
-  is_active: z.boolean().optional(),
-});
+export const createAutomationRuleSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    trigger_event: z.enum(TRIGGER_EVENTS),
+    conditions: z.array(conditionSchema).max(10).default([]),
+    actions: z.array(actionSchema).min(1).max(10),
+    /**
+     * O que o gatilho precisa saber além do nome dele (#989).
+     *
+     * Só o gatilho de DATA do funil usa: o campo de data é de UM funil
+     * (`pipelines.settings.fields`), então a regra guarda funil + campo + N. Os
+     * outros gatilhos nascem de um evento que já traz tudo, e seguem com o
+     * objeto vazio.
+     */
+    trigger_config: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine(exigirConfigDoGatilhoDeData);
+
+/**
+ * O gatilho de data sem a configuração dele é uma regra que NUNCA dispara — a
+ * varredura não sabe onde olhar. Recusar na porta é o único desfecho honesto:
+ * aceitar calado produziria a tela dizendo "salvo" e o operador esperando.
+ */
+function exigirConfigDoGatilhoDeData(
+  regra: { trigger_event: string; trigger_config?: Record<string, unknown> },
+  ctx: z.RefinementCtx,
+): void {
+  if (regra.trigger_event !== GATILHO_DE_DATA_DO_FUNIL) return;
+  if (configDoGatilhoDeData(regra.trigger_config)) return;
+  ctx.addIssue({
+    code: "custom",
+    path: ["trigger_config"],
+    message: "Escolha o funil, o campo de data e em quantos dias avisar.",
+  });
+}
+
+export const updateAutomationRuleSchema = z
+  .object({
+    name: z.string().min(1).max(120).optional(),
+    trigger_event: z.enum(TRIGGER_EVENTS).optional(),
+    conditions: z.array(conditionSchema).max(10).optional(),
+    actions: z.array(actionSchema).min(1).max(10).optional(),
+    trigger_config: z.record(z.string(), z.unknown()).optional(),
+    is_active: z.boolean().optional(),
+  })
+  .superRefine((patch, ctx) => {
+    // O PATCH que troca o gatilho PARA o de data, sem mandar a configuração,
+    // deixaria a regra existindo e jamais disparando — mesmo defeito da criação,
+    // pela porta do lado.
+    if (patch.trigger_event !== GATILHO_DE_DATA_DO_FUNIL) return;
+    if (configDoGatilhoDeData(patch.trigger_config)) return;
+    ctx.addIssue({
+      code: "custom",
+      path: ["trigger_config"],
+      message: "Escolha o funil, o campo de data e em quantos dias avisar.",
+    });
+  });
 
 export type CreateWebhookSourceInput = z.infer<typeof createWebhookSourceSchema>;
 export type UpdateWebhookSourceInput = z.infer<typeof updateWebhookSourceSchema>;

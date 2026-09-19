@@ -1,4 +1,6 @@
+import { perfilDoPais, type DocumentoDoTitular } from "@/lib/legal/perfil-do-pais";
 import { normalizePhoneBR } from "@/lib/webhooks/inbound";
+import { normalizarTags } from "@/lib/contacts/tag-normalizada";
 /**
  * Parser de CSV para importação de contatos — RFC 4180, zero dependências.
  *
@@ -75,7 +77,33 @@ import { normalizePhoneBR } from "@/lib/webhooks/inbound";
  */
 const MAX_BYTES_POR_SUBSTITUICAO = 100;
 
-export function decodificarCsv(bytes: ArrayBuffer | Uint8Array): { texto: string } | { erro: string } {
+/** Ou o texto saiu legível, ou o arquivo não é texto. Não existe terceiro estado. */
+export type BytesDecodificados = { texto: string } | { binario: true };
+
+/**
+ * A decisão de codificação deste repo, sobre os BYTES — uma só, para todo
+ * arquivo que chega de fora.
+ *
+ * Quem chama: `decodificarCsv` (as três rotas de importação de planilha, #483)
+ * e o extrator de Markdown do acervo de conhecimento
+ * (`lib/ai/rag/extractors/markdown.ts`, #531). O segundo fazia
+ * `buffer.toString("utf8")` e o `.txt` que o Bloco de Notas salva em cp1252 —
+ * padrão de quem monta base de conhecimento no Windows — entrava com mojibake
+ * na base que o agente lê para o cliente. Duas regras de charset aqui seriam
+ * duas respostas para a mesma pergunta, e a que ninguém lembrar de atualizar é
+ * a que envelhece.
+ *
+ * Devolve `{ binario: true }` — o `.xlsx` renomeado, o UTF-16 com acento — em
+ * vez de texto de aparência plausível: quem traduz isso na frase da tela é o
+ * chamador, que sabe o que a pessoa pediu.
+ *
+ * ⚠️ O que isto NÃO alcança, e vale para os dois chamadores: UTF-16 só de ASCII
+ * (sem acento, com um NUL entre cada letra) é UTF-8 VÁLIDO, não produz U+FFFD
+ * nenhum e passa como texto — a recusa só pega o UTF-16 que tem byte alto. O
+ * mojibake da ORIGEM ("AÃ§Ã£o" já gravado por quem gerou o arquivo) também
+ * passa, porque também é UTF-8 válido. São outros defeitos, com outra prova.
+ */
+export function decodificarBytesDeTexto(bytes: ArrayBuffer | Uint8Array): BytesDecodificados {
   const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 
   const utf8 = new TextDecoder("utf-8").decode(buf);
@@ -90,13 +118,26 @@ export function decodificarCsv(bytes: ArrayBuffer | Uint8Array): { texto: string
 
   const latin = new TextDecoder("windows-1252").decode(buf);
   // eslint-disable-next-line no-control-regex -- é exatamente o que se procura
-  if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(latin)) {
+  if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(latin)) return { binario: true };
+  return { texto: semBom(latin) };
+}
+
+/**
+ * O mesmo, com a frase da tela de importação de planilha.
+ *
+ * A decisão não mora aqui: este é o CSV sobre a regra acima — a leitura que as
+ * rotas de contatos, leads e produtos chamam. Ele continua sendo o nome público
+ * que o #483 deixou; a regra é que passou a ter nome de gente.
+ */
+export function decodificarCsv(bytes: ArrayBuffer | Uint8Array): { texto: string } | { erro: string } {
+  const decodificado = decodificarBytesDeTexto(bytes);
+  if ("binario" in decodificado) {
     return {
       erro:
         "Este arquivo não parece ser um CSV de texto. No Excel use “Salvar como” → “CSV UTF-8 (delimitado por vírgulas)”.",
     };
   }
-  return { texto: semBom(latin) };
+  return decodificado;
 }
 
 /** O BOM vira caractere invisível no primeiro cabeçalho e cria coluna fantasma. */
@@ -228,17 +269,29 @@ function normalizaHeader(h: string): string {
  * Retorna null com o motivo quando o cabeçalho não traz NENHUM identificador
  * (telefone/e-mail) — sem isso nada importável existe, e falhar aberto é
  * melhor que criar 300 contatos vazios.
+ *
+ * `documento` é o documento do TITULAR no país da organização
+ * (`lib/legal/perfil-do-pais.ts`): quem importa no Brasil tem "CPF" no Excel, e
+ * no país do perfil tem o nome local ("Bilhete de Identidade", "Documento"). A
+ * coluna do banco continua `cpf` em todos os casos — o vocabulário de TELA
+ * muda, o schema não. Ausente, vale o perfil brasileiro (o de antes).
  */
 export function mapHeader(
   header: string[],
   t?: (text: string) => string,
+  documento?: DocumentoDoTitular,
 ): { indices: Record<string, number>; motivo: string | null } {
   const _t = t || ((x) => x);
+  const doc = documento ?? perfilDoPais(null).documento;
+  const aliases: Record<string, readonly string[]> = {
+    ...HEADER_ALIASES,
+    cpf: [...(HEADER_ALIASES.cpf ?? []), ...doc.apelidosDoCabecalho],
+  };
   const indices: Record<string, number> = {};
   header.forEach((rawCell, idx) => {
     const cell = normalizaHeader(rawCell);
-    for (const [campo, aliases] of Object.entries(HEADER_ALIASES)) {
-      if (aliases.includes(cell) && indices[campo] === undefined) {
+    for (const [campo, lista] of Object.entries(aliases)) {
+      if (lista.includes(cell) && indices[campo] === undefined) {
         indices[campo] = idx;
         break;
       }
@@ -322,8 +375,10 @@ export function mapLinha(
   cells: string[],
   indices: Record<string, number>,
   t?: (text: string) => string,
+  documento?: DocumentoDoTitular,
 ): { contato: LinhaNormalizada; motivo: string | null } {
   const _t = t || ((x) => x);
+  const doc = documento ?? perfilDoPais(null).documento;
   const get = (campo: string): string => {
     const idx = indices[campo];
     return idx === undefined ? "" : (cells[idx] ?? "").trim();
@@ -363,7 +418,12 @@ export function mapLinha(
     return { contato: {}, motivo: _t("linha sem telefone nem e-mail") };
   }
 
-  const cpf = get("cpf").replace(/\D/g, "");
+  // O documento é normalizado pelo PERFIL do país, e não por `replace(/\D/g,"")`:
+  // no Brasil a regra é manter os 11 dígitos (o mod-11 confere depois), mas o
+  // documento de outro país pode ter LETRA no meio — o `\D` apagava a letra e
+  // gravava um valor que não é o documento de ninguém (medido na issue #1033:
+  // `003862011LA042` virava `003862011042`). O perfil sabe o que preservar.
+  const cpf = doc.normaliza(get("cpf"));
   if (cpf !== "") contato.cpf = cpf;
 
   const birthdateRaw = get("birthdate");
@@ -380,11 +440,9 @@ export function mapLinha(
 
   const tagsRaw = get("tags");
   if (tagsRaw !== "") {
-    const tags = tagsRaw
-      .split(/[;|]/)
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .slice(0, 20);
+    // Caixa baixa e sem repetição pela MESMA regra da ficha e da API, para o
+    // filtro casar; o teto de 20 marcadores segue aqui (issue #1224).
+    const tags = normalizarTags(tagsRaw.split(/[;|]/)).slice(0, 20);
     if (tags.length > 0) contato.tags = tags;
   }
 

@@ -513,6 +513,52 @@ export class WahaClient {
   }
 
   /**
+   * O "digitando…" (e o "gravando…") no aparelho do cliente.
+   *
+   * ─── O contrato, e por que ele é diferente do resto deste arquivo ─────────
+   *
+   * A sessão vai no CAMINHO (`/api/{session}/presence`), não no corpo — ao
+   * contrário de `sendText`/`sendMedia`, que a levam no corpo. Não é escolha
+   * nossa: é como a doc do WAHA especifica a família de presença (a mesma que
+   * expõe `GET /api/{session}/presence/{chatId}`). Uniformizar "para ficar
+   * consistente" daria 404 em silêncio, e como quem chama falha macio, o
+   * sintoma seria um "digitando…" que nunca acende e nenhum erro em lugar
+   * nenhum.
+   *
+   * Valores aceitos: `online` e `offline` (sem `chatId`), `typing`, `recording`
+   * e `paused` (com `chatId`). Aqui só os que precisam de chat entram no tipo —
+   * `online`/`offline` mudariam a assinatura (o `chatId` sai) e ninguém os usa.
+   *
+   * ─── LANÇA, e isso é de propósito ────────────────────────────────────────
+   *
+   * A decisão de falhar macio é de QUEM CHAMA, não daqui: este cliente reporta
+   * o que aconteceu (mesmo `waha_<status>` dos demais métodos) e o chamador —
+   * `esperarComoHumano` — engole e loga. Engolir aqui esconderia de todo
+   * chamador futuro que a chamada nem sequer é suportada pelo engine.
+   *
+   * ⚠️ Nem todo engine implementa presença de fato. No NOWEB (o default deste
+   * produto) há relato de a chamada ser aceita e não surtir efeito visível. É
+   * mais um motivo para o atraso de tempo — e não o indicador — ser a parte do
+   * recurso que carrega o valor: o "digitando…" é bônus quando o engine
+   * coopera, nunca a condição do conserto.
+   */
+  async setPresence(
+    session: string,
+    chatId: string,
+    presence: "typing" | "recording" | "paused",
+  ): Promise<void> {
+    const res = await this.fetchComTeto(
+      `${this.baseUrl}/api/${encodeURIComponent(session)}/presence`,
+      {
+        method: "POST",
+        headers: { "X-Api-Key": this.apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ chatId, presence }),
+      },
+    );
+    if (!res.ok) throw new Error(`waha_${res.status}`);
+  }
+
+  /**
    * Confere se o número existe no WhatsApp e devolve o chatId canônico.
    * Obrigatório antes de vcard em BR — o nono dígito do CRM nem sempre bate com o wa_id.
    */

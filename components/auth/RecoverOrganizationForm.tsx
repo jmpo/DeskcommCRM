@@ -18,8 +18,16 @@ const MENSAGENS: Record<string, string> = {
   rate_limited: "Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.",
   invite_pending:
     "Esta conta tem um convite pendente ou inválido. Use o link do convite ou peça um novo ao administrador.",
+  somente_convite:
+    "Esta instalação aceita cadastro apenas por convite. Peça um convite a quem administra o sistema.",
   provision_failed:
     "Não foi possível concluir a organização agora. Tente novamente ou contate o administrador da instalação.",
+  // Diz a verdade sobre o que aconteceu. Antes, quem tinha o acesso revogado
+  // recebia a frase de `invite_pending` — por acaso, porque o convite ainda
+  // estava no `user_metadata` — e ia procurar um link de convite que não
+  // resolveria nada.
+  access_revoked:
+    "Seu acesso a esta organização foi retirado. Fale com quem administra a empresa — criar uma organização nova não devolve o acesso.",
 };
 
 /**

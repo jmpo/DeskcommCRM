@@ -54,7 +54,21 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
 - Wrapper sucesso: `{ data, meta?: { cursor, has_more, total } }`
 - Wrapper erro: `{ error: { code, message, details? } }` — usar helpers `ok()` / `fail()` de `lib/api/wrappers.ts`
 - Paginação: cursor opaco base64+HMAC por default
-- Auth dual: cookie session (frontend) OU `Authorization: Bearer tok_...` (server-to-server)
+- **Auth dual é a direção do produto, e ela se cumpre rota por rota.** Cookie de sessão para o
+  frontend; `Authorization: Bearer dsk_...` (linha de `api_tokens`, resolvida no servidor) para
+  chamada de servidor. O prefixo é **`dsk_`**, e quem o exige é `lib/mcp/auth.ts` — `tok_` nunca
+  existiu no código e estava escrito aqui, em `AGENTS.md` e na Spec 09 até 17/09/2026
+  - O helper é `lib/api/auth-dual.ts`, e habilitar uma rota é **por rota**: não há chave geral.
+    Para saber quais já aceitam bearer — o número muda, o comando não:
+    `git grep -ln "auth-dual" -- app/api/v1` (mais `app/api/v1/contacts/route.ts`, que implementou
+    o padrão inline e deu origem ao helper)
+  - **Chamar o helper na rota não basta:** o `proxy.ts` global roda antes de qualquer handler e só
+    reconhece cookie. Sem uma entrada em `lib/auth/public-paths.ts` para o caminho, todo bearer
+    recebe 401 do proxy antes de chegar ao handler. "Público" ali quer dizer "o proxy não decide",
+    nunca "sem autenticação"
+  - Decisão do dono do produto em 17/09/2026: **converter as rotas que cada integração precisar**,
+    conforme aparecerem, em vez de namespace paralelo por cliente. Uma rota convertida serve a todo
+    integrador. Contexto: PR #1008, que escreveu 26 rotas paralelas porque não achou por onde entrar
 - **API key NUNCA em query string** (vaza em logs Vercel/CF). Sempre header
 - Plaintext de bearer token mostrado **uma vez** na criação; depois apenas hash SHA256 no DB
 - Rate limit headers: `X-RateLimit-*` + `Retry-After` em 429
@@ -72,24 +86,47 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
 
 ### Audit log
 - Toda mutação POST/PATCH/DELETE bem-sucedida → 1 entrada em `api_audit_log` (fire-and-forget, p99 ≤500ms)
-- **Rodada de cron que não fez nada NÃO é mutação e não audita** — e a que fez, audita. `routing-worker` (1×/min) e `attendant-heartbeat` (1×/5min) auditavam incondicionalmente: ~51.840 linhas/mês numa instalação que não atende ninguém, e numa VPS real **95% do audit log** era batida de cron vazia (`docs/testing/user-journey-map.md`, achado 17). A guarda certa é *auditar quando houve efeito*, nunca *parar de auditar* — as duas direções são medidas por `tests/unit/cron-audita-so-quando-ha-efeito.test.ts`, que varre o AST de **toda** rota de `app/api/v1/cron/`
-- Audit é append-only, e isso é do SCHEMA e não da prosa: nenhum papel tem GRANT de UPDATE/DELETE em `api_audit_log` — **nem `service_role`**. Para conferir na fonte em vez de acreditar nesta linha:
+- **Rodada de cron que não fez nada NÃO é mutação e não audita** — e a que fez, audita. `routing-worker` (1×/min) e o extinto `attendant-heartbeat` (1×/5min, removido no #720) auditavam incondicionalmente: ~51.840 linhas/mês numa instalação que não atende ninguém, e numa VPS real **95% do audit log** era batida de cron vazia (`docs/testing/user-journey-map.md`, achado 17). A guarda certa é *auditar quando houve efeito*, nunca *parar de auditar* — as duas direções são medidas por `tests/unit/cron-audita-so-quando-ha-efeito.test.ts`, que varre o AST de **toda** rota de `app/api/v1/cron/`
+- Audit é append-only para os papéis do PostgREST, e isso é do SCHEMA e não da prosa: `anon`, `authenticated` e `service_role` não têm GRANT de UPDATE, DELETE **nem TRUNCATE** em `api_audit_log` — **nem `service_role`** (migration 0258). O dono (`postgres`) pode tudo, como em qualquer tabela: a garantia é sobre os papéis que o PostgREST assume, nunca absoluta. Para conferir na fonte em vez de acreditar nesta linha:
 
   ```bash
   psql "$SUPABASE_DB_URL" -c "select grantee, privilege_type from information_schema.role_table_grants
-    where table_name='api_audit_log' and privilege_type in ('DELETE','UPDATE','TRUNCATE');"
+    where table_schema='public' and table_name='api_audit_log'
+      and privilege_type in ('DELETE','UPDATE','TRUNCATE')
+      and grantee in ('anon','authenticated','service_role','PUBLIC');"
   ```
 
-  **`TRUNCATE` entra na consulta de propósito, e o resultado não é vazio.** Ele
-  está concedido a `anon`, `authenticated` e `service_role` — resíduo de o dump
-  enumerar os privilégios desta tabela (as demais recebem `GRANT ALL`, e quem as
-  protege é a RLS). Uma sonda que pergunte só por `DELETE`/`UPDATE` devolve zero
-  linhas e deixa quem leu concluindo que a tabela não pode ser esvaziada, quando
-  o privilégio que a esvazia INTEIRA está lá. Não é alcançável pela REST (o
-  PostgREST não emite `TRUNCATE`), então não é buraco de superfície — mas a
-  frase "append-only é do schema" só é inteira com esta ressalva escrita.
+  O resultado esperado é **vazio**. Sem o filtro de `grantee` aparecem as linhas
+  do dono `postgres` — e elas não são defeito.
+
+  **Até a 0258 a primeira frase deste item era falsa no Supabase real, com o
+  gate verde.** Todo projeto Supabase nasce com um default ACL de TABELAS em
+  `public` que concede tudo aos três papéis — confira com
+  `select defaclacl from pg_default_acl where defaclobjtype = 'r' and defaclnamespace = 'public'::regnamespace;`
+  —, e o `GRANT` enumerado que o dump emite para esta tabela só ACRESCENTA, não
+  retira. Com a service key, que ignora RLS, uma linha escolhida da auditoria
+  era apagada ou reescrita pela REST; `anon`/`authenticated` só não o faziam
+  porque a RLS não tem policy de UPDATE/DELETE.
+
+  **A lição que sobrevive ao conserto é sobre a régua, não sobre o grant.** A
+  sonda de `tests/invariants/retencao-poda-e-expurgo.test.ts` ficou verde duas
+  vezes medindo o universo errado: primeiro perguntando só por DELETE/UPDATE com
+  TRUNCATE concedido ao lado; depois perguntando pelos três num Postgres onde o
+  prelude de `scripts/test-db.sh` reproduzia o default ACL do Supabase só para
+  FUNÇÕES — um banco onde o defeito não podia existir. Desde a issue #887 o
+  prelude reproduz também o de TABELAS, e aquela sonda passou a medir o Supabase.
+  A prova com controle próprio segue sendo
+  `tests/invariants/audit-log-sob-o-default-acl-do-supabase.test.ts`: concede o
+  default ACL à tabela, reaplica o bloco da 0258 extraído do baseline e só então
+  sonda. **Enumerar privilégios no dump não protege tabela nenhuma no Supabase
+  real**; o que protege é `revoke` explícito no apêndice. Quais tabelas o dump
+  enumera em vez de `GRANT ALL`:
+
+  ```bash
+  grep -nE '^GRANT [A-Z,]+ ON TABLE' supabase/baseline.sql | grep -v 'GRANT ALL'
+  ```
 - **Retenção default de 5 anos, configurável, e agora EXECUTADA.** O expurgo é `public.fn_expurgar_auditoria_vencida` (`security definer`, **piso de 90 dias dentro do corpo**, revogada de anon/authenticated), chamada em lotes pelo cron `app/api/v1/cron/data-retention` (diário). O knob é `AUDIT_LOG_RETENTION_DAYS`. **Não há camada cold/S3** — o "hot 90 dias, cold (S3) o resto" que este arquivo afirmava por meses nunca existiu em código (auditoria de 2026-08-14: zero ocorrência de arquivamento), e um self-host não tem para onde arquivar: o Storage do cliente é a MESMA cota de 1 GB, já dividida com `whatsapp-media`. Para ver o que está em vigor: `grep -n "RETENCAO_AUDITORIA_DIAS" lib/retencao/politica.ts`
-- Por que uma `security definer` de expurgo não é porta de adulteração (o argumento inteiro está no cabeçalho da migration 0167): ela **não tem seletor de linha** — nenhum parâmetro de org, ator, ação ou id, e o único predicado é `created_at < now() - N dias`; o piso mora **no corpo**, não em quem chama; não é alcançável pela REST; não amplia o raio de quem já tem a service key; e **registra a própria erosão** (`retention.sweep_run`, com a contagem, numa linha nova demais para a chamada seguinte alcançar)
+- Por que uma `security definer` de expurgo não é porta de adulteração (o argumento inteiro está no cabeçalho da migration 0167): ela **não tem seletor de linha** — nenhum parâmetro de org, ator, ação ou id, e o único predicado é `created_at < now() - N dias`; o piso mora **no corpo**, não em quem chama; não é alcançável pela REST; é, desde a 0258, o **único** apagamento de auditoria ao alcance da service key — e não escolhe linha, só alcança a ponta mais velha que o piso; e **registra a própria erosão** (`retention.sweep_run`, com a contagem, numa linha nova demais para a chamada seguinte alcançar)
 - Falha de write em audit gera alerta Sentry, não bloqueia mutação principal
 
 ### LGPD
@@ -115,7 +152,7 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
   além do #275 (que só tinha coberto o vocabulário inequívoco) para o espanhol ganhar a
   camada ambígua e as construções com pronome preso ("escribirme"). Para ver o vocabulário
   em vigor sem confiar nesta linha:
-  `grep -n 'PALAVRAS_DE_OPT_OUT' -A20 lib/opt-out/deteccao.ts`, e as frases de controle em
+  `sed -n '/PALAVRAS_DE_OPT_OUT/,/^]/p' lib/opt-out/deteccao.ts | grep -E '^ *"'`, e as frases de controle em
   `tests/unit/opt-out-deteccao.test.ts`.
   O espanhol nasceu deste fork (PR #275, mergeado em 24/08) e foi refinado na upstream.
 - Mídia: subir pro Supabase Storage primeiro, passar URL ao WAHA (não inline base64)
@@ -258,6 +295,36 @@ ou qualquer arquivo à mão. Se exigir, não entra: vira issue com plano de
 migração e vai para uma major.
 ---
 
+## Extensões — DOUTRINA (NÃO NEGOCIÁVEL)
+
+Lei completa em [`docs/doctrine/extensoes.md`](docs/doctrine/extensoes.md); o
+contrato que existe hoje em
+[`docs/specs/extensoes-declarativas-v1.md`](docs/specs/extensoes-declarativas-v1.md).
+A pergunta que decide o destino de uma mudança não é "isto serve a muita gente?",
+e sim **"se nenhuma organização ativar isto, a operação comum continua inteira?"**.
+O não-negociável:
+
+1. **O núcleo continua útil com zero extensões.** Identidade, autorização,
+   isolamento, auditoria, contratos e cadeia de envio são núcleo; jornada de nicho,
+   aparência e integração com dados e manutenção próprios podem ser extensão.
+2. **Extensão pede capacidade nomeada; não importa código interno nem lê o banco.**
+   Instalar não concede autoridade: toda escrita revalida ator, organização e papel
+   atuais no banco.
+3. **A instância decide o pacote; a organização decide o uso.** Instalar, atualizar,
+   desfazer e remover são do administrador da instalação; ativar e configurar, do
+   administrador da organização. A plataforma não reativa decisão da organização.
+4. **Toda operação é recibo idempotente com saída pela tela, e toda troca de
+   ponteiro exige a revisão que a tela viu.** Tirar é lógico e preserva dados.
+5. **Não anunciar o que não existe** (SDK, código isolado, marketplace público), e
+   não extrair do núcleo recurso já distribuído sem equivalência e migração.
+6. **Módulo oficial com dados não põe tabela no baseline para todos**
+   ([ADR-0002](docs/adr/0002-tabelas-de-modulo-num-banco-so.md), aceita em 17/09/2026). Um banco
+   só, schema `public`; as tabelas nascem por função provisionadora fixa do módulo, quando ele é
+   **instalado na instância**. Ninguém opera segundo banco — é decisão do dono, e seria impossível
+   com chave estrangeira para o núcleo.
+
+---
+
 ## Como rodar local
 
 ```bash
@@ -275,7 +342,7 @@ Ver `README.md` pra detalhes de setup.
 ## Testes
 
 ```bash
-pnpm typecheck   # tsc --noEmit (estrito)
+pnpm typecheck   # tsc --noEmit -p tsconfig.typecheck.json (inclui tests/)
 pnpm lint        # eslint next/core-web-vitals
 pnpm test:unit   # Vitest (NÃO inclui tests/invariants/** — ver abaixo)
 pnpm test:db     # Postgres efêmero + baseline install/update + 364 invariantes
@@ -323,9 +390,51 @@ Duas armadilhas irmãs, as duas pagas no mesmo dia:
   ```
 
   Se não baterem, a sonda está cega — troque por `--reporter=verbose` e rode de
-  novo, em vez de acreditar no silêncio. (Comparar contra `Test Files` dá
+  novo, em vez de acreditar no silêncio.
+
+  **E as duas podem bater em zero com a suíte reprovada.** O Vitest sai com
+  `exit=1` quando há **erro não tratado** durante a execução, mesmo com todos os
+  testes passando — e esse erro aparece numa TERCEIRA linha do rodapé, que
+  nenhuma das duas sondas acima lê:
+
+  ```
+   Test Files  866 passed (866)
+        Tests  8904 passed | 1 expected fail (8905)
+       Errors  1 error          ← só o exit code viu isto
+  ```
+
+  Medido em 2026-09-15: `EnvironmentTeardownError: [vitest-worker]: Closing rpc
+  while "onUserConsoleLog" was pending`, sob carga. Rodapé `0 failed`, `grep FAIL`
+  vazio, exit 1. **O exit code é a autoridade; o rodapé e o grep são explicação
+  dele.** Quando o exit diverge dos dois, leia a linha `Errors` antes de concluir
+  qualquer coisa:
+
+  ```bash
+  grep -aE "^ *Errors " /tmp/vt.log      # vazio é o esperado
+  ``` (Comparar contra `Test Files` dá
   divergência falsa: `2 failed` de arquivos contra `7` de casos parece defeito
   da sonda e é só régua trocada.)
+
+**Vermelho local que NÃO é seu — a suíte inteira num processo só:** com 11.725 casos, rodar
+`pnpm test:unit` de uma vez faz os workers disputarem CPU e casos PESADOS estouram o teto default
+de 15 s do vitest — reprovando por relógio, com `Test timed out`, sem violação nenhuma. O arquivo
+vermelho MUDA de rodada para rodada (medido: `hidratacao-useState…` numa, `channel-health-aviso`
+na seguinte), que é a assinatura de contenção e não de defeito. **O CI não vê isto**: lá o
+`verify` roda em duas partes (`--shard=N/2`). Antes de consertar um `Test timed out`, reproduza o
+modo do CI:
+
+```bash
+npx vitest run --shard=1/2 && npx vitest run --shard=2/2   # verde aqui = não é seu
+```
+
+**Vermelho local que NÃO é seu — `jq` ausente:** `executor-proprio-so-roda-o-que-e-nosso.test.ts`
+reprova 1 caso (`aceita pull_request de dentro do repositório`) em máquina sem `jq`. A guarda
+`infra/executor-proprio/so-o-que-e-nosso.sh` lê o payload do evento com `jq`; sem ele, `origem`
+sai vazia e a guarda recusa — o teste lê isso como defeito. Provado nos dois sentidos: com um
+`jq` de mentira no PATH, 17/17. No CI (`ubuntu-latest`) o `jq` vem instalado. Mesma família:
+`tests/shell/hooks-nao-acusam-a-main.test.sh` reprova 3 de 110 aqui **e também no clone limpo da
+upstream** — quando um vermelho aparecer, rode-o num worktree de `upstream/main` antes de
+consertar: se ele já está lá, não é seu.
 
 **Vermelho local que NÃO é seu:** `lib/ai/dispatcher/rate-limit.test.ts` falha em 5 casos, com
 15s de timeout cada, quando o `.env.local` tem `UPSTASH_REDIS_REST_URL`/`TOKEN` e o Redis para o
@@ -339,16 +448,26 @@ No CI não há `UPSTASH` nenhum, então lá o caminho é o contador em memória 
 Checks **obrigatórios** na branch protection da `main` (verificado na configuração, não só no papel):
 
 - **`verify`** (`ci.yml`) — typecheck + lint + test:unit.
-- **`invariants`** (`ci.yml`) — `pnpm test:db`: sobe `pgvector/pgvector:pg15` — o PISO que dizemos suportar, não a versão mais rica que temos à mão —, aplica `supabase/baseline.sql` em modo install (`ON_ERROR_STOP=1`) e update (idempotência), e roda os testes de invariante, incluindo o de isolamento RLS entre 2 organizações.
+- **`invariants`** (`ci.yml`) — **job de fachada**: ele não roda suíte nenhuma; reprova quando a matriz `invariants-majors` não fecha em `success`. Quem roda é a matriz, uma perna por major do Postgres que o produto diz suportar, e cada perna faz duas passadas: `pnpm test:db` (baseline em modo install com `ON_ERROR_STOP=1` e update, mais os invariantes, incluindo o isolamento RLS entre 2 organizações) e `pnpm test:db:update` (atualização de um banco COM dados). Para saber quais majors hoje, pergunte ao arquivo em vez de a esta linha: `awk '/^  invariants-majors:/,/^  [a-z-]+:/' .github/workflows/ci.yml | grep -A6 'matrix:'`.
 - **`build-and-size`** (`perf.yml`) — `pnpm build` em Node 22.
-- **`e2e`** (`e2e.yml`) — sobe Supabase local, aplica o `baseline.sql` e roda **todas as specs Playwright menos as que `FORA_DO_CI` declara**. O número saiu daqui de propósito: ele apodreceu **cinco** vezes (a quinta em 2026-08-24, quando `inbox-quem-manda.spec.ts` entrou), e a condição que o PR #242 pôs para parar de recontar já tinha vencido na quarta. Quem precisa do número roda o comando abaixo — comando não envelhece. Quais ficam de fora, e por quê, é o que a própria variável diz — **não confie nesta linha, leia-a**:
+- **`e2e`** (`e2e.yml`) — sobe Supabase local, aplica o `baseline.sql` e roda **todas as specs Playwright menos as que `FORA_DO_CI` declara** — **em PR que alcança algo que ele mede**. PR só de documentação, teste de outra suíte, fragmento ou workflow alheio pula as partes (regra em `scripts/pr-alcanca-o-e2e.sh`, na dúvida roda), e ali o `e2e` verde **não prova tela nenhuma**. O número saiu daqui de propósito: ele apodreceu **cinco** vezes (a quinta em 2026-08-24, quando `inbox-quem-manda.spec.ts` entrou), e a condição que o PR #242 pôs para parar de recontar já tinha vencido na quarta. Quem precisa do número roda o comando abaixo — comando não envelhece. Quais ficam de fora, e por quê, é o que a própria variável diz — **não confie nesta linha, leia-a**:
 
   ```bash
   git show origin/main:.github/workflows/e2e.yml | \
     python3 -c "import sys,re; y=sys.stdin.read(); print(sorted({s for _,c in re.findall(r'(FORA_DO_CI):\s*>-\n((?:[ ]{8,}.*\n)+)',y) for s in re.findall(r'[a-z0-9-]+\.spec\.ts',c)}))"
   ```
 
-  Esta frase já dizia "a **única** de fora é `vps-fresh-onboarding`" e estava errada: em 2026-09-04 a variável listava **duas** (`inbox-tempo-real` entrou depois). É o mesmo defeito que o parágrafo acima descreve — afirmação de estado que envelhece —, cometido na frase seguinte à que o denuncia. O que continua verdade e é o que importa: `vps-fresh-onboarding` é a **P0** da doutrina de QA Visual, então `e2e` verde **não** prova a jornada de instalação fresca, que é o produto que se vende.
+  **Esta frase já envelheceu TRÊS vezes, e é o parágrafo que denuncia afirmações que envelhecem.** Ela dizia "a **única** de fora é `vps-fresh-onboarding`" quando a variável já listava duas (2026-09-04, `inbox-tempo-real`); depois seguiu dizendo que a jornada de instalação fresca estava sem gate — e em 2026-09-19 o **#983** (@webtecnica) pôs `vps-fresh-onboarding.spec.ts` para rodar no CI, com WAHA e Redis de verdade, então a frase virou o contrário do estado.
+
+  Por isso ela sai e não volta: a pergunta "a jornada de instalação fresca tem gate?" se responde por **comando**, com o de cima (o que `FORA_DO_CI` declara) e com este, que diz quem o CI **invoca**:
+
+  ```bash
+  git show origin/main:.github/workflows/e2e.yml | python3 -c "import sys,re; y=sys.stdin.read(); print('vps-fresh-onboarding no CI:', 'vps-fresh-onboarding.spec.ts' in {s for _,c in re.findall(r'(SPECS_PARTE_\d+):\s*>-\n((?:[ ]{8,}.*\n)+)',y) for s in re.findall(r'[a-z0-9-]+\.spec\.ts',c)})"
+  ```
+
+  As duas saídas se fecham uma contra a outra porque `tests/unit/e2e-cobertura-completa.test.ts` reprova spec que não esteja nem numa `SPECS_PARTE_*` nem na `FORA_DO_CI`: ausência da primeira saída é presença na segunda, e nenhuma spec cai no vão entre as duas.
+
+  O que **não** envelhece e é o que importa: `vps-fresh-onboarding` é a **P0** da doutrina de QA Visual porque a instalação fresca é o produto que se vende. Ter gate não dispensa a prova pela tela (DoD 12) — gate prova que não regrediu, não que a experiência ficou boa. E a ressalva do começo do item continua de pé: em PR que pula as partes, o verde não prova tela nenhuma, a da instalação fresca inclusive.
 
   **Não confie em `grep` no arquivo inteiro.** `grep -oE '[a-z0-9-]+\.spec\.ts' .github/workflows/e2e.yml | sort -u | wc -l` conta quem é CITADO, não quem é INVOCADO: a `FORA_DO_CI` é uma variável YAML como as outras e entra na conta. (Até 2026-08-14 este parágrafo culpava "menções em comentários", e isso é falso — medido, o conjunto de specs citadas fora de variável é **vazio**.) O que roda são as `SPECS_PARTE_*`:
 
@@ -377,6 +496,25 @@ a versão anterior dizia que ele "ainda não é obrigatório"; depois o `imagens
 seguiu dizendo "quatro". Uma triagem que leia qualquer uma dessas versões mede contra a régua errada —
 que é o modo de falha nº 1 do procedimento de triagem. **Reconfira na fonte antes de confiar em
 qualquer lista aqui**, com o comando acima.
+
+**Onde os jobs rodam.** A conta tem o plano Pro: até **40** jobs simultâneos nas máquinas do GitHub
+(medidos 39 em 18/09/2026, com 180 na fila). Os jobs pesados do trabalho **nosso** (push na `main`
+e PR de branch deste repositório) podem ir para o **executor próprio** (`infra/executor-proprio/`)
+quando a variável de repositório `EXECUTOR_PROPRIO` vale `ligado`; PR de fork roda sempre no GitHub,
+e a publicação da `main` também. Duas regras que não se negociam:
+
+- **A guarda contra fork mora na máquina, não no YAML.** Em PR de fork o GitHub roda o workflow do
+  fork, que pode reescrever `runs-on:`. Quem recusa é `infra/executor-proprio/so-o-que-e-nosso.sh`,
+  gravado na imagem como hook de entrada do runner. Mudar a expressão de `runs-on` não é mudar a
+  segurança — e afrouxar a guarda é.
+- **Imagem que o parque instala nunca se constrói na máquina nossa.** `build-and-push` e
+  `promover-stable` ficam em `ubuntu-latest`; os jobs `*-sobe` só vão para a máquina em PR.
+
+Vigiado por `tests/unit/executor-proprio-so-roda-o-que-e-nosso.test.ts`. Botão de emergência:
+apagar a variável `EXECUTOR_PROPRIO` — os jobs novos voltam na hora para o GitHub. **A fila de merge
+(merge queue) do GitHub não está disponível** neste repositório (conta pessoal; medido em 18/09/2026:
+a regra é recusada com 422 e uma regra comum no mesmo formato é aceita) — a integração em lote da
+triagem (`triagem/TRIAGEM.md` §3-quinquies) é o que cumpre esse papel.
 
 Ao mexer em schema, RLS, RBAC, atribuição, escopo, roteamento, follow-up, webhooks ou automações: rode `pnpm test:db` **localmente** antes de abrir PR. É o único caminho que exercita o `baseline.sql` que o self-hoster realmente aplica.
 
@@ -423,7 +561,33 @@ Ao mexer em schema, RLS, RBAC, atribuição, escopo, roteamento, follow-up, webh
 
 Processo padrão (siga sempre):
 
-1. **Arquivo versionado** em `supabase/migrations/` com o padrão do repo: `<timestamp>_<NNNN>_<slug>.sql` (ex.: `20260706210000_0027_whatsapp_conversation_unification.sql`). `NNNN` é o próximo número sequencial (veja o último em `ls supabase/migrations/`).
+1. **Arquivo versionado** em `supabase/migrations/` com o padrão do repo: `<timestamp>_<NNNN>_<slug>.sql` (ex.: `20260706210000_0027_whatsapp_conversation_unification.sql`). `NNNN` é o próximo número sequencial — e **não** é o do último arquivo da listagem:
+
+   ```bash
+   ls supabase/migrations/ | grep -oE '_[0-9]{4}_' | tr -d _ | sort -n | tail -1
+   ```
+
+   O nome do arquivo começa pelo **timestamp**, e timestamp e `NNNN` podem discordar: em
+   09/09/2026 o `ls | tail -1` devolvia o `_0230_` (timestamp de 07/09) enquanto o maior `NNNN`
+   era `_0231_` (timestamp de 05/09). Um contribuidor externo seguiu a instrução antiga ao pé da
+   letra, escolheu `0231`, e o `manifest-x-migrations` reprovou o PR dele por colisão — a
+   instrução é que estava errada, não ele. Ordene pelo número, nunca pela listagem.
+
+   **E o número livre hoje pode estar tomado quando o seu PR entrar.** A colisão só aparece
+   quando o SEGUNDO PR de schema é mesclado — medido em 19/09/2026: **11 PRs abertos colidiam
+   com a `main` com os cinco checks obrigatórios verdes**. O `verify` **já executa** a guarda
+   (`pnpm checar:colisao-de-migration`, o alias de `scripts/checar-colisao-de-migration.sh` —
+   procurar pelo nome do arquivo no `ci.yml` devolve zero e mente), e mesmo assim os 12 passaram:
+   cada um mediu a `main` do dia em que rodou — o `verify` do #965 terminou em 16/09 e segue verde.
+   Por isso há duas camadas a mais: o CI reprova quando **um número deste PR foi tomado** por
+   migration que entrou na base depois da prévia (colisão, nunca atraso — PR atrasado e sem colisão
+   segue verde), e fora de `pull_request` ele varre a árvore inteira — nenhum `NNNN` nem timestamp pode aparecer duas vezes na `main`. Antes de escolher o número quando houver outros PRs de schema em voo, peça-o
+   a quem estiver alocando na rodada: **não há reserva, quem mescla primeiro fica com o número**.
+   Para ver o que está tomado agora, incluindo o que ainda não foi mesclado:
+
+   ```bash
+   pnpm checar:colisao-de-migration          # mede o SEU PR contra origin/main
+   ```
 2. **Idempotente sempre que possível**: `add column if not exists`, `create ... if not exists`, `create or replace function`. Uma migration deve poder ser re-aplicada sem quebrar nem duplicar efeito.
 3. **Portável em `psql` puro** (clones podem não usar o MCP/CLI Supabase): **sem** `create temporary table ... on commit drop` fora de transação explícita; **sem** `BEGIN`/`COMMIT` explícito (o runner já envolve em transação, como as demais migrations). Prefira CTEs, subqueries de janela e colunas-mapa (ex.: `is_merged_into`) a temp tables.
 4. **Data migrations genéricas**: se a migration corrige/deduplica dados, escreva pensando em QUALQUER banco de clone (não hardcode IDs do seu tenant). Repointe FKs conferindo o catálogo (`information_schema` FK map) para não perder histórico.
@@ -445,6 +609,25 @@ Processo padrão (siga sempre):
 ---
 
 ## Skills relevantes a usar (Claude Code)
+
+**Guias embutidos neste repositório** (`.claude/skills/`, espelho gerado de `.agents/skills/` — a
+mesma tabela vale para Codex, Cursor, OpenCode e Antigravity; ver `AGENTS.md`). Para tê-los em
+qualquer pasta, `bash scripts/instalar-guias.sh`; editando um guia numa branch, rode com `--fonte .`
+naquele clone — no Claude Code a skill GLOBAL vence a do projeto com o mesmo nome:
+
+- `deskcomm-instalar` — instalar, atualizar ou consertar a instalação numa VPS
+- `deskcomm-cliente-novo` — configurar o CRM para um cliente ou nicho (agentes, roteadores, follow-ups, conhecimento)
+- `deskcomm-metricas` — desempenho, conversão, custo de IA, funil, relatório
+- `deskcomm-prompt` — afinar o prompt de um agente que não performa
+- `deskcomm-contribuir` — o espelho da triagem, antes do PR; fica quieto para o mantenedor
+- `deskcomm-extensao` — criar extensão em vez de PR no núcleo: régua de destino, contrato do pacote e envio
+- `deskcomm-doutrina` — as três regras que mais custam, antes de escrever código
+
+Os guias têm página pública em [deskcomm.com.br/guias](https://www.deskcomm.com.br/guias), escrita
+à mão em `deskcomm-site/conteudo/guias.ts`: guia criado, renomeado ou com comando novo pede a mesma
+mudança lá — senão a página ensina um guia que não existe. Ela e a de changelog saem do mesmo PR do
+`deskcomm-site`; enquanto as duas não responderem 200, vale o `curl` que abre a seção "A vitrine" de
+[`docs/doctrine/versionamento.md`](docs/doctrine/versionamento.md), não a frase acima.
 
 - `superpowers:brainstorming` — antes de implementar feature não-trivial
 - `superpowers:writing-plans` — pra task com mais de 1 etapa de DB/API
@@ -476,7 +659,17 @@ Antes de declarar uma task pronta:
 11. **Mudança de schema saiu como migration versionada + linha no MANIFEST** (ver Doutrina de Migrations) — clones conseguem atualizar
 12. **Se tocou UI/fluxo de usuário: provado pela tela como um leigo faria**, em ambiente fresco estilo VPS, com evidência visual (ver Doutrina de QA Visual com Recursos Reais) — curl não conta
 13. **Living System Checklist respondido** (lei em `docs/doctrine/sistema-vivo.md`; racional no manual `docs/doctrine/sistema-vivo/`) — a feature não é ilha: tem entrada + saída, emite atividade/log, aparece na tela, tem porta na navegação, tem mecanismo anti-morte, **declara seu laço de retorno** (invariante 7 — o que muda no sistema quando ela erra), e o mapa vivo (`docs/architecture/`) reflete peça nova com ≥2 arestas. Resposta que não **nomeia o artefato concreto** (consumidor real, tela real, log real) não conta
-14. **Tela nova tem porta** — declarada em `lib/navigation/registry.ts` com seu grupo, ou na allowlist de `tests/unit/navegacao-completude.test.ts` **com justificativa escrita**. Ter tela e ser alcançável são coisas diferentes: o CI reprova tela que existe mas em que só se chega digitando a URL
+14. **Tela nova tem porta** — declarada em **`lib/navigation/catalogo.ts`** (no `NAV_CATALOG`, com seu grupo), ou na allowlist de `tests/unit/navegacao-completude.test.ts` **com justificativa escrita**. Ter tela e ser alcançável são coisas diferentes: o CI reprova tela que existe mas em que só se chega digitando a URL.
+
+    ⚠️ Esta linha dizia `lib/navigation/registry.ts`, e quem a seguisse abria um
+    arquivo **sem um único lugar onde declarar**: o `registry.ts` só deriva
+    (`NAV_DESTINATIONS` sai de `NAV_CATALOG`) e reexporta. Ele é a FACE do
+    módulo — é dele que o teste importa, e por isso o engano é fácil. Quem
+    declara é o catálogo. Para conferir sem acreditar nesta linha:
+
+    ```bash
+    grep -c 'href:' lib/navigation/catalogo.ts lib/navigation/registry.ts
+    ```
 15. **Se tocou Dockerfile, compose ou setup kit: a mudança chega a quem já instalou** (lei em `docs/doctrine/packaging.md`) — nenhum serviço de produção ficou `build:`-only; variável nova tem default que não quebra `.env` antigo; a atualização não pede edição manual de arquivo; e, se mudou o que a imagem contém, o `update.sh` alcança essa peça. Rode `pnpm test:shell` — é o único gate que exercita o kit
 16. **Se o PR muda comportamento, procure a afirmação de estado sobre esse comportamento.** Só
     sobre o que você mudou, e só nos documentos de autoridade — não saia caçando pelo repo. A
@@ -495,5 +688,17 @@ Antes de declarar uma task pronta:
     presença num check obrigatório reprovaria PR de Dependabot, PR de fork, e o próprio PR
     de release, que consome os fragmentos e deixa o diretório vazio. A presença é cobrada
     aqui, e por quem revisa.
+    **Toda versão publicada aparece na página de changelog da LP** (deskcomm.com.br/changelog,
+    pt-BR/en/es). Ninguém escreve no site: a LP lê o `CHANGELOG.md` da `main`, e o último passo
+    do corte (`release.yml`, job `cortar-tag`) reprova quando a versão não chegou. O texto do
+    fragmento é, portanto, nota pública. Enquanto as três páginas não responderem 200 esse passo
+    reprova TODO corte — a vitrine vem de um PR do `deskcomm-site`, e o `curl` que diz em que
+    estado ela está abre a seção. Lei: seção "A vitrine" de `versionamento.md`.
+
+18. **Se o PR muda comportamento, ele declara o destino: núcleo, extensão, ambos ou
+    infraestrutura** (lei em [`docs/doctrine/extensoes.md`](docs/doctrine/extensoes.md)), com a razão
+    medida pela pergunta "se nenhuma organização ativar isto, a operação comum continua inteira?".
+    "Ambos" traz o consumidor real do ponto novo do núcleo e a prova dos dois lados. Classificar como
+    extensão não autoriza remover nem desligar o que já foi distribuído.
 
 Um staff engineer aprovaria? Se não, itera.

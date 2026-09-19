@@ -581,7 +581,12 @@ test.describe("kit visual da Agenda", () => {
 
     const aviso = painel.getByTestId("sem-jornada-publicada");
     await expect(aviso).toBeVisible({ timeout: ESPERA });
-    await expect(aviso).toContainText("ainda não publicou");
+    // O texto deste aviso depende de QUEM lê: "Você ainda não publicou…" só vale
+    // para o dono, e a vitrine mostra a agenda de OUTRA pessoa (`PESSOAS[3]`, o
+    // Davi) — o que aparece é a constatação sobre a jornada, sem deduzir quem
+    // falhou. A asserção cobrava o "ainda não publicou" da variante antiga
+    // (achado da triagem do #1107, item 4).
+    await expect(aviso).toContainText("A jornada de atendimento ainda não foi publicada");
     // Diz o PRÓXIMO PASSO, não só a ausência — e o próximo passo é CLICÁVEL.
     //
     // Esta asserção era `toContainText(/configure|disponibilidade/i)`, e o texto
@@ -683,15 +688,17 @@ test.describe("kit visual da Agenda", () => {
     await expect(page.getByTestId("grade-da-agenda")).toBeVisible({ timeout: ESPERA });
     await page.screenshot({ path: "evidence/calendario/kit-visual-celular.png", fullPage: true });
 
-    // A página NUNCA rola na horizontal: `html, body` têm `overflow-x: hidden`,
+    // A página NUNCA rola na horizontal: `html, body` têm `overflow-x: clip`,
     // então uma grade larga demais não ganharia barra — sumiria pela direita.
     const estouro = await page.evaluate(
       // ⚠️ `body.scrollWidth`, NÃO `documentElement`. `app/globals.css` põe
-      // `overflow-x: hidden` em `html` E em `body` (linhas 422 e 440), e sob isso
-      // o `scrollWidth` do `documentElement` é GRAMPEADO no `clientWidth`: a
-      // conta dá zero mesmo com um filho de 3000px dentro. Medido com o chromium
-      // do repo, viewport 390x844, filho de 3000px — `visible` → 2610,
-      // `hidden` → 0, e `body.scrollWidth` = 3000 nos DOIS casos.
+      // `overflow-x: clip` em `html` E em `body` (com `hidden` ANTES, como reserva
+      // para motor sem `clip` — Safari < 16). Sob `hidden` puro, que quebra
+      // o sticky da barra), o `scrollWidth` do `documentElement` era GRAMPEADO
+      // no `clientWidth`: a conta dava zero mesmo com um filho de 3000px.
+      // Medido com o chromium do repo, viewport 390x844, filho de 3000px —
+      // `visible` → 2610, `hidden` → 0, e `body.scrollWidth` = 3000 nos DOIS
+      // casos. A medida fica no `body` para não voltar a ser incapaz de falhar.
       //
       // A asserção existia e era incapaz de falhar. Trocar a medida é o conserto;
       // o caso de sabotagem ao lado é o que prova que a nova consegue.

@@ -26,7 +26,7 @@ import { describe, expect, it } from "vitest";
  * que aceita qualquer cliente e não passa pela tela.
  */
 import { availabilityScheduleSchema } from "@/lib/schemas/routing";
-import { FUSOS_OFERECIDOS, fusoValido } from "@/lib/tempo/fusos";
+import { FUSOS_OFERECIDOS, FUSO_PADRAO, fusoValido } from "@/lib/tempo/fusos";
 
 describe("a checagem do fuso", () => {
   it("aceita o que o runtime sabe usar", () => {
@@ -104,5 +104,31 @@ describe("as telas OFERECEM em vez de pedir para digitar", () => {
   it("e a agenda do atendente", () => {
     const fonte = readFileSync("app/app/team/_components/AttendantsClient.tsx", "utf8");
     expect(fonte).toMatch(/FUSOS_OFERECIDOS\.map/);
+  });
+});
+
+describe("os fusos OFERECIDOS — a lista, não o padrão", () => {
+  /**
+   * ⚠️ MESMO MOTIVO DO CASO DE MOEDA: acrescentar Luanda à lista não
+   * quebrava teste nenhum. Medido tirando a linha de volta:
+   * `fuso-horario.test.ts` seguia 11/11 e o `tsc` saía zerado. Sem este
+   * caso, a oferta some numa refatoração e ninguém percebe.
+   */
+  it("oferece Luanda, e a tela da empresa também", () => {
+    expect(FUSOS_OFERECIDOS.map((f) => f.codigo)).toContain("Africa/Luanda");
+    // A tela satisfaz isto de dois jeitos, e os dois valem: escrevendo a lista
+    // à mão (como a upstream faz) ou DERIVANDO de `FUSOS_OFERECIDOS` (como este
+    // fork faz desde 22/08). A derivação é a garantia mais forte — a tela não
+    // tem como divergir da canônica, que é justamente o defeito que o caso
+    // acima existe para pegar —, então o que se cobra é a OFERTA, não a forma
+    // de escrevê-la. Uma tela que não faça nenhuma das duas reprova igual.
+    const formulario = readFileSync("app/app/settings/tenant/_form.tsx", "utf8");
+    const ofereceLuanda =
+      formulario.includes("Africa/Luanda") || formulario.includes("FUSOS_OFERECIDOS");
+    expect(ofereceLuanda, "a tela da empresa não oferece a lista canônica nem Luanda").toBe(true);
+  });
+
+  it("e o padrão de quem não escolheu segue sendo São Paulo", () => {
+    expect(FUSO_PADRAO).toBe("America/Sao_Paulo");
   });
 });

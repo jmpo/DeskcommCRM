@@ -168,13 +168,18 @@ function dadoDaTabela(tabela: string): unknown {
 function cliente(): SupabaseClient {
   const leitura = (tabela: string) => {
     const cadeia: Record<string, unknown> = {};
-    for (const m of ["eq", "neq", "in", "is", "not", "or", "gte", "lte", "order", "limit"]) {
+    for (const m of ["eq", "neq", "in", "is", "not", "or", "gte", "lte", "lt", "gt", "order", "limit"]) {
       cadeia[m] = () => cadeia;
     }
     const resposta = () => ({ data: dadoDaTabela(tabela), error: null });
     cadeia.maybeSingle = async () => resposta();
     cadeia.single = async () => resposta();
-    cadeia.then = (r: (v: unknown) => unknown) => r(resposta());
+    // Leitura em LISTA de `calendar_appointments` é a ocupação que o encaixe de
+    // uma pessoa confere (`coletaOQueOcupa`) — e lista é array, nunca a linha
+    // solta que `maybeSingle` devolve. Agenda vazia: este arquivo não é sobre
+    // sobreposição (essa mora em `pessoa-marca-fora-da-grade.test.ts`).
+    cadeia.then = (r: (v: unknown) => unknown) =>
+      r(tabela === "calendar_appointments" ? { data: [], error: null } : resposta());
     return cadeia;
   };
 
@@ -305,6 +310,36 @@ describe("a agenda grava na timeline", () => {
       linha.organization_id,
       "a atividade nasceu carimbada com outra organização: a consulta aparece na timeline de um cliente de OUTRA empresa e some da do dono — a RLS não pega, porque a linha saiu de dentro já com o id errado",
     ).toBe(ORG);
+  });
+
+  it("o TOKEN de servidor não é a IA: a agenda e a timeline dizem a MESMA autoria", async () => {
+    // O defeito da #866, medido no ponto de uso: a mesma ação saía com duas
+    // autorias. `actorParaAtividade` (lib/leads/activity-emitter.ts) sempre
+    // gravou `system` para o token; só a coluna do agendamento dizia `ai`, e a
+    // tela (`ROTULO_DO_AUTOR`) anunciava "Marcado pelo atendente de IA" para
+    // compromisso que algoritmo nenhum escreveu.
+    const TOKEN_ID = "99999999-9999-4999-8999-999999999999";
+    const token = { type: "api_token" as const, id: TOKEN_ID };
+
+    await marcarAgendamentoHandler(cliente(), { ...ctx, actor: token }, {
+      event_type_id: TIPO,
+      starts_at: HORARIO,
+      contact_id: CONTATO,
+    });
+
+    const gravado = banco.inserido["calendar_appointments"]?.[0];
+    expect(
+      gravado?.created_by_kind,
+      "o agendamento nascido por token ficou carimbado como `ai`: a agenda atribui à IA o que a integração marcou, e a leitura de 'o que a IA marcou' incha",
+    ).toBe("system");
+    expect(
+      atividades()[0]?.actor_kind,
+      "a timeline discordou do agendamento sobre o MESMO gesto — é esta divergência que a issue descreve",
+    ).toBe("system");
+    expect(
+      gravado?.created_by_user_id,
+      "o id do TOKEN foi para a coluna com FK para auth.users — em Postgres isso é violação de FK e a marcação morre com 500",
+    ).toBeNull();
   });
 
   it("o compromisso PERTENCE ao negócio — sem o vínculo o dossiê não acha o que foi marcado", async () => {
@@ -448,5 +483,59 @@ describe("quando a gravação da timeline falha", () => {
       avisosDeRastroPerdido(),
       "o handler passou a contar a falha de escrita da timeline (o que é o comportamento CERTO): troque este caso para exigir 1 aviso — a dívida foi paga",
     ).toHaveLength(0);
+  });
+});
+
+describe("marcar grava local e observação neste compromisso", () => {
+  function linhaDoCompromisso(): Linha {
+    const linhas = banco.inserido["calendar_appointments"] ?? [];
+    expect(linhas, "o compromisso nem chegou a nascer — a sonda está no caminho errado").toHaveLength(
+      1,
+    );
+    return linhas[0]!;
+  }
+
+  it("o que a tela mandou vence o default do tipo, e não cai em notes", async () => {
+    banco.tipo = { ...banco.tipo, location_details: "Sala 2" };
+    await marcarAgendamentoHandler(cliente(), ctx, {
+      event_type_id: TIPO,
+      starts_at: HORARIO,
+      contact_id: CONTATO,
+      location_details: "Rua das Flores, 10",
+      description: "Trazer exames",
+    });
+
+    const linha = linhaDoCompromisso();
+    expect(linha.location_details).toBe("Rua das Flores, 10");
+    expect(linha.description).toBe("Trazer exames");
+    expect(
+      linha.notes,
+      "observação gravada em notes: o calendário não publica notes, e o compromisso nasce mudo",
+    ).toBeNull();
+  });
+
+  it("endereço em branco NÃO herda o do tipo — quem apagou quis apagar", async () => {
+    banco.tipo = { ...banco.tipo, location_details: "Sala 2" };
+    await marcarAgendamentoHandler(cliente(), ctx, {
+      event_type_id: TIPO,
+      starts_at: HORARIO,
+      contact_id: CONTATO,
+      location_details: "   ",
+    });
+
+    expect(linhaDoCompromisso().location_details).toBeNull();
+  });
+
+  it("sem os campos, herda o local do tipo e nasce sem observação", async () => {
+    banco.tipo = { ...banco.tipo, location_details: "Sala 2" };
+    await marcarAgendamentoHandler(cliente(), ctx, {
+      event_type_id: TIPO,
+      starts_at: HORARIO,
+      contact_id: CONTATO,
+    });
+
+    const linha = linhaDoCompromisso();
+    expect(linha.location_details).toBe("Sala 2");
+    expect(linha.description).toBeNull();
   });
 });

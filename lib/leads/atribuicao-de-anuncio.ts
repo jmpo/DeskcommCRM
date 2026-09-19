@@ -28,6 +28,18 @@ export interface AtribuicaoDeAnuncio {
   plataforma: PlataformaDeAnuncio;
   /** `ctwa_clid` — identifica o clique específico que abriu a conversa. */
   sourceId: string | null;
+  /**
+   * O ANÚNCIO, que não é o clique.
+   *
+   * Existe como campo próprio porque os dois vinham disputando `sourceId`: o
+   * extrator preferia o `ctwa_clid` e caía para o id do anúncio só na ausência
+   * dele, então o payload que trazia os DOIS perdia o segundo em silêncio — ele
+   * sobrevivia só dentro de `bruto`, que ninguém consulta para responder "de
+   * qual anúncio veio". Um clique identifica uma pessoa numa hora; um anúncio
+   * identifica a peça que milhares de pessoas viram. São perguntas diferentes,
+   * e é o anúncio que tem nome, conjunto e campanha para resolver depois.
+   */
+  adId: string | null;
   /** Título/headline do anúncio, quando o payload o traz. */
   titulo: string | null;
   corpo: string | null;
@@ -64,6 +76,7 @@ export async function estamparAtribuicaoDoContato(
     p_metadata: {
       ad_platform: atribuicao.plataforma,
       ad_source_id: atribuicao.sourceId,
+      ad_id: atribuicao.adId,
       ad_title: atribuicao.titulo,
       ad_body: atribuicao.corpo,
       ad_source_url: atribuicao.sourceUrl,

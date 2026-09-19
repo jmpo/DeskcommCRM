@@ -79,6 +79,10 @@ const PONTOS_AUXILIARES = [
   "checkpoint",
   "draft_suggestion",
   "automation_ai_message",
+  // 0281 — `lib/agent-engine/agent/conversa-do-caso.ts`, o único call site que
+  // não vem de `argsAux`: ele monta o par por conta própria a partir da persona
+  // do caso, e por isso entra aqui no mesmo commit em que entra no resolver.
+  "case_chat",
 ] as const;
 
 describe("o ponto auxiliar não cruza provider de um com modelo de outro", () => {

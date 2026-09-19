@@ -2,21 +2,38 @@
 import type { ReactNode } from "react";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { TopBar } from "@/components/shell/TopBar";
+import { BarraDeProgressoNavegacao } from "@/components/shell/BarraDeProgressoNavegacao";
+import { useSinalDePresenca } from "@/hooks/atendimento/useSinalDePresenca";
 import { useInboundMessageAlerts } from "@/hooks/notifications/useInboundMessageAlerts";
 import { useCrmAlerts } from "@/hooks/notifications/useCrmAlerts";
 import { useNotifyOpenFromServiceWorker } from "@/lib/notifications/notify_open";
 
 interface AppShellProps {
   sidebarCollapsed: boolean;
+  /**
+   * A pessoa pode atender (agent+)? Vem do papel resolvido no layout, e não de
+   * uma consulta desta casca.
+   *
+   * Só quem atende emite o sinal de presença: o roster que a tela Equipe mostra
+   * é agent+, e a rota do sinal exige o mesmo papel. `viewer` batendo colheria
+   * 403 a cada minuto em nome de ninguém.
+   */
+  podeAtender: boolean;
   children: ReactNode;
 }
 
-export function AppShell({ sidebarCollapsed, children }: AppShellProps) {
+export function AppShell({ sidebarCollapsed, podeAtender, children }: AppShellProps) {
   useInboundMessageAlerts();
   useCrmAlerts();
   useNotifyOpenFromServiceWorker();
+  // O SINAL DE PRESENÇA (issue #996) sai daqui porque presença é "esta aba
+  // está aberta" — não "a pessoa está na tela Equipe". Quem atende passa o dia
+  // no Inbox e na Agenda; um emissor amarrado à tela de gestão diria que só o
+  // gerente está presente.
+  useSinalDePresenca(podeAtender);
   return (
     <div className="flex min-h-screen w-full bg-background">
+      <BarraDeProgressoNavegacao />
       <div className="hidden md:block">
         <Sidebar collapsed={sidebarCollapsed} />
       </div>

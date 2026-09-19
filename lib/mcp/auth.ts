@@ -56,7 +56,12 @@ function scopesRole(scopes: string[]): Role {
   return "agent";
 }
 
-function deriveActor(scopes: string[], tokenId: string): Actor {
+/**
+ * Exportada para teste: é a função que decide se quem chamou é uma pessoa, um
+ * agente ou uma integração — e essa decisão vira coluna com FK e vira gate de
+ * canal. Uma regressão aqui não aparece como erro de tipo em lugar nenhum.
+ */
+export function deriveActor(scopes: string[], tokenId: string): Actor {
   const isAiAgent = scopes.includes("actor:ai_agent");
   const role = scopesRole(scopes);
   if (isAiAgent) {
@@ -64,7 +69,11 @@ function deriveActor(scopes: string[], tokenId: string): Actor {
     const runId = runScope ? runScope.slice("agent_run:".length) : tokenId;
     return { type: "ai_agent", id: runId, role, api_token_id: tokenId };
   }
-  return { type: "user", id: tokenId, role };
+  // NÃO é `"user"`: um token de servidor é uma integração, e `actor.id` aqui é o
+  // id do TOKEN, não de alguém em `auth.users`. Ver o comentário da variante
+  // `api_token` em `lib/api/handlers/types.ts` — disfarçá-lo de pessoa quebrava
+  // toda FK de `…_by_user_id` e furava o gate de `pre_go_live`.
+  return { type: "api_token", id: tokenId, role };
 }
 
 export function extractBearer(authHeader: string | null): string | null {
@@ -74,15 +83,44 @@ export function extractBearer(authHeader: string | null): string | null {
   return m[1]!.trim();
 }
 
-export async function validateBearerToken(
-  authHeader: string | null,
-): Promise<McpAuthResult> {
-  const plaintext = extractBearer(authHeader);
-  if (!plaintext) {
-    throw new McpAuthError(-32001, 401, "Missing or malformed Authorization header.");
+/** Por que um `dsk_...` não validou — neutro, sem código MCP nem HTTP status. */
+export class ApiTokenError extends Error {
+  constructor(
+    public readonly reason: "malformed" | "not_found" | "revoked" | "expired" | "lookup_failed",
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiTokenError";
   }
+}
+
+export interface ResolvedApiToken {
+  id: string;
+  organizationId: string;
+  scopes: string[];
+  /** `api_tokens.created_by` — quem provisionou o token. `uuid not null` no schema. */
+  createdBy: string;
+}
+
+/**
+ * Núcleo de validação de um bearer `dsk_...`: hash SHA256 → lookup em
+ * `api_tokens` → checagem de `revoked_at`/`expires_at`. Extraído de
+ * `validateBearerToken` para ser reusado por qualquer consumidor de
+ * `api_tokens` que não seja o MCP, SEM herdar a semântica de erro de outro
+ * protocolo: quem chama aqui recebe `ApiTokenError` com um `reason` neutro e
+ * decide sozinho o que isso vira na resposta dele.
+ *
+ * Hoje o único consumidor não-MCP passa por `validateBearerToken` e por isso
+ * importa `McpAuthError` — ver o cabeçalho de `lib/api/auth-dual.ts`, o helper
+ * que deixa uma rota REST aceitar cookie OU bearer. É esse acoplamento que a
+ * separação abre caminho para desfazer.
+ *
+ * Efeito colateral idêntico ao de antes: atualiza `last_used_at`
+ * fire-and-forget, depois de todas as validações.
+ */
+export async function resolveApiToken(plaintext: string): Promise<ResolvedApiToken> {
   if (!plaintext.startsWith("dsk_")) {
-    throw new McpAuthError(-32001, 401, "Invalid token format.");
+    throw new ApiTokenError("malformed", "Invalid token format.");
   }
 
   const tokenHash = createHash("sha256").update(plaintext).digest();
@@ -91,26 +129,22 @@ export async function validateBearerToken(
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("api_tokens")
-    .select("id, organization_id, scopes, revoked_at, expires_at")
+    .select("id, organization_id, scopes, revoked_at, expires_at, created_by")
     .eq("token_hash", hashLiteral)
     .maybeSingle();
 
   if (error) {
-    throw new McpAuthError(-32603, 500, `Token lookup failed: ${error.message}`);
+    throw new ApiTokenError("lookup_failed", `Token lookup failed: ${error.message}`);
   }
   if (!data) {
-    throw new McpAuthError(-32001, 401, "Token not recognized.");
+    throw new ApiTokenError("not_found", "Token not recognized.");
   }
   if (data.revoked_at) {
-    throw new McpAuthError(-32001, 401, "Token revoked.");
+    throw new ApiTokenError("revoked", "Token revoked.");
   }
   if (data.expires_at && new Date(data.expires_at) < new Date()) {
-    throw new McpAuthError(-32001, 401, "Token expired.");
+    throw new ApiTokenError("expired", "Token expired.");
   }
-
-  const scopes = parseScopes(data.scopes);
-  const role = scopesRole(scopes);
-  const actor = deriveActor(scopes, data.id);
 
   supabase
     .from("api_tokens")
@@ -121,11 +155,44 @@ export async function validateBearerToken(
     });
 
   return {
+    id: data.id,
     organizationId: data.organization_id,
+    scopes: parseScopes(data.scopes),
+    createdBy: data.created_by,
+  };
+}
+
+export async function validateBearerToken(
+  authHeader: string | null,
+): Promise<McpAuthResult> {
+  const plaintext = extractBearer(authHeader);
+  if (!plaintext) {
+    throw new McpAuthError(-32001, 401, "Missing or malformed Authorization header.");
+  }
+
+  let resolved: ResolvedApiToken;
+  try {
+    resolved = await resolveApiToken(plaintext);
+  } catch (err) {
+    if (err instanceof ApiTokenError) {
+      throw new McpAuthError(
+        err.reason === "lookup_failed" ? -32603 : -32001,
+        err.reason === "lookup_failed" ? 500 : 401,
+        err.message,
+      );
+    }
+    throw err;
+  }
+
+  const role = scopesRole(resolved.scopes);
+  const actor = deriveActor(resolved.scopes, resolved.id);
+
+  return {
+    organizationId: resolved.organizationId,
     role,
     actor,
-    apiTokenId: data.id,
-    scopes,
+    apiTokenId: resolved.id,
+    scopes: resolved.scopes,
   };
 }
 

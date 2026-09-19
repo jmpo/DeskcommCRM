@@ -21,6 +21,7 @@
 import { normalizarErro } from "@/lib/agent-engine/edge/llm/run-model-call";
 import {
   cabecalhosDeAtribuicaoOpenRouter,
+  DEEPSEEK_ENDPOINT,
   OPENROUTER_ENDPOINT,
 } from "@/lib/agent-engine/edge/llm/providers";
 
@@ -63,10 +64,18 @@ export function montarRequisicaoDeProva(
         body: { model: modelo, max_tokens: 1, messages: msg },
       };
     case "openai":
+      // `max_tokens` foi descontinuado pela OpenAI: os modelos de raciocínio
+      // (o1/o3, a família gpt-5) RECUSAM esse campo — "Unsupported parameter:
+      // 'max_tokens' is not supported with this model. Use
+      // 'max_completion_tokens' instead." — e é exatamente o modelo padrão
+      // curado para este provedor (`ai_models.is_default_for_provider`) que
+      // cai nessa família. `max_completion_tokens` é aceito em toda a família
+      // de chat completions, raciocínio ou não, então não há motivo para
+      // ramificar por modelo aqui.
       return {
         url: "https://api.openai.com/v1/chat/completions",
         headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-        body: { model: modelo, max_tokens: 1, messages: msg },
+        body: { model: modelo, max_completion_tokens: 1, messages: msg },
       };
     case "openrouter":
       return {
@@ -81,6 +90,14 @@ export function montarRequisicaoDeProva(
           "content-type": "application/json",
           ...cabecalhosDeAtribuicaoOpenRouter(),
         },
+        body: { model: modelo, max_tokens: 1, messages: msg },
+      };
+    case "deepseek":
+      // OpenAI-compatível. `max_tokens: 1` atravessa a cobrança; o corpo é uma
+      // GERAÇÃO, não a listagem `GET /models` (que o validador de chave já usa).
+      return {
+        url: `${baseUrl ?? DEEPSEEK_ENDPOINT}/chat/completions`,
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
         body: { model: modelo, max_tokens: 1, messages: msg },
       };
     case "google":

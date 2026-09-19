@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import type { BranchableNode } from './graph-schema';
 import {
   NODE_TYPES,
-  NodeType,
   waitConfigSchema,
   aiClassifyConfigSchema,
   matchReplyConfigSchema,
@@ -11,9 +11,6 @@ import {
   flowNodeSchema,
   flowEdgeSchema,
   flowGraphSchema,
-  FlowGraph,
-  FlowNode,
-  FlowEdge,
   FALLBACK_BRANCH_ID,
   NO_REPLY_BRANCH_ID,
   CONDITION_TRUE_BRANCH_ID,
@@ -23,6 +20,7 @@ import {
   branchIdForCondition,
   conditionForBranch,
 } from './graph-schema';
+import type { NodeType, FlowGraph, FlowNode, FlowEdge } from './graph-schema';
 import { toReactFlow, fromReactFlow } from './graph-mappers';
 
 describe('graph-schema', () => {
@@ -934,6 +932,93 @@ describe('graph-schema', () => {
       });
       expect(result.success).toBe(false);
     });
+
+    /**
+     * Integridade ENTRE nós e arestas (#699). Cada peça passava no schema
+     * sozinha — quem montava o grafo (o canvas, ao excluir um nó) produzia
+     * aresta órfã e ids repetidos que só quebravam longe do defeito. Aqui o
+     * contrato é de fora: rejeitar com o id a corrigir na mensagem.
+     */
+    describe('integridade: aresta órfã e ids repetidos (#699)', () => {
+      const noTrigger = (id: string) => ({
+        id,
+        type: 'trigger' as const,
+        label: 'Start',
+        position: { x: 0, y: 0 },
+        config: {},
+      });
+      const noEnd = (id: string) => ({
+        id,
+        type: 'end' as const,
+        label: 'End',
+        position: { x: 100, y: 100 },
+        config: { outcome: 'converted' as const },
+      });
+      const aresta = (id: string, source: string, target: string) => ({
+        id,
+        source,
+        target,
+        condition: { type: 'always' as const },
+      });
+
+      /** [] quando o grafo passou — a asserção de mensagem falha em vez de pular. */
+      function mensagensDe(resultado: ReturnType<typeof flowGraphSchema.safeParse>): string[] {
+        return resultado.success ? [] : resultado.error.issues.map((i) => i.message);
+      }
+
+      it('aceita grafo íntegro com aresta ligando dois nós existentes (controle)', () => {
+        const result = flowGraphSchema.safeParse({
+          nodes: [noTrigger('no-1'), noEnd('no-2')],
+          edges: [aresta('e-1', 'no-1', 'no-2')],
+        });
+        expect(result.success).toBe(true);
+      });
+
+      it('rejeita aresta cujo source aponta para nó inexistente', () => {
+        const result = flowGraphSchema.safeParse({
+          nodes: [noTrigger('no-1'), noEnd('no-2')],
+          edges: [aresta('e-3', 'no-9', 'no-2')],
+        });
+        expect(result.success).toBe(false);
+        expect(mensagensDe(result)).toContain('aresta "e-3" aponta para nó inexistente: "no-9"');
+      });
+
+      it('rejeita aresta cujo target aponta para nó inexistente', () => {
+        const result = flowGraphSchema.safeParse({
+          nodes: [noTrigger('no-1'), noEnd('no-2')],
+          edges: [aresta('e-3', 'no-1', 'no-9')],
+        });
+        expect(result.success).toBe(false);
+        expect(mensagensDe(result)).toContain('aresta "e-3" aponta para nó inexistente: "no-9"');
+      });
+
+      it('rejeita dois nós com o mesmo id', () => {
+        const result = flowGraphSchema.safeParse({
+          nodes: [noTrigger('no-1'), noTrigger('no-1'), noEnd('no-2')],
+          edges: [aresta('e-1', 'no-1', 'no-2')],
+        });
+        expect(result.success).toBe(false);
+        expect(mensagensDe(result)).toContain('id de nó repetido: "no-1"');
+      });
+
+      it('rejeita duas arestas com o mesmo id', () => {
+        const result = flowGraphSchema.safeParse({
+          nodes: [noTrigger('no-1'), noEnd('no-2')],
+          edges: [aresta('e-2', 'no-1', 'no-2'), aresta('e-2', 'no-1', 'no-2')],
+        });
+        expect(result.success).toBe(false);
+        expect(mensagensDe(result)).toContain('id de aresta repetido: "e-2"');
+      });
+
+      it('CONTROLE: campo desconhecido continua rejeitado', () => {
+        const result = flowGraphSchema.safeParse({
+          nodes: [noTrigger('no-1'), noEnd('no-2')],
+          edges: [aresta('e-1', 'no-1', 'no-2')],
+          campo_desconhecido: true,
+        });
+        expect(result.success).toBe(false);
+      });
+    });
   });
 
   describe('type inference', () => {
@@ -1083,7 +1168,7 @@ describe('graph-schema', () => {
           kind: 'match',
           condition: { type: 'class_match', value: 'no_reply' },
         },
-        { id: FALLBACK_BRANCH_ID, label: 'Sempre', check: null, kind: 'fallback', condition: { type: 'always' } },
+        { id: FALLBACK_BRANCH_ID, label: 'Outros casos', check: null, kind: 'fallback', condition: { type: 'always' } },
       ]);
     });
 
@@ -1104,7 +1189,7 @@ describe('graph-schema', () => {
           kind: 'match',
           condition: { type: 'cond_result', value: false },
         },
-        { id: FALLBACK_BRANCH_ID, label: 'Sempre', check: null, kind: 'fallback', condition: { type: 'always' } },
+        { id: FALLBACK_BRANCH_ID, label: 'Outros casos', check: null, kind: 'fallback', condition: { type: 'always' } },
       ]);
     });
 
@@ -1116,6 +1201,38 @@ describe('graph-schema', () => {
         expect(branchId, `edge ${edge.id} lost its branch`).not.toBeNull();
         expect(conditionForBranch(byId.get(edge.source)!, branchId!)).toStrictEqual(edge.condition);
       }
+    });
+
+    it('a saída de escape se chama "Outros casos" em TODO nó que tem outras saídas', () => {
+      // "Sempre" ali afirmava que o lead sai por essa aresta além das outras. O
+      // motor só a usa quando nenhuma outra serve (`selectEdge`), e nunca manda
+      // por duas. Em nó de saída única "Sempre" continua verdade — é o caso de
+      // baixo. No modo uma-saída-por-regra o nome é "Nenhuma delas".
+      const ramificados: BranchableNode[] = [
+        { type: 'condition', config: { combinator: 'and', checks: [{ field: 'tag', op: 'eq', value: 'vip' }] } },
+        { type: 'ai_classify', config: { classes: ['Interessado'], grace_timeout_ms: 900_000, target: 'last_reply' } },
+        {
+          type: 'match_reply',
+          config: { branches: [{ id: 'br_sim', label: 'Sim', op: 'eq', pattern: 'sim' }], grace_timeout_ms: 900_000 },
+        },
+        { type: 'repeat', config: { max_count: 12 } },
+      ];
+      for (const node of ramificados) {
+        const branches = nodeBranches(node);
+        expect(branches.length, `${node.type} devia ter mais de uma saída`).toBeGreaterThan(1);
+        const escape = branches.find((b) => b.kind === 'fallback')!;
+        expect(escape.label, `escape do ${node.type}`).toBe('Outros casos');
+      }
+
+      const porRegra = nodeBranches({
+        type: 'condition',
+        config: {
+          combinator: 'and',
+          branching: 'per_check',
+          checks: [{ id: 'regra-1', field: 'tag', op: 'eq', value: 'vip' }],
+        },
+      });
+      expect(porRegra.find((b) => b.kind === 'fallback')!.label).toBe('Nenhuma delas');
     });
 
     it('leaves a node with a single output with exactly one branch: the fallback', () => {

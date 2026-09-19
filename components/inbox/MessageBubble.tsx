@@ -22,6 +22,17 @@ interface Props {
   onResponder?: (m: Message) => void;
   /** A mensagem citada por ESTA, quando houver — desenha o fio. */
   citada?: Message | null;
+  /**
+   * QUEM está lendo a conversa. É o que separa "Você" de "Atendente": a coluna
+   * `sent_via='user'` só diz *"um humano digitou no CRM"*, nunca QUAL humano.
+   *
+   * Sem este id, uma organização com dois atendentes mostrava "Você" nas
+   * mensagens do colega — cada um lia o atendimento do outro como se fosse o
+   * seu. Por isso a ausência do id NÃO cai em "Você": quem não sabe quem está
+   * lendo (a leitura do super-admin em `AdminThread`, por exemplo) rotula
+   * "Atendente", que é verdadeiro para todo mundo.
+   */
+  viewerUserId?: string | null;
 }
 
 function AckIndicator({ status, t }: { status: string; t: (texto: string) => string }) {
@@ -37,7 +48,13 @@ function AckIndicator({ status, t }: { status: string; t: (texto: string) => str
   return null;
 }
 
-export function MessageBubble({ message, debugCitations, onResponder, citada }: Props) {
+export function MessageBubble({
+  message,
+  debugCitations,
+  onResponder,
+  citada,
+  viewerUserId,
+}: Props) {
   const localeDaData = useLocaleDeData();
   const t = useT();
   const isOutbound = message.direction === "outbound";
@@ -57,9 +74,39 @@ export function MessageBubble({ message, debugCitations, onResponder, citada }: 
   const citations = extractCitations(message.metadata);
   const showCitationButton =
     isOutbound && aiGenerated && (debugCitations ?? false);
+  // De quem saiu esta linha. `external_device` é a resposta pelo CELULAR — o
+  // operador atendeu pelo WhatsApp do telefone, fora do CRM, e o ingest carimba
+  // aqui. Antes isto voltava null para tudo que não fosse IA, e a bolha ficava
+  // sem nome: o dono lia a conversa como se tudo tivesse sido digitado no CRM.
+  // Os rótulos passam por t() no render (ver dicionario.ts para o espanhol).
+  //
+  // `'automation'` é a categoria de quem não é pessoa nem IA: regra de
+  // automação, texto fixo do follow-up e lembrete de agenda (#652, decidida pelo
+  // mantenedor em 16/09). Enquanto ninguém gravava o valor, um ramo aqui seria
+  // controle decorativo — a tela oferecendo uma distinção que o motor não fazia.
+  // O carimbo vive em `origemDaMensagem` (`app/api/v1/messages/_handler.ts`) e o
+  // par é vigiado nas duas direções por tests/unit/rotulo-de-origem-tem-emissor.
   const senderLabel = (() => {
     if (!isOutbound) return null;
     if (message.sent_via === "ai") return "IA";
+    // A REGRA falou, e não a IA: texto fixo de automação, follow-up ou lembrete
+    // de agenda (#652). O ramo passou a existir porque o valor passou a ser
+    // gravado — antes dele, um rótulo aqui seria promessa sem dado atrás.
+    if (message.sent_via === "automation") return "Automação";
+    // A integração falou, a IA não. Sem este ramo a bolha omite a autoria e o
+    // dono lê a conversa como se tudo tivesse saído do CRM — que é o defeito do
+    // #866 visto de dentro da tela.
+    if (message.sent_via === "system") return "Sistema";
+    if (message.sent_via === "external_device") return "Celular";
+    if (message.sent_via === "user" || message.sent_via === "crm") {
+      // "Você" exige as DUAS pontas: saber quem lê e saber quem enviou. Falta
+      // qualquer uma, o rótulo cai para "Atendente" — que continua dizendo o
+      // que `sent_via` de fato garante (um humano, pelo CRM) sem afirmar uma
+      // identidade que o dado não sustenta.
+      return viewerUserId != null && message.sent_by_user_id === viewerUserId
+        ? "Você"
+        : "Atendente";
+    }
     return null;
   })();
 

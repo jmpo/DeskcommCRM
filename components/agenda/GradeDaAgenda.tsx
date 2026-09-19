@@ -226,6 +226,7 @@ function CamadaDeMarcacao({
   agendamentosDoDia: Agendamento[];
   interacao: InteracaoDaGrade;
 }) {
+  const t = useT();
   const localeDaData = useLocaleDeData();
   const chave = chaveDoDia(dia);
   const publicados = interacao.horariosPorDia[chave] ?? [];
@@ -244,7 +245,7 @@ function CamadaDeMarcacao({
         );
         const passado = fim.getTime() <= agora.getTime();
         const rotulo = format(inicio, "HH:mm");
-        const razao = razaoDoBloco({ motivo: interacao.motivo, ocupado, passado });
+        const razao = t(razaoDoBloco({ motivo: interacao.motivo, ocupado, passado }));
 
         return (
           <button
@@ -255,8 +256,13 @@ function CamadaDeMarcacao({
             disabled={livre === null}
             aria-label={
               livre
-                ? `Marcar às ${livre.rotulo} de ${format(dia, "d 'de' MMMM", { locale: localeDaData })}`
-                : `${format(dia, "d 'de' MMMM", { locale: localeDaData })} às ${rotulo} — ${razao}`
+                ? t("Marcar às {hora} de {data}")
+                    .replace("{hora}", livre.rotulo)
+                    .replace("{data}", format(dia, t("d 'de' MMMM"), { locale: localeDaData }))
+                : t("{data} às {hora} — {motivo}")
+                    .replace("{data}", format(dia, t("d 'de' MMMM"), { locale: localeDaData }))
+                    .replace("{hora}", rotulo)
+                    .replace("{motivo}", razao)
             }
             title={livre ? undefined : razao}
             onClick={livre ? () => interacao.onMarcarEm(livre.instante) : undefined}
@@ -491,6 +497,7 @@ function FantasmaDoArraste({
   proposta: PropostaDeRemarcacao;
   duracaoMin: number;
 }) {
+  const t = useT();
   const localeDaData = useLocaleDeData();
   const valido = proposta.instante !== null;
   return (
@@ -511,7 +518,7 @@ function FantasmaDoArraste({
       <span className="truncate text-[10px] font-semibold leading-4 text-text">
         {valido
           ? format(new Date(proposta.instante!), "HH:mm", { locale: localeDaData })
-          : proposta.razao}
+          : t(proposta.razao)}
       </span>
     </div>
   );
@@ -524,6 +531,7 @@ function ColunaDeDia({
   pessoas,
   onAbrir,
   destacado,
+  soNoDesktop,
   interacao,
   proposta,
   arrasteDoCard,
@@ -534,6 +542,13 @@ function ColunaDeDia({
   pessoas: Pessoa[];
   onAbrir?: (id: string) => void;
   destacado: boolean;
+  /**
+   * Some abaixo de `md`. Na semana, o celular mostra UM dia por vez: sete
+   * colunas em 360px dão ~44px cada, e a célula de meia hora vira um alvo de
+   * ~44x24 — errar o toque passa a ser o caso comum, não a exceção. Com uma
+   * coluna só, o mesmo alvo fica com a largura inteira da tela.
+   */
+  soNoDesktop?: boolean;
   interacao?: InteracaoDaGrade;
   proposta?: PropostaDeRemarcacao | null;
   arrasteDoCard?: {
@@ -551,6 +566,7 @@ function ColunaDeDia({
       data-testid={`coluna-dia-${format(dia, "yyyy-MM-dd")}`}
       className={cn(
         "relative min-w-0 flex-1 border-r border-border last:border-r-0",
+        soNoDesktop && "max-md:hidden",
         destacado && "bg-surface-elevated/40",
       )}
     >
@@ -565,7 +581,7 @@ function ColunaDeDia({
         <span
           className={cn(
             "flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] tabular-nums",
-            ehHoje ? "bg-accent text-accent-fg font-semibold" : "text-text",
+            ehHoje ? "bg-accent text-accent-foreground font-semibold" : "text-text",
           )}
         >
           {format(dia, "d")}
@@ -677,7 +693,7 @@ function VisaoDeMes({
                   className={cn(
                     "flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] tabular-nums",
                     isSameDay(d, agora)
-                      ? "bg-accent font-semibold text-accent-fg"
+                      ? "bg-accent font-semibold text-accent-foreground"
                       : doMes
                         ? "text-text"
                         : "text-text-subtle",
@@ -698,6 +714,18 @@ function VisaoDeMes({
                     <div
                       key={c.id}
                       data-testid={`chip-mes-${c.id}`}
+                      // A MESMA identidade que o bloco da semana carrega.
+                      //
+                      // Desde que a ocupação do Google passou a ser lida por
+                      // `fn_agenda_ocupacao_google_do_dono`, ela não tem id de
+                      // compromisso: o `c.id` daqui é DERIVADO (dono + fatia
+                      // visível), então não há como apontar para o chip por
+                      // fora. O bloco da semana já resolvia isso com a origem;
+                      // o chip do mês não a carregava, e sobrava apontá-lo pelo
+                      // rótulo "Ocupado" — que é justamente o que a spec
+                      // AFIRMA, e um seletor que repete a asserção não prova
+                      // nada.
+                      data-origem={c.origem}
                       className="flex items-center gap-1 rounded-sm px-1 py-0.5"
                       style={{ background: fundoDaTrilha(trilha, 14) }}
                     >
@@ -977,6 +1005,7 @@ export function GradeDaAgenda({
                 pessoas={pessoas}
                 onAbrir={onAbrirAgendamento}
                 destacado={visao === "semana" && isSameDay(d, agora)}
+                soNoDesktop={visao === "semana" && !isSameDay(d, ancora)}
                 interacao={interacao}
                 proposta={proposta}
                 arrasteDoCard={arrasteDoCard}
