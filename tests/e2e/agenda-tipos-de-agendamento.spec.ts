@@ -238,7 +238,21 @@ test("o tipo NASCE com responsável — e quem escolhe 'Definir depois' recebe a
   await page.screenshot({ path: "evidence/calendario/d6-tipo-com-responsavel.png", fullPage: true });
 });
 
-test("desativar tira o tipo da tela de marcar, sem apagar a história", async ({ page }) => {
+test("desativar tira o tipo da tela de marcar, e reativar o traz de volta", async ({ page }) => {
+  /**
+   * ⚠️ ESTE CASO JÁ EXISTIA E CONFERIA O BOTÃO "Reativar" SÓ COM `toBeVisible`.
+   *
+   * Foi exatamente assim que ele sobreviveu morto. O botão mandava
+   * `PATCH /api/v1/agenda/tipos` com `{ id, is_active: true }`; o
+   * `alterarSchema` daquela rota é `criarSchema.partial()`, onde `is_active` não
+   * existe, e Zod descarta chave desconhecida em silêncio — o corpo chegava
+   * vazio e a resposta era 422 "Nenhum campo para alterar.". Nunca funcionou uma
+   * vez, desde que a tela nasceu.
+   *
+   * Ver que o controle está DESENHADO não é ver que ele ABRE. O caso agora
+   * clica, e cobra o efeito nos dois lugares: o rótulo "desativado" sai da lista
+   * e o tipo volta a ser oferecido em /app/agenda.
+   */
   const creds = lerCreds();
   await entrar(page, creds);
   await page.goto("/app/settings/tenant/agenda");
@@ -274,4 +288,117 @@ test("desativar tira o tipo da tela de marcar, sem apagar a história", async ({
     page.getByRole("button", { name: new RegExp(`^${nome}`) }),
     "tipo desativado continua oferecido para marcar",
   ).toHaveCount(0);
+
+  // ─── A VOLTA ────────────────────────────────────────────────────────────
+  //
+  // Sem esta metade, desativar é uma porta que só abre para um lado: o nome
+  // continua ocupado pelo tipo desligado (o slug é único), então quem errou o
+  // clique não consegue nem recriar com o mesmo nome.
+  await page.goto("/app/settings/tenant/agenda");
+  await expect(page.getByTestId("tipos-de-agendamento-config")).toBeVisible({ timeout: 20_000 });
+  await linha.getByRole("button", { name: "Reativar" }).click();
+
+  await expect(
+    linha.getByText("desativado"),
+    "cliquei em Reativar e o tipo continua marcado como desativado",
+  ).toHaveCount(0, { timeout: 20_000 });
+  await expect(
+    linha.getByRole("button", { name: "Desativar" }),
+    "o tipo voltou mas a lista não oferece desligar de novo",
+  ).toBeVisible();
+
+  // E volta a aparecer onde importa — o mesmo lugar de onde saiu.
+  await page.goto("/app/agenda");
+  await page.getByRole("button", { name: /novo agendamento/i }).click();
+  await expect(page.getByTestId("tipos-de-agendamento")).toBeVisible({ timeout: 15_000 });
+  await expect(
+    page.getByRole("button", { name: new RegExp(`^${nome}`) }),
+    "reativei o tipo e ele não voltou para a tela de marcar",
+  ).toHaveCount(1);
+});
+
+test("ligo o aviso do compromisso pela tela, e ele fica ligado", async ({ page }) => {
+  /**
+   * O OUTRO MEIO DO PAR — o caso que faltava para a entrega do lembrete existir.
+   *
+   * O cron `agenda-reminder` lê `reminder_enabled` e `reminder_minutes_before`
+   * desde que nasceu, e nenhum dos dois estava em rota ou tela: a varredura
+   * devolvia zero linhas em toda instalação e não havia como mudar isso.
+   * Configuração sem superfície é capacidade morta (invariante 6 do Sistema
+   * Vivo), e é por AQUI — a tela — que se prova que deixou de ser.
+   *
+   * O caso vive nesta spec, e não num arquivo novo, porque é a MESMA tela e o
+   * mesmo login: um arquivo à parte custaria mais uma sessão num job que já
+   * vive perto do teto de logins por IP, sem cobrir nada a mais.
+   */
+  const creds = lerCreds();
+  await entrar(page, creds);
+  await page.goto("/app/settings/tenant/agenda");
+  await expect(page.getByTestId("tipos-de-agendamento-config")).toBeVisible({ timeout: 20_000 });
+
+  const nome = `Lembrete E2E ${Date.now().toString().slice(-6)}`;
+  await page.getByTestId("abrir-novo-tipo").click();
+  await page.getByTestId("novo-tipo-nome").fill(nome);
+  await page.getByTestId("salvar-novo-tipo").click();
+
+  const linha = page.getByTestId("lista-de-tipos").getByRole("listitem").filter({ hasText: nome });
+  await expect(linha).toBeVisible({ timeout: 20_000 });
+
+  // ── NASCE DESLIGADO. A migration 0194 é explícita: mandar mensagem para o
+  //    telefone de um cliente é irreversível, e ninguém é inscrito por default.
+  await expect(
+    linha.getByTestId(/^lembrete-ligado-/),
+    "o tipo nasceu com o aviso LIGADO — ninguém escolheu isso",
+  ).toHaveCount(0);
+
+  await linha.getByRole("button", { name: "Editar" }).click();
+  const caixa = linha.getByTestId(/^editar-lembrete-[0-9a-f]/).first();
+  const minutos = linha.getByTestId(/^editar-lembrete-minutos-/).first();
+  await expect(caixa).toBeVisible({ timeout: 15_000 });
+
+  // ── O CAMPO DESLIGADO NÃO MENTE. Um campo de minutos editável ao lado de uma
+  //    caixa desmarcada faz quem digita 60 concluir que agendou alguma coisa.
+  await expect(
+    minutos,
+    "o campo de minutos está ativo com o aviso desligado — controle decorativo",
+  ).toBeDisabled();
+
+  await caixa.check();
+  await expect(minutos, "marquei o aviso e o campo continuou travado").toBeEnabled();
+  await linha.getByTestId(/^editar-lembrete-unidade-/).first().selectOption("minutos");
+  await minutos.fill("60");
+  await linha.getByTestId(/^salvar-/).first().click();
+
+  // ── O ESTADO APARECE SEM ABRIR NADA ────────────────────────────────────────
+  await expect(
+    linha.getByTestId(/^lembrete-ligado-/),
+    "liguei o aviso e a lista não conta isso — quem olha a tela não sabe que mensagem vai sair",
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(linha).toContainText("60 min");
+
+  // ── E FICOU GRAVADO. Sem o recarregamento, isto mediria estado de React.
+  await page.reload();
+  const depois = page.getByTestId("lista-de-tipos").getByRole("listitem").filter({ hasText: nome });
+  await expect(
+    depois.getByTestId(/^lembrete-ligado-/),
+    "o aviso voltou desligado depois de recarregar — não chegou ao banco",
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(depois).toContainText("60 min");
+
+  await depois.getByRole("button", { name: "Editar" }).click();
+  const texto = depois.getByTestId(/^editar-lembrete-texto-/).first();
+  await expect(texto).toBeEnabled();
+  await texto.fill("Oi {{nome}}, te espero {{dia}} às {{hora}}.");
+  await depois.getByTestId(/^salvar-/).first().click();
+
+  await expect(depois).toContainText("texto próprio", { timeout: 20_000 });
+  await page.reload();
+  const gravado = page.getByTestId("lista-de-tipos").getByRole("listitem").filter({ hasText: nome });
+  await expect(gravado).toContainText("texto próprio", { timeout: 20_000 });
+  await gravado.getByRole("button", { name: "Editar" }).click();
+  await expect(gravado.getByTestId(/^editar-lembrete-texto-/).first()).toHaveValue(
+    "Oi {{nome}}, te espero {{dia}} às {{hora}}.",
+  );
+
+  await page.screenshot({ path: "evidence/calendario/lembrete-ligado.png", fullPage: true });
 });

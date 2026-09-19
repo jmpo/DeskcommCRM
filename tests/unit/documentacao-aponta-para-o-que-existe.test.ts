@@ -50,6 +50,9 @@ const AUTORIDADE = [
   "docs/runbooks",
   "docs/adr",
   "triagem",
+  // Skills embutidas: alguém as lê para AGIR (instalar, contribuir). A fonte é
+  // `.agents/skills`; o espelho `.claude/skills` é byte-idêntico (gate próprio).
+  ".agents/skills",
 ];
 
 /**
@@ -78,7 +81,15 @@ const EH_PLACEHOLDER =
 
 const LINK_RELATIVO = /\[[^\]]*\]\((?!https?:|#|mailto:)([^)#\s]+)/g;
 const PATH_EM_CRASE =
-  /`((?:app|lib|components|workers|scripts|tests|supabase|hooks|docs|hostgator-setup-kit|triagem|\.github)\/[A-Za-z0-9_./[\]-]+\.(?:ts|tsx|sql|sh|yml|yaml|json|md))`/g;
+  /`((?:app|lib|components|workers|scripts|tests|supabase|hooks|docs|hostgator-setup-kit|triagem|\.github|\.agents|\.claude|\.codex|\.cursor|\.opencode)\/[A-Za-z0-9_./[\]-]+\.(?:ts|tsx|sql|sh|yml|yaml|json|md|mdc|toml|mjs))`/g;
+
+function decodificar(alvo: string): string {
+  try {
+    return decodeURIComponent(alvo);
+  } catch {
+    return alvo; // `%` solto não é codificação; o alvo vale como está
+  }
+}
 
 function markdownsRastreados(): string[] {
   const saida = execFileSync("git", ["ls-files", "*.md"], { cwd: RAIZ, encoding: "utf8" });
@@ -109,7 +120,10 @@ describe("documentação — o que ela aponta existe", () => {
 
       for (const [, alvo] of texto.matchAll(LINK_RELATIVO)) {
         if (!alvo || EH_PLACEHOLDER.test(alvo)) continue;
-        if (fs.existsSync(path.resolve(base, alvo))) continue;
+        // Markdown permite `%20`/`%C3%A3` no alvo (é assim que se linka um nome com
+        // espaço ou acento sem os `<>`); o disco não conhece a forma codificada.
+        // Sem decodificar, um link VÁLIDO para arquivo existente reprovava como morto.
+        if (fs.existsSync(path.resolve(base, decodificar(alvo)))) continue;
         if (PONTEIROS_MORTOS_ACEITOS.has(`${doc}::${alvo}`)) continue;
         mortos.push(`${doc} → ${alvo}`);
       }

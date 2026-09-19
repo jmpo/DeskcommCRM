@@ -31,7 +31,44 @@ export type Actor =
    * "não sei qual agente" tem de virar atividade de sistema, nunca linha perdida.
    */
   | { type: "ai_agent"; id: string; role: string; api_token_id?: string; agent_id?: string }
-  | { type: "webhook_source"; id: string };
+  /**
+   * TOKEN DE SERVIDOR sem escopo de agente — uma integração, não uma pessoa.
+   *
+   * ⚠️ ESTA VARIANTE EXISTE PORQUE ELE ERA `"user"`, e isso custava duas coisas
+   * ao mesmo tempo:
+   *
+   * 1. **FK quebrada.** Os handlers gravam `…_by_user_id: actor.type === "user"
+   *    ? actor.id : null`, e `actor.id` de um token é o id do TOKEN. Todo
+   *    INSERT por token morria em `violates foreign key constraint` — medido em
+   *    `POST /api/v1/messages`, e o mesmo padrão existe em nove lugares
+   *    (agenda, contatos, leads, conversas, mensagens). É o defeito que o
+   *    comentário de `ai_agent` acima já descreve, repetido noutra coluna.
+   *
+   * 2. **Gate de canal furado.** `messages/_handler.ts` pula a verificação de
+   *    `pre_go_live` quando o ator é `"user"`, porque **envio humano** não deve
+   *    responder pelo modo de teste da IA. Com o token disfarçado de pessoa, uma
+   *    integração atravessava o modo de teste do canal — a proteção que o
+   *    operador liga para segurar a IA não segurava um token.
+   *
+   * Com um tipo próprio, os dois se consertam sem tocar nos nove lugares: o
+   * `=== "user"` passa a ser falso, então a coluna recebe `null` e o gate passa
+   * a valer.
+   */
+  | { type: "api_token"; id: string; role?: string }
+  /**
+   * REGRA DE AUTOMAÇÃO disparando um envio — o ator é a regra, não uma pessoa.
+   *
+   * `textoEscritoPelaIA` existe porque a AUTORIA e o DISPARO são coisas
+   * diferentes, e a decisão da #652 classifica `messages.sent_via` por autoria.
+   * Quase toda ação de regra manda texto fixo (template, follow-up, lembrete):
+   * ninguém escreveu, e a linha é `'automation'`. A ação "Mensagem escrita pela
+   * IA" é a exceção: quem escreve é um agente publicado, e a linha é `'ai'` —
+   * mesmo tendo sido disparada por regra.
+   *
+   * Sem este campo, o carimbo se decide só pelo tipo do ator, e a mensagem que a
+   * IA escreveu aparece no balão como "Automação" e some de `envios_por_ia`.
+   */
+  | { type: "webhook_source"; id: string; textoEscritoPelaIA?: true };
 
 export interface HandlerCtx {
   agentOperation?: AgentOperationContext;

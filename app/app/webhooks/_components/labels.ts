@@ -20,6 +20,18 @@ export const TRIGGER_LABELS: Record<TriggerEvent, string> = {
   "message.received": "Quando chegar mensagem no WhatsApp",
   "lead.tag_added": "Quando um lead ganhar uma tag",
   "contact.tag_added": "Quando um contato ganhar uma tag",
+  // A frase evita "agendamento criado", que não diz ao operador o que ele vê na
+  // agenda: um horário marcado pode nascer pendente (o tipo pede confirmação) ou
+  // já confirmado, e os dois caem aqui.
+  "appointment.created": "Quando um horário for marcado",
+  "appointment.confirmed": "Quando um horário pendente for confirmado",
+  "appointment.rescheduled": "Quando um horário for remarcado",
+  "appointment.cancelled": "Quando um horário for cancelado",
+  "contact.birthday": "No aniversário de um contato",
+  // A frase diz o que a regra vê ("uma data do funil"), e não o que o operador
+  // escreveu — o campo é escolhido embaixo, e o mesmo rótulo serve para "data
+  // do casamento", "vencimento" e "data da prova".
+  "lead.date_field_due": "Quando faltarem N dias para uma data do funil",
 };
 
 export const ACTION_LABELS: Record<ActionType, string> = {

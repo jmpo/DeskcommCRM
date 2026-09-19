@@ -21,6 +21,8 @@ import type {
   ChannelSessionHealth,
 } from '../../channel-adapter';
 
+import { sinalizarDigitando } from '@/lib/messaging/presenca';
+
 import { CrmTransportError, type CrmEdgeConfig } from '../crm/mcp-client';
 import { sendTurnMessage, SendToolError } from '../crm/send-message';
 import { SESSION_HEALTHY_STATUS } from '../crm/session-watchdog';
@@ -65,6 +67,26 @@ export class WahaChannelAdapter implements ChannelAdapter {
       }
       throw err;
     }
+  }
+
+  /**
+   * "digitando…" antes da 1ª bolha do turno.
+   *
+   * Mesma disciplina do `send`: o message-plane NÃO fala com o transporte
+   * direto (regra dura nº 4) — quem resolve sessão e endereço é a borda do CRM,
+   * pelas mesmas funções que o envio usa. Duas maneiras de descobrir por qual
+   * número falar divergiriam, e o sintoma seria o indicador numa conversa e a
+   * mensagem noutra.
+   *
+   * Sem `try/catch` aqui de propósito: o ponto único de falha-macio é
+   * `esperarComoHumano`, que engole e loga. Engolir nos dois lugares esconderia
+   * o erro do log que o vigia.
+   */
+  async signalTyping(input: { tenantId: string; conversationId: string }): Promise<void> {
+    await sinalizarDigitando(this.crmCfg.supabase, {
+      organizationId: input.tenantId,
+      conversationId: input.conversationId,
+    });
   }
 
   async sessionHealth(channelSessionId: string): Promise<ChannelSessionHealth> {

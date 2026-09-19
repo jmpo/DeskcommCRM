@@ -19,6 +19,7 @@ import {
 } from "@/hooks/channels/useChannelSessions";
 import { usePacingKnobs } from "@/hooks/channels/usePacingKnobs";
 import { AntiBanSheet } from "./AntiBanSheet";
+import { PairingOptions } from "./PairingOptions";
 import { ChannelAiAccess } from "./ChannelAiAccess";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -125,10 +126,15 @@ export function ConnectionsClient({ wahaConfigured }: { wahaConfigured: boolean 
   const [toDelete, setToDelete] = useState<ChannelSession | null>(null);
   const pacingItems = usePacingKnobs().data?.items ?? [];
 
-  const invalidate = useCallback(
-    () => qc.invalidateQueries({ queryKey: ["channel-sessions"] }),
-    [qc],
-  );
+  // Mexer nos canais (criar, excluir, reconectar, health check) muda a LISTA de
+  // conexões — e a ficha de Proteção de envio (`pacing-knobs`) é indexada por
+  // ela. Invalidando só a primeira, a ficha ficava velha: o painel abria sem os
+  // dados da conexão recém-criada (ou apontando para a excluída). As duas
+  // listas andam juntas.
+  const invalidate = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ["channel-sessions"] });
+    void qc.invalidateQueries({ queryKey: ["pacing-knobs"] });
+  }, [qc]);
 
   // Health check ao vivo de todos os canais — consulta o WAHA e grava
   // last_health_check_at. É a verificação de saúde de verdade (o status do DB
@@ -400,11 +406,16 @@ export function ConnectionsClient({ wahaConfigured }: { wahaConfigured: boolean 
         </div>
       )}
 
-      <AntiBanSheet
-        item={pacingItems.find((i) => i.channel_session.id === antiBanId) ?? null}
-        canWrite
-        onClose={() => setAntiBanId(null)}
-      />
+      {/* Só monta quando alguém pediu para abrir: assim o AntiBanSheet distingue
+          "painel fechado" de "a conexão pedida sumiu da lista" — o segundo caso
+          vira estado visível ali dentro, não um painel mudo. */}
+      {antiBanId !== null && (
+        <AntiBanSheet
+          item={pacingItems.find((i) => i.channel_session.id === antiBanId) ?? null}
+          canWrite
+          onClose={() => setAntiBanId(null)}
+        />
+      )}
 
       {toDelete && (
         <ExcluirCanalDialog
@@ -449,6 +460,11 @@ export function frasesDoImpacto(
     [
       contar(impact.history.conversations, "conversa", "conversas", t),
       contar(impact.history.messages, "mensagem", "mensagens", t),
+      // Registro de ligação entra na MESMA frase de "continua no inbox": para
+      // quem opera, conversa e chamada são o mesmo histórico com o cliente. A
+      // contagem nem existia, e o diálogo mostrava zeros enquanto o histórico
+      // de voz sumia por cascade.
+      contar(impact.history.voice_calls, "chamada de voz", "chamadas de voz", t),
     ],
     t,
   );
@@ -661,12 +677,13 @@ function QrDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {t(
-              "No celular: WhatsApp → Aparelhos conectados → Conectar um aparelho → escaneie o código.",
+              "Escolha QR Code ou código de pareamento e confirme no WhatsApp do celular.",
             )}
           </DialogDescription>
         </DialogHeader>
         <div className="flex min-h-[16rem] flex-col items-center justify-center gap-3 py-2">
           {status === "SCAN_QR_CODE" ? (
+            <PairingOptions key={sessionId} sessionId={sessionId} qr={
             // Sem `key={tick}`: trocar só o src reaproveita o mesmo <img>, e o
             // browser segura o frame anterior até decodificar o novo. Remontar o
             // elemento a cada refresh é o que causaria o flash branco.
@@ -676,6 +693,7 @@ function QrDialog({
               alt={t("QR Code para conectar WhatsApp")}
               className="h-64 w-64 rounded-md border bg-white p-2"
             />
+            } />
           ) : status === "WORKING" ? (
             <div className="flex flex-col items-center gap-2 text-sm font-medium text-success-fg">
               <CheckCircle size={28} weight="fill" aria-hidden />

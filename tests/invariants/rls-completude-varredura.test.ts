@@ -75,6 +75,10 @@ interface Excecao {
  * linhas da OUTRA organização, não uma leitura como superusuário.
  */
 const PROVA_PROPRIA: readonly Excecao[] = [
+  { tabela: "config_aviso_de_caso", razao: "tests/invariants/aviso-de-caso-escrita.test.ts — dois tenants reais por JWT: admin lê só a própria organização, agent e viewer não leem nada, e a escrita direta por authenticated é negada (a única porta é fn_definir_aviso_de_caso, que revalida papel, suporte e MFA)" },
+  { tabela: "entregas_de_aviso_de_caso", razao: "tests/invariants/aviso-de-caso-escrita.test.ts — manager lê o histórico da própria organização e zero do vizinho; viewer lê zero; escrita direta por authenticated negada nos três verbos, e apagar a channel_sessions apontada não falha e deixa a configuração desligada" },
+  { tabela: "organization_extensions", razao: "tests/invariants/extensoes-declarativas.test.ts — dois tenants com vínculos reais: leitura positiva local/negativa cruzada por JWT, revogação de membership e escrita direta negada" },
+  { tabela: "extension_operations", razao: "tests/invariants/extensoes-declarativas.test.ts — recibo de instância fechado a anon/authenticated, inclusive configure com organização; RPCs service-only revalidam ator e papel" },
   { tabela: "channel_routing_policies", razao: "tests/invariants/channel-routing.test.ts — dois tenants reais, leitura positiva local e negativa cruzada por JWT; FK composta rejeita canal de outra org" },
   { tabela: "channel_routing_responsibles", razao: "tests/invariants/channel-routing.test.ts — JWT do tenant B não lê responsáveis de A; revogação remove vínculo e claim revalida membro ativo" },
   { tabela: "channel_connection_requests", razao: "tests/invariants/channel-routing.test.ts — recibo privado sem SELECT authenticated; reserva admin com MFA e finalização service-only cercada por org e lease" },
@@ -143,6 +147,10 @@ const PROVA_PROPRIA: readonly Excecao[] = [
     razao: "tests/invariants/agenda-rls.test.ts — mesmo `it.each` de TABELAS_DA_AGENDA.",
   },
   {
+    tabela: "calendar_locations",
+    razao: "tests/invariants/agenda-rls.test.ts — mesmo `it.each` de TABELAS_DA_AGENDA.",
+  },
+  {
     tabela: "followup_flow_versions",
     razao:
       "tests/invariants/followup-schema.test.ts — `FOLLOWUP_TABLES`, com " +
@@ -167,6 +175,15 @@ const PROVA_PROPRIA: readonly Excecao[] = [
       "tests/invariants/gov-1b-team-manager-read.test.ts (\"cross-org: " +
       "manager da org A NÃO lê linhas da org B (0 rows)\") prova isolamento " +
       "com `countAs` real, além do self-read do agent.",
+  },
+  {
+    tabela: "team_invites",
+    razao:
+      "tests/invariants/convites-de-time-rls.test.ts — isolamento cross-tenant " +
+      "(manager A lê 0 de B, sem porta dos fundos) + gate de papel (agent/viewer " +
+      "leem 0; manager não revoga, só admin). Fora de TABLES de propósito: o " +
+      "usuário semeado em rls-isolation.test.ts é `agent`, e `team_invites_select` " +
+      "exige `manager` — o controle positivo falharia por ACERTO ali.",
   },
   // ─── As três do eixo de anúncios (migrations 0213/0214) ───
   //
@@ -210,6 +227,22 @@ const PROVA_PROPRIA: readonly Excecao[] = [
       "da organização viraram venda, e quem o lê é o servidor com o admin client " +
       "filtrando organization_id à mão (a tela `/app/settings/conversoes`).",
   },
+  {
+    tabela: "google_ads_landing_pages",
+    razao:
+      "tests/invariants/google-ads-captura-e-server-side.test.ts — mesmo desenho " +
+      "deny-all de ad_platform_connections (0213): RLS ligada, zero policies, " +
+      "grants revogados de anon/authenticated, organization_id NOT NULL com FK " +
+      "em cascata. Guarda para qual WhatsApp e com qual texto a landing page " +
+      "de captura de gclid redireciona.",
+  },
+  {
+    tabela: "google_ads_click_refs",
+    razao:
+      "tests/invariants/google-ads-captura-e-server-side.test.ts — mesmo " +
+      "`describe.each` da linha acima. Guarda o `gclid` de cada clique de " +
+      "anúncio e o token que o liga à mensagem do WhatsApp.",
+  },
 ];
 
 /**
@@ -238,7 +271,6 @@ const DEBITO_CONHECIDO: readonly Excecao[] = [
   "ai_invocations",
   "ai_knowledge_sources",
   "ai_knowledge_versions",
-  "ai_provider_credentials",
   "ai_purpose_bindings",
   "ai_router_members",
   "api_audit_log",

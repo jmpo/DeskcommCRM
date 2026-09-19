@@ -9,6 +9,8 @@ import { toggleSidebar } from "@/app/actions/shell/toggleSidebar";
 import { useAuth } from "@/hooks/auth/AuthProvider";
 import { ConnectionHealthDot } from "@/components/connections/ConnectionHealthDot";
 import { VersionFooter } from "@/components/shell/VersionFooter";
+import { LogotipoDoProduto, SimboloDoProduto } from "@/components/branding/MarcaDoProduto";
+import { marcaEhADoProduto } from "@/lib/branding";
 import { useMarcaDaInstalacao } from "@/lib/branding/contexto";
 import { GRUPO_NO_RODAPE, sidebarGroups } from "@/lib/navigation/registry";
 
@@ -109,6 +111,9 @@ export function SidebarContent({
    * descer para ele — que é o contrário do que a precedência por campo promete.
    */
   const logo = activeOrg?.marca?.logoUrl || brand.logoUrl;
+  // Só quando NINGUÉM — nem a instalação, nem a organização — pôs marca própria:
+  // é a condição de `lib/branding.ts`, avaliada sobre o que a barra vai mostrar.
+  const marcaDoProduto = marcaEhADoProduto({ name: nome, logoUrl: logo ?? null });
 
   return (
     <>
@@ -119,17 +124,42 @@ export function SidebarContent({
         )}
       >
         {logo && !collapsed ? (
-          // <img> em vez de next/image de propósito: a URL vem de quem hospeda
-          // (banco ou .env), e next/image exige allowlist de domínios fechada em
-          // build — a imagem pré-buildada rejeitaria o domínio do self-hoster.
-          // Altura fixa e largura livre porque a arte enviada tem proporção
-          // desconhecida; forçar as duas distorceria o logo de quem configurou.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={logo} alt={nome} className="h-7 w-auto max-w-[10rem] object-contain" />
+          // A moldura clara vale SÓ para o logo enviado por quem hospeda. A arte
+          // do produto (ramo `marcaDoProduto`, logo abaixo) já é desenhada para os
+          // dois temas e não precisa dela — pôr a moldura ali seria dar o remédio
+          // a quem não tem a doença.
+          // Chip claro só no tema escuro: a arte enviada é de quem hospeda, sem
+          // garantia de que tenha contraste contra `--color-surface` escuro
+          // (`#1d1c17`). Sem isto, todo logo escuro/colorido — a maioria do que
+          // se sobe pensando em fundo claro — some no tema escuro (issue: logo
+          // da Dra. Mariana Nascimento, azul-marinho sobre quase-preto). O chip
+          // é condicional ao TEMA, não à cor do logo (não dá pra inspecionar
+          // pixel de uma URL externa em server component), então ele aparece
+          // para qualquer logo — inclusive um já pensado pra fundo escuro, que
+          // fica com uma moldura branca de sobra. Troca aceita: pior caso
+          // "moldura desnecessária" é sempre melhor que pior caso "logo
+          // invisível".
+          <div className="rounded-md dark:bg-white dark:px-2 dark:py-1 dark:shadow-sm">
+            {/* <img> em vez de next/image de propósito: a URL vem de quem hospeda
+              (banco ou .env), e next/image exige allowlist de domínios fechada em
+              build — a imagem pré-buildada rejeitaria o domínio do self-hoster.
+              Altura fixa e largura livre porque a arte enviada tem proporção
+              desconhecida; forçar as duas distorceria o logo de quem configurou. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={logo} alt={nome} className="h-7 w-auto max-w-[10rem] object-contain" />
+          </div>
+        ) : marcaDoProduto ? (
+          // O desenho do produto, inline (ver `components/branding/MarcaDoProduto.tsx`):
+          // logotipo com a barra aberta, só o símbolo com ela recolhida.
+          collapsed ? (
+            <SimboloDoProduto nome={nome} className="h-8 w-8" />
+          ) : (
+            <LogotipoDoProduto nome={nome} className="h-8 w-auto" />
+          )
         ) : (
           <span className={cn("font-semibold tracking-tight", collapsed && "sr-only")}>{nome}</span>
         )}
-        {collapsed && (
+        {collapsed && !marcaDoProduto && (
           <span aria-hidden className="text-lg font-bold text-primary">
             {/* Spread e não `[0]`: nome começando com emoji ou acento composto
                 quebraria no meio do code point. Mesma regra de `resolveBranding`

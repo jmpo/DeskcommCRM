@@ -49,19 +49,42 @@ const triggerConfigSchema = z
 
 export type TriggerConfig = z.infer<typeof triggerConfigSchema>;
 
+const HHMM = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+
+/**
+ * Janela PROATIVA do follow-up. O fuso não é configurável aqui: quem executa
+ * sempre usa `organizations.timezone`, para a faixa acompanhar o relógio da
+ * empresa e não o knob anti-ban do número.
+ */
+const followupSendWindowSchema = z
+  .object({
+    start: z.string().regex(HHMM),
+    end: z.string().regex(HHMM),
+    weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+  })
+  .strict()
+  .refine((window) => window.end > window.start, {
+    path: ["end"],
+    message: "followup_window_end_must_be_after_start",
+  });
+
 // Task 7.2 — vínculo do agente com fluxos de follow-up publicados. Aditivo:
 // `.default(...)` faz agents/versions existentes (sem este campo no payload)
 // continuarem válidos, lidos com enabled=false/[] (comportamento inalterado).
 // `flow_pointer_ids` referencia `followup_flow_pointers.id` — sem FK real de
 // array no Postgres (mesma doutrina de `tool_ids`: domínio validado em app,
 // não em constraint de banco).
+//
+// #490 acrescenta `send_window`: `null` preserva o comportamento histórico; uma
+// faixa limita SOMENTE envios proativos, sem tocar o horário do inbound.
 const followupConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
     flow_pointer_ids: z.array(UUID).max(20).default([]),
+    send_window: followupSendWindowSchema.nullable().optional().default(null),
   })
   .strict()
-  .default({ enabled: false, flow_pointer_ids: [] });
+  .default({ enabled: false, flow_pointer_ids: [], send_window: null });
 
 export type FollowupConfig = z.infer<typeof followupConfigSchema>;
 
@@ -99,7 +122,22 @@ const versionShapeSchema = z
         { message: "tool_id_invalid" },
       ),
     trigger_config: triggerConfigSchema.optional(),
-    channel_session_id: UUID,
+    /**
+     * Por qual número o agente atende. `null` = AINDA NÃO ESCOLHIDO.
+     *
+     * Era UUID obrigatório, e isso trancava o caminho mais comum de uma
+     * instalação nova: o dono escreve o prompt do atendente ANTES de conectar o
+     * WhatsApp (pareia o aparelho outro dia, com o celular na mão). Sem número
+     * em `channel_sessions`, o editor não deixava salvar uma linha do que ele
+     * acabou de escrever — a tela exigia escolher de uma lista vazia.
+     *
+     * ⚠️ NULO RASCUNHA, NÃO ATENDE. Publicar sem número continua recusado, e em
+     * três camadas independentes: `bloqueioDePublicacao` desabilita o botão,
+     * `fn_publish_ai_agent_version` levanta `channel_session_not_found` (o
+     * `select` por `channel_session_id` nulo não acha linha), e o runtime resolve
+     * o agente por `published_version_id` — sem publicação, ninguém o executa.
+     */
+    channel_session_id: UUID.nullable(),
     max_steps: z.number().int().min(1).max(25).default(10),
     token_budget: z.number().int().min(1000).max(500000).default(50000),
     cost_budget_cents: z.number().int().min(1).max(10000).default(50),

@@ -175,7 +175,7 @@ async function book(page: Page, f: Fixture) {
   await page.goto(`/app/inbox/${f.conversation}`);
   await page.getByRole("link", { name: "Marcar compromisso", exact: true }).click();
   await expect(page.getByTestId("painel-de-marcacao")).toBeVisible();
-  await expect(page.getByLabel("Quem será atendido")).toHaveValue(f.contact);
+  await expect(page.getByTestId("quem-sera-atendido")).toHaveAttribute("data-contact-id", f.contact);
   await expect(page.getByLabel("Conversa vinculada (opcional)")).toHaveValue(f.conversation);
   await page.keyboard.press("Escape");
   const days = await irParaASemanaSeguinte(page);
@@ -406,7 +406,7 @@ test("marca Meet, copia link, autoriza em atendimento humano e entrega novamente
     const id = await book(page, f);
     await detail(page, id);
     await expect(meet(page).getByText("Criando link do Google Meet")).toBeVisible();
-    await expect(meet(page).getByText("O envio do link ainda não foi autorizado.")).toBeVisible();
+    await expect(meet(page).getByText("Link não enviado ainda.")).toBeVisible();
     await expect(meet(page).getByRole("link")).toHaveCount(0);
     await capture(page, info, "pending-desktop", "Enviar quando ficar pronto");
     await page.setViewportSize({ width: 390, height: 844 });

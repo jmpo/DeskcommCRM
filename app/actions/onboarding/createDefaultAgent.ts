@@ -85,6 +85,13 @@ export type CreateAgentResult =
       agent_id: string;
       publish_error?: string;
       publish_blocked_by?: "canal" | "modelo" | "chave";
+      /**
+       * Provedor cuja chave colada no wizard ainda não foi confirmada. Só
+       * aparece quando `publish_blocked_by` é "chave" e existe chave gravada
+       * esperando validação — é o que permite à tela dizer "espere um instante"
+       * em vez de "cole uma chave" para quem acabou de colar a sua (#1007).
+       */
+      chave_em_verificacao?: string;
       provider?: string;
       /** Catálogo vazio e catálogo sem modelo que sirva pedem conselhos opostos. */
       motivo_do_modelo?: "catalogo_vazio" | "nenhum_com_ferramentas";
@@ -244,6 +251,8 @@ export async function createDefaultAgent(formData: FormData): Promise<CreateAgen
   await admin.from("event_log").insert({
     organization_id: ctx.orgId,
     event_type: "ai_agent.created",
+    // NOT NULL sem default — ver `tests/unit/evento-de-publicacao-tem-dono.test.ts`.
+    entity_kind: "ai_agent",
     payload: { agent_id: agent.id, source: "onboarding", published: publicacao.published },
   });
 
@@ -273,6 +282,11 @@ export async function createDefaultAgent(formData: FormData): Promise<CreateAgen
       agent_id: agent.id,
       publish_blocked_by: "chave",
       provider: publicacao.provider,
+      // A chave colada existe, mas o provedor ainda não confirmou. A tela usa
+      // isto para não pedir de novo uma chave que a pessoa já colou.
+      ...(publicacao.chaveEmVerificacao
+        ? { chave_em_verificacao: publicacao.chaveEmVerificacao }
+        : {}),
       ...(regrasNaoSalvas ? { regras_nao_salvas: regrasNaoSalvas } : {}),
     };
   }

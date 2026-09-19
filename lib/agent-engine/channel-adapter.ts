@@ -105,6 +105,20 @@ export interface ChannelAdapter {
    * canal direto — a implementação lê o espelho durável do watchdog (F2-14).
    */
   sessionHealth(channelSessionId: string): Promise<ChannelSessionHealth>;
+  /**
+   * Acende o "digitando…" na conversa, antes da 1ª mensagem do turno.
+   *
+   * OPCIONAL de propósito, por duas razões distintas. A primeira é de canal:
+   * nem todo canal tem indicador de presença, e quem chama testa a presença do
+   * método em vez de perguntar qual é. A segunda é de compatibilidade: os
+   * dublês de `ChannelAdapter` espalhados pelos testes não precisam ganhar um
+   * método por causa de um enfeite.
+   *
+   * Sinalizar é decoração — a espera proporcional que a acompanha
+   * (`agent/atraso-humano.ts`) é o que conserta o "responde rápido demais".
+   * Um canal sem presença ainda recebe o conserto inteiro menos o indicador.
+   */
+  signalTyping?(input: { tenantId: string; conversationId: string }): Promise<void>;
   /** o que o canal suporta agora (estático por canal na v1). */
   capabilities(): ChannelCapabilities;
   /** custo por mensagem do canal. */

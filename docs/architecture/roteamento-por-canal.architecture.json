@@ -91,6 +91,27 @@
       "col": 3,
       "type": "database",
       "label": "Confirmar ou preservar FAILED para retry da mesma identidade"
+    },
+    {
+      "id": "pair-code-ui",
+      "lane": "humano",
+      "col": 1,
+      "type": "ui",
+      "label": "PairingOptions: QR ou código em Conexões e onboarding"
+    },
+    {
+      "id": "pair-code-api",
+      "lane": "app",
+      "col": 2,
+      "type": "service",
+      "label": "pairing-code: admin + MFA, tenant, estado remoto e limite"
+    },
+    {
+      "id": "pair-code-audit",
+      "lane": "db",
+      "col": 3,
+      "type": "database",
+      "label": "channel.pairing_code_requested sem telefone/código"
     }
   ],
   "edges": [
@@ -143,6 +164,31 @@
       "from": "finish",
       "to": "connect",
       "label": "Estado visível ou reparo"
+    },
+    {
+      "from": "connect",
+      "to": "pair-code-ui",
+      "label": "Sessão existente pronta para parear"
+    },
+    {
+      "from": "pair-code-ui",
+      "to": "pair-code-api",
+      "label": "Telefone informado pelo administrador"
+    },
+    {
+      "from": "pair-code-api",
+      "to": "pair-code-audit",
+      "label": "Solicitação confirmada pelo transporte"
+    },
+    {
+      "from": "pair-code-api",
+      "to": "pair-code-ui",
+      "label": "Código ou erro acionável; QR continua disponível"
+    },
+    {
+      "from": "pair-code-ui",
+      "to": "finish",
+      "label": "Polling existente só conclui em WORKING"
     }
   ]
 }

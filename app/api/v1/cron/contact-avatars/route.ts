@@ -28,6 +28,7 @@ import { DEFAULT_CHANNEL_PROVIDER, getAdapter, type ChannelProvider } from "@/li
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { PROVIDERS_DE_MENSAGEM } from "@/lib/channels/capabilities";
 
 export const dynamic = "force-dynamic";
 
@@ -42,13 +43,29 @@ interface ContactRow {
   id: string;
   organization_id: string;
   wa_identity: string | null;
+  wa_lid: string | null;
+  phone_number: string | null;
   avatar_storage_path: string | null;
 }
 
-/** `lid:123…` / `phone:+55…` → o chatId que o adapter espera. */
-function chatIdFromIdentity(identity: string): string | null {
-  if (identity.startsWith("lid:")) return `${identity.slice(4)}@lid`;
-  if (identity.startsWith("phone:")) return `${identity.slice(6).replace(/\D/g, "")}@c.us`;
+/**
+ * Identidade do contato → o chatId que o adapter espera.
+ *
+ * MESMA ORDEM de `resolveWahaChatId` (lib/waha/send.ts) e de `chatIdOf`
+ * (session-reconciler): `wa_lid` primeiro, `wa_identity` depois, telefone por
+ * último. Esta função só lia `wa_identity` — que é GERADA com o telefone antes
+ * do lid (migration 0122). Num número BR cujo wa_id não tem o nono dígito, isso
+ * produzia `55AA9BBBBCCCC@c.us`, endereço inexistente: o provider devolvia
+ * `profilePictureURL: null`, o job carimbava "sem foto" e o avatar nunca vinha.
+ * O lid não depende do telefone, por isso vem na frente.
+ */
+function chatIdDoContato(c: ContactRow): string | null {
+  if (c.wa_lid) return `${c.wa_lid}@lid`;
+  if (c.wa_identity?.startsWith("lid:")) return `${c.wa_identity.slice(4)}@lid`;
+  if (c.wa_identity?.startsWith("phone:")) {
+    return `${c.wa_identity.slice(6).replace(/\D/g, "")}@c.us`;
+  }
+  if (c.phone_number) return `${c.phone_number.replace(/\D/g, "")}@c.us`;
   return null;
 }
 
@@ -74,7 +91,7 @@ async function handle(req: NextRequest): Promise<Response> {
   // declarada irreversível no produto; esta linha é o que sustenta isso.
   const { data: contatos, error: queryError } = await admin
     .from("contacts")
-    .select("id, organization_id, wa_identity, avatar_storage_path")
+    .select("id, organization_id, wa_identity, wa_lid, phone_number, avatar_storage_path")
     .not("wa_identity", "is", null)
     .eq("is_anonymized", false)
     .or(`avatar_updated_at.is.null,avatar_updated_at.lt.${cutoff}`)
@@ -92,7 +109,7 @@ async function handle(req: NextRequest): Promise<Response> {
   let falhas = 0;
 
   for (const c of rows) {
-    const chatId = c.wa_identity ? chatIdFromIdentity(c.wa_identity) : null;
+    const chatId = chatIdDoContato(c);
     // Carimba mesmo sem conseguir resolver o chatId: sem isso o contato voltaria
     // em TODA rodada do cron, para sempre, batendo no canal à toa.
     //
@@ -130,6 +147,12 @@ async function handle(req: NextRequest): Promise<Response> {
         .select("waha_session_name, provider")
         .eq("organization_id", c.organization_id)
         .eq("status", "WORKING")
+        // Sem o filtro, a linha de chamada de voz (spec 18) — que nasce
+        // `WORKING` ao parear — podia ganhar este `limit(1)` sem ordenação e
+        // devolver `waha_session_name` nulo: a foto de todo mundo parava de
+        // atualizar em silêncio, com o `carimbar(null)` logo abaixo parecendo
+        // "este contato não tem foto".
+        .in("provider", [...PROVIDERS_DE_MENSAGEM])
         .limit(1)
         .maybeSingle();
       const ref = (sessao as { waha_session_name?: string | null } | null)?.waha_session_name;

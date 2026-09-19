@@ -17,6 +17,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { requireRole } from "@/lib/auth/require-role";
 import { ARCHIVED_AT, queryTolerantToMissingArchived } from "@/lib/channels/archived";
+import { PROVIDERS_DE_MENSAGEM } from "@/lib/channels/capabilities";
 import { createChannelSchema } from "@/lib/schemas/channels";
 import { createClient } from "@/lib/supabase/server";
 import { getWahaClient } from "@/lib/waha/client";
@@ -39,7 +40,12 @@ export async function GET(): Promise<Response> {
     supabase
       .from("channel_sessions")
       .select(CHANNEL_COLUMNS)
-      .eq("organization_id", activeOrg.orgId);
+      .eq("organization_id", activeOrg.orgId)
+      // Só canal de MENSAGEM. A linha de chamada de voz (spec 18) mora na mesma
+      // tabela, tem card próprio em Conexões e não tem `waha_session_name` nem
+      // telefone: entrando aqui, ela vira um número a mais no seletor do inbox e
+      // na barra lateral — sem nome, sem estado vigiado e sem para onde mandar.
+      .in("provider", [...PROVIDERS_DE_MENSAGEM]);
   // Canais arquivados sobrevivem só como âncora das FKs RESTRICT
   // (conversations/messages). Para o usuário eles foram excluídos.
   //
@@ -107,7 +113,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     return ok(result.channel, { requestId, status: result.replay ? 200 : 201 });
   } catch (error) {
     if (error instanceof ChannelConnectionError) return fail(error.code,
-      error.code === "connection_in_progress" ? t("A conexão ainda está sendo preparada. Aguarde e tente novamente.") : t("Não foi possível concluir a conexão. Abra Conexões para tentar novamente ou reparar o número."),
+      error.code === "connection_in_progress" ? t("A conexão ainda está sendo preparada. Aguarde e tente novamente.")
+        : error.code === "connection_session_name_too_long" ? t("O identificador desta conexão passou do limite que o WhatsApp aceita. Nada foi criado no WhatsApp — atualize o sistema e tente novamente.")
+        : t("Não foi possível concluir a conexão. Abra Conexões para tentar novamente ou reparar o número."),
       error.status, { requestId, details: error.technical });
     return fail("internal_error", t("Não foi possível concluir a conexão. Tente novamente."), 500, { requestId });
   }

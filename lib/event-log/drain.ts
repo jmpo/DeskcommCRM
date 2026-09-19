@@ -6,6 +6,7 @@
  * handler no registry e ficam intocados.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { avisoDeEventoMorto, IA_QUE_NAO_RESPONDEU } from "@/lib/event-log/aviso-de-evento-morto";
 import { dispatchEvent, getRegisteredHandlers, type EventRow } from "@/lib/event-log/dispatcher";
 import { logger } from "@/lib/logger";
 
@@ -33,6 +34,86 @@ function backoffAt(attempts: number): string {
   // 1min, 2min, 4min, 8min... (2^n minutos)
   const minutes = Math.pow(2, attempts);
   return new Date(Date.now() + minutes * 60_000).toISOString();
+}
+
+/**
+ * O EVENTO QUE MORREU PRECISA DIZER A ALGUÉM QUE MORREU.
+ *
+ * O kind `event_dead` existia na constraint de `agent_inbox_items` desde a
+ * migration 0050, na cópia (`lib/ai/agent-inbox-copy.ts`) e na política de
+ * destino (`lib/ai/inbox-destino.ts`) — e **não tinha um único produtor no
+ * repositório**. Um evento que esgotava as 5 tentativas virava `status='dead'`
+ * e sumia: nenhum aviso, nenhuma tela, nenhum Sentry.
+ *
+ * Medido numa VPS em produção: quatro `media.derive_requested` mortos, com o
+ * cliente ouvindo "não consigo ouvir áudio" e ninguém do lado de cá sabendo.
+ * O evento morto é o fim da linha de um efeito colateral que o produto
+ * prometeu — mídia que nunca foi derivada, mensagem que nunca saiu. Silêncio
+ * aqui é a promessa quebrada sem recibo.
+ *
+ * ⚠️ NASCE SEM REFERÊNCIA, e isso é a política, não esquecimento:
+ * `POLITICAS_DE_AVISO.event_dead` declara `refs: []` porque não existe tela de
+ * `event_log` para onde mandar quem lê. Preencher `ref_kind` com uma entidade
+ * sem destino faria o aviso oferecer um botão que não leva a lugar nenhum.
+ *
+ * Dedupe por `kind`, MENOS o aviso da IA que deixou de responder: um aviso
+ * aberto por organização enquanto o problema durar, como `midia_nao_lida` e
+ * `budget_exceeded` já fazem. Uma linha por evento inundaria a Central numa pane
+ * de handler — e Central inundada é Central que ninguém abre, que é como o
+ * alerta morre pela segunda vez. O aviso da IA (dreno do agent-engine) é outra
+ * família e fica fora da consulta: sem isso, ele aberto calaria a mídia, e a
+ * mídia aberta já não o cala (`aviso-de-evento-morto.ts`, "as duas famílias").
+ *
+ * Fire-and-forget: falhar ao avisar não pode derrubar o dreno.
+ */
+async function avisarEventoMorto(
+  admin: SupabaseClient,
+  row: Pick<EventRow, "id" | "organization_id" | "event_type" | "attempts">,
+  motivo: string,
+): Promise<void> {
+  try {
+    const { data: jaAberto } = await admin
+      .from("agent_inbox_items")
+      .select("id")
+      .eq("organization_id", row.organization_id)
+      .eq("kind", "event_dead")
+      .eq("status", "open")
+      .neq("title", IA_QUE_NAO_RESPONDEU.titulo)
+      .limit(1)
+      .maybeSingle();
+    if (jaAberto) return;
+
+    // `critical` e não `warn`: é a mesma classe de `job_dead` — algo que o
+    // produto prometeu fazer parou de tentar. O CHECK de
+    // `agent_inbox_items.severity` aceita info|warn|critical, e valor fora
+    // disso é recusado com 23514: o aviso nunca abriria, exatamente no caso
+    // que esta função existe para tornar visível.
+    // O texto é o MESMO do dreno do agent-engine (`edge/crm/drain.ts`), que
+    // desiste do `ai_agent.dispatch_requested` — ver `aviso-de-evento-morto.ts`.
+    const { title, body } = avisoDeEventoMorto({
+      eventType: row.event_type,
+      tentativas: row.attempts + 1,
+      motivo,
+    });
+    const { error } = await admin.from("agent_inbox_items").insert({
+      organization_id: row.organization_id,
+      kind: "event_dead",
+      severity: "critical",
+      title,
+      body,
+    });
+    if (error) {
+      logger.error("[event-log.drain] aviso de evento morto recusado", {
+        event_id: row.id,
+        error: error.message,
+      });
+    }
+  } catch (err) {
+    logger.error("[event-log.drain] aviso de evento morto falhou", {
+      event_id: row.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export async function drainEventLog(
@@ -76,15 +157,75 @@ export async function drainEventLog(
   // `trg_event_log_touch` (BEFORE UPDATE) o reescreve em toda atualização, então
   // a linha carrega o instante do CLAIM enquanto o handler não volta.
   const limiteDePresos = new Date(Date.now() - PROCESSING_STALE_MS).toISOString();
-  const { data: reclamados } = await admin
+  const { data: presos } = await admin
     .from("event_log")
-    .update({ status: "pending", updated_at: nowIso })
+    .select("id, organization_id, event_type, attempts")
     .eq("status", "processing")
-    .lt("updated_at", limiteDePresos)
-    .select("id");
-  if (reclamados?.length) {
+    .lt("updated_at", limiteDePresos);
+
+  // ─── E A VOLTA CONTA COMO TENTATIVA ────────────────────────────────────────
+  //
+  // Devolver o evento à fila com `attempts` intacto era o laço que derrubava o
+  // worker de produção 313 vezes em 2026-09-15: um PDF de 18 KB estourava o
+  // heap (`lib/ai/rag/extractors/pdf.ts` explica o custo), o processo morria
+  // ANTES de o handler devolver erro — e só handler que devolve erro
+  // incrementava `attempts`. O evento voltava a `pending` com `attempts=0`,
+  // era reclamado de novo, matava de novo. Um evento envenenado tinha
+  // tentativas infinitas, e o `MAX_ATTEMPTS` só valia para quem falhava
+  // educadamente.
+  //
+  // Um evento que ficou `processing` além da janela é uma tentativa que não
+  // voltou. Conta como as outras: mesmo `attempts + 1`, mesmo `dead` no limite,
+  // mesmo aviso na Central. O backoff importa tanto quanto a contagem — sem ele,
+  // o evento reclamado é o primeiro da fila do próximo tique, e o worker
+  // recém-reiniciado morre no mesmo minuto.
+  //
+  // MAS ele entra a partir da SEGUNDA volta, e a exceção tem dono: o invariante
+  // `tests/invariants/event-log-drain.test.ts`, caso 9, afirma que o órfão volta
+  // para a fila E É PROCESSADO NO MESMO TIQUE, com a razão escrita lá — o órfão
+  // legítimo (um deploy que reiniciou o worker no meio de um evento sadio) não
+  // deve pagar espera nenhuma, porque a espera é o defeito que aquele caso veio
+  // impedir. Cobrar backoff já na primeira volta trocaria o laço do evento
+  // envenenado por uma lentidão em todo deploy.
+  //
+  // O laço quebra igual: o envenenado volta UMA vez de graça, derruba o processo
+  // de novo, e da segunda em diante paga 2, 4, 8… minutos até `MAX_ATTEMPTS`.
+  // Uma tentativa a mais por evento envenenado é o preço de não tirar do órfão
+  // legítimo a volta imediata que ele sempre teve.
+  //
+  // Um por um, com o guarda `status = 'processing'`: duas instâncias do dreno
+  // (o laço do worker e o cron do app) podem ler a mesma linha presa, e só a
+  // primeira a tocar incrementa — a segunda encontra `pending` e não faz nada.
+  let reclamados = 0;
+  for (const preso of presos ?? []) {
+    const attempts = preso.attempts + 1;
+    const dead = attempts >= MAX_ATTEMPTS;
+    // `preso.attempts === 0` é a PRIMEIRA volta deste evento — ninguém o
+    // reclamou antes. Ele volta pronto para o mesmo tique (ver acima).
+    const primeiraVolta = preso.attempts === 0;
+    const motivo = `tentativa não voltou em ${PROCESSING_STALE_MS / 60_000} min (processo derrubado?)`;
+    const { data: tocado } = await admin
+      .from("event_log")
+      .update({
+        status: dead ? "dead" : "pending",
+        attempts,
+        last_error: motivo,
+        next_attempt_at: dead || primeiraVolta ? null : backoffAt(attempts),
+        updated_at: nowIso,
+      })
+      .eq("id", preso.id)
+      .eq("status", "processing")
+      .select("id");
+    if (!tocado?.length) continue;
+    reclamados += 1;
+    if (dead) {
+      summary.dead += 1;
+      await avisarEventoMorto(admin, preso, motivo);
+    }
+  }
+  if (reclamados) {
     logger.warn("[event-log.drain] eventos presos em processing devolvidos à fila", {
-      quantidade: reclamados.length,
+      quantidade: reclamados,
     });
   }
 
@@ -159,17 +300,19 @@ export async function drainEventLog(
     } else if (errors.length) {
       const attempts = row.attempts + 1;
       const dead = attempts >= MAX_ATTEMPTS;
+      const motivo = errors.map((e) => `${e.consumer_key}: ${e.detail ?? "error"}`).join("; ");
       await admin
         .from("event_log")
         .update({
           status: dead ? "dead" : "pending",
           attempts,
           consumed_by: consumedBy,
-          last_error: errors.map((e) => `${e.consumer_key}: ${e.detail ?? "error"}`).join("; "),
+          last_error: motivo,
           next_attempt_at: dead ? null : backoffAt(attempts),
           updated_at: new Date().toISOString(),
         })
         .eq("id", row.id);
+      if (dead) await avisarEventoMorto(admin, row, motivo);
       summary[dead ? "dead" : "failed"] += 1;
     } else {
       // O MOTIVO DE UM `skipped` SOBREVIVE À LINHA.

@@ -2,8 +2,10 @@ import { InterfaceRefresh } from "@/hooks/auth/InterfaceRefresh";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { isMfaEnrolled, loadAuthUser, requiresMfa, resolveActiveOrg } from "@/lib/auth/server";
-import { DEFAULT_VISIBILITY_MODE, type VisibilityMode } from "@/lib/auth/types";
+import { DEFAULT_VISIBILITY_MODE, roleAtLeast, type VisibilityMode } from "@/lib/auth/types";
+import { clientePelaAgendaLigado } from "@/lib/schemas/settings";
 import { AuthProvider } from "@/hooks/auth/AuthProvider";
+import { ProvedorDeCoresDasEtiquetas } from "@/components/tags/CoresDasEtiquetas";
 import { AppShell } from "./_components/AppShell";
 import { EstiloDaMarcaDaOrganizacao } from "./_components/EstiloDaMarcaDaOrganizacao";
 import { MfaEnrollGate } from "@/components/auth/MfaEnrollGate";
@@ -18,12 +20,29 @@ import {
 import { ConexaoCaidaBanner } from "@/components/app/ConexaoCaidaBanner";
 import { IdiomaProvider } from "@/lib/i18n/IdiomaProvider";
 import { listarConexoesCaidas, type ConexaoCaida } from "@/lib/channels/health";
+import { VoiceCallProvider } from "@/components/voice/VoiceCallContext";
+import { acessoFoiRevogado } from "@/lib/auth/vinculo-revogado";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await loadAuthUser();
   if (!user) redirect("/login");
 
   let activeOrg = await resolveActiveOrg(user);
+
+  // Sem organização ativa existem DOIS estados, e eles pedem telas opostas:
+  //
+  //  - nunca teve  → provisionamento que falhou no signup. `/get-started`
+  //                  existe exatamente para isso e continua sendo o caminho.
+  //  - teve e foi revogada → precisa SABER disso. Até 2026-09-10 essa pessoa
+  //                  caía aqui mesmo, via a casca vazia e a oferta "Configure
+  //                  sua organização" — uma revogação virando criação de
+  //                  tenant. Medido numa instalação real.
+  //
+  // A consulta só roda neste ramo, que é o raro: quem tem organização não paga
+  // nada por ela.
+  if (!activeOrg && !user.support && (await acessoFoiRevogado(user.id))) {
+    redirect("/acesso-revogado");
+  }
 
   /**
    * A cor desta organização, serializada, ou `null` quando ela não tem uma.
@@ -37,20 +56,69 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   // EPIC-02: gate /app/* on completed onboarding.
   // EPIC-11: gate /app/* on org not being suspended (S-11.08).
+  let conexoesCaidas: ConexaoCaida[] = [];
+  let enrolled = false;
+  let needsMfaGate = false;
+
   if (activeOrg) {
     const admin = createAdminClient();
-    const { data: orgRow } = await admin
-      .from("organizations")
-      .select("onboarded_at, status, settings")
-      .eq("id", activeOrg.orgId)
-      .maybeSingle();
+    /**
+     * As quatro consultas que TODA página de `/app` paga, disparadas juntas.
+     *
+     * Elas eram sequenciais e independentes: cada uma esperava a anterior sem
+     * precisar do resultado dela, e a soma aparecia como a tela que não reage ao
+     * clique. Em paralelo, o custo passa a ser o da mais lenta.
+     *
+     * Duas consequências que valem estar escritas, porque não são acidente:
+     *
+     *  - `listarConexoesCaidas` e `requiresMfa` agora rodam ANTES dos `redirect`
+     *    de onboarding e de suspensão. Quem vai ser redirecionado paga duas
+     *    consultas a mais — um caminho raro, que termina numa navegação de
+     *    qualquer forma. O caminho normal, que é todo render de todo usuário,
+     *    deixa de pagar três esperas em fila.
+     *  - A consulta das conexões continua morando no seam
+     *    (`lib/channels/health`), não aqui: tela que monta o select de
+     *    `channel_sessions` à mão foi o que deixou três seletores oferecendo
+     *    canal arquivado (invariante `canais-selecionaveis`), e de quebra o
+     *    filtro de estados fica LITERALMENTE o mesmo que decide o aviso da
+     *    Central. Vigiado por
+     *    `tests/unit/faixa-de-conexao-caida-vem-do-seam.test.tsx`, que EXECUTA
+     *    este layout — a cerca anterior lia o texto-fonte e reprovava esta
+     *    refatoração sem que nada tivesse quebrado.
+     */
+    const [orgRes, conexoes, isEnrolled, mfaRequired] = await Promise.all([
+      admin
+        .from("organizations")
+        .select("onboarded_at, status, settings")
+        .eq("id", activeOrg.orgId)
+        .maybeSingle(),
+      listarConexoesCaidas(admin, activeOrg.orgId),
+      isMfaEnrolled(),
+      requiresMfa(
+        activeOrg.role,
+        user.is_platform_admin,
+        user.id,
+        activeOrg.orgId,
+      ),
+    ]);
+
+    const orgRow = orgRes.data;
+    conexoesCaidas = conexoes;
+    enrolled = isEnrolled;
+    needsMfaGate = mfaRequired;
+
     if (orgRow && !orgRow.onboarded_at && !user.support) redirect("/onboarding");
     if (orgRow?.status === "suspended") redirect("/account-suspended");
     // G4-02: expõe visibility_mode ao client (inbox decide visões visíveis).
     // Fonte confiável (admin client, org do cookie validado) — nunca do body.
     const mode = (orgRow?.settings as { visibility_mode?: VisibilityMode } | null)
       ?.visibility_mode;
-    activeOrg = { ...activeOrg, visibility_mode: mode ?? DEFAULT_VISIBILITY_MODE };
+    activeOrg = {
+      ...activeOrg,
+      visibility_mode: mode ?? DEFAULT_VISIBILITY_MODE,
+      // Mesma linha de `settings` já lida acima — nenhuma consulta a mais.
+      cliente_pela_agenda: clientePelaAgendaLigado(orgRow?.settings),
+    };
 
     // `marcaDaInstalacao()` é memoizada por TTL no PROCESSO (`lib/branding/
     // instalacao.ts`), e a derivação da cor é cacheada por régua+semente em
@@ -102,16 +170,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     if (Object.keys(marcaDoTenant).length > 0) {
       activeOrg = { ...activeOrg, marca: marcaDoTenant };
     }
+  } else {
+    const [isEnrolled, mfaRequired] = await Promise.all([
+      isMfaEnrolled(),
+      requiresMfa(undefined, user.is_platform_admin, user.id, undefined),
+    ]);
+    enrolled = isEnrolled;
+    needsMfaGate = mfaRequired;
   }
-
-  // A conexão caiu? A consulta mora no seam (`lib/channels/health`), não aqui:
-  // tela que monta o select de `channel_sessions` à mão foi o que deixou três
-  // seletores oferecendo canal arquivado, e o invariante `canais-selecionaveis`
-  // existe por causa disso. De quebra, o filtro de estados fica LITERALMENTE o
-  // mesmo que decide o aviso da Central — duas listas divergiriam com o tempo.
-  const conexoesCaidas: ConexaoCaida[] = activeOrg
-    ? await listarConexoesCaidas(createAdminClient(), activeOrg.orgId)
-    : [];
 
   // Read sidebar collapsed state SSR to avoid flash.
   const store = await cookies();
@@ -122,16 +188,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     expiresAt: user.support.expires_at, accessMode: user.support.access_mode,
   } : null;
 
-  const enrolled = await isMfaEnrolled();
-  // A decisão deixou de ser uma constante de papel: ela lê a política de quem
-  // pode exigir (a plataforma e a empresa). Ver `lib/auth/politica-mfa.ts`.
-  const needsMfaGate = await requiresMfa(
-    activeOrg?.role,
-    user.is_platform_admin,
-    user.id,
-    activeOrg?.orgId,
+  const shell = (
+    <VoiceCallProvider>
+      <AppShell
+        sidebarCollapsed={collapsed}
+        podeAtender={Boolean(activeOrg && roleAtLeast(activeOrg.role, "agent"))}
+      >
+        {children}
+      </AppShell>
+    </VoiceCallProvider>
   );
-  const shell = <AppShell sidebarCollapsed={collapsed}>{children}</AppShell>;
 
   return (
     // O idioma envolve a árvore inteira e recebe o código PRONTO — ele não
@@ -139,6 +205,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // acoplamento com a autenticação que derrubou 32 casos.
     <IdiomaProvider locale={user.idioma}>
     <AuthProvider user={user} activeOrg={activeOrg}>
+      {/*
+        A COR DA ETIQUETA, uma leitura por tela.
+
+        O chip aparece em LISTA — uma fila de duzentas conversas desenha quatro
+        centenas deles — e todos consultam o mesmo mapa, montado uma vez aqui.
+        Um `useQuery` por chip seria o mesmo cache (o react-query deduplica a
+        rede), mas cada atualização acordaria todas as assinaturas.
+
+        Dentro do `AuthProvider` porque a leitura é da organização ativa, e FORA
+        do `AppShell` porque o gate de MFA substitui a casca: o mapa precisa
+        sobreviver ao portão, e não ser relido quando ele sai.
+      */}
+      <ProvedorDeCoresDasEtiquetas>
       <InterfaceRefresh userId={user.id} org={activeOrg} support={!!user.support} />
       {/*
         O MARCADOR da marca da organização — o elemento cuja existência define o
@@ -168,6 +247,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           shell
         )}
       </div>
+      </ProvedorDeCoresDasEtiquetas>
     </AuthProvider>
     </IdiomaProvider>
   );

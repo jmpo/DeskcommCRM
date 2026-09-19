@@ -44,6 +44,7 @@ import {
 } from "@/lib/messaging/contact-card";
 import type { ListMessagesQuery, SendMessageInput } from "@/lib/schemas";
 import { sendTemplateForSession } from "@/lib/channels/meta/send-template-for-session";
+import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Message } from "@/lib/types/messaging";
 
@@ -113,8 +114,9 @@ async function removerEcoDoProprioEnvio(
       .in("external_id", candidatos)
       // ⚠️ SEGUNDA CAMADA, SEM COBERTURA POSSÍVEL — escrito porque medi: trocar
       // este `neq` por um que nunca casa deixa a suíte VERDE. O filtro de
-      // `sent_via` acima já exclui a linha deste envio (que nasce `user`/`ai`,
-      // nunca `external_device`), então nenhum teste alcança esta cláusula.
+      // `sent_via` acima já exclui a linha deste envio (que nasce `user`, `ai`,
+      // `automation` ou `system`, nunca `external_device`), então nenhum teste
+      // alcança esta cláusula.
       // Fica porque o desfecho que ela impede é o pior que esta função poderia
       // produzir: apagar a própria mensagem que acabou de ser entregue. Quem
       // mexer no filtro de cima não vai ser avisado por teste nenhum.
@@ -129,9 +131,72 @@ async function removerEcoDoProprioEnvio(
   }
 }
 
+/**
+ * De quem é esta linha, no vocabulário de `messages.sent_via`.
+ *
+ * A pergunta era UMA só (`!== "user"`), e por isso a automação se apresentava
+ * como IA: tudo que não era pessoa saía `'ai'`, inclusive um template fixo de
+ * regra — sem IA nenhuma no caminho. A decisão do mantenedor na #652 é
+ * categoria própria para "nem pessoa nem IA", e `'automation'` é o valor que o
+ * CHECK de `messages.sent_via` já aceitava e que o balão sabe nomear.
+ *
+ * `api_token` (integração com token de servidor) segue `'ai'` de propósito: a
+ * #866 decide o valor daquele caminho, e trocar aqui sem aquele PR misturaria
+ * duas decisões numa linha.
+ *
+ * Quem lê estes valores: o filtro de eco da ingestão do canal (a lista anda
+ * junto), o resgate da fila (`session-reconciler.ts`), a métrica de atrito e o
+ * rótulo do balão (`components/inbox/MessageBubble.tsx`).
+ */
+export function origemDaMensagem(actor: Actor): "user" | "ai" | "automation" | "system" {
+  if (actor.type === "user") return "user";
+  // TOKEN DE SERVIDOR é integração, não IA (#866): quem manda é um sistema de
+  // fora, e chamar isso de "IA" inflava o número do agente no painel e punha o
+  // rótulo errado no balão. Um mecanismo só decide os quatro valores — quando
+  // eram dois (uma função e um mapa), o mesmo contrato tinha duas verdades.
+  if (actor.type === "api_token") return "system";
+  // A regra dispara, mas nem sempre ESCREVE. A ação "Mensagem escrita pela IA"
+  // manda texto de um agente publicado com este mesmo ator, e a decisão da #652
+  // é por AUTORIA: ali a linha é da IA. Decidir só pelo tipo do ator carimbaria
+  // "Automação" no balão e tiraria a mensagem de `envios_por_ia`.
+  if (actor.type === "webhook_source") {
+    // Os dois retornos são LITERAIS de propósito: `rotulo-de-origem-tem-emissor`
+    // lê o corpo desta função e conta como emissor cada literal devolvido, para
+    // saber quais rótulos o motor de fato produz. Escrito como ternário, o gate
+    // deixa de enxergar `automation` e acusa a tela de prometer uma distinção
+    // que ninguém grava — foi o que aconteceu na primeira versão deste conserto.
+    // (E o comentário não pode conter a forma que o extrator procura: a segunda
+    // versão trazia um exemplo literal aqui, e o gate o leu como emissor real.)
+    if (actor.textoEscritoPelaIA) return "ai";
+    return "automation";
+  }
+  return "ai";
+}
+
 const MSG_COLS =
   "id, organization_id, conversation_id, channel_session_id, contact_id, external_id, type, direction, status, ack, error_code, error_message, body, media_url, media_mime, media_size_bytes, media_storage_path, sent_via, sent_by_user_id, sent_at, delivered_at, read_at, metadata, edited_at, revoked_at, reply_to_message_id, created_at";
 
+/**
+ * `Actor.type` → o vocabulário de `messages.sent_via` (o CHECK da coluna:
+ * 'crm', 'external_device', 'automation', 'ai', 'user', 'system').
+ *
+ * ⚠️ O TOKEN DE SERVIDOR NÃO É A IA — e o mapa é `Record<Actor["type"], …>` de
+ * propósito. O ternário que vivia aqui (`actor.type === "user" ? "user" : "ai"`)
+ * dizia `ai` para TUDO que não fosse pessoa, então uma variante NOVA de `Actor`
+ * caía nesse `ai` sem ninguém decidir nada: foi assim que o envio de uma
+ * integração passou a ser contado como fala da IA (issue #866) — a leitura de
+ * `por_ia` no baseline conta exatamente `sent_via = 'ai'`, e a ingestão de canal
+ * tratava a linha como envio NASCIDO aqui (álibi de eco que só a IA e o humano
+ * merecem). Com o `Record`, variante nova de `Actor` não COMPILA até alguém
+ * escrever a autoria dela — o defeito deixa de ser possível por omissão.
+ *
+ * `webhook_source` continua `ai`: é divergência CONHECIDA das outras escalas de
+ * autoria do repo (`actorParaAtividade`, `especieDe` e `autorParaTimeline` mandam
+ * tudo que não é pessoa nem agente para `system`), porque a automação hoje se
+ * apresenta como IA no balão da conversa e mover o valor dela mexe no dedup de
+ * eco e nas telas que contam "quanto a IA falou". Decisão de produto registrada
+ * em `components/inbox/MessageBubble.tsx`, com issue própria.
+ */
 function actorAuditPayload(actor: Actor): {
   actorUserId: string | null;
   metadataActor: Record<string, unknown>;
@@ -308,19 +373,37 @@ export async function sendMessageHandler(
   // envio com 42703. Sem a coluna, nada está arquivado — e a consulta sem ela é a
   // consulta certa (ver lib/channels/archived).
   const convSelect = (comArchived: boolean) =>
-    `id, organization_id, contact_id, channel_session_id, is_group, group_chat_id, bot_silenced_until, provider_conversation_id, contacts:contact_id(phone_number, wa_identity, wa_lid, is_blocked), channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS}, status${comArchived ? `, ${ARCHIVED_AT}` : ""})`;
+    `id, organization_id, contact_id, channel_session_id, is_group, group_chat_id, bot_silenced_until, provider_conversation_id, last_inbound_at, contacts:contact_id(phone_number, wa_identity, wa_lid, is_blocked), channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS}, status${comArchived ? `, ${ARCHIVED_AT}` : ""})`;
+  //
+  // O filtro por `organization_id` NÃO é redundância com a RLS — é a única
+  // proteção que existe na metade dos chamadores. Este handler é a porta de
+  // saída de TODOS eles, e eles se dividem em dois mundos:
+  //
+  //   - rota REST com sessão de navegador → client de RLS, a policy basta;
+  //   - servidor MCP (lib/mcp/server.ts:41) e rota REST por `Bearer dsk_…`
+  //     (lib/api/auth-dual.ts) → `createAdminClient()`, SERVICE ROLE, que
+  //     bypassa RLS. Aqui não há policy nenhuma no caminho.
+  //
+  // Sem o filtro, um chamador de service-role com a org A passava um
+  // `conversation_id` da org B e a linha VINHA — e daí em diante todo o resto
+  // usa `c.organization_id`, a org da VÍTIMA: a mensagem era inserida na
+  // conversa dela e enviada pelo canal dela. Medido, não deduzido:
+  // `tests/invariants/envio-nao-alcanca-conversa-de-outro-tenant.test.ts`
+  // (anti-pattern 10 do CLAUDE.md).
   const { data: conv, error: convErr } = await queryTolerantToMissingArchived(
     () =>
       supabase
         .from("conversations")
         .select(convSelect(true))
         .eq("id", input.conversation_id)
+        .eq("organization_id", ctx.organization_id)
         .maybeSingle(),
     () =>
       supabase
         .from("conversations")
         .select(convSelect(false))
         .eq("id", input.conversation_id)
+        .eq("organization_id", ctx.organization_id)
         .maybeSingle(),
   );
 
@@ -347,6 +430,12 @@ export async function sendMessageHandler(
     bot_silenced_until: string | null;
     /** Thread do provider, quando ele endereça por thread própria (migration 0132). */
     provider_conversation_id: string | null;
+    /**
+     * Quando chegou a última mensagem do cliente. É a régua da espera da Fila
+     * (issue #990): a resposta humana grava `awaiting_since = last_inbound_at`,
+     * que é o mesmo valor que `fn_reply_record_receipt` usa no caminho do banco.
+     */
+    last_inbound_at: string | null;
     contacts: {
       phone_number: string | null;
       wa_identity: string | null;
@@ -432,7 +521,7 @@ export async function sendMessageHandler(
           traduzir("Contato sem telefone para envio como cartão.", ctx.idioma ?? "pt-BR"),
         );
       }
-      const displayName = row.display_name ?? row.name ?? row.phone_number;
+      const displayName = nomeDoContato(row) ?? row.phone_number;
       outboundBody = displayName;
       outboundMetadata = {
         ...outboundMetadata,
@@ -526,7 +615,7 @@ export async function sendMessageHandler(
     media_mime: input.media_mime ?? null,
     media_storage_path: input.media_storage_path ?? null,
     media_size_bytes: input.media_size_bytes ?? null,
-    sent_via: ctx.actor.type !== "user" ? ("ai" as const) : ("user" as const),
+    sent_via: origemDaMensagem(ctx.actor),
     sent_by_user_id: ctx.actor.type === "user" ? ctx.actor.id : null,
     sent_at: now,
     metadata: {
@@ -679,11 +768,15 @@ export async function sendMessageHandler(
         // coisa que só faz sentido para template.
         //
         // Mas quem SABE falar template é o adapter, quando sabe. Antes disto a
-        // linha de baixo era o único caminho, e ela lê `META_PHONE_NUMBER_ID` e
+        // linha de baixo era o único caminho, e ela lia `META_PHONE_NUMBER_ID` e
         // `META_SYSTEM_USER_TOKEN` do ambiente: template de QUALQUER canal saía
         // pelo número da Meta, com o token da Meta. Para o canal intermediado
         // isso não é falha de envio — é a mensagem saindo pelo número ERRADO
         // para o cliente certo, e ninguém percebe porque ela sai.
+        //
+        // Hoje a linha de baixo resolve a credencial DA SESSÃO e o ambiente ficou
+        // só como reserva (fatia F4 da #850), então ela precisa do número desta
+        // conexão: `sessionRef` sai da MESMA linha que o adapter recebe acima.
         // ─── Pré-voo ANTES de escolher transporte ──────────────────────────
         //
         // Vale para os dois caminhos, e é por isso que está aqui e não dentro
@@ -719,6 +812,10 @@ export async function sendMessageHandler(
           : await sendTemplateForSession(supabase, {
               beforeSend: checkBoundary,
               organizationId: ctx.organization_id,
+              // O número DESTA conexão: é por ele (com a organização) que a
+              // credencial da tela é achada. Sem ele, a resolução não casaria
+              // linha nenhuma e o envio voltaria ao ambiente.
+              sessionRef: resolveSessionRef(c.channel_sessions),
               to: chatId,
               name: input.template_name ?? "",
               language: input.template_language ?? "",
@@ -905,6 +1002,7 @@ export async function sendMessageHandler(
     last_message_preview: string;
     unread_count_for_assignee: number;
     bot_silenced_until?: string;
+    awaiting_since: string | null;
   } = {
     last_outbound_at: now,
     last_message_at: now,
@@ -917,6 +1015,12 @@ export async function sendMessageHandler(
     // Resposta humana/CRM zera pendências — espelha fn_mark_conversation_message
     // outbound, que o envio pelo CRM não chama (só atualiza colunas à mão).
     unread_count_for_assignee: 0,
+    // E zera a ESPERA da Fila (issue #990): a régua é `awaiting_since`, e o valor
+    // que a resposta produz é o que `fn_reply_record_receipt` grava —
+    // `awaiting_since = last_inbound_at`, isto é, "a resposta cobre a última
+    // mensagem do cliente". Sem esta linha, o envio pelo CRM (e pelo agente) deixa
+    // a conversa contando a espera que a própria resposta acabou de encerrar.
+    awaiting_since: c.last_inbound_at,
   };
   if (ctx.actor.type === "user") {
     const silenceUntil = extendBotSilence(c.bot_silenced_until, now);

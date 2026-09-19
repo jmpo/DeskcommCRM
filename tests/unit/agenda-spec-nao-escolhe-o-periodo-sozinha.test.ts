@@ -80,6 +80,18 @@ const DISPENSADAS: Record<string, string> = {
     "roda contra /vitrine-agenda, que PASSA o instante como fixture — é o padrão certo, " +
     "não a exceção: por isso ela clica num `dia-2026-08-24` fixo e segue verde com essa " +
     "data no passado.",
+  "agenda-papel-de-leitura.spec.ts":
+    "não escolhe dia nem bloco — conta a EXISTÊNCIA da camada de marcação, que é o gesto " +
+    "de escrita que o `viewer` não pode ter: `toHaveCount(0)` para quem só lê e `> 0` para " +
+    "o atendente, na mesma tela e no mesmo banco. `CamadaDeMarcacao` desenha um `bloco-` " +
+    "por célula de `CELULAS` em TODA coluna de dia sempre que `interacao` existe " +
+    "(`components/agenda/GradeDaAgenda.tsx`), e `CELULAS` é constante " +
+    "(`(ULTIMA_HORA - PRIMEIRA_HORA + 1) * 60 / PASSO_DA_CELULA_MIN`): a disponibilidade " +
+    "mora em `data-livre`/`disabled`, não na presença do botão. As duas contagens, " +
+    "portanto, não leem a semana desenhada nem a hora — o que o período muda é quantos " +
+    "blocos são LIVRES, e esta spec não lê isso. " +
+    "⚠️ A dispensa VENCE se a camada passar a desenhar só os horários livres: aí `> 0` " +
+    "volta a medir o calendário, e a spec precisa de `irParaASemanaSeguinte`.",
 };
 
 /**
