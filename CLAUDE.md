@@ -415,6 +415,18 @@ Duas armadilhas irmãs, as duas pagas no mesmo dia:
   divergência falsa: `2 failed` de arquivos contra `7` de casos parece defeito
   da sonda e é só régua trocada.)
 
+**Vermelho local que NÃO é seu — a suíte inteira num processo só:** com 11.725 casos, rodar
+`pnpm test:unit` de uma vez faz os workers disputarem CPU e casos PESADOS estouram o teto default
+de 15 s do vitest — reprovando por relógio, com `Test timed out`, sem violação nenhuma. O arquivo
+vermelho MUDA de rodada para rodada (medido: `hidratacao-useState…` numa, `channel-health-aviso`
+na seguinte), que é a assinatura de contenção e não de defeito. **O CI não vê isto**: lá o
+`verify` roda em duas partes (`--shard=N/2`). Antes de consertar um `Test timed out`, reproduza o
+modo do CI:
+
+```bash
+npx vitest run --shard=1/2 && npx vitest run --shard=2/2   # verde aqui = não é seu
+```
+
 **Vermelho local que NÃO é seu — `jq` ausente:** `executor-proprio-so-roda-o-que-e-nosso.test.ts`
 reprova 1 caso (`aceita pull_request de dentro do repositório`) em máquina sem `jq`. A guarda
 `infra/executor-proprio/so-o-que-e-nosso.sh` lê o payload do evento com `jq`; sem ele, `origem`

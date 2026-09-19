@@ -285,8 +285,12 @@ describe("o inicializador de useState não lê o navegador", () => {
   // é outra categoria, e ela só cresce. 60 s dá folga de 4× sobre o pior
   // tempo observado e segue barrando um caso que trave de verdade.
   //
-  // (Neste fork o aperto chega antes: a upstream manda os jobs pesados para o
-  // executor próprio dela, e aqui tudo roda em `ubuntu-latest`.)
+  // ⚠️ O CI NÃO VÊ ISTO, e saber disso é metade do achado: lá o `verify` roda
+  // em duas partes (`--shard=N/2`), então nenhum processo carrega a suíte
+  // inteira. Reproduzindo o modo do CI nesta mesma máquina — `vitest run
+  // --shard=1/2` e `2/2` — os 11.725 casos passam. O teto abaixo protege quem
+  // roda `pnpm test:unit` de uma vez, que é o que um humano faz antes de abrir
+  // PR, e é onde o vermelho por relógio aparece.
   it("nenhum arquivo de `app|components|lib|hooks` tem inicializador que lê o navegador", () => {
     const violacoes: string[] = [];
     for (const [rel, fonte] of fontes) {
