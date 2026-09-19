@@ -21,14 +21,34 @@ import { precoParaCentavos } from "@/lib/schemas/produtos";
  */
 
 /** Como cada coluna pode vir escrita. A primeira forma é a que a gente sugere. */
+/**
+ * ─── O VOCABULÁRIO É BILÍNGUE, E ISSO NÃO É CORTESIA ────────────────────────
+ *
+ * A planilha que a loja JÁ TEM vem no idioma de quem a escreveu. Numa operação
+ * em espanhol o cabeçalho diz `nombre`, `precio de venta`, `existencia` — e até
+ * 19/09/2026 nenhuma dessas formas era reconhecida: o importador recusava o
+ * arquivo inteiro com "precisa de uma coluna de nome e de preço", listando as
+ * colunas que ele acabara de ler e não entender. A pessoa vê o próprio
+ * cabeçalho na mensagem de erro e não tem como saber que o problema é o IDIOMA.
+ *
+ * Medido numa instalação real do Paraguai, com um arquivo de três produtos:
+ * recusa global, zero linhas lidas.
+ *
+ * Não alarga nada: cada forma nova é uma palavra INTEIRA, comparada depois de
+ * `normalizarCabecalho` (minúsculas, sem acento, espaço colapsado) — o mesmo
+ * caminho das formas em português. `descripcion` fica FORA de propósito: em
+ * português `descricao` mapeia para `nome`, e uma planilha em espanhol costuma
+ * ter as duas colunas separadas (`nombre` E `descripcion`), então aceitá-la
+ * como nome faria a descrição sobrescrever o título do produto.
+ */
 const COLUNAS: Record<string, readonly string[]> = {
-  codigo: ["codigo", "código", "sku", "ref", "referencia", "referência", "cod"],
-  nome: ["nome", "produto", "descricao", "descrição", "titulo", "título", "item"],
-  preco: ["preco", "preço", "valor", "preco de venda", "preço de venda", "venda"],
-  custo: ["custo", "preco de custo", "preço de custo", "compra"],
+  codigo: ["codigo", "código", "sku", "ref", "referencia", "referência", "cod", "clave"],
+  nome: ["nome", "produto", "descricao", "descrição", "titulo", "título", "item", "nombre", "producto", "articulo", "artículo"],
+  preco: ["preco", "preço", "valor", "preco de venda", "preço de venda", "venda", "precio", "precio de venta", "precio venta", "pvp"],
+  custo: ["custo", "preco de custo", "preço de custo", "compra", "costo", "precio de costo", "precio de compra"],
   marca: ["marca", "fabricante"],
-  categoria: ["categoria", "tipo", "departamento"],
-  quantidade: ["quantidade", "estoque", "qtd", "qtde", "qty"],
+  categoria: ["categoria", "tipo", "departamento", "categoría", "rubro"],
+  quantidade: ["quantidade", "estoque", "qtd", "qtde", "qty", "cantidad", "stock", "existencia", "existencias"],
 };
 
 function normalizarCabecalho(texto: string): string {

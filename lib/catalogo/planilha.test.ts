@@ -121,3 +121,46 @@ describe("lerPlanilha — a recusa nomeia a coluna que falta", () => {
     expect(erro).not.toContain("de nombre");
   });
 });
+
+describe("a planilha em espanhol — o arquivo que a loja JÁ TEM", () => {
+  /**
+   * Até 19/09/2026 o vocabulário de colunas era só português, e uma planilha em
+   * espanhol era RECUSADA INTEIRA: "precisa de uma coluna de nome e de preço",
+   * listando as colunas que o importador acabara de ler e não entender. Quem
+   * abre esse erro vê o próprio cabeçalho na mensagem e não tem como saber que
+   * o problema é o idioma.
+   */
+  it("lê `nombre`, `precio de venta` e `stock` — o cabeçalho de uma loja hispanofalante", () => {
+    const r = lerPlanilha(
+      "codigo;nombre;precio de venta;precio de costo;stock;marca;categoria\n" +
+        "MAS-001;Masajeador de cuello;350.000;180.000;12;RelaxPro;Salud\n",
+    );
+    expect("erro" in r, "a planilha em espanhol foi recusada inteira").toBe(false);
+    if ("erro" in r) return;
+    expect(r.produtos).toHaveLength(1);
+    expect(r.produtos[0]!.nome).toBe("Masajeador de cuello");
+    expect(r.produtos[0]!.preco_cents).toBe(35_000_000);
+    expect(r.produtos[0]!.custo_cents).toBe(18_000_000);
+    expect(r.produtos[0]!.quantidade).toBe(12);
+  });
+
+  it("`descripcion` NÃO vira nome — em espanhol as duas colunas convivem", () => {
+    // Em português `descricao` mapeia para `nome`, e é certo: a planilha de lá
+    // costuma ter só uma. Em espanhol o arquivo traz `nombre` E `descripcion`,
+    // e aceitar a segunda como nome sobrescreveria o título do produto pelo
+    // texto longo — o catálogo inteiro com o nome errado, sem erro nenhum.
+    const r = lerPlanilha("nombre;descripcion;precio\nMasajeador;Con calor infrarrojo y 3 velocidades;350.000\n");
+    expect("erro" in r).toBe(false);
+    if ("erro" in r) return;
+    expect(r.produtos[0]!.nome).toBe("Masajeador");
+    expect(r.colunasIgnoradas).toContain("descripcion");
+  });
+
+  it("o português segue lido igual — o vocabulário SOMA, não troca", () => {
+    const r = lerPlanilha("nome;preco de venda;estoque\nMassageador;350,00;12\n");
+    expect("erro" in r).toBe(false);
+    if ("erro" in r) return;
+    expect(r.produtos[0]!.nome).toBe("Massageador");
+    expect(r.produtos[0]!.quantidade).toBe(12);
+  });
+});
