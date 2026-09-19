@@ -273,6 +273,20 @@ describe("o inicializador de useState não lê o navegador", () => {
     expect(fontes.has("lib/notifications/prefs.ts")).toBe(true);
   });
 
+  // ⏱️ TETO EXPLÍCITO, e o motivo é medido.
+  //
+  // Este caso VARRE o repositório — 2.212 arquivos de `app|components|lib|hooks`
+  // hoje. Sozinho ele leva ~4 s; dentro da suíte inteira, com os workers
+  // disputando CPU, chegou a 15,3 s e estourou o teto DEFAULT de 15 s do
+  // vitest. Reprovou por relógio, sem nenhuma violação encontrada — o vermelho
+  // mais caro que existe, porque parece defeito de produto e não é.
+  //
+  // O teto default serve para caso unitário; varredura de repositório inteiro
+  // é outra categoria, e ela só cresce. 60 s dá folga de 4× sobre o pior
+  // tempo observado e segue barrando um caso que trave de verdade.
+  //
+  // (Neste fork o aperto chega antes: a upstream manda os jobs pesados para o
+  // executor próprio dela, e aqui tudo roda em `ubuntu-latest`.)
   it("nenhum arquivo de `app|components|lib|hooks` tem inicializador que lê o navegador", () => {
     const violacoes: string[] = [];
     for (const [rel, fonte] of fontes) {
@@ -287,7 +301,7 @@ describe("o inicializador de useState não lê o navegador", () => {
         "o servidor mandou. Use `useSyncExternalStore` com um " +
         "`getServerSnapshot` determinístico — ver `lib/theme.tsx`.",
     ).toEqual([]);
-  });
+  }, 60_000);
 
   it("CONTROLE POSITIVO: a sonda reprova o padrão do defeito, inclusive através de um import", () => {
     // `lerPrefs()` mora em outro módulo e só lá dentro toca `window`. Se a

@@ -79,6 +79,10 @@ const parte4 = listaDoWorkflow(yml, "SPECS_PARTE_4");
 // 19/09 porque três partes comuns já não cabiam no teto: dois cortes por
 // relógio no mesmo dia, ambos sem caso vermelho.
 const parte5 = listaDoWorkflow(yml, "SPECS_PARTE_5");
+// PARTE_6 — nasceu neste fork em 19/09: a partição da upstream é calibrada
+// para o executor próprio dela, e em `ubuntu-latest` a antiga parte 5 foi
+// cortada pelo relógio aos 1359s sem nenhum caso vermelho.
+const parte6 = listaDoWorkflow(yml, "SPECS_PARTE_6");
 const foraDoCi = listaDoWorkflow(yml, "FORA_DO_CI");
 const noDisco = readdirSync(DIR_SPECS)
   .filter((f) => f.endsWith(".spec.ts"))
@@ -97,6 +101,7 @@ describe("cobertura do e2e no CI", () => {
     expect(parte3.length, "SPECS_PARTE_3 não foi lida do workflow").toBeGreaterThan(10);
     expect(parte4.length, "SPECS_PARTE_4 não foi lida do workflow").toBeGreaterThan(0);
     expect(parte5.length, "SPECS_PARTE_5 não foi lida do workflow").toBeGreaterThan(0);
+    expect(parte6.length, "SPECS_PARTE_6 não foi lida do workflow").toBeGreaterThan(0);
     expect(foraDoCi.length, "FORA_DO_CI não foi lida do workflow").toBeGreaterThan(0);
   });
 
@@ -151,7 +156,7 @@ describe("cobertura do e2e no CI", () => {
   });
 
   it("toda spec do disco está em exatamente uma lista", () => {
-    const declaradas = [...parte1, ...parte2, ...parte3, ...parte4, ...parte5, ...foraDoCi];
+    const declaradas = [...parte1, ...parte2, ...parte3, ...parte4, ...parte5, ...parte6, ...foraDoCi];
     const semLista = noDisco.filter((f) => !declaradas.includes(f));
     expect(
       semLista,

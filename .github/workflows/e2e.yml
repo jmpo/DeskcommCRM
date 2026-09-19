@@ -11,7 +11,7 @@ name: e2e
 #
 # A execução é dividida em DUAS invocações do playwright de propósito: o
 # limitador de login do produto é por IP (60/300s) e no CI todos os specs vêm do
-# mesmo 127.0.0.1. Ver o comentário do passo "E2E — parte 1 de 4".
+# mesmo 127.0.0.1. Ver o comentário do passo "E2E — parte 1 de 6".
 #
 # É CHECK OBRIGATÓRIO. A régua, para reconferir em vez de acreditar nesta linha:
 #   $ gh api repos/melgarafael/DeskcommCRM/branches/main/protection \
@@ -184,7 +184,7 @@ jobs:
       # uma rodada por parte.
       fail-fast: false
       matrix:
-        parte: [1, 2, 3, 4, 5]
+        parte: [1, 2, 3, 4, 5, 6]
     # ─────────────────────────────────────────────────────────────────────────
     # A COBERTURA DEIXA DE SER PROSA DIGITADA À MÃO.
     #
@@ -1046,21 +1046,46 @@ jobs:
       SPECS_PARTE_4: >-
         vps-fresh-onboarding.spec.ts
 
+      # ─── A SEXTA PARTE, E POR QUE ELA EXISTE NESTE FORK ──────────────────────
+      #
+      # A partição da upstream é calibrada para o EXECUTOR PRÓPRIO dela
+      # (`runs-on` acima: `deskcomm-proprio` quando `vars.EXECUTOR_PROPRIO` está
+      # ligado). Este fork não tem essa máquina: roda tudo em `ubuntu-latest`,
+      # que é mais lento — e a mesma lista que lá cabe, aqui estoura.
+      #
+      # Medido no run 35465232438 (19/09), com as cinco partes da upstream:
+      #
+      #   parte 1 ....  917s      parte 4 ....   43s (instalação fresca)
+      #   parte 2 .... 1359s ✗    parte 5 ....  885s
+      #   parte 3 ....  820s
+      #
+      # A parte cortada foi a 5, aos 1359s, SEM nenhum caso vermelho — que é a
+      # assinatura de "a parte cresceu", nas palavras do próprio erro do passo.
+      # As saídas que ele recomenda são duas: rebalancear ou repartir em mais
+      # uma. Rebalancear para dentro da PARTE_4 está proibido por desenho (ela
+      # é um AMBIENTE — a jornada de instalação fresca, cuja premissa é que só
+      # o dono existe no banco), então a saída é esta.
+      #
+      # O corte mantém a família `followup-*` JUNTA: elas semeiam umas para as
+      # outras e cada parte sobe o seu banco; separá-las quebraria a que
+      # dependesse da vizinha, com o sintoma aparecendo como "spec instável".
       SPECS_PARTE_5: >-
         inbox-busca-e-filtros-dizem-a-verdade.spec.ts
         qa-l12-inbox.spec.ts
         filtro-por-marcador-pela-tela.spec.ts
         funil-arquivado-volta-pela-tela.spec.ts
+        qa-l12-funil.spec.ts
+        i18n-espanhol-na-tela.spec.ts
+        marca-logo.spec.ts
+        suporte-temporario.spec.ts
+
+      SPECS_PARTE_6: >-
         followup-builder.spec.ts
         followup-journey.spec.ts
         followup-dossie.spec.ts
         followup-queue.spec.ts
-        qa-l12-funil.spec.ts
-        i18n-espanhol-na-tela.spec.ts
         extensoes-declarativas.spec.ts
         extensoes-versao.spec.ts
-        marca-logo.spec.ts
-        suporte-temporario.spec.ts
         olhar-telas-do-epico.spec.ts
 
       # ─── FORA_DO_CI — as duas que ficaram, e o motivo continua onde sempre ───
@@ -1656,7 +1681,7 @@ jobs:
       # workers, dois specs gerando o mesmo código no mesmo intervalo de 30s
       # fazem o segundo ser recusado como replay. Foi o que derrubava a
       # `reset-password-mfa` (issue #80): ela passa sozinha e falha em paralelo.
-      - name: E2E — parte ${{ matrix.parte }} de 4
+      - name: E2E — parte ${{ matrix.parte }} de 6
         run: |
           set -euo pipefail
           # A lista sai da matrix, e as duas variáveis continuam existindo no
@@ -1669,6 +1694,7 @@ jobs:
             3) LISTA="$SPECS_PARTE_3" ;;
             4) LISTA="$SPECS_PARTE_4" ;;
             5) LISTA="$SPECS_PARTE_5" ;;
+            6) LISTA="$SPECS_PARTE_6" ;;
             *) echo "::error::parte ${{ matrix.parte }} sem lista"; exit 1 ;;
           esac
           # Falha alto se a variável vier vazia: sem isto, um typo no nome faria
@@ -1960,7 +1986,7 @@ jobs:
                       dentro { exit }
                     ' .github/workflows/e2e.yml | grep -oE "[a-z0-9-]+\.spec\.ts" | sort -u; }
           NO_DISCO=$(ls tests/e2e/*.spec.ts | wc -l | tr -d " ")
-          RODOU=$( { bloco SPECS_PARTE_1; bloco SPECS_PARTE_2; bloco SPECS_PARTE_3; bloco SPECS_PARTE_4; bloco SPECS_PARTE_5; } | sort -u | wc -l | tr -d " ")
+          RODOU=$( { bloco SPECS_PARTE_1; bloco SPECS_PARTE_2; bloco SPECS_PARTE_3; bloco SPECS_PARTE_4; bloco SPECS_PARTE_5; bloco SPECS_PARTE_6; } | sort -u | wc -l | tr -d " ")
           FORA_LISTA=$(bloco FORA_DO_CI)
           FORA=$(echo "$FORA_LISTA" | grep -c . || true)
           # E o recorte passa a ter CONTROLE, não só um piso.
