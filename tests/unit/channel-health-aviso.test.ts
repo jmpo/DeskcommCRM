@@ -227,6 +227,12 @@ describe("avisar uma vez, e fechar quando volta", () => {
 });
 
 describe("os elos que somem sem barulho", () => {
+  // ⏱️ Teto explícito, medido: este caso entra pelo ROTEADOR REAL de webhooks
+  // (nada dublado no caminho) e leva ~2,2 s sozinho. Na suíte inteira, com os
+  // workers disputando CPU, passou de 15 s e reprovou por relógio — DUAS vezes
+  // em sincronias seguidas (19/09 e 21/09), sem que uma linha dele mudasse.
+  // Reprovar por relógio um caso que passa sozinho é o vermelho que ensina a
+  // ignorar vermelho. 60 s dá folga de ~25× e segue barrando um travamento real.
   it("o webhook de status AVISA de verdade — não é o texto, é o efeito", async () => {
     // Este é o defeito original, exatamente: `handleSessionStatus` atualizava
     // `channel_sessions.status` e terminava.
@@ -249,7 +255,7 @@ describe("os elos que somem sem barulho", () => {
     const aviso = ops.find((o) => o.tabela === "agent_inbox_items" && o.op === "insert");
     expect(aviso, "a queda chegou pelo webhook e ninguém foi avisado").toBeTruthy();
     expect(aviso?.payload).toMatchObject({ kind: "channel_number_alert", ref_id: "sess-1" });
-  });
+  }, 60_000);
 
   it("o vigia PERGUNTA — é o único que enxerga o transporte morto", () => {
     // Só o webhook não basta: quando o transporte morre, ele para de mandar

@@ -44,7 +44,12 @@ export interface RouterDetailState {
 
 export interface RouterTestResult {
   intent_name: string | null;
-  confidence: number;
+  /**
+   * `null` quando NÃO houve veredito — não é zero. O tipo importa mais que a
+   * rota: ele é o que todo consumidor novo importa, e um `number` aqui faria a
+   * mentira passar com o aval do typecheck.
+   */
+  confidence: number | null;
   min_confidence: number;
   agent_id: string | null;
   agent_name: string | null;

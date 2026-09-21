@@ -18,6 +18,7 @@ import type pg from 'pg';
 import { insertInboxItem } from '../../db/repository';
 import type { Logger } from '../../obs/logger';
 import { enqueueJob } from '../../queue/queue';
+import { decidirRajada } from './debounce';
 import { avisoDeEventoMorto, IA_QUE_NAO_RESPONDEU } from '@/lib/event-log/aviso-de-evento-morto';
 import { TIPOS_DERIVAVEIS, DERIVACAO_TERMINADA } from '@/lib/messaging/media/derivable';
 import { decidirElegibilidadeDaConversa } from '@/lib/ai/elegibilidade/consulta-pg';
@@ -428,36 +429,22 @@ async function processEvent(
   // Coalescência: já existe job PENDING futuro deste contato → esta mensagem
   // entra de carona (o turno lê o histórico completo). Evento vira done.
   //
-  // ⚠️ `run_after > now()` sozinho casa com um job em HOLD (`enforceHolds`,
-  // session-watchdog.ts) — que usa `run_after = 'infinity'` como marcador, e
-  // 'infinity' É maior que `now()`. Um job em hold por sessão MORTA (WhatsApp
-  // reconectado, sessão antiga arquivada) nunca libera — a condição de
-  // liberação exige a MESMA sessão antiga voltar a 'WORKING', o que não
-  // acontece nunca. Sem esta exclusão, TODA mensagem nova do mesmo contato —
-  // inclusive na sessão NOVA — coalescia nesse job morto para sempre: o
-  // cliente escrevia, o evento saía "done" sem erro nenhum, e nenhum turno
-  // rodava. Medido em produção (2026-09-14): 6 mensagens ao longo de 7h,
-  // zero resposta, zero job novo — só o coalescing silencioso repetido no
-  // mesmo job com `held_run_after` no payload.
-  if (knobs.debounceMs > 0) {
-    const { rows: pendingRows } = await pool.query<{ id: string }>(
-      `select id from job_queue
-       where organization_id = $1 and contact_id = $2
-         and kind = 'inbound_turn' and status = 'pending' and run_after > now()
-         and not (payload ? 'held_run_after')
-       limit 1`,
-      [event.organization_id, p.contact_id],
-    );
-    if (pendingRows[0]) {
-      log.info('drain: rajada coalescida em job pendente', {
-        event_id: event.id,
-        job_id: pendingRows[0].id,
-      });
-      return 'processado';
-    }
+  // A janela e a exclusão do job em HOLD (`held_run_after` no payload — a lição
+  // do #830) moram em ./debounce.ts, com teste próprio.
+  const rajada = await decidirRajada(
+    pool,
+    { organizationId: event.organization_id, contactId: p.contact_id },
+    knobs.debounceMs,
+  );
+  if (rajada.tipo === 'coalescido') {
+    log.info('drain: rajada coalescida em job pendente', {
+      event_id: event.id,
+      job_id: rajada.jobId,
+    });
+    return 'processado';
   }
 
-  const runAfter = knobs.debounceMs > 0 ? new Date(Date.now() + knobs.debounceMs) : undefined;
+  const runAfter = rajada.runAfter;
   const { job, deduped } = await enqueueJob(pool, event.organization_id, {
     kind: 'inbound_turn',
     leadId: p.contact_id,

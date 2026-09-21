@@ -25,6 +25,7 @@ import { describe, expect, it } from "vitest";
  * A LISTA impede o erro de digitação, que é a origem. A CHECAGEM defende a API,
  * que aceita qualquer cliente e não passa pela tela.
  */
+import { DICIONARIO } from "@/lib/i18n/dicionario";
 import { availabilityScheduleSchema } from "@/lib/schemas/routing";
 import { FUSOS_OFERECIDOS, FUSO_PADRAO, fusoValido } from "@/lib/tempo/fusos";
 
@@ -107,6 +108,23 @@ describe("as telas OFERECEM em vez de pedir para digitar", () => {
   });
 });
 
+/**
+ * A TELA OFERECE este fuso? — a pergunta certa, independente da forma.
+ *
+ * A upstream escreve a lista de cada tela À MÃO e, a cada cidade nova, precisa
+ * de um caso como estes para lembrar de acrescentá-la nas três fontes — o
+ * próprio comentário do caso de Lisboa diz "faltava nas três". Este fork
+ * DERIVA as telas de `FUSOS_OFERECIDOS`: a canônica é a única fonte, e uma
+ * cidade que entra nela é oferecida em toda tela no mesmo commit. Cobrar o
+ * literal reprovaria o desenho que impede o defeito que o caso vigia; cobrar
+ * a OFERTA aceita os dois desenhos e reprova a tela que não faça nenhum.
+ */
+function telaOferece(arquivo: string, fuso: string): boolean {
+  const fonte = readFileSync(arquivo, "utf8");
+  if (fonte.includes(`"${fuso}"`)) return true;
+  return fonte.includes("FUSOS_OFERECIDOS") && FUSOS_OFERECIDOS.some((f) => f.codigo === fuso);
+}
+
 describe("os fusos OFERECIDOS — a lista, não o padrão", () => {
   /**
    * ⚠️ MESMO MOTIVO DO CASO DE MOEDA: acrescentar Luanda à lista não
@@ -122,10 +140,25 @@ describe("os fusos OFERECIDOS — a lista, não o padrão", () => {
     // tem como divergir da canônica, que é justamente o defeito que o caso
     // acima existe para pegar —, então o que se cobra é a OFERTA, não a forma
     // de escrevê-la. Uma tela que não faça nenhuma das duas reprova igual.
-    const formulario = readFileSync("app/app/settings/tenant/_form.tsx", "utf8");
-    const ofereceLuanda =
-      formulario.includes("Africa/Luanda") || formulario.includes("FUSOS_OFERECIDOS");
-    expect(ofereceLuanda, "a tela da empresa não oferece a lista canônica nem Luanda").toBe(true);
+    expect(telaOferece("app/app/settings/tenant/_form.tsx", "Africa/Luanda"), "a tela da empresa não oferece Luanda").toBe(true);
+  });
+
+  // As quatro listas são três fontes: `FUSOS_OFERECIDOS` (jornada e janela de
+  // envio) e as duas escritas à mão, da empresa e do perfil. Lisboa faltava
+  // nas três — e o assistente de boas-vindas já a oferecia.
+  it("oferece Lisboa nas três fontes", () => {
+    expect(FUSOS_OFERECIDOS.map((f) => f.codigo)).toContain("Europe/Lisbon");
+    for (const arquivo of ["app/app/settings/tenant/_form.tsx", "app/app/settings/profile/_form.tsx"]) {
+      expect(telaOferece(arquivo, "Europe/Lisbon"), `${arquivo} não oferece Lisboa`).toBe(true);
+    }
+  });
+
+  // O painel anti-banimento passa o rótulo por `t(f.rotulo)` — chave dinâmica,
+  // que a varredura de `t("...")` literal não enxerga. Luanda entrou sem
+  // tradução e ninguém viu; este caso reprova o próximo rótulo sem entrada.
+  it("todo rótulo oferecido tem entrada no dicionário", () => {
+    const semEntrada = FUSOS_OFERECIDOS.filter((f) => !DICIONARIO[f.rotulo]?.es).map((f) => f.rotulo);
+    expect(semEntrada).toEqual([]);
   });
 
   it("e o padrão de quem não escolheu segue sendo São Paulo", () => {

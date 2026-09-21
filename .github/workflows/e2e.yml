@@ -752,6 +752,7 @@ jobs:
         agenda-google-volta-do-consentimento.spec.ts
         agenda-google-volta-nao-desloga.spec.ts
         navegacao.spec.ts
+        menu-por-empresa-e-a-porta-de-volta.spec.ts
         agenda-google-meet.spec.ts
         painel-de-configuracao-da-instalacao.spec.ts
       # `moeda-da-organizacao` entrou na PARTE_2 em 2026-09-04, ao lado de
@@ -980,6 +981,7 @@ jobs:
         followup-cartoes.spec.ts
         followup-modelos-de-clinica.spec.ts
         presenca-do-atendente.spec.ts
+        trunk-sip-config.spec.ts
 
       # ─── PARTE 4 — a spec de VPS fresca, e quem pode entrar ao lado dela ───
       #
@@ -1071,6 +1073,9 @@ jobs:
       # dependesse da vizinha, com o sintoma aparecendo como "spec instável".
       SPECS_PARTE_5: >-
         inbox-busca-e-filtros-dizem-a-verdade.spec.ts
+        extensoes-da-instalacao.spec.ts
+        agenda-primeira-pintura-no-fuso.spec.ts
+        agenda-portao-de-hidratacao.spec.ts
         qa-l12-inbox.spec.ts
         filtro-por-marcador-pela-tela.spec.ts
         funil-arquivado-volta-pela-tela.spec.ts

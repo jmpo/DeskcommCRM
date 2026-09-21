@@ -212,8 +212,13 @@ if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "$CURRENT" ]; then
   # salto grande. `index()` e não regex: o rótulo tem `[` e `]`, e escapar isso
   # em awk é onde se erra. Instalação fora de release (CURRENT é um SHA) nunca
   # casa, cai no arquivo inteiro cortado, e o app declara que não alcançou.
-  # MANTENHA numa linha física só: tests/unit/changelog-cabe-na-tela-da-vps.test.ts
-  # lê o teto daqui por regex de linha única e EXPLODE se ela for quebrada.
+  # MANTENHA numa linha física só: `lib/release/cabe-na-tela.ts` lê o teto E o
+  # `-v cur=` daqui por regex de linha única e EXPLODE se ela for quebrada. São
+  # dois os leitores, com atores diferentes — o teste que cobra o AUTOR DO PR
+  # (tests/unit/changelog-cabe-na-tela-da-vps.test.ts) e o que cobra a CASA
+  # (pnpm release:acervo-cabe, fora de pull_request) —, mas a régua é uma só:
+  # duas cópias do número seriam duas fontes da verdade, e a que envelhece é
+  # sempre a cópia.
   CHANGELOG="$(git show "${LATEST_TAG}:CHANGELOG.md" 2>/dev/null | awk -v cur="## [${CURRENT#v}]" 'index($0, cur) == 1 { print; exit } { print }' | head -c 30000 || true)"
   # `head -c` corta em byte fixo, e o CHANGELOG tem emoji/acento multi-byte
   # (UTF-8) — um corte no meio de um caractere quebraria o JSON de um jeito

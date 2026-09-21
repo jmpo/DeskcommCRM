@@ -133,8 +133,34 @@ printf 'select 2;\n' > "$principal/supabase/migrations/20260102090000_0261_anter
 printf '# leia\n' > "$principal/README.md"
 git -C "$principal" add -A && git -C "$principal" commit -q -m "base"
 
+# ── clone local com retry: a falha medida NÃO é do gate, é do runner ────────────────
+# Achado #1403: o job verify-parte(2) do PR #1394 reprovou com
+#   fatal: failed to copy file to '.../c26/.git/objects/pack/tmp_rev_XXXXXXXX': No such
+#   file or directory
+#   fatal: not a git repository (or any of the parent directories): .git
+# — no `git clone -q "$principal" "$c"` do caso 26, dentro DESTE arquivo de teste, não no
+# gate sob prova. A issue supunha rede (gh/PRs abertos); é o oposto: o cabeçalho deste
+# arquivo já diz "sem rede", e o clone é 100% local. É I/O do runner lendo `$principal`
+# — o único repositório que a suíte inteira compartilha e para o qual `pr_no_principal()`
+# empurra `git push` entre um `clonar()` e outro. Não reproduzido localmente (falha rara:
+# 1 run em várias); a defesa é a mesma que `scripts/checar-colisao-de-migration.sh` já usa
+# para outra falha transiente (fetch de cabeça de PR): repetir antes de desistir, e nomear
+# o desfecho se as tentativas se esgotarem — nunca seguir com um clone pela metade.
+clonar_com_retry() { # $1 = origem, $2 = destino
+  local tentativas=3 i
+  for i in $(seq 1 "$tentativas"); do
+    rm -rf "$2"
+    if git clone -q "$1" "$2" 2>/dev/null && git -C "$2" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      return 0
+    fi
+    [ "$i" -lt "$tentativas" ] && sleep 0.2
+  done
+  return 1
+}
+
 clonar() { # $1 = destino (traz o gate SOB PROVA, a versão da árvore de trabalho)
-  rm -rf "$1"; git clone -q "$principal" "$1"
+  clonar_com_retry "$principal" "$1" \
+    || { echo "clonar: 'git clone $principal $1' falhou 3x — provável I/O transiente do runner, não do gate" >&2; exit 90; }
   mkdir -p "$1/scripts"; cp "$GATE_ORIGEM" "$1/scripts/checar-colisao-de-migration.sh"
 }
 gate() { ( cd "$1" && bash scripts/checar-colisao-de-migration.sh "${2:-origin/main}" 2>&1 ); }
@@ -310,10 +336,19 @@ assert_contains "$saida" "refs/heads/outra/resgate" "só o dono de verdade é no
 # Uma cabeça de PR no principal, como o GitHub guarda: refs/pull/N/head. `git clone` NÃO
 # traz refs/pull — igual ao clone real —, então só o gate buscando é que a enxerga.
 pr_no_principal() { # $1 = número do PR, $2 = nome da migration que a cabeça dele carrega
-  local w="$TMP/cabeca-pr-$1"; rm -rf "$w"; git clone -q "$principal" "$w"
+  local w="$TMP/cabeca-pr-$1"
+  clonar_com_retry "$principal" "$w" \
+    || { echo "pr_no_principal: 'git clone $principal $w' falhou 3x — provável I/O transiente do runner" >&2; exit 90; }
   printf 'select %s;\n' "$1" > "$w/supabase/migrations/$2"
   git -C "$w" add -A >/dev/null && git -C "$w" commit -q -m "PR #$1"
-  git -C "$w" push -q origin "HEAD:refs/pull/$1/head"
+  # O push ALIMENTA os objetos de $principal — é o repositório que TODO clonar() lê
+  # depois, então uma falha transiente aqui também não pode virar clone pela metade.
+  local tentativas=3 i push_ok=0
+  for i in $(seq 1 "$tentativas"); do
+    git -C "$w" push -q origin "HEAD:refs/pull/$1/head" 2>/dev/null && { push_ok=1; break; }
+    [ "$i" -lt "$tentativas" ] && sleep 0.2
+  done
+  [ "$push_ok" = 1 ] || { echo "pr_no_principal: push para refs/pull/$1/head falhou 3x" >&2; exit 90; }
 }
 gate_prs() { # $1 = PRs abertos que o gh falso lista, $2 = clone
   ( export FAKE_GH_PRS="$1"; cd "$2" && bash scripts/checar-colisao-de-migration.sh origin/main 2>&1 )

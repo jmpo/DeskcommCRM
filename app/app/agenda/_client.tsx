@@ -22,6 +22,7 @@ import type { Agendamento, HorarioLivre, VisaoDaAgenda } from "@/components/agen
 import { EmptyAgenda } from "@/components/empty";
 import { rotuloDoLocal } from "@/lib/agenda/locais";
 import { ancoraAoFecharPainel } from "@/lib/agenda/ancora-depois-de-marcar";
+import { ancoraLocalDoDia } from "@/lib/agenda/semana-semente";
 import { janelaDoMesVisivel } from "@/lib/agenda/janela-do-mes-visivel";
 import { resolverResponsavelDoPainel } from "@/lib/agenda/responsavel-do-painel";
 import { useVinculoDaMarcacao } from "@/lib/agenda/vinculo-da-marcacao";
@@ -73,6 +74,7 @@ const VISOES: Array<{ id: VisaoDaAgenda; rotulo: string }> = [
  */
 export function AgendaClient({
   fusoDeApresentacao,
+  hojeNaOrganizacao,
   usuarioId,
   googleConfigurado,
   contaConectada,
@@ -84,6 +86,11 @@ export function AgendaClient({
   podeMarcar,
 }: {
   fusoDeApresentacao: string | null;
+  /**
+   * A data de HOJE no fuso da ORGANIZAÇÃO, resolvida pelo servidor
+   * (`yyyy-MM-dd`). É a mesma que gerou a semente de compromissos.
+   */
+  hojeNaOrganizacao: string;
   /** Id de quem está logado — a única fonte para o rótulo "Você". */
   usuarioId: string;
   googleConfigurado: boolean;
@@ -218,13 +225,37 @@ export function AgendaClient({
     if (window.matchMedia("(max-width: 767px)").matches) setVisao("dia");
   }, []);
   const [isolada, setIsolada] = React.useState<string | null>(null);
-  const [ancora, setAncora] = React.useState(() => new Date());
+  /**
+   * A ÂNCORA NASCE DO RELÓGIO DA ORGANIZAÇÃO, não do navegador.
+   *
+   * Era `useState(() => new Date())`. O servidor desenha a semana no fuso da
+   * organização (decisão do dono em #1350) e o cliente recalculava no fuso do
+   * NAVEGADOR: das 21h de sábado à meia-noite em São Paulo, com servidor em UTC,
+   * os dois discordavam e a tela piscava a semana seguinte — e, para quem abre o
+   * CRM fora do fuso da empresa, discordava sempre.
+   *
+   * O que atravessa a fronteira é a DATA (`hojeNaOrganizacao`), nunca o
+   * instante: `domingo 00:00` em São Paulo é `sábado 22:00` em UTC-5, e
+   * `startOfWeek` sobre esse instante, em hora local, cairia na semana anterior.
+   * `ancoraLocalDoDia` transforma a data numa `Date` local ao meio-dia — a doze
+   * horas de qualquer borda de horário de verão.
+   */
+  const [ancora, setAncora] = React.useState(() => ancoraLocalDoDia(hojeNaOrganizacao));
 
-  // AS PESSOAS SÃO REAIS: vêm de `/api/v1/team`, com a trilha de cor derivada do
-  // `user_id`. Até esta linha o filtro por pessoa era invisível na tela do
-  // produto — `FiltroDePessoas` devolve `null` com menos de duas pessoas, e a
-  // lista estava vazia. Ele existia, estava provado na vitrine, e ninguém o via
-  // aqui.
+  // AS PESSOAS SÃO REAIS, e vêm da lista MÍNIMA da agenda — `/api/v1/agenda/pessoas`
+  // (`ROTA_DA_LISTA_DE_PESSOAS`, `lib/agenda/lista-de-pessoas.ts`), papel mínimo
+  // `agent` e só id/nome. Com a trilha de cor derivada do `user_id`.
+  //
+  // ⚠️ ESTA LINHA DIZIA `/api/v1/team`, E A FRASE MENTIA. Ela descrevia o estado
+  // de antes do item 1 da issue 896, quando a agenda pedia a equipe à rota de
+  // administração — que é `manager+` e devolve e-mail e último acesso — e o
+  // Atendente levava 403 só por abrir a tela (virava aviso de falta de
+  // permissão sobre uma grade que continuava lá). A rota mínima consertou isso;
+  // a prosa ficou. Medido nesta rodada:
+  //   grep -rn "api/v1/team" app/app/agenda/ | grep -v "\(//\|\*\)"  → vazio
+  // É por isso que a frase foi reescrita em vez de apagada: quem lê o código
+  // para entender o 403 do Atendente precisa saber que ele JÁ não existe, e um
+  // comentário que afirma o contrário é o defeito de novo.
   const { data: pessoas = [] } = usePessoasDaAgenda();
 
   // A JANELA ACOMPANHA O MÊS QUE O PAINEL MOSTRA.
@@ -238,7 +269,10 @@ export function AgendaClient({
   // A estabilidade continua: a chave do React Query só muda quando o mês, o
   // tipo ou a abertura mudam — nunca a cada render. `new Date()` aqui corre
   // uma vez por essas mudanças, não no corpo.
-  const [mesDoPainel, setMesDoPainel] = React.useState(() => startOfMonth(new Date()));
+  // Mesmo relógio da grade: o mini-calendário abre no mês da ORGANIZAÇÃO.
+  const [mesDoPainel, setMesDoPainel] = React.useState(() =>
+    startOfMonth(ancoraLocalDoDia(hojeNaOrganizacao)),
+  );
   const onMesVisivel = React.useCallback((mes: Date) => {
     const proximo = startOfMonth(mes);
     setMesDoPainel((atual) => (atual.getTime() === proximo.getTime() ? atual : proximo));
@@ -405,7 +439,14 @@ export function AgendaClient({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setAncora(new Date())}>
+          {/* "Hoje" é o hoje DA ORGANIZAÇÃO. Com `new Date()` o botão desfazia a
+              âncora do servidor e devolvia a semana do navegador — o defeito que
+              a tela acabou de fechar, a um clique de distância. */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAncora(ancoraLocalDoDia(hojeNaOrganizacao))}
+          >
             {t("Hoje")}
           </Button>
           {/*
@@ -739,7 +780,8 @@ export function AgendaClient({
             <div className="mt-4 lg:min-h-0 lg:flex-1">
               <PainelDeMarcacao
                 className="lg:h-full"
-                ancora={new Date()}
+                // O mês que abre é o da organização, como a grade ao lado.
+                ancora={ancoraLocalDoDia(hojeNaOrganizacao)}
                 agora={new Date()}
                 responsavel={
                   // O DONO DO TIPO, não o primeiro da lista. A tela dizia "com

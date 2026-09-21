@@ -604,6 +604,38 @@ Processo padrão (siga sempre):
 
    São duas origens distintas de `EXECUTE`, e tratar só uma deixa a função exposta com o gate verde: **(A)** o grant direto a `anon` do `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON FUNCTIONS TO anon` do baseline, que vale para toda função criada depois dele — isto é, para todo apêndice novo — e que `revoke from public` **não** remove; **(B)** o grant a `PUBLIC` que o Postgres dá a qualquer função ao criá-la, que `revoke from anon` **não** remove. Sem os dois, o PostgREST expõe a função como RPC alcançável pela anon key, que vai para o browser. Vigiado por `tests/invariants/hardening-definer-varredura.test.ts`, que varre todas as `security definer` de `public` (issue #128 — a versão anterior checava uma lista fixa de 6, e 8 de 25 estavam expostas).
 
+10. **Ler o baseline com `grep` no arquivo inteiro mede a definição ERRADA.** O
+    `baseline.sql` é dump + apêndice, então a mesma função aparece **várias
+    vezes** — e quem vale é a **última**, porque o arquivo é aplicado inteiro e
+    em ordem. Medido em 2026-09-20: `fn_meet_action` tinha **quatro**
+    definições; a primeira (o corpo do dump) ainda trazia `errcode='40001'` nas
+    três recusas permanentes, e a última — a que o banco instala — trazia
+    `PT409`. Uma sonda de `grep`/`awk` ancorada na primeira ocorrência afirmou
+    sobre o produto o oposto do que o produto faz. O mesmo vale para
+    `fn_lgpd_cascade_redact_contact`, que tem oito.
+
+    **As duas formas certas**, e a primeira decide:
+
+    ```bash
+    # (a) PERGUNTE AO BANCO, depois de aplicar — é o que o cliente terá
+    pnpm test:db tests/invariants/<um caso que consulte>  # ou, num psql já com o baseline aplicado:
+    psql "$URL" -Atc "select pg_get_functiondef(p.oid) from pg_proc p
+      join pg_namespace n on n.oid=p.pronamespace
+      where n.nspname='public' and p.proname='fn_x'"
+    ```
+
+    ```bash
+    # (b) ANCORE NA ÚLTIMA definição, quando só o arquivo estiver à mão
+    python3 -c "
+    s=open('supabase/baseline.sql').read()
+    i=s.rfind('create or replace function public.fn_x')   # rfind, nunca find
+    print(s[i:s.index('\$\$;', i)+3])"
+    ```
+
+    Contar ocorrências no arquivo inteiro responde *"o arquivo menciona"*, nunca
+    *"o banco faz"*. As duas perguntas divergem sempre que há apêndice — e
+    apêndice é o mecanismo padrão desta casa.
+
 **Resumo do fluxo de uma mudança de schema:** arquivo em `migrations/` (fonte da verdade p/ Supabase CLI) **+** apêndice idempotente no `baseline.sql` (p/ o kit self-host) **+** linha no MANIFEST. Os dois artefatos de schema andam juntos. Nunca edite migrations já aplicadas — corrija com uma "forward-fix" nova (e mais um apêndice no baseline).
 
 ---

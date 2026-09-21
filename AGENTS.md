@@ -237,6 +237,10 @@ filtra `organization_id` manualmente. Sem gate automático para isso — a respo
 `supabase/migrations/MANIFEST.md`. Nunca edite migration já aplicada; corrija com uma nova.
 Função nova em `public` precisa de `revoke execute ... from public, anon` **e** `grant` — são
 duas origens de `EXECUTE`.
+⚠️ E **não leia o baseline com `grep` no arquivo inteiro**: ele é dump + apêndice, a mesma
+função aparece várias vezes, e quem vale é a **última**. Pergunte ao banco depois de aplicar
+(`pg_get_functiondef`) ou ancore no último `create or replace` (`rfind`, nunca `find`).
+Contar no arquivo responde "o arquivo menciona", não "o banco faz".
 
 **Marca própria (white-label)** — o produto é revendido e o nome não é seu. **Nunca** escreva
 "Deskcomm"/"DeskcommCRM" em código que alcança o usuário: `tests/unit/branding.test.ts` varre
