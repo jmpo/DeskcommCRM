@@ -8,6 +8,350 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
 ## [Não lançado]
 
+## [1.41.0] — 2026-09-20
+
+### Adicionado
+
+- **A agenda da equipe vira uma opção: Atendentes podem (ou não) mexer na agenda dos colegas** Até aqui, qualquer Atendente cancelava e remarcava o compromisso de qualquer
+  colega — a agenda era uma só para todo mundo. Agora isso é uma escolha da
+  organização, em **Configurações › Tipos de agendamento**:
+
+  - **Ligada (o padrão, e o de quem já instalou):** tudo como sempre foi. Qualquer
+    Atendente mexe na agenda de qualquer colega, e ninguém vê mudança nenhuma
+    depois de atualizar.
+  - **Desligada:** o Atendente mexe só no compromisso de que é o responsável.
+    Gerente e Administrador continuam mexendo em tudo.
+
+  Não há ação para quem opera a VPS, e a escolha vale igual nos dois lugares onde
+  a regra é aplicada: no banco (a alteração e o cancelamento) e na rota que a tela
+  usa. Desligar hoje e religar amanhã volta tudo ao que era, sem atualização.
+
+- **Crie o agente conversando com a IA dentro da campanha** Descreva a oferta e o objetivo em uma conversa. A IA pergunta o que falta e prepara um resumo com abordagem, qualificação, conexão e funil; você pode pedir ajustes antes de confirmar a criação e publicação. As permissões comerciais são preparadas automaticamente e alterações de continuidade do canal pedem uma escolha explícita. O agente fica selecionado ao terminar; o início das abordagens continua separado. Solicitações repetidas recuperam a criação anterior e erros conservam os campos preenchidos. Crédito: @saraivabr.
+
+- **Ajustes determinísticos de estilo antes do envio** A organização agora pode ligar ajustes de estilo aplicados às mensagens escritas pela IA antes das verificações de envio. O primeiro item troca travessões longos de forma determinística, sem depender do prompt e sem alterar mensagens humanas ou templates. Crédito: @joaopaulomirandamatias.
+
+- **Dá para cadastrar contas, formas de pagamento e plano de contas** Uma tela nova em Configurações › Financeiro, com três listas:
+
+  **Contas** — onde o dinheiro fica (caixa, banco). O valor que você informa é o
+  saldo de partida; o saldo que aparece nos relatórios é sempre somado dos
+  lançamentos, nunca um número guardado que pode divergir.
+
+  **Formas de pagamento** — como o cliente paga. Cada forma aponta para a conta em
+  que aquele dinheiro entra. Uma forma sem conta definida aparece marcada, porque
+  ela não vai conseguir fechar uma venda.
+
+  **Plano de contas** — como cada lançamento é classificado, e se é entrada ou
+  saída. Escolher entre as duas é obrigatório: um plano de contas em que tudo é a
+  mesma coisa não classifica nada.
+
+  Nada disso movimenta dinheiro — é a base que as telas de venda vão usar.
+
+  Quem só tem acesso de leitura vê a tela; alterar é de gerente para cima. Crédito: @423313 (#819).
+
+- **A comanda, e o que ela move quando você fecha** Chega a base de venda: comanda com itens, comissão por quem atendeu, lançamento
+  no financeiro e ponto de fidelidade.
+
+  Fechar uma comanda faz cinco coisas de uma vez, e ou todas acontecem ou nenhuma:
+  marca a venda, gera a comissão de cada item, lança a entrada na conta que a
+  forma de pagamento indica, dá o ponto de fidelidade e conclui o agendamento
+  ligado a ela.
+
+  Algumas escolhas que você vai notar no uso:
+
+  O saldo de uma conta e o saldo de pontos de um cliente **nunca ficam guardados**:
+  são sempre somados dos lançamentos. É o que garante que o relatório
+  e o extrato contem a mesma história depois de um estorno.
+
+  **Estornar não apaga nada.** Entra um lançamento contrário, ligado ao original, e
+  os dois ficam. A comissão vira "estornada" em vez de sumir, e o ponto de
+  fidelidade volta como um movimento negativo.
+
+  **A comissão é decidida na entrada do item**, e não quando a comanda fecha.
+  Mudar a regra amanhã não mexe no que já foi combinado ontem.
+
+  Um lançamento já pago não muda mais de valor, conta ou data — o caminho é o
+  estorno.
+
+  E faturar **não desfaz** um agendamento que já tinha sido cancelado ou marcado
+  como falta. Crédito: @423313 (#819).
+
+- **A comanda ganhou as rotas que faltavam** As tabelas da comanda e as funções que movem dinheiro já existiam, e nada as
+  chamava: o módulo estava inteiro no banco, sem porta.
+
+  Agora `/api/v1/financeiro/comandas` abre, lista, recebe item, dá desconto,
+  cancela, finaliza e estorna. A comissão de cada item é resolvida na entrada, com
+  a precedência combinada (pessoa e serviço vence pessoa, que vence serviço), e
+  fica congelada na linha: mudar a regra amanhã não mexe no que já foi feito.
+
+  A tela do balcão ainda não existe; por enquanto o caminho é a API. Crédito: @423313 (#819).
+
+- **Compromisso presencial ou por telefone também pode ser mandado ao cliente** Até agora, mandar os dados do compromisso para o cliente pelo CRM só existia quando o compromisso era uma reunião no Google Meet. Numa visita, numa ligação ou num atendimento no balcão, a seção nem aparecia na tela: quem marcava tinha de avisar o cliente por fora, à mão, sem registro no histórico.
+
+  Agora ela aparece para qualquer tipo de compromisso, e o texto que chega ao cliente fala do que existe — data, hora e fuso —, **sem prometer um link que não há**.
+
+  Onde o compromisso É uma reunião online, nada mudou: o link continua tendo de estar pronto antes de sair. Mandar uma reunião sem como entrar nela é pior que não mandar.
+
+  Contribuição de @paulolimajr77 (#803).
+
+- **Conecte um banco de dados de outro sistema e explore-o de dentro do CRM** Quando o seu outro sistema escreve num PostgreSQL — um segundo CRM, um ERP, a
+  base que a operação usa —, esses dados eram invisíveis aqui dentro. É ali que
+  costuma morar o que o cliente pergunta: pedido, assinatura, matrícula, saldo.
+
+  Agora essa base pode ser cadastrada e consultada pelo próprio CRM. O caminho é
+  **Organização › Dados e acesso › Dados externos**. Qualquer pessoa da equipe vê
+  a lista e explora os dados; só um administrador cadastra, edita ou remove a
+  conexão.
+
+  - **Somente leitura, de verdade.** A conexão roda em transação de leitura
+    obrigatória, com tempo limite, e só aceita consultas de seleção. Nada que o
+    CRM faz altera o banco de origem.
+  - **A senha é cifrada** com a mesma chave que o sistema já usa para as chaves de
+    IA, e nunca é mostrada de volta — ao editar, o campo de senha nasce vazio.
+    Nenhuma variável de ambiente nova, nenhum passo manual de atualização.
+  - **Nada de schema fixo.** As tabelas e os campos são lidos na hora, então
+    quando o outro sistema muda, a tela já enxerga o novo formato.
+  - **Os tetos são seus.** Linhas por consulta, filtros e tamanho de resposta são
+    configurados por conexão, dentro de faixas seguras.
+
+  Nada muda para quem não cadastrar nenhuma conexão: sem conexão, o recurso não
+  faz nada. Quem instala ou atualiza numa VPS recebe pelo procedimento de sempre
+  (`update.sh`) — a mudança de banco entra junto do baseline.
+
+  Trabalho de @vgamkt, recortado do PR #1130.
+
+- **Faturar de uma vez os atendimentos que ficaram sem comanda** Atendimento que aconteceu e ninguém faturou era um buraco silencioso: não
+  aparecia em lugar nenhum, e só era descoberto conferindo a agenda contra o
+  caixa.
+
+  Em **CRM › Comandas**, a lista "Atendimentos sem comanda" mostra o que já
+  aconteceu e não foi cobrado. Marque, escolha a forma de pagamento, fature tudo
+  de uma vez. Nada vem marcado: faturar é irreversível.
+
+  Para isso, o serviço ganhou **preço padrão** em Configurações › Agenda. Ele
+  também vira o valor sugerido ao lançar item na comanda, e pode ser mudado lá.
+  Serviço sem preço aparece na lista com aviso, e não pode ser faturado em lote. Crédito: @423313 (#819).
+
+- **A fidelidade passa a ter saldo e extrato** Os pontos de fidelidade eram gravados na finalização da comanda e não apareciam
+  em lugar nenhum: não dava para consultar o saldo de um cliente nem resgatar.
+
+  Agora o saldo aparece ao lado da comanda do cliente, dá para informar quantos
+  pontos aquela venda gera na hora de finalizar, e a API devolve saldo e extrato.
+  Corrigir um lançamento errado é lançar o contrário, com motivo: o extrato
+  explica o saldo inteiro. Crédito: @423313 (#819).
+
+- **O funil mostra telefone, e-mail e links do cliente no card e no painel do negócio** Para saber como falar com o cliente de um negócio, era preciso sair do funil e abrir a ficha do contato. Agora o card mostra o telefone, o e-mail e um botão para cada link cadastrado (Instagram, site, Google Meu Negócio, Facebook, LinkedIn, TikTok, YouTube ou outro), e o painel do negócio ganhou a seção "Contato" com duas abas: "Dados" (telefone com atalho para o WhatsApp, e-mail e um caminho para a ficha completa) e "Links", onde os endereços se preenchem e se salvam ali mesmo. Os links ficam no próprio contato, em campos personalizados, e só endereços http(s) são aceitos — qualquer outro tipo de endereço é recusado. Contato anonimizado a pedido do titular (LGPD) não aparece no card. Não há mudança no banco de dados. Nada para configurar. Crédito: @RafaelBarbosaBR.
+
+- **Lisboa passa a aparecer nas listas de fuso horário** Quem opera em Portugal não encontrava o próprio fuso: o assistente de boas-vindas oferecia Lisboa, mas as listas de Configurações › Organização, do Perfil, da jornada em Equipe › Atendimento e da janela de envio em Conexões › Proteção de envio só tinham cidades da América do Sul, Luanda e UTC. Escolher UTC deixava tudo uma hora fora no verão europeu. Agora "Lisboa (Portugal)" aparece nas quatro. O padrão de quem ainda não escolheu continua São Paulo, e ninguém muda de relógio com a atualização. Crédito: @maclevison.
+
+- **Consulte o enriquecimento da empresa durante a conversa** O painel lateral do Inbox mostra site, segmento, endereço, avaliações, e-mails
+  comerciais e redes sociais coletados na prospecção, com data da busca e link da
+  fonte. Contatos sem enriquecimento têm estado vazio explícito; falhas permitem
+  repetir a leitura. Dados de contatos anonimizados não são apresentados.
+  Crédito: @saraivabr.
+
+- **Lançamentos que se repetem todo mês** Aluguel, internet e contador precisavam ser lançados à mão todo mês, e o mês
+  esquecido fazia o relatório parecer melhor do que foi.
+
+  Em **Configurações › Financeiro**, a seção "Todo mês" guarda o molde: valor, dia
+  e conta. O sistema abre a conta a pagar no dia certo, **sempre como pendente** —
+  ele sabe que a conta vence, não sabe se você pagou. Quem escolhe o dia 31 é
+  atendido no último dia dos meses mais curtos, em vez de pular fevereiro. Crédito: @423313 (#819).
+
+- **Dá para lançar o que não veio de comanda** O financeiro só registrava o que entrava por comanda fechada. Aluguel, material
+  e salário não tinham por onde entrar, e o "Saiu" do relatório era zero para
+  sempre.
+
+  Em **Análise › Faturamento**, abaixo dos números do período, agora é possível
+  lançar entrada ou saída, dizer em que conta caiu, marcar como já pago ou deixar
+  pendente, e quitar depois. Lançamento pago não se apaga: o caminho de desfazer é
+  um lançamento contrário. Crédito: @423313 (#819).
+
+- **Responda conversas pelo painel de mensagens em qualquer tela** O botão Mensagens acompanha a navegação com contador de conversas não lidas, busca,
+  logos dos canais e atendimento compacto. Minimize sem perder o texto em edição ou
+  amplie a conversa no Inbox. Usa os mesmos canais, histórico e permissões existentes.
+  Crédito: @saraivabr.
+
+- **Encontre empresas e inicie conversas graduais com IA pelo CRM** Administradores podem pesquisar empresas por segmento e região, enriquecer dados comerciais e preparar campanhas no menu Prospecção. Cada busca possui teto de gasto, e a fila de primeiras abordagens respeita o ritmo configurado, as proteções do canal, intervenções humanas e recusas. As respostas continuam no Inbox e a qualificação aparece conforme a etapa real do funil. A integração opcional usa a chave Apify cifrada da organização; todos os registros ficam no banco do CRM. Crédito: @saraivabr.
+
+- **Conexão nativa de redes sociais no CRM** Conexões ganha Redes sociais: credencial cifrada, escolha do perfil, contas
+  vinculadas, autorização e verificação da conexão. Instagram e Facebook podem
+  receber mensagens no Inbox e usar o atendimento humano e o motor de IA existente.
+  A IA começa pausada. As demais redes ficam identificadas como contas vinculadas,
+  sem prometer atendimento não implementado. A integração preserva WhatsApp e
+  webhooks externos; não importa histórico nem publica conteúdo automaticamente.
+
+- **Dá para enviar o link da reunião de novo, quando o cliente não recebeu** Antes, um compromisso cujo link já tinha sido enviado mostrava "Link já enviado" e o botão ficava desligado. Se o cliente apagou a conversa, trocou de número ou simplesmente não recebeu, não havia caminho: só mandar o link à mão, por fora do CRM — o que deixa a entrega sem registro e sem histórico.
+
+  Agora o botão vira **"Enviar de novo"**, e pergunta antes de mandar. A pergunta não é formalidade: é ela que substitui a proteção contra clique duplo, que continua valendo para o envio comum.
+
+  E ele só destrava quando o envio já **saiu**. Enquanto a entrega está a caminho, o botão segue mostrando "Envio já autorizado" e desligado — repetir ali não adiantaria nada, só empilharia pedido.
+
+  Contribuição de @paulolimajr77 (#803).
+
+- **Dá para cadastrar regra de comissão** A comissão de cada item saía de regras que **ninguém conseguia cadastrar**.
+  Não havia tela nem rota, e na prática todo item entrava com zero.
+
+  Em **Configurações › Financeiro** existe agora a lista "Comissão": escolha a
+  pessoa, o serviço, ou os dois, e o percentual. A tela diz qual regra vence
+  quando mais de uma serve, porque não é o maior percentual que ganha, e sim a
+  mais específica. Crédito: @423313 (#819).
+
+- **O relatório de faturamento, em Análise** Depois que a comanda passou a existir, faltava a pergunta do fim do mês: quanto
+  entrou, de que forma, e quanto cada pessoa tem a receber.
+
+  **Análise › Faturamento** responde por período: entradas, saídas, saldo, ticket
+  médio, comandas finalizadas e estornadas, o total por forma de pagamento e a
+  comissão de cada pessoa. Os números são somados no banco, e não na tela. Crédito: @423313 (#819).
+
+- **O faturamento mostra por serviço e por cliente** O relatório respondia quanto entrou e de que forma. Faltavam as duas perguntas
+  que decidem o que fazer na semana seguinte: **qual serviço** sustenta o
+  faturamento e **quais clientes** sustentam a casa.
+
+  As duas listas aparecem em Análise › Faturamento, com os dez primeiros de cada.
+  Os totais continuam somando tudo: o corte está na lista, nunca no número. Crédito: @423313 (#819).
+
+- **A tela de comandas, em CRM** A comanda existia no banco e nas rotas, e não tinha tela: para lançar um
+  atendimento era preciso chamar a API.
+
+  Agora **CRM › Ver tudo em CRM › Comandas** abre a comanda, lança item, mostra o total mudando,
+  finaliza escolhendo a forma de pagamento e estorna (com motivo, e só para
+  gerente). Quando a forma de pagamento escolhida ainda não tem conta de destino,
+  o aviso aparece **antes** de tentar fechar, dizendo onde resolver.
+
+  Ela mora dentro do hub de CRM, e não numa linha nova do menu: o menu inteiro
+  precisa caber na tela sem rolar, e grupo escondido abaixo da dobra é grupo que
+  ninguem encontra. Pelo atalho de busca (Ctrl+K ou Cmd+K), "comanda" leva direto. Crédito: @423313 (#819).
+
+- **Telefonia por SIP com atendimento por IA, como módulo que você liga quando quiser** O CRM passa a atender e fazer ligações por um tronco SIP, com a IA conduzindo a conversa e a transcrição ficando no histórico do contato. Os números são cadastrados em Conexões › Telefone, cada um apontando para um agente de voz, e as chamadas aparecem em Chamadas, junto das ligações por WhatsApp.
+
+  **O módulo nasce DESLIGADO.** Sem escrever `telefonia` em `COMPOSE_PROFILES` no `.env`, o sistema sobe exatamente como hoje. Para ligar, o `.env.example` traz o passo a passo, e as credenciais do provedor SIP ficam em Configurações › Trunk SIP. Com o módulo ligado, as portas de voz (UDP 5060 e 10000-10200) passam a ser publicadas, porque o provedor do tronco precisa alcançá-las. Crédito: @SnoopyHuman (#677).
+
+- **Conectar WhatsApp por código de pareamento** Conexões e primeiro acesso permitem escolher QR Code ou código de pareamento.
+  O administrador informa o telefone completo e digita no celular o código gerado.
+  O QR continua disponível como alternativa. A conexão só é concluída quando o
+  serviço confirma o aparelho conectado; gerar o código não desconecta sessões ativas.
+
+### Alterado
+
+- **Identifique o canal pelo logo na lista e no cabeçalho da conversa** As conversas mostram o logo do WhatsApp, Instagram ou Messenger junto à identidade
+  do contato, mesmo quando há uma única conexão. A identificação usa a rede da
+  conexão e preserva a foto do contato e o indicador de atendimento. Crédito: @saraivabr.
+
+### Corrigido
+
+- **A Agenda abre na semana certa, mesmo à noite de sábado** Quem abrisse a Agenda no fim da noite de sábado via, por um instante, a semana seguinte, e só então a tela se corrigia. Agora a semana é calculada no fuso configurado: o da pessoa, em **Configurações › Perfil**, e o da empresa, em **Configurações › Empresa**, quando a pessoa não escolheu nenhum. Fuso inválido abre no padrão em vez de falhar. Nada a fazer na atualização.
+
+- **Arquivar um canal oficial devolve o webhook do número à Meta** Conectar um canal oficial da Meta aponta o webhook daquele número para esta instalação. Ao
+  arquivar ou excluir o canal, essa configuração ficava órfã na Meta: o token do caminho do
+  webhook era rotacionado e a credencial apagada, e a Meta seguia entregando num endereço que
+  responde 404 para sempre — sem erro nenhum do nosso lado, porque a entrega nem chegava aqui.
+  Agora o número volta para a URL do app antes de a credencial ser apagada, que é a última
+  chance de a chamada ser autenticada. Se a Meta recusar, nada muda para o operador: o
+  arquivamento (ou a exclusão) que ele pediu acontece do mesmo jeito e a recusa fica no log e
+  na auditoria.
+
+- **Estampar atribuição de anúncio passa a exigir a organização** `fn_estampar_atribuicao_de_anuncio` grava de qual anúncio um contato veio, e rodava como `security definer` olhando só o id do contato: uma chamada com id de outra organização estampava o anúncio no contato alheio, por um caminho que a RLS não vê.
+
+  A organização passa a ser parâmetro obrigatório, e o `where` a exige: contato de outra organização casa zero linhas e nada é gravado. A assinatura antiga sai do catálogo na mesma migration — mantida, a chamada velha resolveria nela e a organização nunca chegaria ao filtro.
+
+  Para quem opera nada muda: a migration sobe com o deploy.
+
+  Contribuição de @webtecnica (#1321).
+
+- **O que a equipe escreve sobre um cliente deixa de ficar congelado no registro de auditoria** Três ações do módulo financeiro — alterar e estornar comanda, e lançar pontos de fidelidade — gravavam no registro de auditoria o texto livre que a equipe escreve **sobre a pessoa**: a observação, o motivo do estorno, a justificativa dos pontos.
+
+  Esse registro é a única tabela que ninguém pode alterar nem apagar, por desenho, para servir de prova — e por isso a anonimização não alcança o que ficou escrito ali. Quando um cliente pedia para ser esquecido, a frase sumia da comanda e sobrevivia na auditoria pelo tempo inteiro de retenção.
+
+  Agora a auditoria guarda o que descreve o **ato** — que a observação mudou, que houve motivo e de que tamanho, quantos pontos — e nunca o texto, que segue guardado onde a anonimização chega. Registros gravados antes desta versão continuam como estão: eles não podem ser reescritos, e essa é a razão do conserto.
+
+- **Uma falha nos classificadores auxiliares não cala mais o agente** Antes de responder, o agente consulta dois auxiliares baratos: um chuta em que
+  etapa do funil a conversa está, e o outro olha se a mensagem do cliente é uma
+  tentativa de manipular o assistente. Os dois são conselheiros — quem decide é o
+  modelo do agente, e nenhum dos dois nunca teve poder de barrar um atendimento.
+
+  Mesmo assim, se um deles falhasse, o atendimento inteiro parava: o cliente ficava
+  sem resposta. E o caso comum não era o provedor cair — era o modelo desses dois
+  pontos, em **Configurações › Provedores de IA**, apontar para algo que não existe
+  mais ou para uma chave revogada. O modelo do agente estava de pé, a conversa não
+  andava, e nada na tela explicava por quê.
+
+  Agora a falha do conselheiro é só a falha do conselheiro: o agente responde do
+  mesmo jeito, apenas sem o palpite de etapa daquele turno. A falha não some — a
+  chamada frustrada fica registrada em **Uso de IA**, como qualquer outra.
+
+  Uma coisa segue interrompendo o atendimento de propósito: o teto de gasto do mês.
+  Quando é ele que barra a chamada, a conversa continua sendo passada para uma
+  pessoa, que é o que já acontecia.
+
+  Trabalho de @betoarts, recortado do #714.
+
+- **A doutrina passa a dizer como ler o arquivo de esquema sem medir a versão errada** Documentação interna, para quem desenvolve: o arquivo que descreve o banco é montado em camadas, e a mesma peça aparece nele várias vezes — vale a última. Quem procurava com uma busca simples podia ler uma versão antiga e concluir o contrário do que o sistema faz.
+
+  A doutrina agora traz as duas formas certas de perguntar, com os comandos. Nada muda para quem opera uma instalação.
+
+- **O build do E2E e o smoke do LLM recusam na primeira linha quando falta o binário** Duas ferramentas internas podiam morrer no meio do trabalho por um motivo que já se sabia na primeira linha: o binário que faz o serviço não estava instalado. O build do E2E anunciava `==> Buildando contra ...` e só então esbarrava na falta do `next`; o smoke do LLM subia `==> subindo pgvector ...` para cair adiante. Nos dois, o que ficava na tela era o anúncio de um passo que não chegou a rodar.
+
+  Agora as duas recusam antes de qualquer trabalho, dizem qual binário falta e mandam rodar `pnpm install`.
+
+  Não muda nada para quem opera uma instalação — é ferramenta de quem desenvolve.
+
+- **A gaveta de funis arquivados confirma a exclusão como o quadro** Excluir de vez um funil arquivado pedia confirmação num cartão solto dentro da própria linha: quem
+  usa leitor de tela ouvia a lista atrás da pergunta, porque o foco não saía dali. A gaveta agora abre
+  o mesmo painel do quadro — foco preso, papel de diálogo de alerta —, o botão que abre a gaveta diz
+  qual lista ele controla, e a recusa da exclusão tem endereço próprio. Crédito: @webtecnica.
+
+- **A imagem do módulo de telefonia voltou a construir** A imagem `deskcomm-voice-agent`, que o módulo opcional de telefonia usa, não
+  chegava a ser criada: a receita dela não copiava o diretório `patches/`, e o
+  `pnpm install` morria antes de instalar qualquer dependência.
+
+  Nada muda para quem já instalou — a imagem nunca existiu, então ninguém a estava
+  baixando. O que isto destrava é a publicação de versões: o passo final da
+  publicação confere se as quatro imagens do produto estão ao alcance de qualquer
+  VPS, e ele não fechava enquanto uma delas não nascia.
+
+- **A janela de envio do WhatsApp passa a seguir o fuso da empresa** O horário em que o CRM pode mandar mensagem pelo WhatsApp (das 7h às 22h, por padrão) era contado no horário de São Paulo sempre que ninguém tinha escolhido um fuso em Conexões › Proteção de envio, qualquer que fosse o fuso da empresa. Numa empresa em Lisboa, isso virava das 11h às 2h da manhã: a resposta do agente a quem escreveu às 9h esperava até as 11h. Agora, sem fuso escolhido no número, vale o fuso da empresa (Configurações › Organização). Quem escolheu um fuso no número continua com ele, e quem está em São Paulo não percebe diferença. Crédito: @maclevison.
+
+- **Link de conversa quebrado passa a dizer o que aconteceu, em vez de abrir uma tela vazia** Abrir um link de conversa com endereço estragado levava a uma tela que parecia uma conversa de verdade e estava vazia — não dava para distinguir conversa inexistente, conversa sem mensagens e falha.
+
+  Agora a tela diz **"Conversa não encontrada ou fora do seu acesso"**, a mesma mensagem de quando o link aponta para conversa de outra empresa. Nos bastidores, esse link também deixa de virar erro de servidor no registro da instalação: quem administra a VPS para de ver falhas que nunca foram falha de nada. Nada a fazer na atualização.
+
+- **A limpeza das autorizações de agenda usadas volta a rodar** A limpeza diária das autorizações de agenda já usadas e vencidas — a que impede que uma autorização capturada seja reaproveitada — falhava todos os dias sem apagar nada, e a tabela só crescia. A rotina pedia a limpeza por um nome de parâmetro e a função do banco tinha sido criada com outro, então o banco devolvia erro antes de apagar; de quebra, a varredura de anonimizações LGPD interrompidas, que roda logo depois no mesmo trabalho agendado, não chegava a acontecer. Agora os dois lados falam a mesma língua, e a instalação que já existe recebe o conserto na atualização. Ninguém precisa fazer nada.
+
+- **Recusar o envio do link do Meet deixa de virar tentativa repetida** Quando o CRM recusa "Enviar link ao cliente" — porque o compromisso mudou, porque o atendimento daquela conversa mudou, ou porque o Google e o CRM discordam —, a recusa agora chega na hora, com o motivo dela.
+
+  Antes essas três recusas saíam com um código que significa "tente de novo", e o sistema acreditava: repetia o mesmo pedido, três vezes, e só então mostrava "Erro inesperado". Quem operava cronometrou **20 segundos** parado na tela para uma recusa que o banco sabia dizer no primeiro milissegundo. Pior: uma resposta dessas podia ser repetida indefinidamente por baixo, o que já derrubou o sistema inteiro uma vez.
+
+  Agora cada recusa tem a frase que diz **o que fazer** — atualizar a página, escolher a conversa atual, resolver a diferença com o Google — e não é mais repetida sozinha.
+
+  Contribuição de @paulolimajr77 (#803).
+
+- **O painel de chamada para de cobrir a ação do rodapé** Durante uma chamada, o painel de voz fica no canto inferior direito e cobria o
+  que estivesse embaixo dele: no funil, o botão "Excluir nó" do painel de
+  configuração ficava inclicável enquanto a ligação durava.
+
+  Agora cada peça fixa do rodapé diz quanto ocupa — a distância até o fundo mais a
+  altura dela — e a tela desconta isso do conteúdo. A altura vem da medida real do
+  painel, então quando ele cresce (o aviso de que o áudio está em outra aba, por
+  exemplo) a folga cresce junto.
+
+  Sem chamada em andamento nada muda: a reserva é zero e o rodapé de todas as
+  telas continua exatamente o que era. Nenhuma variável nova para configurar e
+  nenhum passo na atualização.
+
+  Contribuição de @webtecnica.
+
+- **O erro de envio no inbox para de sair da tela** Quando o provedor recusava uma mensagem, o inbox mostrava o motivo num balão de uma linha só: o texto do provedor é longo, o balão crescia para a direita e o fim da frase ficava fora da tela — em 1280, 1366 e em 1440 px. O operador via "Falhou" e um começo de explicação, sem o resto, que é justamente a parte que diz o que fazer.
+
+  O balão agora quebra em várias linhas dentro de uma largura máxima. A correção foi feita na classe base do balão, e não no ponto que mostrou o defeito: assim vale para todo balão do produto, inclusive os que mostram texto que vem de fora (a mensagem de erro do provedor, que não está no código e não tem tamanho previsto). Nada muda para os balões curtos.
+
+  Contribuição de @webtecnica (#1319).
+
+- **O verificador de banco avisa quando não consegue rodar, em vez de parecer que passou** Uma ferramenta interna de verificação do banco podia terminar **sem ter executado teste nenhum** e ainda assim deixar um registro cheio de marcas de sucesso: ela preparava o banco, aplicava o esquema duas vezes, e só então descobria que faltava a peça que roda os testes — num aviso perdido no meio de centenas de linhas verdes.
+
+  Quem lesse o resultado concluiria que tudo passou. Nada passou: nada rodou.
+
+  Agora ela recusa na primeira linha, diz o que faltou e qual comando usar. Não muda nada para quem opera uma instalação — é ferramenta de quem desenvolve.
+
 ## [1.40.0] — 2026-09-19
 
 ### Adicionado
@@ -6649,7 +6993,8 @@ Primeira versão marcada do DeskcommCRM. O projeto vinha sendo desenvolvido publ
 
 - **Node 22 é obrigatório para desenvolvimento.** A suíte de invariantes instancia o cliente do Supabase, que exige o `WebSocket` global — nativo apenas a partir do Node 22. Isso não afeta quem apenas hospeda: a VPS roda a imagem pronta.
 
-[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.40.0...HEAD
+[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.41.0...HEAD
+[1.41.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.40.0...v1.41.0
 [1.40.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.39.0...v1.40.0
 [1.39.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.37.0...v1.38.0

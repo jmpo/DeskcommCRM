@@ -67,6 +67,30 @@ const ANON_PERMITIDO: readonly Excecao[] = [];
  */
 const AUTHENTICATED_PERMITIDO: readonly Excecao[] = [
   {
+    fn: "fn_finalizar_comanda(uuid,uuid,uuid,integer)",
+    razao:
+      "POST app/api/v1/financeiro/comandas/[id]/finalizar/route.ts e " +
+      "app/api/v1/financeiro/comandas/faturar-lote/route.ts usam createClient da " +
+      "sessão — e aqui não é preferência, é requisito: a função começa por " +
+      "`auth.uid() is null` e recusa, então com a service key ela levanta " +
+      "`comanda_forbidden`. Definer porque as seis escritas (venda, item, comissão, " +
+      "lançamento na conta, ponto de fidelidade e conclusão do agendamento) têm de " +
+      "cair numa transação só, sob FOR UPDATE, e uma delas escreve em tabela que a " +
+      "policy do usuário não concede. A guarda de tenant é a mesma da casa: " +
+      "`fn_role_at_least(p_org, 'agent')` antes de qualquer escrita, e todo comando " +
+      "interno é fechado por organization_id.",
+  },
+  {
+    fn: "fn_estornar_comanda(uuid,uuid,text)",
+    razao:
+      "POST app/api/v1/financeiro/comandas/[id]/estornar/route.ts usa createClient da " +
+      "sessão. Estorno NÃO apaga: insere o contra-lançamento e carimba " +
+      "`reversed_at`, e é definer porque `fn_lancamento_pago_e_imutavel` fecha o " +
+      "UPDATE de lançamento pago para todo mundo — o caminho tem de ser este, e só " +
+      "este. Exige `fn_role_at_least(p_org, 'manager')`: desfazer dinheiro não é do " +
+      "mesmo papel que lançar.",
+  },
+  {
     fn: "fn_passagem_devolvida(uuid,uuid)",
     razao:
       "POST app/api/v1/conversations/[id]/reactivate-bot/route.ts usa createClient da " +
@@ -147,6 +171,16 @@ const AUTHENTICATED_PERMITIDO: readonly Excecao[] = [
       "da sessão; auth.uid() exige manager e suporte de escrita. " +
       "tests/invariants/agenda-presenca-acl.test.ts prova manager A/B próprio, " +
       "negação agent/viewer/cross-org e ausência de efeito recusado.",
+  },
+  {
+    fn: "fn_definir_colegas_podem_mexer_na_agenda(uuid,boolean)",
+    razao:
+      "app/actions/settings/definirAgendaDosColegas.ts chama por rpc com o " +
+      "createClient da SESSÃO, e a própria função reconfere auth.uid(), " +
+      "manager, suporte de escrita e MFA comprovado antes de gravar. " +
+      "tests/invariants/agenda-presenca-acl.test.ts prova manager da própria " +
+      "org com fator provado e a negação de agent, viewer, sessão aal1, anon " +
+      "e da org vizinha, com a configuração intacta depois das recusas.",
   },
   {
     fn: "fn_definir_cliente_pela_agenda(uuid,boolean)",

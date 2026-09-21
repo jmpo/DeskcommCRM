@@ -76,6 +76,16 @@ export interface UserOrgMembership {
    * para responder algo que a primeira já tinha em mãos.
    */
   locale?: string | null;
+  /**
+   * Fuso IANA da organização (`organizations.timezone`).
+   *
+   * Pela mesma razão do `locale` acima: quem escolhe a organização ativa é
+   * quem precisa saber em que fuso a tela desenha o calendário, e buscá-lo
+   * depois seria uma segunda ida ao banco para responder o que a primeira já
+   * trouxe. Pode vir nulo ou inutilizável — nenhum escritor valida a coluna —,
+   * então quem usa passa por `fusoValido` e cai em `FUSO_PADRAO`.
+   */
+  timezone?: string | null;
 }
 
 export interface AuthUser {
@@ -139,6 +149,8 @@ export interface AuthUser {
 export interface ActiveOrg {
   interface_settings?: InterfaceSettings;
   orgId: string;
+  /** Fuso IANA da organização — ver `UserOrgMembership.timezone`. */
+  timezone?: string | null;
   name: string;
   role: Role;
   /**

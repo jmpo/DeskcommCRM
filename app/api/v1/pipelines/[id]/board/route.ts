@@ -24,6 +24,7 @@ import {
   type PropostaAmbigua,
 } from "@/lib/leads/next-action";
 import type { LeadCandidate } from "@/lib/leads/active-lead";
+import { anexarDadosDoContato, type LinhaDoContatoNoQuadro } from "@/lib/kanban/dados-do-contato";
 import { createClient } from "@/lib/supabase/server";
 import type { BoardData, Pipeline, Stage } from "@/lib/kanban/types";
 import type { Lead } from "@/lib/types/leads";
@@ -322,24 +323,32 @@ async function withConversas(
  *
  * Marcador vazio não vira campo: `contact_tags` só é escrito quando há alguma
  * etiqueta, para o payload do quadro não engordar com array vazio em todo card.
+ *
+ * A MESMA leitura de `contacts` também alimenta telefone, e-mail e links do card
+ * (`anexarDadosDoContato`): uma consulta por quadro, não duas.
  */
 async function withMarcadoresDoContato(
   supabase: Awaited<ReturnType<typeof createClient>>,
   organizationId: string,
-  leads: Lead[],
+  leadsDoQuadro: Lead[],
 ): Promise<{ leads: Lead[]; error: string | null }> {
-  const contactIds = [...new Set(leads.map((l) => l.contact_id).filter((c): c is string => !!c))];
-  if (contactIds.length === 0) return { leads, error: null };
+  const contactIds = [
+    ...new Set(leadsDoQuadro.map((l) => l.contact_id).filter((c): c is string => !!c)),
+  ];
+  if (contactIds.length === 0) return { leads: leadsDoQuadro, error: null };
 
   const { data, error } = await supabase
     .from("contacts")
-    .select("id, tags")
+    .select("id, tags, phone_number, email, custom_fields, is_anonymized")
     .eq("organization_id", organizationId)
     .in("id", contactIds);
-  if (error) return { leads, error: error.message };
+  if (error) return { leads: leadsDoQuadro, error: error.message };
+
+  const linhas = (data ?? []) as Array<{ id: string; tags: string[] | null } & LinhaDoContatoNoQuadro>;
+  const leads = anexarDadosDoContato(leadsDoQuadro, linhas);
 
   const porContato = new Map<string, string[]>();
-  for (const row of (data ?? []) as Array<{ id: string; tags: string[] | null }>) {
+  for (const row of linhas) {
     const tags = row.tags ?? [];
     if (tags.length > 0) porContato.set(row.id, tags);
   }

@@ -271,6 +271,39 @@ jobs:
       - name: Unit tests (parte ${{ matrix.parte }}/2)
         run: pnpm test:unit --project produto --shard=${{ matrix.parte }}/2
 
+      # O ACERVO DE `.changes/` CABE NA TELA DA VPS? — e por que fora de PR.
+      #
+      # A seção que os fragmentos acumulados vão produzir tem o mesmo teto em
+      # bytes que qualquer outra (o `head -c` do agent.sh). O que muda é de quem
+      # é a dívida: o acervo é coletivo, e o único remédio é CORTAR RELEASE.
+      #
+      # Isto rodava dentro do `pnpm test:unit`, portanto em `pull_request`, e em
+      # 20/09/2026 reprovou o `verify` dos PRs #1377 (@lucasa15) e #1363 por
+      # `A seção termina no byte 32686` com 43 fragmentos acumulados — nenhum
+      # dos dois tocava `.changes/`. A mensagem mandava o contribuidor enxugar
+      # fragmento de terceiro, e o vermelho sumiu sozinho quando a 1.41.0
+      # consumiu os fragmentos. Quem responde pelo vermelho tem de poder
+      # consertá-lo; aqui quem o vê é quem corta release.
+      #
+      # O passo também AVISA antes de estourar (`::warning::`), por uma régua
+      # derivada do próprio acervo — "dobrar este acervo não caberia" —, nunca
+      # por um número digitado. O teto já é lido do `agent.sh` pelo mesmo motivo.
+      #
+      # As duas metades da candidata que ficou no PR continuam em
+      # `tests/unit/changelog-cabe-na-tela-da-vps.test.ts`; que esta não sumiu de
+      # todo lugar é cobrado por `tests/unit/acervo-do-changelog-cobra-a-casa.test.ts`.
+      #
+      # DEPOIS dos unit tests, e não antes como as outras cercas: este passo é o
+      # único do job projetado para ficar vermelho DE VEZ EM QUANDO na `main` —
+      # é assim que ele pede o corte de release. Antes da suíte, cada vermelho
+      # dele levaria junto metade dos unit tests da `main` (a parte 1 não
+      # chegaria a rodar), e a dívida de changelog passaria a esconder defeito
+      # de código. As cercas acima podem vir antes porque um vermelho nelas é
+      # anomalia, não rotina.
+      - name: O acervo de .changes/ cabe na tela da VPS?
+        if: matrix.parte == 1 && github.event_name != 'pull_request'
+        run: pnpm release:acervo-cabe
+
 
       # Scripts do kit self-host num repo git descartável (docker/crontab
       # dublados). É o único gate que exercita o update.sh — um erro aqui

@@ -78,19 +78,36 @@ describe("NavHub", () => {
     expect(screen.getByRole("link", { name: /Agentes/ })).toBeTruthy();
   });
 
-  it("Extensões fica em Sua empresa, visível ao viewer; Dados e acesso continua sumindo sem destino", () => {
+  it("o viewer vê Extensões e Dados externos; a seção aparece filtrada, sem API Tokens nem LGPD", () => {
+    /**
+     * Esta asserção dizia `not.toContain("Dados e acesso")`, e passava porque os
+     * DOIS destinos daquela seção eram `admin`. "Dados externos" entrou nela sem
+     * `minRole` (o banco externo é lido por qualquer autenticado — decisão do
+     * dono no #1130), e a seção passou a existir para o `viewer`.
+     *
+     * O que se quer provar continua sendo a filtragem por papel, e ela fica mais
+     * forte aqui do que na forma antiga: a seção RENDERIZA e ainda assim os dois
+     * destinos de `admin` não estão nela. Sumir a seção inteira é caso de
+     * `tests/unit/navegacao-registry.test.ts`, onde a propriedade é afirmada
+     * sobre todo grupo e todo papel, em vez de sobre uma seção nomeada.
+     */
     render(
       <NavHub group="organizacao" isPlatformAdmin={false} role="viewer" title="Org" subtitle="" />,
     );
     const secoes = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent?.trim());
     expect(secoes).toContain("Sua conta");
     expect(secoes).toContain("Sua empresa");
-    expect(secoes).not.toContain("Dados e acesso");
+    expect(secoes).toContain("Dados e acesso");
     expect(screen.getByRole("link", { name: /Extensões/ })).toHaveAttribute(
       "href",
       "/app/extensions",
     );
+    expect(screen.getByRole("link", { name: /Dados externos/ })).toHaveAttribute(
+      "href",
+      "/app/integracao-dados",
+    );
     expect(screen.queryByRole("link", { name: /API Tokens/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /LGPD/ })).toBeNull();
   });
 
   it("agrupa os cards sob a própria seção, não numa lista solta", () => {
