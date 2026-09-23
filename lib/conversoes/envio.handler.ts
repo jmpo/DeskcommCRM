@@ -40,10 +40,16 @@
  * é registrado: ele volta no `HandlerResult` e o drain o persiste no `event_log`
  * (invariante 4 — não-aplicação é auditável, não invisível).
  */
+import { canalQueReportaConversao } from "@/lib/channels/conversao-pelo-canal";
+import type { ChannelConversionResult } from "@/lib/channels/types";
 import type { EventHandler, EventRow, HandlerResult } from "@/lib/event-log/dispatcher";
 import { lerCredencial } from "@/lib/plataformas-de-anuncio/credenciais";
 import { transporteDe } from "@/lib/plataformas-de-anuncio/registry";
-import type { ConversaoOffline, NomeDoEvento } from "@/lib/plataformas-de-anuncio/types";
+import type {
+  ConversaoOffline,
+  NomeDoEvento,
+  ResultadoDeEnvio,
+} from "@/lib/plataformas-de-anuncio/types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lerAtribuicao } from "./leitura-da-atribuicao";
 import { jaFoiEnviada, registraEnvio } from "./registro-de-envio";
@@ -144,12 +150,6 @@ async function handle(row: EventRow): Promise<HandlerResult> {
     return ok("skipped", "sem_valor");
   }
 
-  const credencial = await lerCredencial(admin, row.organization_id, plataforma);
-  if (!credencial.ok) {
-    await registra("skipped", credencial.motivo);
-    return ok("skipped", credencial.motivo);
-  }
-
   const conversao: ConversaoOffline = {
     organizationId: row.organization_id,
     leadId: lead.id,
@@ -168,27 +168,75 @@ async function handle(row: EventRow): Promise<HandlerResult> {
     valorCentavos: lead.value_cents,
   };
 
-  const resultado = await transporte.enviar(credencial.credencial, conversao);
-
-  if (resultado.tipo === "ok") {
-    await registra("sent", null, resultado.detalhe);
-    return ok("ok", `conversão reportada (${plataforma})`);
+  // ─── O CANAL PRIMEIRO ─────────────────────────────────────────────────────
+  //
+  // Quando a conversa do cliente passa por um canal intermediado que já tem a
+  // ponte com o conjunto de dados da Meta (configurada na tela do provedor), a
+  // venda vai por ele: é o canal quem guardou o vínculo com o clique, e o CRM
+  // não precisa de token nem de dataset próprios. Só um caminho por venda —
+  // mandar pelos dois contaria a mesma compra duas vezes se os ids de
+  // deduplicação não casassem do outro lado.
+  if (plataforma === "meta_ads") {
+    let canal;
+    try {
+      canal = await canalQueReportaConversao(admin, row.organization_id, lead.contact_id);
+    } catch (err) {
+      return {
+        consumer_key: CONSUMER_KEY,
+        status: "retry",
+        retry_at: new Date(Date.now() + ESPERA_PADRAO_MS).toISOString(),
+        detail: `leitura do canal falhou: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+    if (canal) {
+      const pelo = await canal.reportar({
+        event: EVENTO,
+        eventId: conversao.eventoId,
+        occurredAt: conversao.ocorridoEm,
+        phone: telefone,
+        valueCents: lead.value_cents,
+        currency: conversao.moeda,
+      });
+      return desfecho(doCanal(pelo));
+    }
   }
 
-  if (resultado.tipo === "transitorio") {
-    // Nada no livro-razão: a tela mostra o que precisa de HUMANO, e isto ainda
-    // pode se resolver sozinho. Registrar aqui produziria alarme para uma
-    // instabilidade que some no próximo drain.
-    return {
-      consumer_key: CONSUMER_KEY,
-      status: "retry",
-      retry_at: new Date(Date.now() + (resultado.tentarEmMs ?? ESPERA_PADRAO_MS)).toISOString(),
-      detail: resultado.detalhe,
-    };
+  const credencial = await lerCredencial(admin, row.organization_id, plataforma);
+  if (!credencial.ok) {
+    await registra("skipped", credencial.motivo);
+    return ok("skipped", credencial.motivo);
   }
 
-  await registra("error", "recusado_pela_plataforma", resultado.detalhe);
-  return ok("error", resultado.detalhe);
+  return desfecho(await transporte.enviar(credencial.credencial, conversao));
+
+  async function desfecho(resultado: ResultadoDeEnvio): Promise<HandlerResult> {
+    if (resultado.tipo === "ok") {
+      await registra("sent", null, resultado.detalhe);
+      return ok("ok", `conversão reportada (${plataforma})`);
+    }
+
+    if (resultado.tipo === "transitorio") {
+      // Nada no livro-razão: a tela mostra o que precisa de HUMANO, e isto ainda
+      // pode se resolver sozinho. Registrar aqui produziria alarme para uma
+      // instabilidade que some no próximo drain.
+      return {
+        consumer_key: CONSUMER_KEY,
+        status: "retry",
+        retry_at: new Date(Date.now() + (resultado.tentarEmMs ?? ESPERA_PADRAO_MS)).toISOString(),
+        detail: resultado.detalhe,
+      };
+    }
+
+    await registra("error", "recusado_pela_plataforma", resultado.detalhe);
+    return ok("error", resultado.detalhe);
+  }
+}
+
+/** O desfecho do canal, no vocabulário do transporte — um só caminho de registro. */
+function doCanal(r: ChannelConversionResult): ResultadoDeEnvio {
+  if (r.outcome === "ok") return { tipo: "ok", detalhe: r.detail };
+  if (r.outcome === "retry") return { tipo: "transitorio", detalhe: r.detail, tentarEmMs: r.retryInMs };
+  return { tipo: "permanente", detalhe: r.detail };
 }
 
 export const conversaoDeVendaHandler: EventHandler = {

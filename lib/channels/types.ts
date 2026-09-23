@@ -166,6 +166,26 @@ export interface OutboundEnvelope extends ChannelTenantScope {
  * aqui dentro é o defeito que `docs/doctrine/restricao-de-canal.md` existe para
  * evitar — quem quiser saber o que o canal permite pergunta a `capabilitiesOf`.
  */
+/** A venda, no vocabulário neutro que o canal traduz. */
+export interface ChannelConversionInput extends ChannelTenantScope {
+  sessionRef: string;
+  /** Id da conversa NO provedor — o vínculo mais forte com o clique do anúncio. */
+  providerConversationId: string | null;
+  /** Só dígitos (E.164 sem `+`). Reforço de casamento, nunca o único. */
+  phone: string | null;
+  event: "Purchase";
+  /** Chave de deduplicação na plataforma: o mesmo id nunca conta duas vezes. */
+  eventId: string;
+  occurredAt: Date;
+  valueCents: number;
+  currency: string;
+}
+
+export type ChannelConversionResult =
+  | { outcome: "ok"; detail?: string }
+  | { outcome: "retry"; detail: string; retryInMs?: number }
+  | { outcome: "rejected"; detail: string };
+
 export interface ChannelAdapter {
   provider: ChannelProvider;
   /** null = não há endereço possível para este contato neste canal. */
@@ -275,6 +295,21 @@ export interface ChannelAdapter {
    * conhece `contract_hash` — isso é de quem sincroniza.
    */
   templates?: ChannelTemplateOps;
+
+  /**
+   * Reporta uma venda à plataforma de anúncios PELO CANAL, quando o canal
+   * intermediado já tem a ponte configurada do lado dele (o conjunto de dados
+   * ligado ao número, na tela do provedor).
+   *
+   * Existe porque, nesse arranjo, quem tem o vínculo com o anúncio é o canal:
+   * o CRM não precisa de token nem de dataset próprios para a venda chegar. Quem
+   * chama (`lib/conversoes/`) testa a presença do método em vez de perguntar
+   * QUAL provider é — o lint de canal proíbe o nome fora daqui.
+   *
+   * NUNCA lança: devolve o desfecho classificado. A diferença entre "tente de
+   * novo" e "precisa de gente" é do canal, que é quem lê a resposta crua.
+   */
+  reportConversion?(input: ChannelConversionInput): Promise<ChannelConversionResult>;
 
   /**
    * Acende o "digitando…" na conversa do cliente.
