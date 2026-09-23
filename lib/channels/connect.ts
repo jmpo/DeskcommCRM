@@ -13,6 +13,7 @@
  * não na primeira mensagem que não sai — com o lead do outro lado esperando.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { logger } from "@/lib/logger";
 import { metadataInicialDoCanal } from "@/lib/ai/elegibilidade/pre-go-live";
 
 import { ARCHIVED_AT, queryTolerantToMissingArchived } from "./archived";
@@ -223,6 +224,39 @@ export async function savePartnerSession(
     status: "WORKING",
     archived_at: null,
   };
+
+  // ─── A CONEXÃO TROCOU DE CONTA? OS MODELOS DA ANTERIOR NÃO FICAM ──────────
+  //
+  // Medido numa instalação real (23/09): o dono reconectou a MESMA linha de
+  // conexão apontando para outra conta do provedor, e a aba "Modelos do
+  // parceiro" seguiu listando os 9 modelos aprovados da conta ANTERIOR — com o
+  // `waba_id` velho e tudo. A tela lista por `channel_session_id`, que não
+  // mudou; quem mudou foi a conta, e ninguém contou aos modelos.
+  //
+  // O estrago não é cosmético: modelo aprovado pertence a uma conta de
+  // WhatsApp Business ESPECÍFICA. Mandar um da conta antiga pelo número novo é
+  // uma recusa garantida da plataforma — e o operador vê "modelo aprovado" na
+  // tela enquanto o envio falha, que é a pior forma de descobrir.
+  //
+  // A limpeza vai ANTES da escrita, e é restrita ao que não pertence à conta
+  // nova: `neq('waba_id', accountId)`. Reconectar a MESMA conta (trocar só a
+  // chave, o caso comum) não apaga nada.
+  if (input.existingId) {
+    const { error: erroDaLimpeza } = await admin
+      .from("meta_templates")
+      .delete()
+      .eq("organization_id", input.organizationId)
+      .eq("channel_session_id", input.existingId)
+      .neq("waba_id", input.accountId);
+    // Falha aqui NÃO impede a conexão: um modelo velho a mais é ruim, uma
+    // conexão que não fecha é pior. Fica no log para quem for investigar.
+    if (erroDaLimpeza) {
+      logger.warn("[channels.connect] modelos da conta anterior não foram limpos", {
+        session_id: input.existingId,
+        detail: erroDaLimpeza.message,
+      });
+    }
+  }
 
   const { error } = input.existingId
     ? await admin.from("channel_sessions").update(linha).eq("id", input.existingId)
