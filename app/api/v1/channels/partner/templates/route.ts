@@ -241,16 +241,20 @@ export async function POST(req: NextRequest): Promise<Response> {
     // que não é desta conta sai — e só isso. Modelo desta conta que o provedor
     // não devolveu FICA: a lista pode vir curta por erro transitório, e apagar
     // por ausência trocaria um defeito visível por perda silenciosa.
-    const { error: erroDoEspelho } = await admin
-      .from("meta_templates")
-      .delete()
-      .eq("organization_id", r.ctx.orgId)
-      .eq("channel_session_id", r.ctx.sessionId)
-      .neq("waba_id", r.ctx.sessionRef);
-    if (erroDoEspelho) {
+    // Limpeza é acessória: se ela falhar — erro devolvido OU lançado —, a
+    // sincronização segue. Trocar modelo sobrando por 502 seria pior.
+    try {
+      const { error: erroDoEspelho } = await admin
+        .from("meta_templates")
+        .delete()
+        .eq("organization_id", r.ctx.orgId)
+        .eq("channel_session_id", r.ctx.sessionId)
+        .neq("waba_id", r.ctx.sessionRef);
+      if (erroDoEspelho) throw new Error(erroDoEspelho.message);
+    } catch (err) {
       logger.warn("[partner/templates] modelos de outra conta não foram limpos", {
         session_id: r.ctx.sessionId,
-        detail: erroDoEspelho.message,
+        detail: err instanceof Error ? err.message : String(err),
       });
     }
 

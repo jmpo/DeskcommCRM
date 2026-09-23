@@ -33,6 +33,10 @@ vi.mock("@/lib/supabase/admin", () => ({
       const q = {
         select: () => q,
         eq: () => q,
+        // O sincronizar espelha: apaga os modelos de OUTRA conta da mesma
+        // conexão (`delete().eq().eq().neq("waba_id", …)`) antes do upsert.
+        delete: () => q,
+        neq: () => q,
         order: () => q,
         maybeSingle: async () => ({
           data: { id: "sess-1", provider: "zernio", zernio_account_id: "ACC" },
