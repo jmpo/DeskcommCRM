@@ -55,6 +55,13 @@ export interface InboundWebhookInput {
      *  números ligados, "WhatsApp fora do ar" não diz QUAL. */
     display_name?: string | null;
     phone_number?: string | null;
+    /**
+     * A conta do provedor desta conexão. É com ela que a guarda recusa evento
+     * de OUTRA conta do mesmo espaço de trabalho — e ela precisa vir no SELECT
+     * da rota: a primeira versão da guarda lia um campo que a rota não trazia,
+     * e ficava verde sem filtrar nada.
+     */
+    zernio_account_id?: string | null;
   };
   rawBody: string;
   /** Todos os headers da requisição — cada canal lê o SEU. */
@@ -98,10 +105,58 @@ export function verifyInboundWebhookSignature(provider: string, raw: string, hea
   return verifyZernioSignature(raw, headers.get("x-zernio-signature"), secret);
 }
 
+/**
+ * O EVENTO É DESTA CONEXÃO?
+ *
+ * ─── O defeito, medido em produção (23/09/2026) ──────────────────────────────
+ *
+ * Esta guarda existia só para o canal SOCIAL. Para o WhatsApp pelo provedor
+ * intermediado ela devolvia `true` sem olhar nada — e o webhook do provedor NÃO
+ * é por número: é por ESPAÇO DE TRABALHO. Um webhook recebe os eventos de TODAS
+ * as contas daquela chave. Na instalação medida eram dez contas no mesmo espaço
+ * (dois WhatsApp, e Facebook/Instagram/Meta Ads de três negócios diferentes).
+ *
+ * Resultado: a caixa de entrada do número "Mia Costa" recebeu 33 mensagens de
+ * boas-vindas de OUTRO negócio ("Hola José! Tu cuenta de Automotor…"),
+ * enviadas por OUTRO número do mesmo espaço. O dono viu clientes que não eram
+ * dele na conversa do e-commerce, e não havia nada na tela que explicasse.
+ *
+ * O parser já lia a conta (`ZernioWebhookEvent.accountId`, com o comentário
+ * "casa com channel_sessions.zernio_account_id") — só ninguém comparava.
+ *
+ * ─── Por que evento SEM conta passa ──────────────────────────────────────────
+ *
+ * Nem todo evento do provedor carrega a conta (medido: os de saúde do número
+ * vêm sem ela). Recusar o que não traz conta faria o vigia de canal ficar cego
+ * para `account.disconnected` — trocar mensagem de outro negócio por queda
+ * silenciosa. O que se recusa é a conta DIVERGENTE, que é prova; ausência não é.
+ */
 export async function inboundPayloadBelongsToSession(admin: SupabaseClient, input: InboundWebhookInput): Promise<boolean> {
-  return input.session.provider !== CHANNEL_PROVIDER_SOCIAL || socialPayloadBelongsToSession(
-    admin, input.session.organization_id, input.session.id, input.rawBody,
-  );
+  if (input.session.provider === CHANNEL_PROVIDER_SOCIAL) {
+    return socialPayloadBelongsToSession(admin, input.session.organization_id, input.session.id, input.rawBody);
+  }
+  if (input.session.provider === "zernio") {
+    const contaDaSessao = input.session.zernio_account_id ?? null;
+    if (!contaDaSessao) return true;
+    const contaDoEvento = contaDoEventoZernio(input.rawBody);
+    return contaDoEvento === null || contaDoEvento === contaDaSessao;
+  }
+  return true;
+}
+
+/** A conta que o provedor diz ter originado o evento — os mesmos três lugares que o parser lê. */
+export function contaDoEventoZernio(rawBody: string): string | null {
+  let p: unknown;
+  try {
+    p = JSON.parse(rawBody);
+  } catch {
+    return null;
+  }
+  if (!p || typeof p !== "object") return null;
+  const o = p as Record<string, unknown>;
+  const conta = o.account && typeof o.account === "object" ? (o.account as Record<string, unknown>) : null;
+  const valor = conta?.id ?? conta?.accountId ?? o.accountId;
+  return typeof valor === "string" && valor.length > 0 ? valor : null;
 }
 
 export async function handleInboundWebhook(
