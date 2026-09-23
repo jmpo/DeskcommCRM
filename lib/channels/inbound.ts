@@ -55,13 +55,6 @@ export interface InboundWebhookInput {
      *  números ligados, "WhatsApp fora do ar" não diz QUAL. */
     display_name?: string | null;
     phone_number?: string | null;
-    /**
-     * A conta do provedor desta conexão. É com ela que a guarda recusa evento
-     * de OUTRA conta do mesmo espaço de trabalho — e ela precisa vir no SELECT
-     * da rota: a primeira versão da guarda lia um campo que a rota não trazia,
-     * e ficava verde sem filtrar nada.
-     */
-    zernio_account_id?: string | null;
   };
   rawBody: string;
   /** Todos os headers da requisição — cada canal lê o SEU. */
@@ -135,11 +128,24 @@ export async function inboundPayloadBelongsToSession(admin: SupabaseClient, inpu
   if (input.session.provider === CHANNEL_PROVIDER_SOCIAL) {
     return socialPayloadBelongsToSession(admin, input.session.organization_id, input.session.id, input.rawBody);
   }
-  if (input.session.provider === "zernio") {
-    const contaDaSessao = input.session.zernio_account_id ?? null;
-    if (!contaDaSessao) return true;
+  if (input.session.provider === CHANNEL_PROVIDER_ZERNIO) {
     const contaDoEvento = contaDoEventoZernio(input.rawBody);
-    return contaDoEvento === null || contaDoEvento === contaDaSessao;
+    if (contaDoEvento === null) return true;
+    // A guarda busca a conta ELA MESMA, como a do canal social. A primeira
+    // versão a lia de um campo que a rota deveria trazer — e a rota não
+    // trazia: sem a conta, a guarda devolvia `true` e não filtrava nada, verde.
+    // Além disso a rota do webhook é genérica, e `lint:channels` recusa nome de
+    // coluna de provedor ali. Buscar aqui resolve os dois: a guarda não depende
+    // de ninguém lembrar de uma coluna, e a rota segue sem saber de provedor.
+    const { data, error } = await admin
+      .from("channel_sessions")
+      .select("zernio_account_id")
+      .eq("organization_id", input.session.organization_id)
+      .eq("id", input.session.id)
+      .maybeSingle();
+    if (error) throw new Error("zernio_session_lookup_failed");
+    const contaDaSessao = (data as { zernio_account_id?: string | null } | null)?.zernio_account_id ?? null;
+    return contaDaSessao === null || contaDoEvento === contaDaSessao;
   }
   return true;
 }

@@ -64,13 +64,13 @@ export async function POST(
     () =>
       admin
         .from("channel_sessions")
-        .select(`id, organization_id, provider, display_name, phone_number, zernio_account_id, webhook_secret_encrypted, ${ARCHIVED_AT}`)
+        .select(`id, organization_id, provider, display_name, phone_number, webhook_secret_encrypted, ${ARCHIVED_AT}`)
         .eq("webhook_path_token", token)
         .maybeSingle(),
     () =>
       admin
         .from("channel_sessions")
-        .select("id, organization_id, provider, display_name, phone_number, zernio_account_id, webhook_secret_encrypted")
+        .select("id, organization_id, provider, display_name, phone_number, webhook_secret_encrypted")
         .eq("webhook_path_token", token)
         .maybeSingle(),
   );
