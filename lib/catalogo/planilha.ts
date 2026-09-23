@@ -20,32 +20,17 @@ import { precoParaCentavos } from "@/lib/schemas/produtos";
  * errado dito a um cliente depois.
  */
 
-/** Como cada coluna pode vir escrita. A primeira forma é a que a gente sugere. */
-/**
- * ─── O VOCABULÁRIO É BILÍNGUE, E ISSO NÃO É CORTESIA ────────────────────────
- *
- * A planilha que a loja JÁ TEM vem no idioma de quem a escreveu. Numa operação
- * em espanhol o cabeçalho diz `nombre`, `precio de venta`, `existencia` — e até
- * 19/09/2026 nenhuma dessas formas era reconhecida: o importador recusava o
- * arquivo inteiro com "precisa de uma coluna de nome e de preço", listando as
- * colunas que ele acabara de ler e não entender. A pessoa vê o próprio
- * cabeçalho na mensagem de erro e não tem como saber que o problema é o IDIOMA.
- *
- * Medido numa instalação real do Paraguai, com um arquivo de três produtos:
- * recusa global, zero linhas lidas.
- *
- * Não alarga nada: cada forma nova é uma palavra INTEIRA, comparada depois de
- * `normalizarCabecalho` (minúsculas, sem acento, espaço colapsado) — o mesmo
- * caminho das formas em português. `descripcion` fica FORA de propósito: em
- * português `descricao` mapeia para `nome`, e uma planilha em espanhol costuma
- * ter as duas colunas separadas (`nombre` E `descripcion`), então aceitá-la
- * como nome faria a descrição sobrescrever o título do produto.
- */
 const COLUNAS: Record<string, readonly string[]> = {
   codigo: ["codigo", "código", "sku", "ref", "referencia", "referência", "cod", "clave"],
-  nome: ["nome", "produto", "descricao", "descrição", "titulo", "título", "item", "nombre", "producto", "articulo", "artículo"],
-  preco: ["preco", "preço", "valor", "preco de venda", "preço de venda", "venda", "precio", "precio de venta", "precio venta", "pvp"],
-  custo: ["custo", "preco de custo", "preço de custo", "compra", "costo", "precio de costo", "precio de compra"],
+  // ⚠️ `descripcion` NÃO entra aqui, e é deliberado. Em português `descricao`
+  // mapeia para `nome` porque a planilha de lá costuma ter uma coluna só. O
+  // arquivo em espanhol traz `nombre` E `descripcion` separadas: aceitar a
+  // segunda como nome trocaria o título de TODO produto pelo texto longo — o
+  // catálogo inteiro errado, sem erro nenhum na tela. Ela cai em
+  // `colunasIgnoradas`, que é onde o importador já diz o que não usou.
+  nome: ["nome", "produto", "descricao", "descrição", "titulo", "título", "item", "nombre", "producto", "descripcion", "descripción", "articulo", "artículo"],
+  preco: ["preco", "preço", "valor", "preco de venda", "preço de venda", "venda", "precio", "precio de venta", "precio venta", "venta", "pvp"],
+  custo: ["custo", "preco de custo", "preço de custo", "compra", "costo", "coste", "precio de costo", "precio de coste", "precio de compra"],
   marca: ["marca", "fabricante"],
   categoria: ["categoria", "tipo", "departamento", "categoría", "rubro"],
   quantidade: ["quantidade", "estoque", "qtd", "qtde", "qty", "cantidad", "stock", "existencia", "existencias"],
@@ -108,6 +93,20 @@ function assinaturaDoTexto(texto: string): string {
   return h.toString(16).padStart(TAMANHO_DA_ASSINATURA, "0");
 }
 
+/**
+ * O código NÃO diferencia maiúsculas: "IP15" e "ip15" são o MESMO produto.
+ *
+ * A busca que o agente usa para responder o cliente ignora a caixa
+ * (`normalizar()` em `lib/catalogo/busca.ts`): dois produtos que só diferem
+ * nela chegariam à conversa como um só, com dois preços. O índice do banco
+ * compara o texto exato, então a regra é garantida AQUI e na rota de
+ * importação, que compara com o catálogo já cadastrado (decisão do mantenedor
+ * de 22/09/2026, #482).
+ */
+export function chaveDoCodigo(codigo: string): string {
+  return codigo.toLowerCase();
+}
+
 export interface LinhaImportada {
   /** A linha como a pessoa a vê na planilha: 1 é o cabeçalho. */
   linha: number;
@@ -151,6 +150,39 @@ export function lerPlanilha(
     else if (titulo.trim() !== "") colunasIgnoradas.push(titulo.trim());
   });
 
+  // ─── QUEM NOMEIA GANHA DE QUEM DESCREVE, EM QUALQUER ORDEM ────────────────
+  //
+  // `descricao`/`descripcion` caem em `nome` de propósito: a planilha que traz
+  // só essa coluna tem de entrar, e recusá-la seria pior. Mas o arquivo em
+  // espanhol costuma trazer as DUAS — `nombre` E `descripcion` —, e aí o
+  // vencedor não pode ser o acaso da ordem das colunas.
+  //
+  // Medido antes desta guarda, com a mesma planilha e só as colunas trocadas:
+  //
+  //   nombre;descripcion;precio  → nome = "Masajeador"                     ✔
+  //   descripcion;nombre;precio  → nome = "Con calor infrarrojo y 3 vel…"  ✘
+  //
+  // O segundo é o catálogo inteiro com o título errado, sem erro nenhum na
+  // tela. Ordem de coluna é coisa de quem exportou o arquivo; qual coluna é o
+  // NOME é decisão deste mapa.
+  const DESCREVEM = new Set(["descricao", "descrição", "descripcion", "descripción"]);
+  const indicesDeNome = [...mapa.entries()].filter(([, campo]) => campo === "nome").map(([i]) => i);
+  if (indicesDeNome.length > 1) {
+    const nomeiaDeVerdade = indicesDeNome.filter(
+      (i) => !DESCREVEM.has(normalizarCabecalho(cabecalho[i] ?? "")),
+    );
+    // Só age quando há um vencedor claro: com duas colunas que NOMEIAM (ou duas
+    // que descrevem) não há regra a aplicar, e a primeira segue valendo.
+    if (nomeiaDeVerdade.length > 0) {
+      for (const i of indicesDeNome) {
+        if (!nomeiaDeVerdade.includes(i)) {
+          mapa.delete(i);
+          colunasIgnoradas.push((cabecalho[i] ?? "").trim());
+        }
+      }
+    }
+  }
+
   const campos = new Set(mapa.values());
   // Sem nome ou sem preço não há catálogo — e dizer isso ANTES de processar 300
   // linhas é o que evita um relatório com 300 erros iguais.
@@ -176,7 +208,8 @@ export function lerPlanilha(
 
   const produtos: LinhaImportada[] = [];
   const erros: ErroDaLinha[] = [];
-  const codigosVistos = new Set<string>();
+  /** Chave sem caixa → a primeira linha que trouxe o código, como foi escrito ali. */
+  const codigosVistos = new Map<string, { linha: number; codigo: string }>();
 
   for (let i = 1; i < linhas.length; i += 1) {
     const bruto = linhas[i]!;
@@ -219,14 +252,32 @@ export function lerPlanilha(
     // `codigoDoProduto`: cortar AQUI, antes de colapsar os espaços, fazia dois
     // nomes longos chegarem ao banco com o mesmo código.
     const codigo = codigoDoProduto(valor("codigo") || nome);
-    if (codigosVistos.has(codigo.toLowerCase())) {
+    const anterior = codigosVistos.get(chaveDoCodigo(codigo));
+    if (anterior) {
+      // As DUAS linhas na mensagem: quem corrige precisa achar o par, e quando
+      // a diferença é só a caixa ("IP15" e "ip15") o motivo não salta aos olhos.
+      // A frase inteira é UMA chave com os valores como placeholder: traduzida
+      // aos pedaços, cada trecho novo é mais uma chave que pode faltar.
+      const frase =
+        anterior.codigo === codigo
+          ? _t('código repetido na planilha ("{codigo}") — já está na linha {linha}')
+          : _t(
+              'código repetido na planilha ("{codigo}") — já está na linha {linha}, escrito "{anterior}". Maiúsculas e minúsculas não mudam o código.',
+            );
+      const valores: Record<string, string> = {
+        codigo,
+        linha: String(anterior.linha),
+        anterior: anterior.codigo,
+      };
+      // Uma passada só, com função: o código vem da planilha e um "$&" ou um
+      // "{linha}" dentro dele não pode virar outra coisa.
       erros.push({
         linha: numeroNaPlanilha,
-        motivo: _t("código repetido na planilha (") + `"${codigo}"` + ")",
+        motivo: frase.replace(/\{(codigo|linha|anterior)\}/g, (_, nome: string) => valores[nome]!),
       });
       continue;
     }
-    codigosVistos.add(codigo.toLowerCase());
+    codigosVistos.set(chaveDoCodigo(codigo), { linha: numeroNaPlanilha, codigo });
 
     // Coluna de estoque AUSENTE significa "esta loja não conta estoque" — e é
     // diferente de estoque zero. Sem essa distinção, uma planilha sem a coluna

@@ -35,6 +35,8 @@ import { z } from "zod";
 import { sendMessageHandler } from "@/app/api/v1/messages/_handler";
 import { openSharedContactConversation } from "@/lib/messaging/open-shared-contact-conversation";
 import { sendMessageSchema } from "@/lib/schemas/messaging";
+import { depsDoRitmo, registrarEnvioPorToken, segurarEnvioPorToken } from "@/lib/messaging/ritmo-do-envio-por-token";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { McpToolDefinition } from "../types";
 
 const ENDPOINT_TAG = "mcp:crm_start_conversation_and_send";
@@ -132,6 +134,15 @@ export const crmStartConversationAndSend: McpToolDefinition<typeof inputShape> =
       media_mime: input.media_mime,
     });
 
+    // Freio anti-ban do número: o MCP é sempre token, e o teto de chamadas
+    // (`lib/mcp/rate-limit.ts`) não sabe de warm-up nem de teto diário do número.
+    const ritmo = await depsDoRitmo(createAdminClient());
+    const segurado = await segurarEnvioPorToken(ritmo, {
+      organizationId: ctx.organizationId,
+      conversationId: opened.conversation_id,
+      requestId: ctx.requestId,
+    });
+
     const message = await sendMessageHandler(
       ctx.supabase,
       {
@@ -141,6 +152,7 @@ export const crmStartConversationAndSend: McpToolDefinition<typeof inputShape> =
       },
       parsed,
     );
+    await registrarEnvioPorToken(ritmo, ctx.organizationId, segurado, message.status);
 
     const response = {
       contact_id: opened.contact_id,

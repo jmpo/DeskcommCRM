@@ -70,6 +70,12 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { moverLeadParaEtapaDeHandoff } from '@/lib/leads/handoff-stage-move';
 import { detectUrgencySignal } from '../guardrails/sinal-de-urgencia';
 import { buildNativeMediaParts } from './media-parts';
+import {
+  copiarFotoNoStorage,
+  enviarComFotos,
+  prepararFotosDoProduto,
+  type FotoParaEnvio,
+} from './fotos-do-produto';
 import { enqueueJob, rescheduleJob, type JobRow, type Queryable } from '../queue/queue';
 import {
   applyLeadStateUpdate,
@@ -142,6 +148,7 @@ import { buildMcpTurnTools } from '../edge/crm/mcp-tools';
 import { cancelPendingCronsForLead } from '../cron/scheduler';
 import {
   latestInboundSignal,
+  recentInboundSignal,
   loadSkills,
   matchSkills,
   recordSkillMissCandidates,
@@ -198,6 +205,13 @@ export const AGENT_TOOL_DEFS = {
       'Envia UMA mensagem de WhatsApp ao lead desta conversa. É o ÚNICO jeito de falar com o lead; texto fora desta tool nunca é enviado.',
     inputSchema: z.object({
       body: z.string().min(1).describe('corpo da mensagem, em pt-br, pronto para envio'),
+      produto_codigo: z
+        .string()
+        .optional()
+        .describe(
+          'código de um produto do catálogo (o `codigo` de crm_search_products) que tem `fotos`: ' +
+            'as fotos dele vão junto, e o texto vira a legenda da primeira',
+        ),
     }),
   },
   update_lead_state: {
@@ -2573,8 +2587,17 @@ async function executarTurnoDoAgente(
   // montar rawTools (Fase 2): o gate de read_skill_reference precisa do resultado do match
   // para decidir se a tool entra no turno (mesmo padrão de gate de search_knowledge/
   // request_human_handoff, feito antes do wrapToolsWithBreaker).
+  // Sinal do matcher com o CONTEXTO recente (não só a última mensagem): a
+  // conversa sobre motos continua e a skill não pode "cair" quando o cliente
+  // responde a escolha ("A 2025"), senão as fotos da moto escolhida não saem.
+  //
+  // SÓ o matcher lê a janela. `skillSignal` segue sendo a ÚLTIMA inbound: ele
+  // também alimenta o classificador de jailbreak e os candidatos de divergência
+  // de estágio, e uma tentativa de jailbreak de cinco mensagens atrás não pode
+  // seguir marcando todo turno seguinte.
   const skillSignal = latestInboundSignal(effectiveContext.messages);
-  const skillMatch = matchSkills(skills, skillSignal);
+  const sinalDoMatcher = recentInboundSignal(effectiveContext.messages);
+  const skillMatch = matchSkills(skills, sinalDoMatcher);
   const matchedSkillsBlock = renderMatchedSkillBodies(skillMatch.matched);
   if (!preview && deps.knobs.goldenCandidatesDir !== undefined) {
     await recordSkillMissCandidates(
@@ -2583,7 +2606,7 @@ async function executarTurnoDoAgente(
         tenantId,
         leadId,
         jobId: liveJob().id,
-        signal: skillSignal,
+        signal: sinalDoMatcher,
         candidates: skillMatch.missCandidates,
       },
       runLog,
@@ -2842,7 +2865,23 @@ async function executarTurnoDoAgente(
     }),
     send_message: tool({
       ...AGENT_TOOL_DEFS.send_message,
-      execute: async ({ body }) => {
+      execute: async ({ body, produto_codigo }) => {
+        // CORPO VAZIO NÃO SAI. Medido ao vivo (2026-09-19): o `gpt-4o-mini`
+        // chamou `send_message` várias vezes com corpo que virou vazio e o
+        // WhatsApp do cliente recebeu bolhas em branco. O schema garante
+        // min(1) no argumento, mas um `\n`/espaço passa e vira vazio depois do
+        // trim/gates. Recusar aqui devolve ao modelo para reescrever — nunca
+        // manda bolha em branco.
+        if (body.trim() === '') {
+          return {
+            ok: false,
+            error: {
+              code: 'corpo_vazio',
+              message:
+                'O texto da mensagem ficou vazio. Escreva a resposta de verdade e chame send_message de novo.',
+            },
+          };
+        }
         if (claimsCurrentInboundIsEmpty(body, mensagemDoJob)) {
           falseEmptyInboundVetoCount += 1;
           if (falseEmptyInboundVetoCount < MAX_VETOS_DE_FALSO_VAZIO) {
@@ -2875,6 +2914,24 @@ async function executarTurnoDoAgente(
                 'NÃO envie mais nada agora — encerre o turno e espere a resposta do lead.',
             },
           };
+        }
+        // A foto do produto (ideia de @vgamkt, #1130): preparada ANTES da cadeia e
+        // fora do lock do número — a cópia no Storage é rede. Código errado volta
+        // ao modelo sem enviar nada; foto que não copiou sai do envio e o texto
+        // segue (degradar para só texto). Ver `agent/fotos-do-produto.ts`.
+        let fotosDoProduto: FotoParaEnvio[] = [];
+        let fotosQueFaltaram = 0;
+        if (produto_codigo !== undefined && produto_codigo.trim() !== '' && !preview) {
+          const preparadas = await prepararFotosDoProduto(pool, copiarFotoNoStorage(runLog), {
+            tenantId,
+            conversationId: input.conversationId,
+            codigo: produto_codigo,
+          });
+          if (!preparadas.ok) {
+            return { ok: false, error: { code: preparadas.code, message: preparadas.message } };
+          }
+          fotosDoProduto = preparadas.fotos;
+          fotosQueFaltaram = preparadas.tinha - preparadas.fotos.length;
         }
         // F4-04: sinaliza (independente do gate F4-01/F4-08) se ESTA candidata é uma
         // promessa fora de tabela — usado só para correlacionar com o jailbreak no fim do
@@ -3002,29 +3059,47 @@ async function executarTurnoDoAgente(
             },
             // `finalBody` = corpo após a cadeia (o disclosureGate F4-05 pode prependar o
             // disclosure via inject); é ELE que vai ao canal, não o `body` capturado da tool.
-            send: (finalBody: string) =>
-              sendInBubbles(finalBody, {
-                enabled: agentConfig?.splitMessages ?? false,
-                maxChars: agentConfig?.splitMaxChars ?? 600,
-                sleep: deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
-                jitter: () => 1200 + Math.floor(Math.random() * 800), // piso no throttle anti-ban (1.2s) — bolhas são mensagens físicas
-                // A pausa humana do turno NÃO mora mais aqui: ela subiu para
-                // `esperaForaDoLock` (paga antes de o guardrail tomar o lock do número) —
-                // issue #654. Neste ponto fica só o jitter anti-ban entre bolhas.
-                send: (bubble): Promise<ChannelSendResult> => {
-                  seq += 1;
-                  return liveChannel().send({
-                    tenantId,
-                    leadId,
-                    jobId: liveJob().id,
-                    jobClaim: claimOfJob(liveJob()),
-                    agentOperation,
-                    seq,
-                    conversationId: input.conversationId,
-                    body: bubble,
-                  });
-                },
-              }),
+            send: (finalBody: string) => {
+              const sleep =
+                deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+              const jitter = () => 1200 + Math.floor(Math.random() * 800); // piso no throttle anti-ban (1.2s) — bolhas são mensagens físicas
+              const enviar = (
+                corpo: string,
+                media?: FotoParaEnvio,
+              ): Promise<ChannelSendResult> => {
+                seq += 1;
+                return liveChannel().send({
+                  tenantId,
+                  leadId,
+                  jobId: liveJob().id,
+                  jobClaim: claimOfJob(liveJob()),
+                  agentOperation,
+                  seq,
+                  conversationId: input.conversationId,
+                  body: corpo,
+                  ...(media ? { media } : {}),
+                });
+              };
+              // Cada foto é uma mensagem física: só vão as que cabem no que resta do teto
+              // do turno (a checagem de `max_sends_per_turn` acima roda uma vez, antes).
+              const fotosNoTeto = fotosDoProduto.slice(0, Math.max(0, maxSendsPerTurn - seq));
+              return enviarComFotos(finalBody, fotosNoTeto, {
+                sleep,
+                jitter,
+                enviarFoto: (foto, legenda) => enviar(legenda, foto),
+                enviarTexto: (texto) =>
+                  sendInBubbles(texto, {
+                    enabled: agentConfig?.splitMessages ?? false,
+                    maxChars: agentConfig?.splitMaxChars ?? 600,
+                    sleep,
+                    jitter,
+                    // A pausa humana do turno NÃO mora mais aqui: ela subiu para
+                    // `esperaForaDoLock` (paga antes de o guardrail tomar o lock do número) —
+                    // issue #654. Neste ponto fica só o jitter anti-ban entre bolhas.
+                    send: (bubble) => enviar(bubble),
+                  }),
+              });
+            },
           };
           let chain = await runBeforeSend(beforeSendArgs);
           if (chain.status === 'vetoed' && chain.code === 'case_promise_without_case') {
@@ -3142,7 +3217,17 @@ async function executarTurnoDoAgente(
           switch (outcome.kind) {
             case 'sent':
             case 'already_sent':
-              return { ok: true, status: 'enviada', message_id: outcome.messageId };
+              return {
+                ok: true,
+                status: 'enviada',
+                message_id: outcome.messageId,
+                ...(produto_codigo !== undefined ? { fotos_enviadas: fotosDoProduto.length } : {}),
+                ...(fotosQueFaltaram > 0
+                  ? {
+                      aviso: `${fotosQueFaltaram} foto(s) do produto não puderam ser enviadas; o texto foi. Não diga ao cliente que mandou essas fotos.`,
+                    }
+                  : {}),
+              };
             case 'queued':
               return {
                 ok: true,

@@ -15,6 +15,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { graphVersion } from "@/lib/graph-version";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 import { resolveMetaCreds } from "./credentials";
@@ -39,6 +40,21 @@ export interface SendTemplateForSessionInput {
   name: string;
   language: string;
   values: Record<string, string>;
+  /**
+   * Transporte explícito. Ausente = credencial da Meta (sessão, com o ambiente
+   * de reserva). Presente = canal Graph-compatível (parceiro), com host e token
+   * próprios. Sem isto o modelo do parceiro sairia pelo número da Meta.
+   */
+  transport?: {
+    phoneNumberId: string;
+    token: string;
+    graphBase?: string;
+    graphVersion?: string;
+    /** Prefixo dos códigos de erro (`meta_`/`datafy_`). Default `meta`. */
+    errorPrefix?: string;
+  };
+  /** Conexão dona da definição — restringe o `meta_templates` a ela. */
+  channelSessionId?: string | null;
 }
 
 /**
@@ -71,23 +87,33 @@ export async function sendTemplateForSession(
   // com `Bearer` vazio e viraria `failed` com um erro que não nomeia o motivo real —
   // e a mudança de elegibilidade da #674 transformaria uma fila recuperável em
   // falha. Com ela, o desfecho é `queued` com `meta_not_configured`.
-  const creds = await resolveMetaCreds(createAdminClient(), {
-    organizationId: input.organizationId,
-    phoneNumberId: input.sessionRef,
-  });
+  const creds = input.transport
+    ? {
+        phoneNumberId: input.transport.phoneNumberId,
+        token: input.transport.token,
+        graphVersion: input.transport.graphVersion ?? graphVersion(),
+      }
+    : await resolveMetaCreds(createAdminClient(), {
+        organizationId: input.organizationId,
+        phoneNumberId: input.sessionRef,
+      });
   if (!creds) {
     throw new Error(
       "meta_not_configured: sem credencial para esta sessão (nem na sessão, nem no ambiente).",
     );
   }
 
-  const { data: linha, error } = await db
+  let consulta = db
     .from("meta_templates")
     .select("name, language, status, contract_hash, components")
     .eq("organization_id", input.organizationId)
     .eq("name", input.name)
-    .eq("language", input.language)
-    .maybeSingle();
+    .eq("language", input.language);
+  // Com sessão, restringe à conexão: dois números têm definições diferentes e
+  // conferir a do número errado aprovaria um envio que a plataforma recusa.
+  if (input.channelSessionId) consulta = consulta.eq("channel_session_id", input.channelSessionId);
+
+  const { data: linha, error } = await consulta.maybeSingle();
 
   if (error) throw new Error(`template_lookup_failed: ${error.message}`);
 
@@ -96,6 +122,7 @@ export async function sendTemplateForSession(
     phoneNumberId: creds.phoneNumberId,
     token: creds.token,
     graphVersion: creds.graphVersion,
+    ...(input.transport?.graphBase ? { graphBase: input.transport.graphBase } : {}),
     to: input.to,
     binding: {
       name: input.name,
@@ -118,6 +145,7 @@ export async function sendTemplateForSession(
 
   if (resultado.sent) return resultado.externalId;
 
+  const prefixo = input.transport?.errorPrefix ?? "meta";
   switch (resultado.reason) {
     case "missing":
       throw new Error(`template_missing: ${input.name} (${input.language}) não está no espelho`);
@@ -128,6 +156,6 @@ export async function sendTemplateForSession(
     case "missing_values":
       throw new Error(`template_missing_values: ${resultado.missing.join(", ")}`);
     case "api_error":
-      throw new Error(`meta_${resultado.code ?? "erro"}: ${resultado.message}`);
+      throw new Error(`${prefixo}_${resultado.code ?? "erro"}: ${resultado.message}`);
   }
 }

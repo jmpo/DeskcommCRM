@@ -563,11 +563,13 @@ export const GATILHOS: Record<TipoDeGatilho, string> = {
   appointment_no_show:"Falta confirmada pela equipe",
   manual: "Manual",
   webhook: "Disparado por uma automação em Webhooks",
+  lead_created: "Lead criado",
   silence: "Silêncio",
   stage_change: "Mudança de etapa no funil",
   // "Caso" é a palavra que a tela de escalação já usa. O rótulo diz o FATO que
   // dispara ("o agente pediu ajuda"), não o nome da tabela — quem lê é dono de
   // clínica, não quem escreveu o schema.
   case_opened: "Quando o agente pede ajuda de um humano",
+  inbound_after_silence: "Cliente voltou",
   conversation_end: "Fim da conversa",
 };

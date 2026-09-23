@@ -176,6 +176,13 @@ const schema = z.object({
   // devolve 401 em toda chamada — por isso `getWacallsClient()` exige os dois.
   WACALLS_API_TOKEN: z.string().optional().default(""),
 
+  // ─── Canal Datafy (recorte do #1130) — OPCIONAL, DESLIGADO POR PADRÃO ───
+  //
+  // Só `true` liga (decisão do dono, doc 54). Vazio = a instalação não oferece o
+  // canal: sem aba em Conexões, rota de conexão 404, webhook recusado. Quem lê
+  // é `canalGraphParceiroLigado()` em `lib/channels/graph-parceiro/credentials.ts`.
+  DATAFY_ENABLED: z.string().optional().default(""),
+
   // Upstash Redis
   UPSTASH_REDIS_REST_URL: required("UPSTASH_REDIS_REST_URL"),
   UPSTASH_REDIS_REST_TOKEN: required("UPSTASH_REDIS_REST_TOKEN"),
@@ -447,8 +454,9 @@ const schema = z.object({
   APP_ACCENT_HEX: z.string().optional().default(""),
 
   /**
-   * Com o que a instalação NASCE quanto a cadastro: `aberto` (padrão) ou
-   * `so_convite`. Vazio = `aberto`, que é como o produto sempre funcionou.
+   * Com o que a instalação NASCE quanto a cadastro: `aberto` (padrão),
+   * `com_aprovacao` ou `so_convite`. Vazio = `aberto`, que é como o produto
+   * sempre funcionou.
    *
    * O BANCO ESTÁ ACIMA DISTO. Havendo linha em `platform_settings` — o que
    * acontece assim que alguém usa a tela em `/admin/cadastro` —, é ela que

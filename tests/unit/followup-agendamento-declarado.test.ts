@@ -66,6 +66,14 @@ const ESCRITORES: Record<string, { agenda: "agora" | "futuro" | "nenhum"; nota: 
     agenda: "agora",
     nota: "o enrollment nasce vencido — o insert omite a coluna e o default now() do banco decide (0147).",
   },
+  "gatilho-lead.ts": {
+    agenda: "agora",
+    nota: "o enrollment nasce vencido — o insert omite a coluna e o default now() do banco decide (0147). A menção no tipo é o campo opcional, igual ao gatilho de etapa.",
+  },
+  "gatilho-retorno.ts": {
+    agenda: "agora",
+    nota: "o enrollment nasce vencido — o insert omite a coluna e o default now() do banco decide (0147).",
+  },
   "silence-sweep.ts": {
     agenda: "agora",
     nota: "mesmo caso do gatilho de etapa: nasce vencido, insert omite a coluna.",

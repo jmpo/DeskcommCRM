@@ -22,7 +22,14 @@ export interface RouterMember {
 export interface LoadedRouter {
   id: string;
   name: string;
-  classifierModel: string;
+  /**
+   * `null` = "Automático": o seam decide (painel de provedores, senão o padrão
+   * da organização). NUNCA um id fixo aqui — o seam trata o modelo do call site
+   * como knob de ambiente, que vence o padrão da org, e um `claude-haiku-4-5`
+   * fixo ia para o endpoint da OpenAI numa org só-OpenAI: toda classificação
+   * falhava com "modelo inexistente".
+   */
+  classifierModel: string | null;
   /**
    * Provedor do classificador, quando o roteador escolhe um diferente do da org.
    *
@@ -89,7 +96,7 @@ export async function loadActiveRouter(
   const classifierModel =
     typeof cfg.classifier_model === 'string' && cfg.classifier_model.trim() !== ''
       ? cfg.classifier_model
-      : 'claude-haiku-4-5';
+      : null;
   const classifierProvider =
     typeof cfg.classifier_provider === 'string' && cfg.classifier_provider.trim() !== ''
       ? cfg.classifier_provider
