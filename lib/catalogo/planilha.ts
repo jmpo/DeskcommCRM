@@ -136,6 +136,8 @@ export interface ResultadoDaLeitura {
 export function lerPlanilha(
   conteudo: string,
   t?: (text: string) => string,
+  /** Casas decimais da moeda da organização (`casasDaMoeda`): 0 no guarani. */
+  casas = 2,
 ): ResultadoDaLeitura | { erro: string } {
   const _t = t || ((x) => x);
   const linhas = parseCsv(conteudo).filter((l) => l.some((c) => c.trim() !== ""));
@@ -225,7 +227,7 @@ export function lerPlanilha(
       continue;
     }
 
-    const preco_cents = precoParaCentavos(valor("preco"));
+    const preco_cents = precoParaCentavos(valor("preco"), casas);
     if (preco_cents === null) {
       // O valor cru entra na mensagem: quem vai corrigir precisa achar a célula.
       erros.push({
@@ -237,7 +239,7 @@ export function lerPlanilha(
     }
 
     const custoTexto = valor("custo");
-    const custo_cents = custoTexto === "" ? null : precoParaCentavos(custoTexto);
+    const custo_cents = custoTexto === "" ? null : precoParaCentavos(custoTexto, casas);
     if (custoTexto !== "" && custo_cents === null) {
       erros.push({
         linha: numeroNaPlanilha,

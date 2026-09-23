@@ -24,6 +24,8 @@ export interface EtapaDoFunil {
   name: string;
   is_won: boolean;
   is_lost: boolean;
+  /** Negócio que entra aqui abre um aviso na Central (migration 0394). */
+  avisar_na_central?: boolean;
   /** Quem mexeu nesta etapa por último (migration 0101). `null` antes dela. */
   last_change_actor_kind?: string | null;
   last_change_at?: string | null;

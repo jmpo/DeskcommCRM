@@ -9,7 +9,7 @@ import { useT } from "@/hooks/i18n/useT";
 import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api/client";
 import { MAXIMO_DE_FOTOS } from "@/lib/catalogo/fotos";
-import { formatCents } from "@/lib/money";
+import { casasDaMoeda, formatCents } from "@/lib/money";
 import { precoParaCentavos, type Produto } from "@/lib/schemas/produtos";
 
 interface Textos {
@@ -52,10 +52,11 @@ const VAZIO: Rascunho = {
 function doRascunho(
   r: Rascunho,
   t: (s: string) => string,
+  casas = 2,
 ): Record<string, unknown> | { erro: string } {
-  const preco_cents = precoParaCentavos(r.preco);
+  const preco_cents = precoParaCentavos(r.preco, casas);
   if (preco_cents === null) return { erro: t("Preço inválido. Escreva assim: 5.499,00") };
-  const custo_cents = r.custo.trim() === "" ? null : precoParaCentavos(r.custo);
+  const custo_cents = r.custo.trim() === "" ? null : precoParaCentavos(r.custo, casas);
   if (r.custo.trim() !== "" && custo_cents === null) return { erro: t("Custo inválido.") };
 
   return {
@@ -211,11 +212,14 @@ export function ProdutosClient({
   inicial,
   urlsDasFotos,
   podeEditar,
+  moeda = "BRL",
   textos,
 }: {
   inicial: Produto[];
   urlsDasFotos: Record<string, string>;
   podeEditar: boolean;
+  /** Moeda da organização: decide as casas do preço digitado. */
+  moeda?: string;
   textos: Textos;
 }) {
   const t = useT();
@@ -238,7 +242,7 @@ export function ProdutosClient({
   }, [inicial, busca]);
 
   async function salvar() {
-    const corpo = doRascunho(rascunho, t);
+    const corpo = doRascunho(rascunho, t, casasDaMoeda(moeda));
     if ("erro" in corpo) {
       toast.error(corpo.erro as string);
       return;

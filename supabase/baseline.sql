@@ -37333,3 +37333,14 @@ end $$;
 -- a lista de erros benignos do update.sh, então a atualização não diz
 -- "atualizado" com módulo fora do ar. Instalação nova não tem módulo: no-op.
 do $f$ begin perform public.fn_conferir_modulos_instalados(); end $f$;
+
+-- ---- a etapa que avisa a equipe na Central (migration 0394) ----
+-- Ver o cabeçalho da migration: marca por etapa, desligada por padrão; o
+-- handler `lib/leads/aviso-de-etapa.handler.ts` abre o item na Central.
+alter table public.crm_stages
+  add column if not exists avisar_na_central boolean not null default false;
+
+comment on column public.crm_stages.avisar_na_central is
+  'Negócio que entra nesta etapa abre um aviso na Central de avisos (0394).';
+
+notify pgrst, 'reload schema';

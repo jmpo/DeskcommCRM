@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
 import { BUCKET_DAS_FOTOS, fotoPertenceAoProduto } from "@/lib/catalogo/fotos";
+import { moedaDaOrganizacao } from "@/lib/catalogo/moeda-da-org";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { COLUNAS_DO_PRODUTO, type Produto } from "@/lib/schemas/produtos";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -48,6 +49,9 @@ export default async function ProdutosPage() {
     .order("nome")
     .limit(500);
   const produtos = (data ?? []) as unknown as Produto[];
+  // A régua do preço digitado é a da moeda da ORGANIZAÇÃO — a mesma que o
+  // servidor grava no produto. Guarani não tem centavo.
+  const moeda = await moedaDaOrganizacao(supabase, activeOrg.orgId);
 
   // O bucket é privado: a tela recebe URL assinada de 1 h, montada aqui. Só
   // caminho que é DO produto (ver `fotoPertenceAoProduto`) — a assinatura é
@@ -70,6 +74,7 @@ export default async function ProdutosPage() {
       inicial={produtos}
       urlsDasFotos={urlsDasFotos}
       podeEditar={podeEditar}
+      moeda={moeda}
       textos={{
         titulo: t("Produtos"),
         subtitulo: t(
