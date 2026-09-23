@@ -152,17 +152,42 @@ describe("a planilha em espanhol — o arquivo que a loja JÁ TEM", () => {
     expect(r.produtos[0]!.quantidade).toBe(12);
   });
 
-  it("`descripcion` NÃO vira nome — em espanhol as duas colunas convivem", () => {
-    // Em português `descricao` mapeia para `nome`, e é certo: a planilha de lá
-    // costuma ter só uma. Em espanhol o arquivo traz `nombre` E `descripcion`,
-    // e aceitar a segunda como nome sobrescreveria o título do produto pelo
-    // texto longo — o catálogo inteiro com o nome errado, sem erro nenhum.
-    const r = lerPlanilha("nombre;descripcion;precio\nMasajeador;Con calor infrarrojo y 3 velocidades;350.000\n");
+  /**
+   * ⚠️ Este caso NASCEU ERRADO e foi corrigido pela medição.
+   *
+   * A primeira versão dele afirmava que `descripcion` NUNCA deve nomear o
+   * produto, e o conserto correspondente a tirava da lista. A upstream, em
+   * paralelo, a incluiu — e estava mais certa: uma planilha que traga SÓ essa
+   * coluna precisa entrar, e recusá-la é pior.
+   *
+   * O defeito real não é a inclusão, é a ORDEM. Medido com a mesma planilha e
+   * só as colunas trocadas de lugar:
+   *
+   *   nombre;descripcion;precio  → nome = "Masajeador"                     ✔
+   *   descripcion;nombre;precio  → nome = "Con calor infrarrojo y 3 vel…"  ✘
+   *
+   * Ordem de coluna é coisa de quem exportou o arquivo. Qual coluna é o NOME é
+   * decisão do importador — e é isso que a precedência garante.
+   */
+  it("`nombre` vence `descripcion` — venha na ordem que vier", () => {
+    for (const [cabecalho, linha] of [
+      ["nombre;descripcion;precio", "Masajeador;Con calor infrarrojo y 3 velocidades;350.000"],
+      ["descripcion;nombre;precio", "Con calor infrarrojo y 3 velocidades;Masajeador;350.000"],
+    ] as const) {
+      const r = lerPlanilha(`${cabecalho}\n${linha}\n`);
+      expect("erro" in r, cabecalho).toBe(false);
+      if ("erro" in r) return;
+      expect(r.produtos[0]!.nome, cabecalho).toBe("Masajeador");
+    }
+  });
+
+  it("planilha SÓ com `descripcion` entra — recusá-la seria pior que aceitá-la", () => {
+    const r = lerPlanilha("descripcion;precio\nMasajeador con calor;350.000\n");
     expect("erro" in r).toBe(false);
     if ("erro" in r) return;
-    expect(r.produtos[0]!.nome).toBe("Masajeador");
-    expect(r.colunasIgnoradas).toContain("descripcion");
+    expect(r.produtos[0]!.nome).toBe("Masajeador con calor");
   });
+
 
   it("o português segue lido igual — o vocabulário SOMA, não troca", () => {
     const r = lerPlanilha("nome;preco de venda;estoque\nMassageador;350,00;12\n");
@@ -170,6 +195,9 @@ describe("a planilha em espanhol — o arquivo que a loja JÁ TEM", () => {
     if ("erro" in r) return;
     expect(r.produtos[0]!.nome).toBe("Massageador");
     expect(r.produtos[0]!.quantidade).toBe(12);
+  });
+});
+
 /**
  * Um apelido por linha, os de antes e os de espanhol — e não uma amostra: o
  * mapa de colunas para no primeiro campo que contém o cabeçalho, então um

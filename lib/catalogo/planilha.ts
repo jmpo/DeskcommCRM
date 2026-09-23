@@ -28,13 +28,12 @@ const COLUNAS: Record<string, readonly string[]> = {
   // segunda como nome trocaria o título de TODO produto pelo texto longo — o
   // catálogo inteiro errado, sem erro nenhum na tela. Ela cai em
   // `colunasIgnoradas`, que é onde o importador já diz o que não usou.
-  nome: ["nome", "produto", "descricao", "descrição", "titulo", "título", "item", "nombre", "producto", "articulo", "artículo"],
+  nome: ["nome", "produto", "descricao", "descrição", "titulo", "título", "item", "nombre", "producto", "descripcion", "descripción", "articulo", "artículo"],
   preco: ["preco", "preço", "valor", "preco de venda", "preço de venda", "venda", "precio", "precio de venta", "precio venta", "venta", "pvp"],
   custo: ["custo", "preco de custo", "preço de custo", "compra", "costo", "coste", "precio de costo", "precio de coste", "precio de compra"],
   marca: ["marca", "fabricante"],
   categoria: ["categoria", "tipo", "departamento", "categoría", "rubro"],
   quantidade: ["quantidade", "estoque", "qtd", "qtde", "qty", "cantidad", "stock", "existencia", "existencias"],
-};
 };
 
 function normalizarCabecalho(texto: string): string {
@@ -150,6 +149,39 @@ export function lerPlanilha(
     if (campo) mapa.set(i, campo);
     else if (titulo.trim() !== "") colunasIgnoradas.push(titulo.trim());
   });
+
+  // ─── QUEM NOMEIA GANHA DE QUEM DESCREVE, EM QUALQUER ORDEM ────────────────
+  //
+  // `descricao`/`descripcion` caem em `nome` de propósito: a planilha que traz
+  // só essa coluna tem de entrar, e recusá-la seria pior. Mas o arquivo em
+  // espanhol costuma trazer as DUAS — `nombre` E `descripcion` —, e aí o
+  // vencedor não pode ser o acaso da ordem das colunas.
+  //
+  // Medido antes desta guarda, com a mesma planilha e só as colunas trocadas:
+  //
+  //   nombre;descripcion;precio  → nome = "Masajeador"                     ✔
+  //   descripcion;nombre;precio  → nome = "Con calor infrarrojo y 3 vel…"  ✘
+  //
+  // O segundo é o catálogo inteiro com o título errado, sem erro nenhum na
+  // tela. Ordem de coluna é coisa de quem exportou o arquivo; qual coluna é o
+  // NOME é decisão deste mapa.
+  const DESCREVEM = new Set(["descricao", "descrição", "descripcion", "descripción"]);
+  const indicesDeNome = [...mapa.entries()].filter(([, campo]) => campo === "nome").map(([i]) => i);
+  if (indicesDeNome.length > 1) {
+    const nomeiaDeVerdade = indicesDeNome.filter(
+      (i) => !DESCREVEM.has(normalizarCabecalho(cabecalho[i] ?? "")),
+    );
+    // Só age quando há um vencedor claro: com duas colunas que NOMEIAM (ou duas
+    // que descrevem) não há regra a aplicar, e a primeira segue valendo.
+    if (nomeiaDeVerdade.length > 0) {
+      for (const i of indicesDeNome) {
+        if (!nomeiaDeVerdade.includes(i)) {
+          mapa.delete(i);
+          colunasIgnoradas.push((cabecalho[i] ?? "").trim());
+        }
+      }
+    }
+  }
 
   const campos = new Set(mapa.values());
   // Sem nome ou sem preço não há catálogo — e dizer isso ANTES de processar 300
