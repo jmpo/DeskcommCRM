@@ -50,10 +50,10 @@ export type OrigemDoProduto = (typeof ORIGENS_DO_PRODUTO)[number];
  * falha FECHADO: a linha vira erro com motivo, que a pessoa lê e corrige, em
  * vez de virar um número plausível que ninguém confere.
  */
-export function precoParaCentavos(entrada: string): number | null {
+export function precoParaCentavos(entrada: string, casas = 2): number | null {
   // Só moeda e espaço são ruído conhecido. O `\u00A0` é o espaço não-quebrável
   // que o Excel gera ao formatar como moeda, e ele não casa `\s` em toda engine.
-  const semRuido = entrada.replace(/\u00A0/g, " ").replace(/R\$/gi, " ").trim();
+  const semRuido = entrada.replace(/\u00A0/g, " ").replace(/R\$|Gs\.?|₲/gi, " ").trim();
   // Qualquer coisa fora de dígito e separador significa que não sabemos ler
   // esta célula — e não saber é um desfecho melhor que chutar.
   if (!/^\d[\d.,]*$/.test(semRuido)) return null;
@@ -77,7 +77,12 @@ export function precoParaCentavos(entrada: string): number | null {
 
   const so = inteiros.replace(/[.,]/g, "");
   if (so === "" || !/^\d+$/.test(so)) return null;
-  return Number(so) * 100 + Number(decimais.padEnd(2, "0") || 0);
+  // `casas` é a subunidade da moeda (`casasDaMoeda`): 2 no real, 0 no guarani.
+  // Centavo digitado numa moeda que não tem centavo não é arredondado em
+  // silêncio — "125.000,50" em guarani é recusado, e a tela pede de novo.
+  const fracao = decimais.padEnd(casas, "0");
+  if (fracao.length > casas && /[1-9]/.test(fracao.slice(casas))) return null;
+  return Number(so) * 10 ** casas + Number(fracao.slice(0, casas) || 0);
 }
 
 const codigo = z

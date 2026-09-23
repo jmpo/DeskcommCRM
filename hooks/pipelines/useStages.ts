@@ -37,6 +37,8 @@ export interface PatchDeEtapa {
   is_won?: boolean;
   is_lost?: boolean;
   depois_de?: string | null;
+  /** Negócio que entra nesta etapa abre um aviso na Central. */
+  avisar_na_central?: boolean;
 }
 
 function useReler(pipelineId: string) {

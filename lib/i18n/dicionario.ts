@@ -8255,6 +8255,17 @@ export const DICIONARIO: Traducoes = {
     es: "Un material que enviaste no entró en la base de conocimiento",
   },
   "Aviso do assistente": { es: "Aviso del asistente" },
+  // ─── lib/leads/aviso-de-etapa.handler.ts + editor de etapas (migration 0394) ───
+  "Negócio entrou em": { es: "Negocio entró en" },
+  "Abra o negócio para dar o próximo passo. Este aviso foi pedido na configuração da etapa.": {
+    es: "Abrí el negocio para dar el próximo paso. Este aviso se pidió en la configuración de la etapa.",
+  },
+  "Avisar a equipe na Central quando um negócio entrar aqui": {
+    es: "Avisar al equipo en la Central cuando un negocio entre acá",
+  },
+  "Avisar a equipe na Central quando um negócio entrar em": {
+    es: "Avisar al equipo en la Central cuando un negocio entre en",
+  },
   // `informativo` e `crítico` saem iguais nos dois idiomas — sem linha, por isso.
   "atenção": { es: "atención" },
   // ─── lib/ai/agent-inbox-copy.ts (copyDaPromessaSemDono) ───

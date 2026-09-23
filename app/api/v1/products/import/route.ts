@@ -24,6 +24,7 @@ import { audit } from "@/lib/audit";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { moedaDaOrganizacao } from "@/lib/catalogo/moeda-da-org";
+import { casasDaMoeda } from "@/lib/money";
 import { chaveDoCodigo, lerPlanilha, type ErroDaLinha } from "@/lib/catalogo/planilha";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { CSV_MAX_BYTES, CSV_MAX_DATA_ROWS, decodificarCsv } from "@/lib/contacts/csv";
@@ -104,7 +105,11 @@ export async function POST(req: NextRequest): Promise<Response> {
   if ("erro" in decodificado) {
     return fail("validation_failed", t(decodificado.erro), 422, { requestId });
   }
-  const lido = lerPlanilha(decodificado.texto, t);
+  // A moeda da organização decide as casas do preço lido (guarani não tem
+  // centavo) e, mais abaixo, a moeda gravada nos produtos NOVOS.
+  const supabase = await createClient();
+  const moeda = await moedaDaOrganizacao(supabase, orgId);
+  const lido = lerPlanilha(decodificado.texto, t, casasDaMoeda(moeda));
   // Problema do ARQUIVO (falta a coluna de preço) é 422 com a frase inteira —
   // e não um relatório com 300 erros idênticos.
   if ("erro" in lido) return fail("validation_failed", lido.erro, 422, { requestId });
@@ -131,7 +136,6 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
-  const supabase = await createClient();
 
   // Os códigos já cadastrados na organização servem a duas coisas. Quem já
   // existia com o código IGUAL é atualizado, para o resumo dizer "3 novos, 12
@@ -200,8 +204,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   // `imagem_url` e `ativo` já protegem (comentário no topo do arquivo). Por
   // isso os dois grupos são upserts SEPARADOS, nunca misturados no mesmo lote:
   // um shape por chamada, sem depender de o PostgREST tratar chave ausente
-  // linha a linha.
-  const moeda = await moedaDaOrganizacao(supabase, orgId);
+  // linha a linha. (`moeda` já foi lida lá em cima, antes da planilha.)
 
   const base = (p: (typeof lido.produtos)[number]) => ({
     linha: p.linha,

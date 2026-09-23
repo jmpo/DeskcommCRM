@@ -165,7 +165,14 @@ const formatadores = new Map<string, Intl.NumberFormat>();
  * (`€249.90`) leem a convenção vizinha; quando `organizations.country` puder
  * escolher o locale, é ele que decide, e esta tabela some.
  */
-const LOCALE_DA_MOEDA_SEM_PAIS: Readonly<Record<string, string>> = { EUR: "pt-PT" };
+const LOCALE_DA_MOEDA_SEM_PAIS: Readonly<Record<string, string>> = {
+  EUR: "pt-PT",
+  // PYG tem país, mas a maximização responde o idioma ERRADO para dinheiro:
+  // `und-PY` vira `gn-Latn-PY` (guarani), que o ICU não tem, e o formatador
+  // caía em `en-US` — `PYG 125,000`, com vírgula de milhar. `es-PY` escreve
+  // `Gs. 125.000`, como se lê no Paraguai. Medido no ICU do Node 22.
+  PYG: "es-PY",
+};
 
 function formatadorDa(moeda: string): Intl.NumberFormat {
   const cacheado = formatadores.get(moeda);
@@ -197,6 +204,19 @@ function formatadorDa(moeda: string): Intl.NumberFormat {
  * inteira. As cinco cópias que esta função substitui tinham `try/catch`
  * (ex.: `CRMSidePanel.tsx:201`); esta usa a mesma rede.
  */
+/**
+ * Quantas casas decimais a moeda tem — a régua de `_cents` no catálogo. Sai do
+ * mesmo formatador de `formatCents`, para as duas pontas nunca divergirem:
+ * BRL 2, PYG e JPY 0, KWD 3. Moeda que o `Intl` recusa fica em 2.
+ */
+export function casasDaMoeda(moeda: string): number {
+  try {
+    return formatadorDa(moeda).resolvedOptions().maximumFractionDigits ?? 2;
+  } catch {
+    return 2;
+  }
+}
+
 export function formatCents(cents: number, moeda: string): string {
   const valor = (cents ?? 0) / 100;
   try {
@@ -243,12 +263,18 @@ export function formatCents(cents: number, moeda: string): string {
  * lista NÃO muda o padrão de ninguém — `MOEDA_PADRAO` continua `BRL`, e é isso
  * que o `default` da coluna grava em quem não escolheu.
  *
+ * `PYG` (guarani, Paraguai) é a primeira moeda servida SEM subunidade: no
+ * catálogo, `preco_cents` guarda guaranis inteiros (`formatCents` já seguia a
+ * régua de unidades menores do `Intl`), e `precoParaCentavos` passou a receber
+ * as casas da moeda — `casasDaMoeda("PYG")` é 0 — para o que a pessoa digita
+ * cair na mesma régua.
+ *
  * `EUR` entrou pelo mesmo motivo, para quem opera em Portugal e no resto da
  * zona euro. É o caso que a maximização não resolve (ver
  * `LOCALE_DA_MOEDA_SEM_PAIS`): sem a exceção, `formatCents(24990, "EUR")`
  * sairia `€249.90`, e a varredura de degradação deixaria passar.
  */
-export const MOEDAS_SERVIDAS = ["AOA", "BRL", "EUR", "MXN", "USD"] as const;
+export const MOEDAS_SERVIDAS = ["AOA", "BRL", "EUR", "MXN", "PYG", "USD"] as const;
 export type MoedaServida = (typeof MOEDAS_SERVIDAS)[number];
 
 /** O que o `default` da coluna grava quando ninguém escolheu. */
