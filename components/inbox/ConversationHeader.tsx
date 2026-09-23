@@ -2,6 +2,16 @@
 import { useState } from "react";
 import { useT } from "@/hooks/i18n/useT";
 import Link from "next/link";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { JanelaSelo } from "@/components/inbox/JanelaSelo";
@@ -70,6 +80,8 @@ export function ConversationHeader({ conversation }: Props) {
   // atendendo em instalação que nunca configurou agente nenhum.
   const automaticoDaOrg = useAutomaticoAtivo();
   const [reassignOpen, setReassignOpen] = useState(false);
+  const [confirmFecharOpen, setConfirmFecharOpen] = useState(false);
+  const [confirmArquivarOpen, setConfirmArquivarOpen] = useState(false);
 
   const c = conversation.contacts ?? null;
   const displayName = rotuloDoContato(c, t);
@@ -302,11 +314,7 @@ export function ConversationHeader({ conversation }: Props) {
             size="sm"
             variant="outline"
             disabled={close.isPending}
-            onClick={() => {
-              if (confirm(t("Fechar esta conversa?"))) {
-                close.mutate({ conversation_id: conversation.id, expected_revision: conversation.service_revision });
-              }
-            }}
+            onClick={() => setConfirmFecharOpen(true)}
           >
             {t("Fechar")}
           </Button>
@@ -328,26 +336,7 @@ export function ConversationHeader({ conversation }: Props) {
             size="sm"
             variant="ghost"
             disabled={arquivar.isPending}
-            onClick={() => {
-              // A confirmação precisa dizer o que ACONTECE, e o que acontece
-              // depende do estado. `fn_conversation_set_status` trata
-              // `archived` como terminal: encerra o atendimento (grava
-              // `service_closed_at`, incrementa a revisão) e, com isso, desfaz
-              // a pausa do automático. Um atendente que leia "arquivar = tirar
-              // da vista, volto depois" encerraria o atendimento sem saber — e
-              // o robô voltaria a responder no próximo "oi" do cliente.
-              const aviso = encerrada
-                ? t("Arquivar esta conversa?")
-                : t(
-                    "Arquivar encerra este atendimento e guarda a conversa no histórico. Se o cliente escrever de novo, ela volta. Arquivar?",
-                  );
-              if (confirm(aviso)) {
-                arquivar.mutate({
-                  conversation_id: conversation.id,
-                  expected_revision: conversation.service_revision,
-                });
-              }
-            }}
+            onClick={() => setConfirmArquivarOpen(true)}
           >
             {arquivar.isPending ? t("Arquivando...") : t("Arquivar")}
           </Button>
@@ -377,6 +366,65 @@ export function ConversationHeader({ conversation }: Props) {
         open={reassignOpen}
         onOpenChange={setReassignOpen}
       />
+      <AlertDialog open={confirmFecharOpen} onOpenChange={setConfirmFecharOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Fechar esta conversa?")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("O atendimento é encerrado. Se o cliente escrever de novo, você pode reabrir.")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancelar")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                close.mutate({
+                  conversation_id: conversation.id,
+                  expected_revision: conversation.service_revision,
+                })
+              }
+            >
+              {t("Fechar")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* A confirmação precisa dizer o que ACONTECE, e o que acontece depende
+          do estado. `fn_conversation_set_status` trata `archived` como
+          terminal: encerra o atendimento (grava `service_closed_at`,
+          incrementa a revisão) e, com isso, desfaz a pausa do automático. Um
+          atendente que leia "arquivar = tirar da vista, volto depois"
+          encerraria o atendimento sem saber — e o robô voltaria a responder
+          no próximo "oi" do cliente. Por isso a descrição só aparece quando
+          `!encerrada`: quando já está encerrada, arquivar não muda o
+          atendimento, só o lugar onde a conversa mora. */}
+      <AlertDialog open={confirmArquivarOpen} onOpenChange={setConfirmArquivarOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Arquivar esta conversa?")}</AlertDialogTitle>
+            {!encerrada && (
+              <AlertDialogDescription>
+                {t(
+                  "Arquivar encerra este atendimento e guarda a conversa no histórico. Se o cliente escrever de novo, ela volta.",
+                )}
+              </AlertDialogDescription>
+            )}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancelar")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                arquivar.mutate({
+                  conversation_id: conversation.id,
+                  expected_revision: conversation.service_revision,
+                })
+              }
+            >
+              {t("Arquivar")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
