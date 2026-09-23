@@ -1357,18 +1357,21 @@ jobs:
         run: |
           mv supabase/migrations /tmp/migrations-off
           mkdir -p supabase/migrations
-          # Reintento: um `toomanyrequests` do registry ao baixar UMA imagem
-          # derrubava as seis partes no primeiro minuto (medido em 23/09, PR #46),
-          # e o conserto era relançar à mão. Três tentativas com espera
-          # crescente; o `stop` entre elas limpa o que subiu pela metade.
-          # O Studio fica de fora: é a tela de administração, nenhuma spec a
-          # abre, e era uma imagem a mais para o limite de download.
-          for tentativa in 1 2 3; do
-            if supabase start -x studio; then break; fi
+          # Reintento TROCANDO de registry: um `toomanyrequests` do ghcr.io
+          # derrubava as seis partes no primeiro minuto (medido em 23/09, PR #46,
+          # durante incidente do GitHub), e repetir no MESMO registry falhou as
+          # três vezes. O CLI aceita `SUPABASE_INTERNAL_IMAGE_REGISTRY`: vazio é
+          # o padrão dele; depois o espelho da AWS e o Docker Hub, que não
+          # dividem o limite do GitHub. As imagens são as mesmas, pela mesma tag.
+          # O Studio fica de fora: nenhuma spec o abre, e era uma imagem a mais.
+          tentativa=0
+          for registro in "" public.ecr.aws docker.io; do
+            tentativa=$((tentativa + 1))
+            if SUPABASE_INTERNAL_IMAGE_REGISTRY="$registro" supabase start -x studio; then break; fi
             [ "$tentativa" = 3 ] && exit 1
-            echo "::warning::supabase start falhou (tentativa $tentativa) — nova tentativa em $((tentativa * 30))s"
+            echo "::warning::supabase start falhou (tentativa $tentativa, registry '${registro:-padrão}') — tentando outro"
             supabase stop --no-backup || true
-            sleep $((tentativa * 30))
+            sleep 15
           done
 
       # O baseline é um dump `--schema-only`: ele USA os tipos das extensões
