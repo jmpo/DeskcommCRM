@@ -36534,6 +36534,136 @@ grant execute on function public.fn_enfileirar_midia_vencida(integer) to service
 
 notify pgrst, 'reload schema';
 
+-- ---- o negócio que nasce da conversa nasce na moeda da organização (migration 0398) ----
+--
+-- `fn_nascer_lead_da_conversa` (0256) não passava `currency`, e o insert pegava
+-- o default da coluna, 'BRL', em toda organização. Medido numa organização em
+-- guarani: 229 de 229 negócios em BRL. O valor do pedido, gravado depois pelo
+-- assistente, sairia para a Meta como ₲125.000 lidos em real. A rota REST e a
+-- ferramenta do agente já usavam a moeda da organização; faltava este caminho,
+-- que é o de TODO negócio nascido de uma mensagem.
+create or replace function public.fn_nascer_lead_da_conversa(
+  p_org uuid,
+  p_contact uuid,
+  p_pipeline uuid,
+  p_stage uuid,
+  p_title text,
+  p_source text,
+  p_source_metadata jsonb default '{}'::jsonb,
+  p_tags text[] default '{}'::text[]
+)
+returns uuid
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_id uuid;
+begin
+  -- Serializa por (organização, contato). Transaction-scoped: liberado no
+  -- commit, sem risco de lock vazado.
+  perform pg_advisory_xact_lock(hashtextextended(p_org::text || ':' || p_contact::text, 0));
+
+  select id into v_id
+    from public.crm_leads
+   where organization_id = p_org
+     and contact_id = p_contact
+     and status = 'open'
+   limit 1;
+
+  -- NULL significa "já existe", e quem chama traduz isso para `ja_existe`. Não é
+  -- erro: é o desfecho correto da segunda mensagem.
+  if v_id is not null then
+    return null;
+  end if;
+
+  -- A moeda é a da organização. Sem ela o negócio pegava o default da coluna
+  -- ('BRL') em QUALQUER organização, e o valor que o assistente grava depois
+  -- saía para a plataforma de anúncio como real: ₲125.000 viravam R$ 125.000.
+  insert into public.crm_leads
+    (organization_id, pipeline_id, stage_id, contact_id, title, source, source_metadata, tags, currency)
+  values
+    (p_org, p_pipeline, p_stage, p_contact, p_title, p_source, coalesce(p_source_metadata, '{}'::jsonb), coalesce(p_tags, '{}'::text[]),
+     coalesce((select o.currency from public.organizations o where o.id = p_org), 'BRL'))
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+revoke execute on function public.fn_nascer_lead_da_conversa(uuid, uuid, uuid, uuid, text, text, jsonb, text[]) from public, anon;
+grant  execute on function public.fn_nascer_lead_da_conversa(uuid, uuid, uuid, uuid, text, text, jsonb, text[]) to authenticated, service_role;
+
+-- O que já nasceu errado. Só negócio SEM valor: sem valor, a moeda não diz nada
+-- e alinhar não muda número nenhum. Negócio COM valor fica como está — ali a
+-- moeda pode ter sido escolhida à mão, e trocar o rótulo mudaria o que o
+-- número significa. Só em organização que declarou moeda diferente do default.
+update public.crm_leads l
+   set currency = o.currency
+  from public.organizations o
+ where o.id = l.organization_id
+   and o.currency is not null
+   and o.currency <> 'BRL'
+   and l.currency = 'BRL'
+   and l.value_cents is null;
+
+-- ---- o aviso da Central anuncia no barramento que nasceu (migration 0399) ----
+--
+-- Os avisos que pedem gente (a IA passou a conversa para uma pessoa; um negócio
+-- entrou numa etapa que avisa, a venda confirmada de quem vende contra entrega)
+-- só existiam na tela: com o CRM fechado, ninguém sabia. O push para o celular
+-- já existia para mensagem nova, e faltava o gancho destes. TRIGGER e não
+-- emissor em código pelo mesmo motivo da 0148: os avisos nascem em vários
+-- lugares (motor, rotas, handlers), e o próximo caminho nasceria mudo. SQL puro,
+-- sem I/O — quem manda o push é o consumidor (`lib/notifications/push.handler.ts`),
+-- e é ele quem decide QUAIS avisos vão para o celular.
+--
+-- O aviso NUNCA deixa de nascer por causa do anúncio: o `emit_event` fica num
+-- bloco que engole a falha. Um aviso de passagem para pessoa que não grava porque
+-- o barramento recusou seria o pior desfecho possível.
+create or replace function public.fn_emit_aviso_da_central()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Aviso de PLATAFORMA (organização nula) não vai para o celular de ninguém.
+  if new.organization_id is null then
+    return null;
+  end if;
+  begin
+    perform public.emit_event(
+      'central.aviso_criado',
+      'agent_inbox_item',
+      new.id,
+      jsonb_build_object(
+        'item_id',  new.id,
+        'kind',     new.kind,
+        'ref_kind', new.ref_kind,
+        'ref_id',   new.ref_id
+      ),
+      '{}'::jsonb,
+      new.organization_id   -- SEMPRE de `new`: é o filtro de tenant
+    );
+  exception when others then
+    raise warning 'fn_emit_aviso_da_central: anúncio do aviso % falhou: %', new.id, sqlerrm;
+  end;
+  return null;              -- AFTER trigger: o retorno é ignorado
+end;
+$$;
+
+alter function public.fn_emit_aviso_da_central() owner to postgres;
+
+-- As DUAS origens de EXECUTE (doutrina de migrations, item 9).
+revoke all     on function public.fn_emit_aviso_da_central() from public;
+revoke execute on function public.fn_emit_aviso_da_central() from anon, authenticated;
+
+drop trigger if exists trg_aviso_da_central_criado on public.agent_inbox_items;
+create trigger trg_aviso_da_central_criado
+  after insert on public.agent_inbox_items
+  for each row execute function public.fn_emit_aviso_da_central();
+
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
 -- ⚠️ DE PROPÓSITO, NENHUMA FUNÇÃO É CRIADA DEPOIS DESTE BLOCO. Apêndice que cria

@@ -5477,6 +5477,15 @@ export const DICIONARIO: Traducoes = {
   "Imagem recebida": { es: "Imagen recibida" },
   Baixar: { es: "Descargar" },
   "Abrir conversa com este contato": { es: "Abrir conversación con este contacto" },
+  "Localização compartilhada": { es: "Ubicación compartida" },
+  "A IA passou uma conversa para a equipe": { es: "La IA pasó una conversación al equipo" },
+  "Abra a conversa para responder o cliente.": { es: "Abrí la conversación para responder al cliente." },
+  "A IA pediu ajuda à equipe": { es: "La IA pidió ayuda al equipo" },
+  "Abra os casos para responder.": { es: "Abrí los casos para responder." },
+  "Abra o caso para responder. A IA continua atendendo o cliente enquanto isso.": {
+    es: "Abrí el caso para responder. La IA sigue atendiendo al cliente mientras tanto.",
+  },
+  "Abrir no mapa": { es: "Abrir en el mapa" },
   "Não foi possível abrir a conversa.": { es: "No se pudo abrir la conversación." },
   "Enter salva a nota · Shift+Enter quebra linha": { es: "Enter guarda la nota · Shift+Enter agrega un salto de línea" },
   "Enter envia · Shift+Enter quebra linha": { es: "Enter envía · Shift+Enter agrega un salto de línea" },
@@ -8313,6 +8322,7 @@ export const DICIONARIO: Traducoes = {
   "O assistente prometeu algo ao cliente e ninguém ficou responsável": {
     es: "El asistente prometió algo al cliente y nadie quedó a cargo",
   },
+  "promessas ao cliente sem ninguém responsável": { es: "promesas al cliente sin nadie a cargo" },
   "Nesta conversa o assistente combinou algo com o cliente. Ele ainda não tem nenhuma capacidade marcada para registrar isso no sistema, então nada foi agendado nem anotado. Abra a conversa para ver o que foi combinado — e, na tela do assistente, marque o que ele pode fazer.": {
     es: "En esta conversación el asistente acordó algo con el cliente. Como aún no tiene ninguna capacidad marcada para registrarlo en el sistema, no se programó ni se anotó nada. Abre la conversación para ver qué se acordó y, en la pantalla del asistente, marca lo que puede hacer.",
   },

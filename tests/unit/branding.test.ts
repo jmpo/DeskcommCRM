@@ -804,6 +804,12 @@ type CategoriaDeHost =
 type EntradaDeHost = { categoria: CategoriaDeHost; motivo: string };
 
 const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
+  // ── localização compartilhada: o link que abre o pino do cliente ──
+  "maps.google.com": {
+    categoria: "PLATAFORMA",
+    motivo:
+      "link de mapa que `lib/messaging/localizacao.ts` monta com as coordenadas do pino que o CLIENTE mandou pelo WhatsApp: é o que o atendente toca para ver o endereço de entrega e o que o agente lê. O código não chama o host; o celular abre o app de mapas. Trocar pelo domínio do revendedor não abriria mapa nenhum.",
+  },
   // ── prospecção (PR #963): destino de chamada do crawler ──
   "api.apify.com": {
     categoria: "FORNECEDOR",
@@ -1094,6 +1100,10 @@ describe("catraca de host de terceiro no código que embarca", () => {
       "aistudio.google.com",
       "console.anthropic.com",
       "deskcomm.app",
+      // Link que abre o pino que o CLIENTE mandou (`lib/messaging/localizacao.ts`).
+      // Mesma natureza do `wa.me` abaixo: o produto não fala com o host, quem
+      // abre é o celular do atendente. Crescimento escrito, como a regra pede.
+      "maps.google.com",
       "meet.google.com",
       "meusistema.com",
       "mi-gateway.ejemplo.com",
