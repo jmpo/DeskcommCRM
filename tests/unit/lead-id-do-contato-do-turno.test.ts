@@ -28,9 +28,9 @@ const NEGOCIO = "33333333-3333-4333-8333-333333333333";
 const OUTRO = "55555555-5555-4555-8555-555555555555";
 const FUNIL = "44444444-4444-4444-8444-444444444444";
 
-const negocio = (id: string, status = "open") => ({
+const negocio = (id: string, status = "open", lastActivityAt = "2026-09-24T02:38:00.000Z") => ({
   id, organization_id: ORG, pipeline_id: FUNIL, status,
-  last_activity_at: "2026-09-24T02:38:00.000Z", created_at: "2026-09-24T02:18:00.000Z",
+  last_activity_at: lastActivityAt, created_at: "2026-09-24T02:18:00.000Z",
 });
 
 /** Responde as duas perguntas que a ponte faz a `crm_leads`: por contato e por id. */
@@ -105,6 +105,13 @@ describe("a ponte traduz o contato do turno para o negócio aberto", () => {
 describe("quando a tradução não é dela, devolve o id como veio", () => {
   it("dois negócios abertos: a escolha não é do runtime", async () => {
     const { supabase } = banco([negocio(NEGOCIO), negocio(OUTRO)]);
+    expect(await leadIdDoContatoDoTurno(supabase as never, ORG, CONTATO, CONTATO)).toBeNull();
+  });
+
+  // Sem empate, `resolveActiveLeadForContact` escolhe o mais recente (OUTRO).
+  // A tradução não pode escolher: a escrita cairia num cartão por palpite.
+  it("dois negócios abertos com atividades diferentes: também não escolhe o mais recente", async () => {
+    const { supabase } = banco([negocio(NEGOCIO), negocio(OUTRO, "open", "2026-09-24T02:39:00.000Z")]);
     expect(await leadIdDoContatoDoTurno(supabase as never, ORG, CONTATO, CONTATO)).toBeNull();
   });
 

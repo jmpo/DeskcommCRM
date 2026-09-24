@@ -60,8 +60,13 @@ setup_update_agent_cron
 # ── 1. Tem atualização mesmo? ────────────────────────────────────────────────
 step "Procurando atualizações"
 git fetch --tags --quiet origin 2>/dev/null || c_ylw "⚠ não consegui falar com o GitHub — sigo com o código que já está aqui."
-[ -n "$TARGET_TAG" ] || TARGET_TAG="$(git tag -l 'v*' --sort=-v:refname | head -1)"
-[ -n "$TARGET_TAG" ] || die "Não encontrei nenhuma versão publicada para instalar."
+# A AUTORIDADE é a release publicada, NUNCA a maior tag — ver
+# `ultima_release_estavel` em _common.sh. Um `TARGET_TAG` passado à mão
+# continua valendo (instalar uma versão específica é operação legítima de
+# quem sabe o que está fazendo); o que deixou de existir é ESCOLHER sozinho a
+# maior tag, que instalaria código sem release publicada.
+[ -n "$TARGET_TAG" ] || TARGET_TAG="$(ultima_release_estavel)"
+[ -n "$TARGET_TAG" ] || die "Não encontrei nenhuma versão publicada para instalar. (Tag existir não basta: o alvo é a última release estável publicada no GitHub. Se o servidor não conseguiu falar com a API, tente de novo mais tarde; para instalar uma versão específica, passe --to vX.Y.Z.)"
 git rev-parse --verify --quiet "${TARGET_TAG}^{commit}" >/dev/null \
   || die "Não conheço a versão $TARGET_TAG aqui. Confira o nome (ex.: v1.1.0) ou tente de novo quando o servidor conseguir falar com o GitHub."
 CURRENT_TAG="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
