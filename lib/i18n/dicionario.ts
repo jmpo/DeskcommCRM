@@ -8350,6 +8350,15 @@ export const DICIONARIO: Traducoes = {
   "É o que o atendente de IA conta ao cliente: para que serve, medidas, materiais, diferenciais. Ele repete o que estiver aqui — e não inventa o que faltar.": {
     es: "Es lo que el asistente de IA le cuenta al cliente: para qué sirve, medidas, materiales, diferenciales. Repite lo que esté acá y no inventa lo que falte.",
   },
+  // ─── lib/agent-engine/queue/espera-de-saldo.ts + push do aviso ───
+  "A IA está sem saldo no provedor": { es: "La IA se quedó sin saldo en el proveedor" },
+  "As respostas aos clientes estão esperando. Recarregue o saldo na conta do provedor: elas saem sozinhas quando o saldo voltar, durante até 6 horas. Depois disso, a conversa que não foi respondida aparece aqui na Central.": {
+    es: "Las respuestas a los clientes están esperando. Recargá el saldo en la cuenta del proveedor: salen solas cuando vuelva el saldo, durante hasta 6 horas. Después de eso, la conversación que no se respondió aparece acá en la Central.",
+  },
+  "Revisar credencial": { es: "Revisar credencial" },
+  "Recarregue o saldo na conta do provedor: as respostas saem sozinhas quando ele voltar.": {
+    es: "Recargá el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva.",
+  },
   // ─── lib/leads/aviso-de-etapa.handler.ts + editor de etapas (migration 0401) ───
   "Negócio entrou em": { es: "Negocio entró en" },
   "Abra o negócio para dar o próximo passo. Este aviso foi pedido na configuração da etapa.": {

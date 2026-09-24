@@ -4,13 +4,15 @@
  * O som da Central (`sons-da-org.ts`) só toca com o CRM aberto na tela. Quem
  * vende pelo WhatsApp passa o dia com o CRM fechado no bolso — medido: um caso
  * aberto às 23h42 ("cliente pergunta a transportadora") esperou sem ninguém
- * saber. Três momentos vão ao celular:
+ * saber. Quatro momentos vão ao celular:
  *
  *   - a IA passou a conversa para uma pessoa (aviso `handoff`);
  *   - um negócio entrou numa etapa que avisa — a venda confirmada (aviso
  *     `other` apontando para um negócio);
  *   - a IA pediu ajuda à equipe sem sair da conversa (caso aberto, que vira
- *     aviso na Central em `lib/escalacao/caso-na-central.handler.ts`).
+ *     aviso na Central em `lib/escalacao/caso-na-central.handler.ts`);
+ *   - a IA ficou sem saldo no provedor e as respostas estão esperando a
+ *     recarga (`lib/agent-engine/queue/espera-de-saldo.ts`).
  *
  * São os MESMOS que têm som próprio: a regra de quais avisos importam é uma só
  * (`somDoAviso`). Todos chegam pelo barramento como `central.aviso_criado`
@@ -68,6 +70,17 @@ export async function pushDoAvisoDaCentral(
       body: truncar(titulo || traduzir("Abra os casos para responder.", idioma)),
       tag: `aviso:${item.id}`,
       href: `/app/ai/cases?caso=${item.ref_id}`,
+    };
+  }
+
+  // Sem saldo no provedor: o título já nasceu no idioma da organização
+  // (`espera-de-saldo.ts`); o corpo diz o remédio, que fica fora do CRM.
+  if (item.kind === "other" && item.ref_kind === "ai_provider_credential") {
+    return {
+      title: truncar(item.title),
+      body: traduzir("Recarregue o saldo na conta do provedor: as respostas saem sozinhas quando ele voltar.", idioma),
+      tag: `aviso:${item.id}`,
+      href: "/app/ai/credentials",
     };
   }
 
