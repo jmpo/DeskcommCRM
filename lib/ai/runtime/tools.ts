@@ -56,6 +56,42 @@ export interface PickToolsInput {
   modulosLigados?: readonly ModuloOpcional[];
   /** Mutable signal — runtime checks after each step. */
   handoffSignal: RuntimeHandoffSignal;
+  /**
+   * O CONTATO que este turno atende, quando o turno é de uma conversa.
+   *
+   * No motor do agente, "lead" é o CONTATO (`job.contact_id`), e é esse id que o
+   * modelo vê rotulado como lead. As ferramentas do catálogo chamam de
+   * `lead_id` o NEGÓCIO (`crm_leads.id`). Medido em produção: o assistente
+   * fechou um pedido e chamou `crm_update_lead` duas vezes com o id do contato
+   * — as duas recusadas, e o pedido confirmado ficou sem valor. Com o contato
+   * do turno à mão, esse id é traduzido para o negócio aberto dele.
+   */
+  contatoDoTurno?: string;
+}
+
+/**
+ * `lead_id` que é o id do CONTATO do turno → o negócio ABERTO desse contato.
+ *
+ * Só o contato do turno, e só quando o negócio é um só: com dois abertos a
+ * escolha não é do runtime (`resolveActiveLeadForContact` devolve ambíguo) e o
+ * id segue como veio, para a recusa de sempre. Falha de leitura também devolve
+ * o id intacto — traduzir por palpite escreveria no cartão errado.
+ */
+export async function leadIdDoContatoDoTurno(
+  supabase: SupabaseClient,
+  organizationId: string,
+  contatoDoTurno: string | undefined,
+  leadId: unknown,
+): Promise<string | null> {
+  if (!contatoDoTurno || leadId !== contatoDoTurno) return null;
+  const { data, error } = await supabase
+    .from("crm_leads")
+    .select("id, organization_id, pipeline_id, status, last_activity_at, created_at")
+    .eq("organization_id", organizationId)
+    .eq("contact_id", contatoDoTurno);
+  if (error) return null;
+  const r = resolveActiveLeadForContact((data ?? []) as LeadCandidate[]);
+  return r.routed ? r.leadId : null;
 }
 
 const HANDOFF_TOOL_NAME = "crm_request_human_handoff";
@@ -93,6 +129,20 @@ function wrapMcpTool(
         (args ?? {}) as Record<string, unknown>,
       );
       const argsRecord = higiene.limpos;
+      if ("lead_id" in argsRecord) {
+        const traduzido = await leadIdDoContatoDoTurno(
+          input.supabase,
+          input.ctx.organizationId,
+          input.contatoDoTurno,
+          argsRecord.lead_id,
+        );
+        if (traduzido) {
+          logger.info("lead_id era o contato do turno — traduzido para o negócio aberto", {
+            tool: def.name,
+          });
+          argsRecord.lead_id = traduzido;
+        }
+      }
       // O que vai ao audit não é necessariamente o que vai ao handler: a tool
       // pode declarar como tirar PII dos args (ex.: valores de filtro).
       const argsAudit = def.redigirParaAuditoria ? def.redigirParaAuditoria(argsRecord) : argsRecord;

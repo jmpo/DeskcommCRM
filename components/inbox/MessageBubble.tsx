@@ -10,6 +10,8 @@ import type { Message } from "@/lib/types/messaging";
 import { CitationButton } from "@/components/ai/CitationButton";
 import { MediaRenderer } from "@/components/inbox/media/MediaRenderer";
 import { ContactCard } from "@/components/inbox/media/ContactCard";
+import { LocationCard } from "@/components/inbox/media/LocationCard";
+import { localizacaoDaMensagem } from "@/lib/messaging/localizacao";
 import {
   extractCitations,
   isAiGeneratedMessage,
@@ -62,6 +64,8 @@ export function MessageBubble({
   const isFailed = message.status === "failed";
   const hasMedia = Boolean(message.media_url || message.media_storage_path);
   const isContact = message.type === "contact";
+  // Pino com coordenadas: o cartão substitui o corpo, que é só o mesmo link em texto.
+  const localizacao = localizacaoDaMensagem(message);
   // Figurinha sem caption: sem moldura de bolha (padrão WhatsApp).
   const isBareSticker = hasMedia && message.type === "sticker" && !message.body;
   // Apagada pelo autor ("apagar para todos"). A linha continua no histórico —
@@ -236,7 +240,9 @@ export function MessageBubble({
               </div>
             )}
 
-            {message.body && !isContact && (
+            {localizacao && <LocationCard localizacao={localizacao} />}
+
+            {message.body && !isContact && !localizacao && (
               <p className="whitespace-pre-wrap break-words leading-snug">{message.body}</p>
             )}
           </>
