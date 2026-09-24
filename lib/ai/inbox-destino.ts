@@ -96,7 +96,7 @@ export const POLITICAS_DE_AVISO = {
   // está pendente é o ATENDIMENTO, e quem abre o aviso precisa cair nele. A
   // conferência da conexão é o segundo passo, e vai na orientação.
   aviso_de_caso_nao_entregue: { refs: ["agent_case"], orientacao: "O aviso deste atendimento não saiu no WhatsApp. Abra o atendimento — ele continua esperando — e confira a conexão de avisos em Configurações." },
-  other: { refs: ["lead", "channel_session", "appointment", "ai_agent"], orientacao: "Confira a situação descrita neste aviso com a pessoa responsável." },
+  other: { refs: ["lead", "channel_session", "appointment", "ai_agent", "agent_case"], orientacao: "Confira a situação descrita neste aviso com a pessoa responsável." },
 } satisfies Record<InboxKind, Politica>;
 
 /**

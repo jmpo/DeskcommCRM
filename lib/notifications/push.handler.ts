@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { montarPayloadDeInbound, truncar } from "./push_payload";
 import { enviarPushAoUsuario, enviarPushDaOrg } from "./web_push";
 import { vapidPronto } from "./vapid";
-import { pushDoAvisoDaCentral, pushDoCasoAberto } from "./push-dos-avisos";
+import { pushDoAvisoDaCentral } from "./push-dos-avisos";
 import type { PushPayload } from "./push_payload";
 import { rotuloDoContato, SEM_NOME } from "@/lib/contacts/rotulo-do-contato";
 
@@ -70,15 +70,9 @@ async function handleInbound(row: EventRow): Promise<HandlerResult> {
 
 async function handleAvisoQuePedeGente(row: EventRow): Promise<HandlerResult> {
   const admin = createAdminClient();
-  const id =
-    row.event_type === "central.aviso_criado"
-      ? (typeof row.payload.item_id === "string" ? row.payload.item_id : row.entity_id)
-      : (typeof row.payload.case_id === "string" ? row.payload.case_id : row.entity_id);
+  const id = typeof row.payload.item_id === "string" ? row.payload.item_id : row.entity_id;
   if (!id) return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "sem_alvo" };
-  const payload =
-    row.event_type === "central.aviso_criado"
-      ? await pushDoAvisoDaCentral(admin, row.organization_id, id)
-      : await pushDoCasoAberto(admin, row.organization_id, id);
+  const payload = await pushDoAvisoDaCentral(admin, row.organization_id, id);
   if (payload === null) {
     return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "aviso_fora_do_celular" };
   }
@@ -136,16 +130,13 @@ export const webPushInboundHandler: EventHandler = {
     "user.mentioned",
     // Os avisos que pedem gente — ver `./push-dos-avisos.ts`.
     "central.aviso_criado",
-    "ai.case_opened",
   ],
   async handle(row): Promise<HandlerResult> {
     if (!vapidPronto()) {
       return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "vapid_ausente" };
     }
     if (row.event_type === "message.received") return handleInbound(row);
-    if (row.event_type === "central.aviso_criado" || row.event_type === "ai.case_opened") {
-      return handleAvisoQuePedeGente(row);
-    }
+    if (row.event_type === "central.aviso_criado") return handleAvisoQuePedeGente(row);
 
     if (row.event_type === "user.mentioned") {
       const toUserId = typeof row.payload.to_user_id === "string" ? row.payload.to_user_id : null;

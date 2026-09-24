@@ -9,11 +9,12 @@
  *   - a IA passou a conversa para uma pessoa (aviso `handoff`);
  *   - um negócio entrou numa etapa que avisa — a venda confirmada (aviso
  *     `other` apontando para um negócio);
- *   - a IA pediu ajuda à equipe sem sair da conversa (caso aberto).
+ *   - a IA pediu ajuda à equipe sem sair da conversa (caso aberto, que vira
+ *     aviso na Central em `lib/escalacao/caso-na-central.handler.ts`).
  *
- * Os dois primeiros são os MESMOS que têm som próprio: a regra de quais avisos
- * importam é uma só (`somDoAviso`). Os avisos chegam pelo barramento
- * (`central.aviso_criado`, migration 0399; `ai.case_opened`, migration 0148).
+ * São os MESMOS que têm som próprio: a regra de quais avisos importam é uma só
+ * (`somDoAviso`). Todos chegam pelo barramento como `central.aviso_criado`
+ * (migration 0399).
  *
  * O texto sai no idioma da ORGANIZAÇÃO — ninguém está logado quando o push sai.
  */
@@ -52,6 +53,24 @@ export async function pushDoAvisoDaCentral(
   if (som === null) return null;
   const idioma = await idiomaDaOrganizacao(admin, orgId);
 
+  // Caso aberto: o aviso guarda texto genérico (LGPD — ver o handler); o
+  // título que a IA escreveu vai no push, que não fica guardado.
+  if (item.kind === "other" && item.ref_kind === "agent_case" && item.ref_id) {
+    const { data: caso } = await admin
+      .from("agent_cases")
+      .select("title")
+      .eq("organization_id", orgId)
+      .eq("id", item.ref_id)
+      .maybeSingle();
+    const titulo = (caso as { title?: string | null } | null)?.title?.trim();
+    return {
+      title: traduzir("A IA pediu ajuda à equipe", idioma),
+      body: truncar(titulo || traduzir("Abra os casos para responder.", idioma)),
+      tag: `aviso:${item.id}`,
+      href: `/app/ai/cases?caso=${item.ref_id}`,
+    };
+  }
+
   if (som === "pessoa") {
     return {
       title: traduzir("A IA passou uma conversa para a equipe", idioma),
@@ -77,28 +96,4 @@ export async function pushDoAvisoDaCentral(
     if (l?.pipeline_id) href = `/app/pipelines/${l.pipeline_id}`;
   }
   return { title: truncar(item.title), body: truncar(corpo), tag: `aviso:${item.id}`, href };
-}
-
-/** O push de um caso aberto pela IA, ou `null` quando o caso não existe mais. */
-export async function pushDoCasoAberto(
-  admin: SupabaseClient,
-  orgId: string,
-  caseId: string,
-): Promise<PushPayload | null> {
-  const { data } = await admin
-    .from("agent_cases")
-    .select("id, title, status")
-    .eq("organization_id", orgId)
-    .eq("id", caseId)
-    .maybeSingle();
-  const caso = data as { id: string; title: string | null; status: string } | null;
-  // Resolvido antes de o evento ser drenado: avisar seria ruído.
-  if (!caso || (caso.status !== "awaiting_human" && caso.status !== "escalated")) return null;
-  const idioma = await idiomaDaOrganizacao(admin, orgId);
-  return {
-    title: traduzir("A IA pediu ajuda à equipe", idioma),
-    body: truncar(caso.title?.trim() || traduzir("Abra os casos para responder.", idioma)),
-    tag: `caso:${caso.id}`,
-    href: "/app/ai/cases",
-  };
 }

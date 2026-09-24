@@ -53,6 +53,8 @@ export function extensaoDoAudio(tipo: TipoDeAudio): string {
 export function somDoAviso(aviso: { kind: string; ref_kind: string | null }): TipoDeSom | null {
   if (aviso.kind === "handoff") return "pessoa";
   if (aviso.kind === "other" && aviso.ref_kind === "lead") return "venda";
+  // O caso aberto (`lib/escalacao/caso-na-central.handler.ts`): a IA pediu ajuda.
+  if (aviso.kind === "other" && aviso.ref_kind === "agent_case") return "pessoa";
   return null;
 }
 

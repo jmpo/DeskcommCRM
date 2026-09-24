@@ -83,26 +83,22 @@ describe("aviso da Central → celular", () => {
 });
 
 describe("caso aberto → celular", () => {
-  it("o título que a IA escreveu vai no corpo", async () => {
+  it("o aviso do caso vira push com o título que a IA escreveu, abrindo o caso", async () => {
     vi.mocked(createAdminClient).mockReturnValue(banco({
-      agent_cases: { id: "k1", title: "Cliente pregunta transportadora del envío", status: "awaiting_human" },
+      agent_inbox_items: { id: "i4", kind: "other", ref_kind: "agent_case", ref_id: "k1", title: "La IA pidió ayuda al equipo" },
+      agent_cases: { title: "Cliente pregunta transportadora del envío" },
       organizations: { locale: "es" },
     }) as never);
-    await webPushInboundHandler.handle(evento("ai.case_opened", { case_id: "k1" }));
+    await webPushInboundHandler.handle(evento("central.aviso_criado", { item_id: "i4" }));
     expect(vi.mocked(enviarPushDaOrg).mock.calls[0]![1]).toEqual({
       title: "La IA pidió ayuda al equipo",
       body: "Cliente pregunta transportadora del envío",
-      tag: "caso:k1",
-      href: "/app/ai/cases",
+      tag: "aviso:i4",
+      href: "/app/ai/cases?caso=k1",
     });
   });
 
-  it("caso já resolvido quando o evento foi drenado: nada sai", async () => {
-    vi.mocked(createAdminClient).mockReturnValue(banco({
-      agent_cases: { id: "k2", title: "x", status: "resolved" },
-    }) as never);
-    const r = await webPushInboundHandler.handle(evento("ai.case_opened", { case_id: "k2" }));
-    expect(r.status).toBe("skipped");
-    expect(enviarPushDaOrg).not.toHaveBeenCalled();
+  it("o evento do caso NÃO manda push por fora — só o aviso da Central, senão chegam dois", () => {
+    expect(webPushInboundHandler.events).not.toContain("ai.case_opened");
   });
 });

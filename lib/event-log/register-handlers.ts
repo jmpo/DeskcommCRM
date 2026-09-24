@@ -25,6 +25,7 @@ import { webPushInboundHandler } from "@/lib/notifications/push.handler";
 import { conversaoDeVendaHandler } from "@/lib/conversoes/envio.handler";
 import { conversaoDeEtapaHandler } from "@/lib/conversoes/etapa.handler";
 import { avisoDeEtapaHandler } from "@/lib/leads/aviso-de-etapa.handler";
+import { casoNaCentralHandler } from "@/lib/escalacao/caso-na-central.handler";
 import { avisoDeCasoAoSuporteHandler } from "@/lib/escalacao/aviso-ao-suporte.handler";
 import { registerHandler } from "@/lib/event-log/dispatcher";
 
@@ -54,6 +55,7 @@ export function ensureHandlersRegistered(): void {
   // Escrita curta no banco (um item na Central), vizinha do gatilho de etapa
   // que consome o mesmo evento.
   registerHandler(avisoDeEtapaHandler);
+  registerHandler(casoNaCentralHandler);
   registerHandler(followupGatilhoLeadHandler);
   registerHandler(followupGatilhoCasoHandler);
   registerHandler(followupGatilhoPresencaHandler);
