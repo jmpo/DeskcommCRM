@@ -490,6 +490,36 @@ export function StagesSection({
                 {t("Avisar a equipe na Central quando um negócio entrar aqui")}
               </label>
 
+              {/* Evento de conversão ao entrar (migration 0396): em venda contra
+                  entrega, a confirmação do pedido é o sinal cedo para a
+                  plataforma do anúncio — a venda só sai na entrega. */}
+              <label className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
+                {t("Evento para a plataforma de anúncio quando um negócio entrar aqui")}
+                <Select
+                  value={etapa.evento_de_conversao ?? "nenhum"}
+                  onValueChange={(v) =>
+                    aplicar(etapa.id, {
+                      evento_de_conversao: v === "nenhum" ? null : (v as "InitiateCheckout" | "LeadSubmitted" | "AddToCart"),
+                    })
+                  }
+                  disabled={ocupado}
+                >
+                  <SelectTrigger
+                    className="h-7 w-auto min-w-44 text-xs"
+                    aria-label={`${t("Evento para a plataforma de anúncio em")} «${etapa.name}»`}
+                    data-testid={`evento-${etapa.id}`}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="nenhum">{t("Nenhum")}</SelectItem>
+                    <SelectItem value="InitiateCheckout">{t("Início de compra (InitiateCheckout)")}</SelectItem>
+                    <SelectItem value="LeadSubmitted">{t("Lead (LeadSubmitted)")}</SelectItem>
+                    <SelectItem value="AddToCart">{t("Adicionou ao carrinho (AddToCart)")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+
               {passo && (
                 <p className="text-xs text-text-muted" data-testid={`passo-de-${etapa.id}`}>
                   {t("O assistente usa esta etapa para")} «{t(ROTULO_DO_PASSO[passo])}».{" "}

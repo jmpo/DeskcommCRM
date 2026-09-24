@@ -108,6 +108,13 @@ export interface LeadContext {
    * diferentes, não alternativas.
    */
   last_human_decision: UltimaDecisaoHumana | null;
+  /**
+   * O anúncio de onde o contato veio (título e texto), quando ele chegou por um
+   * clique em anúncio de WhatsApp. É o que diz ao agente QUAL produto a pessoa
+   * viu — sem isto, "hola, quiero info" chega sem assunto e o agente pergunta o
+   * que o anúncio já respondeu. Opcional: contato orgânico não tem.
+   */
+  anuncio_de_origem?: { titulo: string | null; texto: string | null };
   /** Últimas N mensagens, da mais antiga para a mais nova. */
   messages: LeadContextMessage[];
 }
@@ -136,6 +143,8 @@ interface ContactRow {
   source: string | null;
   consent: Record<string, unknown> | null;
   is_anonymized: boolean;
+  ad_title: string | null;
+  ad_body: string | null;
 }
 
 interface DecisionRow {
@@ -183,7 +192,8 @@ export async function getLeadContext(
   knobs: LeadContextKnobs,
 ): Promise<LeadContextResult> {
   const { rows: contactRows } = await db.query<ContactRow>(
-    `select name, display_name, email, phone_number, tags, is_blocked, source, consent, is_anonymized
+    `select name, display_name, email, phone_number, tags, is_blocked, source, consent, is_anonymized,
+            source_metadata->>'ad_title' as ad_title, source_metadata->>'ad_body' as ad_body
      from contacts where organization_id = $1 and id = $2`,
     [input.tenantId, input.leadId],
   );
@@ -286,6 +296,9 @@ export async function getLeadContext(
       },
       conversation_id: conversationId,
       last_human_decision: lastHumanDecision,
+      ...(contact.ad_title || contact.ad_body
+        ? { anuncio_de_origem: { titulo: contact.ad_title ?? null, texto: contact.ad_body ?? null } }
+        : {}),
     },
     history,
     knobs.maxTokens,

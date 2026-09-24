@@ -37425,3 +37425,27 @@ comment on column public.crm_stages.avisar_na_central is
 
 notify pgrst, 'reload schema';
 
+-- ---- a etapa manda evento de conversão à plataforma de anúncio (migration 0396) ----
+-- Ver o cabeçalho da migration. Aditivo e idempotente; coluna nova, sem legado.
+alter table public.crm_stages
+  add column if not exists evento_de_conversao text;
+
+do $$ begin
+  alter table public.crm_stages
+    add constraint crm_stages_evento_de_conversao_check
+    check (evento_de_conversao is null or evento_de_conversao in ('InitiateCheckout', 'LeadSubmitted', 'AddToCart'));
+exception when duplicate_object then null; end $$;
+
+comment on column public.crm_stages.evento_de_conversao is
+  'Evento de conversão enviado à plataforma de anúncio quando um negócio entra nesta etapa (0396).';
+
+notify pgrst, 'reload schema';
+
+-- ---- o bucket dos sons dos avisos da Central (migration 0397) ----
+-- Privado; só o service_role lê e grava. Teto e tipos de lib/notifications/sons-da-org.ts.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('org-sounds', 'org-sounds', false, 1048576, array['audio/mpeg', 'audio/ogg', 'audio/wav'])
+on conflict (id) do update
+  set public             = excluded.public,
+      file_size_limit    = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;

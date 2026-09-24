@@ -105,6 +105,43 @@ async function handle(row: EventRow): Promise<HandlerResult> {
   // novo nem sujar o livro-razão.
   if (lead.status !== "won") return ok("skipped", "nao_e_ganho");
 
+  return reportarConversao(admin, row, lead, EVENTO, CONSUMER_KEY, { exigeValor: true });
+}
+
+/** O lead como `reportarConversao` precisa dele — relido do banco por quem chama. */
+export interface LeadDaConversao {
+  id: string;
+  value_cents: number | null;
+  currency: string | null;
+  closed_at: string | null;
+  contact_id: string | null;
+}
+
+/**
+ * Reporta UM evento de conversão de UM negócio: livro-razão (não duplica),
+ * atribuição do anúncio, canal com a ponte primeiro, transporte direto depois.
+ *
+ * Compartilhado pela venda (`Purchase`, na entrega) e pelo evento de ETAPA
+ * (`lib/conversoes/etapa.handler.ts` — ex.: `InitiateCheckout` quando o pedido
+ * é confirmado). Um caminho só, para as duas regras não divergirem.
+ *
+ * `exigeValor`: `Purchase` sem valor é recusado pela plataforma e ensinaria ao
+ * otimizador que a venda vale zero — vira pendência. Evento de etapa segue sem
+ * valor: a plataforma aceita e o sinal de intenção é o que importa ali.
+ */
+export async function reportarConversao(
+  admin: ReturnType<typeof createAdminClient>,
+  row: EventRow,
+  lead: LeadDaConversao,
+  EVENTO: NomeDoEvento,
+  CONSUMER_KEY: string,
+  opcoes: { exigeValor: boolean },
+): Promise<HandlerResult> {
+  const ok = (status: HandlerResult["status"], detail?: string): HandlerResult => ({
+    consumer_key: CONSUMER_KEY,
+    status,
+    detail,
+  });
   if (await jaFoiEnviada(admin, row.organization_id, lead.id, EVENTO)) {
     return ok("skipped", "ja_enviada");
   }
@@ -113,6 +150,10 @@ async function handle(row: EventRow): Promise<HandlerResult> {
   if (!leitura.temAtribuicao) return ok("skipped", leitura.motivo);
 
   const { plataforma, cliqueDeOrigem, telefone } = leitura.atribuicao;
+
+  // O Google recebe só a venda (uma ação de conversão, com valor). Evento de
+  // etapa em contato do Google não é pendência de ninguém — é não-aplicável.
+  if (plataforma !== "meta_ads" && EVENTO !== "Purchase") return ok("skipped", "plataforma_so_recebe_venda");
 
   const registra = (
     status: "sent" | "skipped" | "error",
@@ -145,7 +186,7 @@ async function handle(row: EventRow): Promise<HandlerResult> {
   // nullable e nada obriga a preenchê-lo no fechamento (baseline.sql:1452), então
   // esta é a pendência MAIS COMUM — e a razão de a tela existir. Mandar `0` para
   // "resolver" seria aceito e ensinaria ao otimizador que a venda não vale nada.
-  if (lead.value_cents === null || lead.value_cents <= 0) {
+  if (opcoes.exigeValor && (lead.value_cents === null || lead.value_cents <= 0)) {
     await registra("skipped", "sem_valor");
     return ok("skipped", "sem_valor");
   }

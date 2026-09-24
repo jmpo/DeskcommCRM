@@ -866,6 +866,12 @@ export const AUDIT_ACTIONS = [
   "registration.requested",
   "registration.approved",
   "registration.rejected",
+
+  // ── Sons dos avisos da Central (migration 0397) ─────────────────────────
+  // O arquivo de som que a organização escolheu para a venda confirmada e
+  // para o pedido de pessoa — e a volta ao bipe do produto.
+  "settings.notification_sound_updated",
+  "settings.notification_sound_removed",
 ] as const;
 
 /** Um código de auditoria. Derivado de `AUDIT_ACTIONS` — não redigite a lista. */

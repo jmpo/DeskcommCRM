@@ -129,6 +129,12 @@ async function enviar(
   credencial: CredencialDeConversao,
   conversao: ConversaoOffline,
 ): Promise<ResultadoDeEnvio> {
+  // A ação de conversão do Google é UMA (a venda, com valor). Evento de etapa
+  // não tem para onde ir aqui — recusa explícita em vez de valor inventado.
+  if (conversao.evento !== "Purchase" || conversao.valorCentavos === null) {
+    return { tipo: "permanente", detalhe: "o Google Ads recebe só a venda com valor" };
+  }
+  const valorCentavos = conversao.valorCentavos;
   const google = credencial.google;
   if (!google) {
     // Inalcançável em uso normal: `credenciais.ts` só monta este campo para
@@ -160,7 +166,7 @@ async function enviar(
         gclid: conversao.cliqueDeOrigem,
         conversionAction: `customers/${customerId}/conversionActions/${google.conversionActionId}`,
         conversionDateTime: formatarDataDeConversao(conversao.ocorridoEm),
-        conversionValue: conversao.valorCentavos / 100,
+        conversionValue: valorCentavos / 100,
         currencyCode: conversao.moeda.toUpperCase(),
         // Dedup do lado do Google — mesmo papel do `event_id` da Meta.
         orderId: conversao.eventoId,
