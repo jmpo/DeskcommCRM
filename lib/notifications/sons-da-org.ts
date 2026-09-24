@@ -55,6 +55,9 @@ export function somDoAviso(aviso: { kind: string; ref_kind: string | null }): Ti
   if (aviso.kind === "other" && aviso.ref_kind === "lead") return "venda";
   // O caso aberto (`lib/escalacao/caso-na-central.handler.ts`): a IA pediu ajuda.
   if (aviso.kind === "other" && aviso.ref_kind === "agent_case") return "pessoa";
+  // A IA ficou sem saldo no provedor (`espera-de-saldo.ts`): as respostas estão
+  // paradas até alguém recarregar — é o aviso que mais pede uma pessoa.
+  if (aviso.kind === "other" && aviso.ref_kind === "ai_provider_credential") return "pessoa";
   return null;
 }
 

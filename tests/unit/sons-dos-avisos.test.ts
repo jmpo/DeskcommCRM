@@ -17,6 +17,10 @@ describe("qual som cada aviso pede", () => {
     expect(somDoAviso({ kind: "other", ref_kind: "channel_session" })).toBeNull();
   });
 
+  it("IA sem saldo no provedor → som de pessoa (as respostas param até alguém recarregar)", () => {
+    expect(somDoAviso({ kind: "other", ref_kind: "ai_provider_credential" })).toBe("pessoa");
+  });
+
   it("abrir a página com avisos antigos não toca nada", () => {
     expect(sonsNovos(null, [{ id: "a", kind: "handoff", ref_kind: null }])).toEqual([]);
   });
