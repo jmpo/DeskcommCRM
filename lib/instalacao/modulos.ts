@@ -39,12 +39,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { logger } from "@/lib/logger";
 
-export const MODULOS_OPCIONAIS = ["banco_externo"] as const;
+export const MODULOS_OPCIONAIS = ["banco_externo", "fluxos_atendimento"] as const;
 export type ModuloOpcional = (typeof MODULOS_OPCIONAIS)[number];
 
 /** A linha de cada módulo em `platform_config`. O formato é o da CHECK da 0341. */
 export const CHAVE_DO_MODULO: Record<ModuloOpcional, string> = {
   banco_externo: "MODULO_BANCO_EXTERNO",
+  // Doc 64 (a): os fluxos de atendimento do #1130 entram desligados. A IA passa
+  // a conduzir um roteiro de perguntas no turno — quem não liga não carrega o
+  // caminho novo (`lib/agent-engine/agent/roteiro-no-turno.ts`).
+  fluxos_atendimento: "MODULO_FLUXOS_DE_ATENDIMENTO",
 };
 
 const LIGADO = "ligado";
@@ -79,6 +83,44 @@ export async function modulosLigados(db: SupabaseClient): Promise<ModuloOpcional
 export async function moduloLigado(db: SupabaseClient, modulo: ModuloOpcional): Promise<boolean> {
   return (await modulosLigados(db)).includes(modulo);
 }
+
+/**
+ * Quanto tempo o turno do agente confia na última leitura da chave. O motor lia
+ * `platform_config` a cada mensagem recebida (revisão do PR 1 dos fluxos:
+ * +1 ida ao banco por turno, em toda instalação, para a minoria que liga o
+ * módulo). O custo do memo: desligar a chave vale para o turno em até 30 s.
+ */
+export const MEMO_DO_MODULO_MS = 30_000;
+
+const memoDoModulo = new Map<ModuloOpcional, { ligado: boolean; ate: number }>();
+
+/**
+ * `moduloLigado` com memo de processo — para o caminho QUENTE (o turno do
+ * agente). Telas e rotas seguem lendo o banco a cada vez.
+ */
+export async function moduloLigadoComMemo(
+  db: SupabaseClient,
+  modulo: ModuloOpcional,
+  agora: number = Date.now(),
+): Promise<boolean> {
+  const memo = memoDoModulo.get(modulo);
+  if (memo !== undefined && memo.ate > agora) return memo.ligado;
+  const ligado = await moduloLigado(db, modulo);
+  memoDoModulo.set(modulo, { ligado, ate: agora + MEMO_DO_MODULO_MS });
+  return ligado;
+}
+
+/** Só para teste: esquece o memo. */
+export function esquecerMemoDosModulos(): void {
+  memoDoModulo.clear();
+}
+
+/**
+ * Módulos que existem no código mas ainda NÃO podem ser ligados por quem opera:
+ * a capacidade chega em partes e a tela que a torna usável ainda não entrou.
+ * `fluxos_atendimento`: o PR 3 do port do #1130 (telas) tira daqui.
+ */
+export const MODULOS_AINDA_NAO_LIGAVEIS: readonly ModuloOpcional[] = ["fluxos_atendimento"];
 
 /**
  * Grava a escolha de quem administra a instalação. `semeado_do_env = false`

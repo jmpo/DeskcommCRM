@@ -659,7 +659,7 @@ async function temCasoAbertoPg(pool: pg.Pool, tenantId: string, conversationId: 
  * silêncio também não serve — log de worker em VPS não é superfície de nada, e
  * este produto é instalado por quem nunca vai abrir um contêiner.
  */
-async function registrarDesfecho(
+export async function registrarDesfecho(
   pool: pg.Pool,
   entrada: {
     tenantId: string;
@@ -703,6 +703,11 @@ async function registrarDesfecho(
         JSON.stringify({
           desfecho: desfecho.tipo,
           porque: 'porque' in desfecho ? desfecho.porque : null,
+          // QUAL agente. Sem esta chave a medida do papel só existe agregada por
+          // organização, e o painel que a mostra vive na página de UM agente —
+          // apontando ação de configuração para o agente errado (invariante 7:
+          // o sinal de retorno precisa ter a dimensão do atuador).
+          agent_id: entrada.agentId,
           ferramentas_chamadas: entrada.ferramentasChamadas,
           promessas_declaradas: entrada.promessasDeclaradas,
           promessa_assumida_por: dono?.assumida === true ? dono.por : null,

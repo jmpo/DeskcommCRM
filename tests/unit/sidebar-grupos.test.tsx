@@ -30,6 +30,9 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/connections/ConnectionHealthDot", () => ({
   ConnectionHealthDot: () => null,
 }));
+// O contador de casos lê a fila pelo React Query; aqui não há provider, e o
+// número não é o objeto destes casos (o dele mora em contador-de-casos.test.tsx).
+vi.mock("@/components/shell/ContadorDeCasos", () => ({ ContadorDeCasos: () => null }));
 vi.mock("@/app/actions/shell/toggleSidebar", () => ({
   toggleSidebar: vi.fn(),
 }));
