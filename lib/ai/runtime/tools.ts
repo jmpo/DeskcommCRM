@@ -72,10 +72,12 @@ export interface PickToolsInput {
 /**
  * `lead_id` que é o id do CONTATO do turno → o negócio ABERTO desse contato.
  *
- * Só o contato do turno, e só quando o negócio é um só: com dois abertos a
- * escolha não é do runtime (`resolveActiveLeadForContact` devolve ambíguo) e o
- * id segue como veio, para a recusa de sempre. Falha de leitura também devolve
- * o id intacto — traduzir por palpite escreveria no cartão errado.
+ * Só o contato do turno, e só quando o negócio aberto é um só: com dois
+ * abertos a escolha não é do runtime e o id segue como veio, para a recusa de
+ * sempre. Quem recusa é o guarda abaixo, não `resolveActiveLeadForContact` —
+ * ela só chama de ambíguo o EMPATE de atividade; fora dele, escolhe o mais
+ * recente, e uma escrita (valor, ganho/perdido) cairia num cartão por palpite.
+ * Falha de leitura também devolve o id intacto.
  */
 export async function leadIdDoContatoDoTurno(
   supabase: SupabaseClient,
@@ -90,7 +92,9 @@ export async function leadIdDoContatoDoTurno(
     .eq("organization_id", organizationId)
     .eq("contact_id", contatoDoTurno);
   if (error) return null;
-  const r = resolveActiveLeadForContact((data ?? []) as LeadCandidate[]);
+  const candidatos = (data ?? []) as LeadCandidate[];
+  if (candidatos.filter((l) => l.status === "open").length !== 1) return null;
+  const r = resolveActiveLeadForContact(candidatos);
   return r.routed ? r.leadId : null;
 }
 
