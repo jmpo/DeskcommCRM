@@ -5525,6 +5525,8 @@ export const DICIONARIO: Traducoes = {
     es: "Abrí el caso para responder. La IA sigue atendiendo al cliente mientras tanto.",
   },
   "Abrir no mapa": { es: "Abrir en el mapa" },
+  "1 caso esperando você": { es: "1 caso esperándote" },
+  "casos esperando você": { es: "casos esperándote" },
   "Não foi possível abrir a conversa.": { es: "No se pudo abrir la conversación." },
   "Enter salva a nota · Shift+Enter quebra linha": { es: "Enter guarda la nota · Shift+Enter agrega un salto de línea" },
   "Enter envia · Shift+Enter quebra linha": { es: "Enter envía · Shift+Enter agrega un salto de línea" },
