@@ -23,9 +23,9 @@ const { updateLeadHandler } = await import("@/app/api/v1/leads/_handler");
 const { pickToolsFromMcp, leadIdDoContatoDoTurno } = await import("@/lib/ai/runtime/tools");
 
 const ORG = "11111111-1111-4111-8111-111111111111";
-const CONTATO = "b978457c-10d5-4aaf-9764-d80dc2590de4";
-const NEGOCIO = "2d226e69-cdf7-452f-a717-9b2bed8b41cb";
-const OUTRO = "3d92ebd4-fb2c-49a3-971c-6a2fb405421f";
+const CONTATO = "22222222-2222-4222-8222-222222222222";
+const NEGOCIO = "33333333-3333-4333-8333-333333333333";
+const OUTRO = "55555555-5555-4555-8555-555555555555";
 const FUNIL = "44444444-4444-4444-8444-444444444444";
 
 const negocio = (id: string, status = "open") => ({

@@ -1794,6 +1794,7 @@ export const DICIONARIO: Traducoes = {
   "Aguardando resposta": { es: "Esperando respuesta" },
   "Pausado (atendimento humano)": { es: "Pausado (atención humana)" },
   "Pausado por uma pessoa": { es: "Pausado por una persona" },
+  "Coletando respostas do roteiro": { es: "Recopilando respuestas del guion" },
   "Parou de tentar": { es: "Dejó de intentar" },
   Cancelado: { es: "Cancelado" },
   Agendada: { es: "Programada" },
@@ -4639,6 +4640,16 @@ export const DICIONARIO: Traducoes = {
     es: "El tiempo se cuenta desde la última actividad de una persona en la conversación: asumirla, responder desde la pantalla o desde el celular. Solo se devuelve donde hay un agente publicado. Si la opción está desactivada, rige la regla de siempre: la IA solo vuelve cuando alguien hace clic en Devolver.",
   },
   "Minutos sem resposta da equipe": { es: "Minutos sin respuesta del equipo" },
+  "Quando alguém responde, a conversa fica com essa pessoa?": {
+    es: "Cuando alguien responde, ¿la conversación se queda con esa persona?",
+  },
+  "Desligado, vale a regra de sempre: responder pela tela cala a IA por alguns minutos, e a conversa encerrada que recebe mensagem nova volta para a fila.": {
+    es: "Si está desactivado, rige la regla de siempre: responder desde la pantalla silencia a la IA por algunos minutos, y la conversación cerrada que recibe un mensaje nuevo vuelve a la fila.",
+  },
+  "A conversa fica com quem atendeu": { es: "La conversación se queda con quien la atendió" },
+  "Responder pelo Inbox numa conversa sem dono passa a assumi-la, e a IA fica calada até alguém devolver. Quando o cliente escreve numa conversa encerrada, ela volta direto para o último atendente, sem passar pela distribuição, se ele ainda faz parte da equipe.": {
+    es: "Responder desde el Inbox en una conversación sin responsable la asigna a quien responde, y la IA queda en silencio hasta que alguien la devuelva. Cuando el cliente escribe en una conversación cerrada, vuelve directo al último asesor, sin pasar por la distribución, si todavía forma parte del equipo.",
+  },
   "Entre 5 minutos e 24 horas. Sessenta minutos é a ordem de grandeza de um atendimento humano.": {
     es: "Entre 5 minutos y 24 horas. Sesenta minutos es el orden de magnitud de una atención humana.",
   },
@@ -5365,6 +5376,21 @@ export const DICIONARIO: Traducoes = {
     es: "La transferencia es inmediata: el asesor elegido pasa a ser el responsable y el cambio queda registrado en el historial.",
   },
   "Transferir para": { es: "Transferir a" },
+  "Continuar pelo número": { es: "Continuar por el número" },
+  "Continuar por este número": { es: "Continuar por este número" },
+  "O cliente passa a receber as mensagens pelo número escolhido. Se a conversa lá estiver livre, você fica como responsável. O histórico deste número continua nesta conversa.": {
+    es: "El cliente pasa a recibir los mensajes por el número elegido. Si la conversación allí está libre, tú quedas como responsable. El historial de este número sigue en esta conversación.",
+  },
+  "Este contato não tem telefone salvo, então não dá para falar com ele por outro número.": {
+    es: "Este contacto no tiene teléfono guardado, así que no se le puede hablar por otro número.",
+  },
+  "A conversa neste número está com": { es: "La conversación en este número está con" },
+  "outro atendente": { es: "otro agente" },
+  "Atendimento continua pelo outro número.": { es: "La atención sigue por el otro número." },
+  "O número desta conversa não está conectado.": {
+    es: "El número de esta conversación no está conectado.",
+  },
+  "Responder por outro número": { es: "Responder por otro número" },
   "Carregando atendentes…": { es: "Cargando asesores…" },
   "Nenhum outro atendente disponível nesta organização.": {
     es: "No hay ningún otro asesor disponible en esta organización.",
@@ -5400,6 +5426,19 @@ export const DICIONARIO: Traducoes = {
   "link da imagem": { es: "enlace de la imagen" },
   "Salvar este link no modelo": { es: "Guardar este enlace en la plantilla" },
   "já há um link salvo": { es: "ya hay un enlace guardado" },
+  "Link salvo no modelo.": { es: "Enlace guardado en la plantilla." },
+  "Link removido do modelo.": { es: "Enlace eliminado de la plantilla." },
+  "Remover link": { es: "Quitar enlace" },
+  "Salvar link": { es: "Guardar enlace" },
+  "Link salvo: o painel do modelo na conversa já vem preenchido com ele.": {
+    es: "Enlace guardado: el panel de la plantilla en la conversación ya viene completado con él.",
+  },
+  "Link público (https) do arquivo. Salvo aqui, o painel do modelo na conversa já vem preenchido.": {
+    es: "Enlace público (https) del archivo. Guardado aquí, el panel de la plantilla en la conversación ya viene completado.",
+  },
+  "Use um link público que comece com https://": {
+    es: "Usa un enlace público que empiece con https://",
+  },
   "O modelo saiu, mas não consegui salvar o link nele.": {
     es: "La plantilla se envió, pero no pude guardar el enlace en ella.",
   },
@@ -5492,6 +5531,7 @@ export const DICIONARIO: Traducoes = {
 
   // ─── Inbox: aviso de retenção (before_send) ───
   "sem domingo": { es: "sin domingo" },
+  "horário de": { es: "horario de" },
   "Fora da janela de envio": { es: "Fuera de la ventana de envío" },
   "A resposta fica agendada para a próxima abertura da janela, às": {
     es: "La respuesta queda programada para cuando se abra de nuevo la ventana, a las",
@@ -5771,7 +5811,7 @@ export const DICIONARIO: Traducoes = {
   "Seu atendente foi criado, mas ficou como": { es: "Tu agente se creó, pero quedó como" },
   "rascunho": { es: "borrador" },
   "— ele ainda não tem com o que pensar.": { es: "— todavía no tiene con qué pensar." },
-  "Não achei chave de": { es: "No encontré ninguna clave de" },
+  "Não achei chave": { es: "No encontré ninguna clave" },
   "nem cadastrada aqui, nem vinda da instalação. Cole a chave no campo acima («o cérebro dele») e crie o atendente de novo — ou cadastre em": {
     es: "ni registrada aquí ni incluida con la instalación. Pega la clave en el campo de arriba («su cerebro») y vuelve a crear el agente, o regístrala en",
   },
@@ -8039,6 +8079,9 @@ export const DICIONARIO: Traducoes = {
   "Falha ao salvar o teto diário.": { es: "No se pudo guardar el tope diario." },
   "Faltam nome, idioma ou conteúdo.": { es: "Faltan nombre, idioma o contenido." },
   "Fluxo não encontrado.": { es: "Flujo no encontrado." },
+  "Roteiro de atendimento começa por palavra-gatilho ou pelo roteador, não por gatilho de follow-up.": {
+    es: "El guion de atención empieza por palabra clave o por el enrutador, no por un disparador de seguimiento.",
+  },
   "Fluxo não tem rascunho pronto para publicar.": { es: "El flujo no tiene un borrador listo para publicar." },
   "Fluxo reprovado na validação de publish.": { es: "El flujo no pasó la validación de publicación." },
   "Follow-up não encontrado.": { es: "Follow-up no encontrado." },
@@ -8266,7 +8309,7 @@ export const DICIONARIO: Traducoes = {
   "Aviso do assistente": { es: "Aviso del asistente" },
   // ─── app/app/products/_client.tsx — descrição do produto ───
   "sem descrição": { es: "sin descripción" },
-  // ─── sons dos avisos (migration 0397) ───
+  // ─── sons dos avisos (migration 0404) ───
   "Sons dos avisos": { es: "Sonidos de los avisos" },
   "Tocam com o site aberto quando o aviso chega na Central. MP3, OGG ou WAV de até 1 MB.": {
     es: "Suenan con el sitio abierto cuando el aviso llega a la Central. MP3, OGG o WAV de hasta 1 MB.",
@@ -8292,7 +8335,7 @@ export const DICIONARIO: Traducoes = {
   "O som pode ter no máximo 1 MB.": { es: "El sonido puede tener como máximo 1 MB." },
   "O som precisa ser MP3, OGG ou WAV.": { es: "El sonido tiene que ser MP3, OGG o WAV." },
   "Aviso desconhecido.": { es: "Aviso desconocido." },
-  // ─── editor de etapas — evento de conversão (migration 0396) ───
+  // ─── editor de etapas — evento de conversão (migration 0403) ───
   "Evento para a plataforma de anúncio quando um negócio entrar aqui": {
     es: "Evento para la plataforma de anuncios cuando un negocio entre acá",
   },
@@ -8305,7 +8348,7 @@ export const DICIONARIO: Traducoes = {
   "É o que o atendente de IA conta ao cliente: para que serve, medidas, materiais, diferenciais. Ele repete o que estiver aqui — e não inventa o que faltar.": {
     es: "Es lo que el asistente de IA le cuenta al cliente: para qué sirve, medidas, materiales, diferenciales. Repite lo que esté acá y no inventa lo que falte.",
   },
-  // ─── lib/leads/aviso-de-etapa.handler.ts + editor de etapas (migration 0394) ───
+  // ─── lib/leads/aviso-de-etapa.handler.ts + editor de etapas (migration 0401) ───
   "Negócio entrou em": { es: "Negocio entró en" },
   "Abra o negócio para dar o próximo passo. Este aviso foi pedido na configuração da etapa.": {
     es: "Abrí el negocio para dar el próximo paso. Este aviso se pidió en la configuración de la etapa.",

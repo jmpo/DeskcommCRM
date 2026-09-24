@@ -17,7 +17,7 @@
  *
  * Com o aviso na Central vêm, sem código a mais: o sino, o som de "pessoa"
  * (`somDoAviso`) e o push para o celular (`central.aviso_criado`, migration
- * 0399). Quando o caso fecha — respondido, cancelado, escalado para fora —, o
+ * 0405). Quando o caso fecha — respondido, cancelado, escalado para fora —, o
  * aviso sai do sino.
  */
 import type { EventHandler, EventRow, HandlerResult } from "@/lib/event-log/dispatcher";

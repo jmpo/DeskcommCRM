@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 
 /**
- * `fn_nascer_lead_da_conversa` (migration 0398) — o negócio que nasce de uma
+ * `fn_nascer_lead_da_conversa` (migration 0400) — o negócio que nasce de uma
  * mensagem nasce na moeda da ORGANIZAÇÃO, não no default da coluna.
  *
  * Medido numa organização em guarani: 229 de 229 negócios em BRL. O valor do
@@ -20,16 +20,16 @@ const pool = new pg.Pool({
   max: 2,
 });
 
-const ORG_PYG = "d0398000-0000-4000-8000-000000000001";
-const ORG_PADRAO = "d0398000-0000-4000-8000-000000000002";
+const ORG_PYG = "d0400000-0000-4000-8000-000000000001";
+const ORG_PADRAO = "d0400000-0000-4000-8000-000000000002";
 
 async function montar(org: string, sufixo: string) {
-  const funil = `d0398${sufixo}00-0000-4000-8000-000000000003`;
-  const etapa = `d0398${sufixo}00-0000-4000-8000-000000000004`;
-  const contato = `d0398${sufixo}00-0000-4000-8000-000000000005`;
+  const funil = `d0400${sufixo}00-0000-4000-8000-000000000003`;
+  const etapa = `d0400${sufixo}00-0000-4000-8000-000000000004`;
+  const contato = `d0400${sufixo}00-0000-4000-8000-000000000005`;
   await pool.query(
     `insert into crm_pipelines (id, organization_id, name, slug) values ($1, $2, 'Funil', $3)`,
-    [funil, org, `funil-0398-${sufixo}`],
+    [funil, org, `funil-0400-${sufixo}`],
   );
   await pool.query(
     `insert into crm_stages (id, organization_id, pipeline_id, name, slug, position)
@@ -52,8 +52,8 @@ async function nascer(org: string, f: { funil: string; etapa: string; contato: s
 beforeAll(async () => {
   await pool.query(
     `insert into organizations (id, slug, legal_name, display_name, currency)
-     values ($1, 'org-0398-pyg', 'Pedilo', 'Pedilo', 'PYG'),
-            ($2, 'org-0398-padrao', 'Padrão LTDA', 'Padrão', default)
+     values ($1, 'org-0400-pyg', 'Loja em Guarani LTDA', 'Loja em Guarani', 'PYG'),
+            ($2, 'org-0400-padrao', 'Padrão LTDA', 'Padrão', default)
      on conflict (id) do nothing`,
     [ORG_PYG, ORG_PADRAO],
   );
