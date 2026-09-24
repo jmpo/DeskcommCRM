@@ -50,6 +50,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
+      # Enquanto o app sobe, pergunta a cada 2 s — e não a cada 30. O proxy só
+      # manda tráfego a contêiner `healthy`, e o app fica pronto em ~5 s: com o
+      # intervalo de 30 s, TODO deploy deixava o domínio em "404 page not found"
+      # por 30–45 s sem motivo (medido em 24/09/2026, quatro deploys no dia).
+      # Passado o `start_period`, volta ao `interval` de 30 s. Exige Docker
+      # Engine 25+ (a opção é da API 1.44).
+      start_interval: 2s
     logging: *default-logging
     networks: [internal]
 
