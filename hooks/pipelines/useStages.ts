@@ -39,6 +39,8 @@ export interface PatchDeEtapa {
   depois_de?: string | null;
   /** Negócio que entra nesta etapa abre um aviso na Central. */
   avisar_na_central?: boolean;
+  /** Evento enviado a Meta al entrar; `null` = ninguno. */
+  evento_de_conversao?: "InitiateCheckout" | "LeadSubmitted" | "AddToCart" | null;
 }
 
 function useReler(pipelineId: string) {

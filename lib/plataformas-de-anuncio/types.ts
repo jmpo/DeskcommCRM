@@ -44,8 +44,15 @@
  */
 export type PlataformaDeAnuncio = "meta_ads" | "google_ads";
 
-/** Só `Purchase` hoje. `Lead` é a Fase 2 e entra quando `lead.created` for consumido. */
-export type NomeDoEvento = "Purchase";
+/**
+ * `Purchase` é a venda (na entrega, em quem vende contra entrega). Os demais são
+ * eventos de ETAPA do funil (`crm_stages.evento_de_conversao`, migration 0396):
+ * o sinal de intenção que chega dias antes da entrega — é com ele que o
+ * otimizador da plataforma aprende rápido numa venda que só se paga ao receber.
+ */
+export const EVENTOS_DE_ETAPA = ["InitiateCheckout", "LeadSubmitted", "AddToCart"] as const;
+export type EventoDeEtapa = (typeof EVENTOS_DE_ETAPA)[number];
+export type NomeDoEvento = "Purchase" | EventoDeEtapa;
 
 /**
  * Uma conversão pronta para sair — no formato da CASA, não no da plataforma.
@@ -76,7 +83,8 @@ export interface ConversaoOffline {
   cliqueDeOrigem: string;
   /** E.164 sem `+`, ainda EM CLARO: o hash é responsabilidade do transporte. */
   telefone: string | null;
-  valorCentavos: number;
+  /** `null` só em evento de etapa sem valor — `Purchase` sempre traz. */
+  valorCentavos: number | null;
   moeda: string;
 }
 

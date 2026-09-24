@@ -8257,6 +8257,40 @@ export const DICIONARIO: Traducoes = {
   "Aviso do assistente": { es: "Aviso del asistente" },
   // ─── app/app/products/_client.tsx — descrição do produto ───
   "sem descrição": { es: "sin descripción" },
+  // ─── sons dos avisos (migration 0397) ───
+  "Sons dos avisos": { es: "Sonidos de los avisos" },
+  "Tocam com o site aberto quando o aviso chega na Central. MP3, OGG ou WAV de até 1 MB.": {
+    es: "Suenan con el sitio abierto cuando el aviso llega a la Central. MP3, OGG o WAV de hasta 1 MB.",
+  },
+  "Venda confirmada": { es: "Venta confirmada" },
+  "Quando um negócio entra numa etapa que avisa na Central (por exemplo, pedido confirmado).": {
+    es: "Cuando un negocio entra a una etapa que avisa en la Central (por ejemplo, pedido confirmado).",
+  },
+  "Precisa de uma pessoa": { es: "Necesita una persona" },
+  "Quando o assistente passa a conversa para alguém da equipe.": {
+    es: "Cuando el asistente pasa la conversación a alguien del equipo.",
+  },
+  "Som personalizado": { es: "Sonido personalizado" },
+  "Som do sistema": { es: "Sonido del sistema" },
+  "Ouvir": { es: "Escuchar" },
+  "Trocar som": { es: "Cambiar sonido" },
+  "Usar o do sistema": { es: "Usar el del sistema" },
+  "Som salvo": { es: "Sonido guardado" },
+  "Voltou ao som do sistema": { es: "Volvió al sonido del sistema" },
+  "Erro ao subir o som.": { es: "Error al subir el sonido." },
+  "Erro ao salvar o som.": { es: "Error al guardar el sonido." },
+  "Escolha o aviso e o arquivo de som.": { es: "Elegí el aviso y el archivo de sonido." },
+  "O som pode ter no máximo 1 MB.": { es: "El sonido puede tener como máximo 1 MB." },
+  "O som precisa ser MP3, OGG ou WAV.": { es: "El sonido tiene que ser MP3, OGG o WAV." },
+  "Aviso desconhecido.": { es: "Aviso desconocido." },
+  // ─── editor de etapas — evento de conversão (migration 0396) ───
+  "Evento para a plataforma de anúncio quando um negócio entrar aqui": {
+    es: "Evento para la plataforma de anuncios cuando un negocio entre acá",
+  },
+  "Evento para a plataforma de anúncio em": { es: "Evento para la plataforma de anuncios en" },
+  "Início de compra (InitiateCheckout)": { es: "Inicio de compra (InitiateCheckout)" },
+  "Lead (LeadSubmitted)": { es: "Lead (LeadSubmitted)" },
+  "Adicionou ao carrinho (AddToCart)": { es: "Agregó al carrito (AddToCart)" },
   "Descrição salva": { es: "Descripción guardada" },
   "Salvar descrição": { es: "Guardar descripción" },
   "É o que o atendente de IA conta ao cliente: para que serve, medidas, materiais, diferenciais. Ele repete o que estiver aqui — e não inventa o que faltar.": {

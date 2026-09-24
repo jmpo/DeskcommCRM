@@ -63,6 +63,8 @@ export interface MensagemProjetada {
 
 /** O contexto como o Conversador o lê. Tudo o que não está aqui, ele não vê. */
 export interface ContextoProjetado {
+  /** Anúncio de onde o contato veio, quando veio de um. */
+  anuncio_de_origem?: { titulo: string | null; texto: string | null };
   contato: {
     nome: string | null;
     telefone: string | null;
@@ -81,6 +83,8 @@ export interface ContextoProjetado {
  */
 export function projetarContexto(ctx: LeadContext): ContextoProjetado {
   return {
+    // O anúncio de origem passa como veio: é texto do próprio anunciante, sem id.
+    ...(ctx.anuncio_de_origem ? { anuncio_de_origem: ctx.anuncio_de_origem } : {}),
     contato: {
       nome: ctx.contact.name,
       telefone: ctx.contact.phone,

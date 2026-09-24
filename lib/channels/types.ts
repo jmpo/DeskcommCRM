@@ -173,11 +173,12 @@ export interface ChannelConversionInput extends ChannelTenantScope {
   providerConversationId: string | null;
   /** Só dígitos (E.164 sem `+`). Reforço de casamento, nunca o único. */
   phone: string | null;
-  event: "Purchase";
+  event: "Purchase" | "InitiateCheckout" | "LeadSubmitted" | "AddToCart";
   /** Chave de deduplicação na plataforma: o mesmo id nunca conta duas vezes. */
   eventId: string;
   occurredAt: Date;
-  valueCents: number;
+  /** `null` em evento de etapa sem valor. */
+  valueCents: number | null;
   currency: string;
 }
 

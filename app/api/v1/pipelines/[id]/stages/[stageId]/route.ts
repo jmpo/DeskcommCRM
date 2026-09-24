@@ -45,6 +45,7 @@ const bodySchema = z
     is_lost: z.boolean().optional(),
     depois_de: z.string().min(1).nullable().optional(),
     avisar_na_central: z.boolean().optional(),
+    evento_de_conversao: z.enum(["InitiateCheckout", "LeadSubmitted", "AddToCart"]).nullable().optional(),
   })
   .strict()
   .refine((b) => Object.keys(b).length > 0, { message: "Nada para alterar." });

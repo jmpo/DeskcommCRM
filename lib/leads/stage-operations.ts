@@ -51,7 +51,7 @@ export interface DepsDeEtapa {
 
 /** As colunas que a tela e as regras usam. `position` entra: a reordenação calcula em cima dela. */
 const COLUNAS =
-  "id, name, slug, position, is_won, is_lost, is_archived, agent_stage_hint, avisar_na_central, last_change_actor_kind, last_change_at";
+  "id, name, slug, position, is_won, is_lost, is_archived, agent_stage_hint, avisar_na_central, evento_de_conversao, last_change_actor_kind, last_change_at";
 
 /** A etapa como sai para quem lê — inclui a autoria da última mudança de configuração. */
 export interface EtapaVisivel {
@@ -63,6 +63,8 @@ export interface EtapaVisivel {
   is_lost: boolean;
   /** Negócio que entra aqui abre um aviso na Central (migration 0394). */
   avisar_na_central: boolean;
+  /** Evento enviado à plataforma de anúncio ao entrar (migration 0396); `null` = nenhum. */
+  evento_de_conversao: string | null;
   /** `user` | `ai` | `system` — `null` nas etapas anteriores a esta coluna. */
   last_change_actor_kind: string | null;
   last_change_at: string | null;
@@ -70,6 +72,7 @@ export interface EtapaVisivel {
 
 type EtapaLida = EtapaEditavel & {
   avisar_na_central?: boolean | null;
+  evento_de_conversao?: string | null;
   last_change_actor_kind: string | null;
   last_change_at: string | null;
 };
@@ -123,6 +126,7 @@ export function corpo(etapas: EtapaLida[]): { etapas: EtapaVisivel[] } {
         is_won: e.is_won,
         is_lost: e.is_lost,
         avisar_na_central: e.avisar_na_central === true,
+        evento_de_conversao: e.evento_de_conversao ?? null,
         last_change_actor_kind: e.last_change_actor_kind ?? null,
         last_change_at: e.last_change_at ?? null,
       })),
@@ -289,6 +293,8 @@ export interface PedidoDeEdicao {
   depois_de?: string | null;
   /** Liga ou desliga o aviso na Central para quem entra nesta etapa (0394). */
   avisar_na_central?: boolean;
+  /** Evento de conversão ao entrar (0396); `null` desliga. */
+  evento_de_conversao?: "InitiateCheckout" | "LeadSubmitted" | "AddToCart" | null;
 }
 
 export async function atualizarEtapa(
@@ -339,9 +345,15 @@ export async function atualizarEtapa(
     }
   }
 
-  const patchDoAlvo: PatchDeMarcacao & { name?: string; position?: number; avisar_na_central?: boolean } = {};
+  const patchDoAlvo: PatchDeMarcacao & {
+    name?: string;
+    position?: number;
+    avisar_na_central?: boolean;
+    evento_de_conversao?: string | null;
+  } = {};
   if (pedido.name !== undefined) patchDoAlvo.name = pedido.name.trim();
   if (pedido.avisar_na_central !== undefined) patchDoAlvo.avisar_na_central = pedido.avisar_na_central;
+  if (pedido.evento_de_conversao !== undefined) patchDoAlvo.evento_de_conversao = pedido.evento_de_conversao;
 
   if (pedido.depois_de !== undefined) {
     // Só as ativas compõem a régua: arquivada não ocupa lugar no quadro.
