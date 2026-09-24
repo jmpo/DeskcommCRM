@@ -1,6 +1,6 @@
 /**
  * Aviso na Central quando um negócio ENTRA numa etapa marcada para avisar
- * (`crm_stages.avisar_na_central`, migration 0394).
+ * (`crm_stages.avisar_na_central`, migration 0401).
  *
  * ─── Por que uma etapa, e não o ganho ───────────────────────────────────────
  *

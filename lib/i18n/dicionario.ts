@@ -8266,7 +8266,7 @@ export const DICIONARIO: Traducoes = {
   "Aviso do assistente": { es: "Aviso del asistente" },
   // ─── app/app/products/_client.tsx — descrição do produto ───
   "sem descrição": { es: "sin descripción" },
-  // ─── sons dos avisos (migration 0397) ───
+  // ─── sons dos avisos (migration 0404) ───
   "Sons dos avisos": { es: "Sonidos de los avisos" },
   "Tocam com o site aberto quando o aviso chega na Central. MP3, OGG ou WAV de até 1 MB.": {
     es: "Suenan con el sitio abierto cuando el aviso llega a la Central. MP3, OGG o WAV de hasta 1 MB.",
@@ -8292,7 +8292,7 @@ export const DICIONARIO: Traducoes = {
   "O som pode ter no máximo 1 MB.": { es: "El sonido puede tener como máximo 1 MB." },
   "O som precisa ser MP3, OGG ou WAV.": { es: "El sonido tiene que ser MP3, OGG o WAV." },
   "Aviso desconhecido.": { es: "Aviso desconocido." },
-  // ─── editor de etapas — evento de conversão (migration 0396) ───
+  // ─── editor de etapas — evento de conversão (migration 0403) ───
   "Evento para a plataforma de anúncio quando um negócio entrar aqui": {
     es: "Evento para la plataforma de anuncios cuando un negocio entre acá",
   },
@@ -8305,7 +8305,7 @@ export const DICIONARIO: Traducoes = {
   "É o que o atendente de IA conta ao cliente: para que serve, medidas, materiais, diferenciais. Ele repete o que estiver aqui — e não inventa o que faltar.": {
     es: "Es lo que el asistente de IA le cuenta al cliente: para qué sirve, medidas, materiales, diferenciales. Repite lo que esté acá y no inventa lo que falte.",
   },
-  // ─── lib/leads/aviso-de-etapa.handler.ts + editor de etapas (migration 0394) ───
+  // ─── lib/leads/aviso-de-etapa.handler.ts + editor de etapas (migration 0401) ───
   "Negócio entrou em": { es: "Negocio entró en" },
   "Abra o negócio para dar o próximo passo. Este aviso foi pedido na configuração da etapa.": {
     es: "Abrí el negocio para dar el próximo paso. Este aviso se pidió en la configuración de la etapa.",

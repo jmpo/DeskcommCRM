@@ -36454,7 +36454,7 @@ comment on column public.channel_sessions.datafy_token_encrypted is
 
 -- ---- fim canal de WhatsApp Datafy (migration 0387) ----
 
--- ---- a retenção de mídia passa a existir (migration 0395) ----
+-- ---- a retenção de mídia passa a existir (migration 0402) ----
 -- Ver o cabeçalho da migration: enfileira arquivo vencido e órfão na mesma
 -- fila da LGPD; o cron storage-redaction remove pelo Storage API.
 create or replace function public.fn_enfileirar_midia_vencida(p_limite integer default 500)
@@ -36534,7 +36534,7 @@ grant execute on function public.fn_enfileirar_midia_vencida(integer) to service
 
 notify pgrst, 'reload schema';
 
--- ---- o negócio que nasce da conversa nasce na moeda da organização (migration 0398) ----
+-- ---- o negócio que nasce da conversa nasce na moeda da organização (migration 0400) ----
 --
 -- `fn_nascer_lead_da_conversa` (0256) não passava `currency`, e o insert pegava
 -- o default da coluna, 'BRL', em toda organização. Medido numa organização em
@@ -36607,7 +36607,7 @@ update public.crm_leads l
    and l.currency = 'BRL'
    and l.value_cents is null;
 
--- ---- o aviso da Central anuncia no barramento que nasceu (migration 0399) ----
+-- ---- o aviso da Central anuncia no barramento que nasceu (migration 0405) ----
 --
 -- Os avisos que pedem gente (a IA passou a conversa para uma pessoa; um negócio
 -- entrou numa etapa que avisa, a venda confirmada de quem vende contra entrega)
@@ -37544,18 +37544,18 @@ end $$;
 -- "atualizado" com módulo fora do ar. Instalação nova não tem módulo: no-op.
 do $f$ begin perform public.fn_conferir_modulos_instalados(); end $f$;
 
--- ---- a etapa que avisa a equipe na Central (migration 0394) ----
+-- ---- a etapa que avisa a equipe na Central (migration 0401) ----
 -- Ver o cabeçalho da migration: marca por etapa, desligada por padrão; o
 -- handler `lib/leads/aviso-de-etapa.handler.ts` abre o item na Central.
 alter table public.crm_stages
   add column if not exists avisar_na_central boolean not null default false;
 
 comment on column public.crm_stages.avisar_na_central is
-  'Negócio que entra nesta etapa abre um aviso na Central de avisos (0394).';
+  'Negócio que entra nesta etapa abre um aviso na Central de avisos (0401).';
 
 notify pgrst, 'reload schema';
 
--- ---- a etapa manda evento de conversão à plataforma de anúncio (migration 0396) ----
+-- ---- a etapa manda evento de conversão à plataforma de anúncio (migration 0403) ----
 -- Ver o cabeçalho da migration. Aditivo e idempotente; coluna nova, sem legado.
 alter table public.crm_stages
   add column if not exists evento_de_conversao text;
@@ -37567,11 +37567,11 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 comment on column public.crm_stages.evento_de_conversao is
-  'Evento de conversão enviado à plataforma de anúncio quando um negócio entra nesta etapa (0396).';
+  'Evento de conversão enviado à plataforma de anúncio quando um negócio entra nesta etapa (0403).';
 
 notify pgrst, 'reload schema';
 
--- ---- o bucket dos sons dos avisos da Central (migration 0397) ----
+-- ---- o bucket dos sons dos avisos da Central (migration 0404) ----
 -- Privado; só o service_role lê e grava. Teto e tipos de lib/notifications/sons-da-org.ts.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('org-sounds', 'org-sounds', false, 1048576, array['audio/mpeg', 'audio/ogg', 'audio/wav'])

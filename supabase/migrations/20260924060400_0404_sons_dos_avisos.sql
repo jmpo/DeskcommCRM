@@ -1,4 +1,4 @@
--- 0397 — o bucket dos sons dos avisos da Central.
+-- 0404 — o bucket dos sons dos avisos da Central.
 --
 -- A organização escolhe o som da venda confirmada e o do pedido de pessoa
 -- (`lib/notifications/sons-da-org.ts`). O arquivo vive aqui, PRIVADO: só o
