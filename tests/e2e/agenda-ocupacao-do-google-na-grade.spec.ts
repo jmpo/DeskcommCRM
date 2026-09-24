@@ -258,7 +258,15 @@ test.describe("a ocupação do Google na grade da agenda", () => {
     await entrar(page, creds);
 
     const dias = await irParaASemanaSeguinte(page);
-    const alvo = dias[3]!;
+    // O alvo é o MESMO dia da semana de hoje, e não a quarta fixa. Depois de
+    // avançar uma semana a âncora da agenda é hoje + 7, e a visão Mês desenha o
+    // mês DA ÂNCORA (`startOfMonth(ancora)` em app/app/agenda/_client.tsx). Com a
+    // quarta fixa, numa semana que cruza o mês o evento caía fora da busca do
+    // mês: medido na quinta 24/09/2026 — âncora 01/10, evento 30/09, vermelho
+    // determinístico de quinta a sábado e verde no resto. O dia da âncora está
+    // sempre no mês que a visão Mês abre.
+    const diaDaSemanaDeHoje = await page.evaluate(() => new Date().getDay());
+    const alvo = dias[diaDaSemanaDeHoje]!;
     const comeca = await instanteNoDia(page, alvo, 15);
     const termina = await instanteNoDia(page, alvo, 16);
     const conexaoId = await conexaoDoGoogle(creds.org_id, dono.id);
