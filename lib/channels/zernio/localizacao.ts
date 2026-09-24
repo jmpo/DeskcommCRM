@@ -24,8 +24,18 @@ import { lerLocalizacao, type Localizacao } from "@/lib/messaging/localizacao";
 import { resolveZernioCreds, type ZernioCredentials } from "./credentials";
 import type { ZernioInboundMessage } from "./webhook";
 
-/** O texto que o provedor põe no lugar do pino. */
-const MARCADOR = /^📍\s*location$/i;
+/**
+ * O texto que o provedor põe no lugar do pino: `📍 Location` para a localização
+ * atual, e `📍 <nome do lugar>` quando o cliente escolhe um lugar com nome no
+ * mapa — medido em 24/09/2026: "📍 Plaza Paso de Oro" chegou sem coordenadas no
+ * webhook e COM elas (mais nome e endereço) na API. Enquanto só a primeira forma
+ * era reconhecida, o lugar com nome entrava como texto e o link do mapa sumia.
+ *
+ * Por isso basta o alfinete no começo. Alguém que DIGITA "📍 minha casa" custa
+ * uma consulta à API, que não traz `metadata.location` — e a mensagem segue como
+ * texto: quem decide que é pino é a API, não este padrão.
+ */
+const MARCADOR = /^📍/u;
 
 /** Quantas mensagens recentes olhar: o pino acabou de chegar, está no topo. */
 const RECENTES = 20;

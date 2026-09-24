@@ -60,7 +60,14 @@ describe("o marcador que o canal põe no lugar do pino", () => {
     expect(ehMarcadorDeLocalizacao("📍 Location")).toBe(true);
     expect(ehMarcadorDeLocalizacao(" 📍 location ")).toBe(true);
     expect(ehMarcadorDeLocalizacao("te mando la location mañana")).toBe(false);
+    expect(ehMarcadorDeLocalizacao("mi ubicación 📍")).toBe(false);
     expect(ehMarcadorDeLocalizacao(null)).toBe(false);
+  });
+
+  it("reconhece o lugar com nome — o provedor põe o nome no lugar de 'Location'", () => {
+    // Caso real (24/09/2026): o cliente escolheu uma praça no mapa.
+    expect(ehMarcadorDeLocalizacao("📍 Plaza Paso de Oro")).toBe(true);
+    expect(ehMarcadorDeLocalizacao("📍 Supermercado Stock — Ypané")).toBe(true);
   });
 });
 
