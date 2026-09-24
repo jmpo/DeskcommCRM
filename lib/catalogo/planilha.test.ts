@@ -181,6 +181,30 @@ describe("a planilha em espanhol — o arquivo que a loja JÁ TEM", () => {
     }
   });
 
+  it("com `nombre` ao lado, `descripcion` vira a DESCRIÇÃO do produto — em qualquer ordem", () => {
+    for (const [cabecalho, linha] of [
+      ["nombre;descripcion;precio", "Masajeador;Con calor infrarrojo y 3 velocidades;350.000"],
+      ["descripcion;nombre;precio", "Con calor infrarrojo y 3 velocidades;Masajeador;350.000"],
+    ] as const) {
+      const r = lerPlanilha(`${cabecalho}\n${linha}\n`);
+      if ("erro" in r) throw new Error(r.erro);
+      expect(r.produtos[0]!.descricao, cabecalho).toBe("Con calor infrarrojo y 3 velocidades");
+      expect(r.colunasIgnoradas, cabecalho).toEqual([]);
+    }
+  });
+
+  it("célula de descrição vazia não carrega `descricao` — a gravada na tela fica", () => {
+    const r = lerPlanilha("nombre;descripcion;precio\nMasajeador;;350.000\n");
+    if ("erro" in r) throw new Error(r.erro);
+    expect(r.produtos[0]).not.toHaveProperty("descricao");
+  });
+
+  it("planilha sem coluna de descrição não fala de descrição", () => {
+    const r = lerPlanilha("nombre;precio\nMasajeador;350.000\n");
+    if ("erro" in r) throw new Error(r.erro);
+    expect(r.produtos[0]).not.toHaveProperty("descricao");
+  });
+
   it("planilha SÓ com `descripcion` entra — recusá-la seria pior que aceitá-la", () => {
     const r = lerPlanilha("descripcion;precio\nMasajeador con calor;350.000\n");
     expect("erro" in r).toBe(false);
