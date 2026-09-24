@@ -258,6 +258,22 @@ export async function POST(req: NextRequest): Promise<Response> {
   await gravarEmLotes(novos);
   await gravarEmLotes(existentes);
 
+  // A descrição vem num passo À PARTE, e só onde a célula trouxe texto: o
+  // upsert acima não a carrega de propósito (ver o topo do arquivo) — uma
+  // descrição escrita na tela não pode ser apagada por uma planilha que nem
+  // tem a coluna. Célula vazia também não apaga.
+  let descricoes = 0;
+  for (const p of aceitos) {
+    if (!p.descricao) continue;
+    const { error } = await supabase
+      .from("catalog_products")
+      .update({ descricao: p.descricao })
+      .eq("organization_id", orgId)
+      .eq("codigo", p.codigo);
+    if (error) erros.push({ linha: p.linha, motivo: `"${p.nome}": ${error.message}` });
+    else descricoes += 1;
+  }
+
   const atualizados = existentes.length;
   const criados = Math.max(0, gravados - atualizados);
 
@@ -273,6 +289,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       total_linhas: totalLinhas,
       criados,
       atualizados,
+      descricoes,
       erros: erros.length,
     },
   });
@@ -297,9 +314,9 @@ export async function GET(): Promise<Response> {
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
 
   const modelo = [
-    "codigo,nome,marca,categoria,preco,custo,estoque",
-    "IP15-128,iPhone 15 128GB,Apple,Celular,5499.00,4100.00,3",
-    "PERF-212,212 VIP Men 100ml,Carolina Herrera,Perfume,449.90,280.00,7",
+    "codigo,nome,marca,categoria,preco,custo,estoque,descricao",
+    'IP15-128,iPhone 15 128GB,Apple,Celular,5499.00,4100.00,3,"Tela de 6,1 polegadas, 128 GB"',
+    "PERF-212,212 VIP Men 100ml,Carolina Herrera,Perfume,449.90,280.00,7,",
   ].join("\n");
 
   return new Response(`﻿${modelo}\n`, {

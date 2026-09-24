@@ -8255,6 +8255,13 @@ export const DICIONARIO: Traducoes = {
     es: "Un material que enviaste no entró en la base de conocimiento",
   },
   "Aviso do assistente": { es: "Aviso del asistente" },
+  // ─── app/app/products/_client.tsx — descrição do produto ───
+  "sem descrição": { es: "sin descripción" },
+  "Descrição salva": { es: "Descripción guardada" },
+  "Salvar descrição": { es: "Guardar descripción" },
+  "É o que o atendente de IA conta ao cliente: para que serve, medidas, materiais, diferenciais. Ele repete o que estiver aqui — e não inventa o que faltar.": {
+    es: "Es lo que el asistente de IA le cuenta al cliente: para qué sirve, medidas, materiales, diferenciales. Repite lo que esté acá y no inventa lo que falte.",
+  },
   // ─── lib/leads/aviso-de-etapa.handler.ts + editor de etapas (migration 0394) ───
   "Negócio entrou em": { es: "Negocio entró en" },
   "Abra o negócio para dar o próximo passo. Este aviso foi pedido na configuração da etapa.": {

@@ -36,6 +36,7 @@ interface Rascunho {
   custo: string;
   quantidade: string;
   controla_estoque: boolean;
+  descricao: string;
 }
 
 const VAZIO: Rascunho = {
@@ -47,6 +48,7 @@ const VAZIO: Rascunho = {
   custo: "",
   quantidade: "0",
   controla_estoque: true,
+  descricao: "",
 };
 
 function doRascunho(
@@ -68,6 +70,7 @@ function doRascunho(
     custo_cents,
     controla_estoque: r.controla_estoque,
     quantidade: Number(r.quantidade) || 0,
+    ...(r.descricao.trim() ? { descricao: r.descricao.trim() } : {}),
   };
 }
 
@@ -208,6 +211,55 @@ function FotosDoProduto({ produto, urls }: { produto: Produto; urls: Record<stri
   );
 }
 
+/**
+ * A descrição de UM produto — o texto que o atendente de IA usa para responder
+ * "para que serve", "de que é feito", "que medida tem". Sem ela o agente só tem
+ * nome e preço, e toda pergunta sobre o produto vira "vou consultar a equipe".
+ */
+function DetalhesDoProduto({ produto, aoSalvar }: { produto: Produto; aoSalvar: () => void }) {
+  const t = useT();
+  const [texto, setTexto] = React.useState(produto.descricao ?? "");
+  const [salvando, setSalvando] = React.useState(false);
+  const mudou = texto.trim() !== (produto.descricao ?? "").trim();
+
+  async function salvar() {
+    setSalvando(true);
+    try {
+      await apiClient.patch(`/api/v1/products/${produto.id}`, { descricao: texto.trim() });
+      toast.success(t("Descrição salva"));
+      aoSalvar();
+    } catch (e) {
+      showApiError(e);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="border-t bg-muted/30 p-3" data-testid={`detalhes-${produto.codigo}`}>
+      <label className="block text-sm">
+        {t("Descrição")}
+        <textarea
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          maxLength={2000}
+          rows={5}
+          className="mt-1 w-full rounded-md border bg-background px-3 py-2"
+          data-testid={`descricao-${produto.codigo}`}
+        />
+      </label>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {t("É o que o atendente de IA conta ao cliente: para que serve, medidas, materiais, diferenciais. Ele repete o que estiver aqui — e não inventa o que faltar.")}
+      </p>
+      <div className="mt-2 flex justify-end">
+        <Button size="sm" onClick={() => void salvar()} disabled={!mudou || salvando} data-testid={`salvar-descricao-${produto.codigo}`}>
+          {salvando ? t("Salvando…") : t("Salvar descrição")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function ProdutosClient({
   inicial,
   urlsDasFotos,
@@ -232,6 +284,11 @@ export function ProdutosClient({
   const [resumo, setResumo] = React.useState<ResumoDaImportacao | null>(null);
   const arquivoRef = React.useRef<HTMLInputElement>(null);
   const [fotosAbertas, setFotosAbertas] = React.useState<string | null>(null);
+  const [detalhesAbertos, setDetalhesAbertos] = React.useState<string | null>(null);
+  // O exemplo do campo de preço segue a moeda: «5.499,00» ensina a digitar
+  // centavos, e guarani não tem centavo.
+  const exemploDePreco =
+    casasDaMoeda(moeda) === 0 ? { preco: "125.000", custo: "42.000" } : { preco: "5.499,00", custo: "4.100,00" };
 
   const filtrados = React.useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -431,7 +488,7 @@ export function ProdutosClient({
               <input
                 value={rascunho.preco}
                 onChange={(e) => setRascunho({ ...rascunho, preco: e.target.value })}
-                placeholder="5.499,00"
+                placeholder={exemploDePreco.preco}
                 className="mt-1 h-9 w-full rounded-md border px-3"
                 data-testid="produto-preco"
               />
@@ -441,7 +498,7 @@ export function ProdutosClient({
               <input
                 value={rascunho.custo}
                 onChange={(e) => setRascunho({ ...rascunho, custo: e.target.value })}
-                placeholder="4.100,00"
+                placeholder={exemploDePreco.custo}
                 className="mt-1 h-9 w-full rounded-md border px-3"
               />
               <span className="mt-1 block text-xs text-muted-foreground">
@@ -449,6 +506,21 @@ export function ProdutosClient({
               </span>
             </label>
           </div>
+
+          <label className="mt-3 block text-sm">
+            {t("Descrição")} <span className="text-muted-foreground">{t("(opcional)")}</span>
+            <textarea
+              value={rascunho.descricao}
+              onChange={(e) => setRascunho({ ...rascunho, descricao: e.target.value })}
+              maxLength={2000}
+              rows={4}
+              className="mt-1 w-full rounded-md border px-3 py-2"
+              data-testid="produto-descricao"
+            />
+            <span className="mt-1 block text-xs text-muted-foreground">
+              {t("É o que o atendente de IA conta ao cliente: para que serve, medidas, materiais, diferenciais. Ele repete o que estiver aqui — e não inventa o que faltar.")}
+            </span>
+          </label>
 
           <label className="mt-3 flex items-center gap-2 text-sm">
             <input
@@ -510,6 +582,7 @@ export function ProdutosClient({
                   {p.controla_estoque
                     ? ` · ${p.quantidade} ${t("em estoque")}`
                     : ` · ${t("sem controle de estoque")}`}
+                  {p.descricao?.trim() ? "" : ` · ${t("sem descrição")}`}
                 </p>
               </div>
               <span className="shrink-0 tabular-nums font-medium">
@@ -517,6 +590,15 @@ export function ProdutosClient({
               </span>
               {podeEditar ? (
                 <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDetalhesAbertos((v) => (v === p.id ? null : p.id))}
+                    aria-expanded={detalhesAbertos === p.id}
+                    data-testid={`abrir-detalhes-${p.codigo}`}
+                  >
+                    {t("Detalhes")}
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -537,6 +619,9 @@ export function ProdutosClient({
                 </>
               ) : null}
             </div>
+            {podeEditar && detalhesAbertos === p.id ? (
+              <DetalhesDoProduto produto={p} aoSalvar={() => router.refresh()} />
+            ) : null}
             {podeEditar && fotosAbertas === p.id ? (
               <FotosDoProduto produto={p} urls={urlsDasFotos} />
             ) : null}

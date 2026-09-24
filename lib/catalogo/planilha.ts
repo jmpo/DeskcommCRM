@@ -118,6 +118,11 @@ export interface LinhaImportada {
   categoria?: string;
   quantidade: number;
   controla_estoque: boolean;
+  /**
+   * O texto da coluna de descrição, quando a planilha traz uma AO LADO da de
+   * nome. Ausente = a planilha não falou de descrição, e a gravada fica.
+   */
+  descricao?: string;
 }
 
 export interface ErroDaLinha {
@@ -175,12 +180,13 @@ export function lerPlanilha(
     );
     // Só age quando há um vencedor claro: com duas colunas que NOMEIAM (ou duas
     // que descrevem) não há regra a aplicar, e a primeira segue valendo.
+    // A coluna que descreve, quando perde o posto de nome, vira o que ela é:
+    // a DESCRIÇÃO do produto — que é o texto que o atendente de IA conta ao
+    // cliente. Antes ela era ignorada, e um catálogo de 50 produtos em espanhol
+    // entrava sem uma linha de descrição.
     if (nomeiaDeVerdade.length > 0) {
       for (const i of indicesDeNome) {
-        if (!nomeiaDeVerdade.includes(i)) {
-          mapa.delete(i);
-          colunasIgnoradas.push((cabecalho[i] ?? "").trim());
-        }
+        if (!nomeiaDeVerdade.includes(i)) mapa.set(i, "descricao");
       }
     }
   }
@@ -253,6 +259,7 @@ export function lerPlanilha(
     // loja quando o preço muda. O corte em 60 caracteres fica em
     // `codigoDoProduto`: cortar AQUI, antes de colapsar os espaços, fazia dois
     // nomes longos chegarem ao banco com o mesmo código.
+    const descricao = valor("descricao").slice(0, 2000).trim();
     const codigo = codigoDoProduto(valor("codigo") || nome);
     const anterior = codigosVistos.get(chaveDoCodigo(codigo));
     if (anterior) {
@@ -298,6 +305,7 @@ export function lerPlanilha(
       ...(valor("categoria") ? { categoria: valor("categoria") } : {}),
       quantidade,
       controla_estoque: temColunaEstoque,
+      ...(descricao ? { descricao } : {}),
     });
   }
 
