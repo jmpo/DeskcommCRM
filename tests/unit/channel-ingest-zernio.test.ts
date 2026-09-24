@@ -278,6 +278,39 @@ describe("o pino do WhatsApp — o webhook não traz as coordenadas", () => {
     expect(ins.metadata).toEqual({ location: { latitude: -25.334888, longitude: -57.543594 } });
   });
 
+  it("lugar com nome ('📍 Plaza…'): também busca, e grava nome, endereço e link", async () => {
+    // Caso real (24/09/2026): o cliente escolheu uma praça no mapa; o webhook
+    // trouxe só "📍 Plaza Paso de Oro", e a API trouxe coordenadas, nome e endereço.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      listagem([
+        {
+          id: "wamid.PRACA",
+          message: "📍 Plaza Paso de Oro",
+          metadata: { location: { latitude: -25.4, longitude: -57.5, name: "Plaza Paso de Oro", address: "Ypané, Central, PY" } },
+        },
+      ]),
+    );
+    await ingestZernioInbound(admin, {
+      ...ENTRADA,
+      payload: evento({ text: "📍 Plaza Paso de Oro", platformMessageId: "wamid.PRACA" }),
+    });
+    const ins = ops.find((o) => o.tabela === "messages" && o.op === "insert")?.payload as Record<string, unknown>;
+    expect(ins.type).toBe("location");
+    expect(ins.body).toBe("📍 Plaza Paso de Oro — Ypané, Central, PY — https://maps.google.com/?q=-25.4,-57.5");
+  });
+
+  it("texto que só COMEÇA com o alfinete e não é pino na API segue como texto", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      listagem([{ id: "wamid.TXT", message: "📍 mi casa es la de rejas", metadata: {} }]),
+    );
+    await ingestZernioInbound(admin, {
+      ...ENTRADA,
+      payload: evento({ text: "📍 mi casa es la de rejas", platformMessageId: "wamid.TXT" }),
+    });
+    const ins = ops.find((o) => o.tabela === "messages" && o.op === "insert")?.payload as Record<string, unknown>;
+    expect(ins).toMatchObject({ type: "text", body: "📍 mi casa es la de rejas" });
+  });
+
   it("API fora do ar: a mensagem entra como antes, com o marcador — nunca se perde", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNRESET"));
     const r = await ingestZernioInbound(admin, { ...ENTRADA, payload: pino() });
