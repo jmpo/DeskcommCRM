@@ -1,5 +1,5 @@
 /**
- * A retenção de mídia EXECUTADA (migration 0395) — `fn_enfileirar_midia_vencida`.
+ * A retenção de mídia EXECUTADA (migration 0402) — `fn_enfileirar_midia_vencida`.
  *
  * O que este arquivo vigia, cada um por um modo de falha concreto:
  *   - arquivo vencido sai e a MENSAGEM fica (texto, horário, status);

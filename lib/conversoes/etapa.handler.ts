@@ -1,6 +1,6 @@
 /**
  * Evento de conversão de ETAPA: quando um negócio entra numa etapa com
- * `crm_stages.evento_de_conversao` (migration 0396), o evento sai para a
+ * `crm_stages.evento_de_conversao` (migration 0403), o evento sai para a
  * plataforma do anúncio que trouxe o contato.
  *
  * Existe porque, em quem vende com pagamento na entrega, a venda (`Purchase`)

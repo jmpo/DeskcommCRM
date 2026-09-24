@@ -478,7 +478,7 @@ export function StagesSection({
 
               {/* Numa venda com pagamento na entrega o momento que pede ação é o
                   pedido confirmado, não o ganho — e quem sabe qual etapa é essa é
-                  a organização. Ver a migration 0394. */}
+                  a organização. Ver a migration 0401. */}
               <label className="flex items-center gap-2 text-xs text-text-muted">
                 <Switch
                   checked={etapa.avisar_na_central === true}
@@ -490,7 +490,7 @@ export function StagesSection({
                 {t("Avisar a equipe na Central quando um negócio entrar aqui")}
               </label>
 
-              {/* Evento de conversão ao entrar (migration 0396): em venda contra
+              {/* Evento de conversão ao entrar (migration 0403): em venda contra
                   entrega, a confirmação do pedido é o sinal cedo para a
                   plataforma do anúncio — a venda só sai na entrega. */}
               <label className="flex flex-wrap items-center gap-2 text-xs text-text-muted">

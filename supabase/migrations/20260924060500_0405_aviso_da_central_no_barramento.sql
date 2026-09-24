@@ -1,4 +1,4 @@
--- 0399 — o aviso da Central anuncia no barramento que nasceu.
+-- 0405 — o aviso da Central anuncia no barramento que nasceu.
 --
 -- Os avisos que pedem gente (a IA passou a conversa para uma pessoa; um negócio
 -- entrou numa etapa que avisa, a venda confirmada de quem vende contra entrega)

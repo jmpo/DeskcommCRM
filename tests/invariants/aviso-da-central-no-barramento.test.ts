@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 
 /**
- * `trg_aviso_da_central_criado` (migration 0399): todo aviso da Central de uma
+ * `trg_aviso_da_central_criado` (migration 0405): todo aviso da Central de uma
  * organização anuncia `central.aviso_criado`, para o push decidir o que vai ao
  * celular. Aviso de plataforma não anuncia, e a função não é RPC de ninguém.
  */
@@ -22,7 +22,7 @@ const ORG = "d0399000-0000-4000-8000-000000000001";
 beforeAll(async () => {
   await pool.query(
     `insert into organizations (id, slug, legal_name, display_name)
-     values ($1, 'org-0399', 'Avisos LTDA', 'Avisos') on conflict (id) do nothing`,
+     values ($1, 'org-0405', 'Avisos LTDA', 'Avisos') on conflict (id) do nothing`,
     [ORG],
   );
 });

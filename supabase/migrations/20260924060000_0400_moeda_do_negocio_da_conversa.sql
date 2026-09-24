@@ -1,4 +1,4 @@
--- 0398 — o negócio que nasce da conversa nasce na moeda da organização.
+-- 0400 — o negócio que nasce da conversa nasce na moeda da organização.
 --
 -- `fn_nascer_lead_da_conversa` (0256) não passava `currency`, e o insert pegava
 -- o default da coluna, 'BRL', em toda organização. Medido numa organização em
