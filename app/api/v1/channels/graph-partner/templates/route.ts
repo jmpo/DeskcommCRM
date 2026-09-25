@@ -53,6 +53,7 @@ import { traduzir } from "@/lib/i18n/dicionario";
 import type { Idioma } from "@/lib/i18n/idiomas";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { acaoApagarSchema, acaoEditarSchema, executarGestao } from "@/lib/channels/gestao-de-modelos";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -71,6 +72,9 @@ const corpoSchema = z.discriminatedUnion("acao", [
     category: z.enum(["AUTHENTICATION", "MARKETING", "UTILITY"]).default("UTILITY"),
     components: z.array(z.record(z.string(), z.unknown())).min(1).max(10),
   }),
+  // Editar e apagar pela tela (ver lib/channels/gestao-de-modelos.ts).
+  acaoEditarSchema,
+  acaoApagarSchema,
 ]);
 
 interface Contexto {
@@ -208,6 +212,34 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   try {
+    if (corpo.acao === "editar" || corpo.acao === "apagar") {
+      const gestao = await executarGestao(
+        adapter.templates,
+        createAdminClient(),
+        { orgId: r.ctx.orgId, sessionId: r.ctx.sessionId, sessionRef: r.ctx.sessionRef },
+        corpo,
+      );
+      if (!gestao.ok) {
+        // Apagar um modelo em uso faria o passo do follow-up pular e o agente
+        // errar o envio, em silêncio. A tela mostra ONDE e pede a confirmação.
+        return fail("template_in_use", t("Este modelo está em uso. Confirme para apagar assim mesmo."), 409, {
+          requestId,
+          details: {
+            usos: gestao.usos.map((u) => `${u.tipo === "fluxo" ? t("Follow-up") : t("Agente")} «${u.nome}»`),
+          },
+        });
+      }
+      await audit({
+        action: gestao.acao === "editar" ? "template.updated" : "template.deleted",
+        actorUserId: r.ctx.userId,
+        organizationId: r.ctx.orgId,
+        resourceType: "channel_session",
+        resourceId: r.ctx.sessionId,
+        requestId,
+        metadata: { name: corpo.name, language: corpo.language },
+      });
+    }
+
     if (corpo.acao === "criar") {
       await adapter.templates.create({
         organizationId: r.ctx.orgId,
