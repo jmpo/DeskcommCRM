@@ -104,7 +104,13 @@ export async function generateMetadata(): Promise<Metadata> {
     // `/icon` faz o pedido ir para `app/icon.tsx`, que desenha a marca da
     // instalação em runtime — ver o cabeçalho daquele arquivo para por que ele
     // não pode ser um arquivo estático em `public/`.
-    icons: { icon: "/icon" },
+    //
+    // `apple` é o ícone da tela inicial do iPhone, que é também o ícone de
+    // TODA notificação no iOS (ele ignora o `icon` do push). Sem ele o iPhone
+    // usava um print da página. Ver `app/icone/[lado]/route.tsx`.
+    icons: { icon: "/icon", apple: "/icone/180" },
+    // O nome embaixo do ícone no iPhone, e no topo de cada notificação.
+    appleWebApp: { title: name },
   };
 }
 

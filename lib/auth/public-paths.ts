@@ -106,6 +106,10 @@ export const PUBLIC_PATHS: RegExp[] = [
   // `/icon.png` (inexistente) devolvia 404 — a diferença é só a extensão.
   /^\/icon$/,
   /^\/manifest\.webmanifest$/,
+  // Os ícones do app instalado (`app/icone/[lado]/route.tsx`): o celular os
+  // pede ao instalar e ao mostrar a notificação, sem sessão. Lista FECHADA de
+  // tamanhos — a rota responde 404 para o resto, e a regex não abre mais nada.
+  /^\/icone\/(?:180|192|512|selo)$/,
   /^\/team\/accept-invite\/.+$/,
   /^\/account-suspended$/,
   // OS MOLDES DE E-MAIL DO GoTrue. Quem busca é o GoTrue, um processo de

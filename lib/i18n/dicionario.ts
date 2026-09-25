@@ -5361,7 +5361,7 @@ export const DICIONARIO: Traducoes = {
   "Ou navegue com J e K": { es: "O navega con J y K" },
   Ficha: { es: "Ficha" },
   "Ficha do contato": { es: "Ficha del contacto" },
-  Hoje: { es: "Hoy" },
+  "Hoje": { es: "Hoy" },
   Ontem: { es: "Ayer" },
   "Erro ao carregar mensagens.": { es: "Error al cargar los mensajes." },
   "Nenhuma mensagem nesta conversa.": { es: "No hay mensajes en esta conversación." },
@@ -8403,6 +8403,11 @@ export const DICIONARIO: Traducoes = {
   "Recarregue o saldo na conta do provedor: as respostas saem sozinhas quando ele voltar.": {
     es: "Recargá el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva.",
   },
+  // ─── lib/notifications/push-de-venda.ts (o push de venda no celular) ───
+  "Nova venda!": { es: "¡Nueva venta!" },
+  "Venda ganha!": { es: "¡Venta ganada!" },
+  "1 venda": { es: "1 venta" },
+  "vendas": { es: "ventas" },
   // ─── lib/leads/aviso-de-etapa.handler.ts + editor de etapas (migration 0401) ───
   "Negócio entrou em": { es: "Negocio entró en" },
   "Abra o negócio para dar o próximo passo. Este aviso foi pedido na configuração da etapa.": {

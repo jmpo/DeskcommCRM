@@ -71,3 +71,40 @@ test.describe("o ícone e o título carregam a marca da instalação", () => {
     await expect(page.getByText(marcaNoTitulo, { exact: true }).first()).toBeVisible();
   });
 });
+
+/**
+ * O APP INSTALADO no celular — nome, ícone e selo das notificações.
+ *
+ * Medido em produção (25/09/2026): o manifesto era congelado no `next build`, e
+ * o iPhone instalou o app com o nome padrão do produto enquanto o título da aba
+ * já dizia a marca da instalação. Esta spec cruza as duas resoluções.
+ */
+test.describe("o app no celular carrega a marca da instalação", () => {
+  test("o manifesto diz o MESMO nome que o título da aba", async ({ page, request }) => {
+    await page.goto("/login");
+    const marca = /^Entrar · (.+)$/.exec(await page.title())?.[1] ?? "";
+    expect(marca.length).toBeGreaterThan(0);
+
+    const res = await request.get("/manifest.webmanifest", { maxRedirects: 0 });
+    expect(res.status()).toBe(200);
+    const manifesto = (await res.json()) as { name: string; icons: Array<{ src: string; sizes?: string }> };
+    expect(manifesto.name).toBe(marca);
+    expect(manifesto.icons.map((i) => i.sizes)).toEqual(expect.arrayContaining(["192x192", "512x512"]));
+
+    // O iPhone lê o nome e o ícone da tela inicial do <head>, não do manifesto.
+    await expect(page.locator('meta[name="apple-mobile-web-app-title"]')).toHaveAttribute("content", marca);
+    await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/icone/180");
+  });
+
+  for (const lado of ["180", "192", "512", "selo"]) {
+    test(`GET /icone/${lado} responde PNG para quem não entrou`, async ({ request }) => {
+      const res = await request.get(`/icone/${lado}`, { maxRedirects: 0 });
+      expect(res.status(), `307 = /icone/${lado} caiu no redirect para /login`).toBe(200);
+      expect(res.headers()["content-type"]).toMatch(/^image\/png/);
+      const corpo = await res.body();
+      expect([...corpo.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+      // Largura no IHDR: o tamanho pedido é o tamanho entregue.
+      expect(corpo.readUInt32BE(16)).toBe(lado === "selo" ? 96 : Number(lado));
+    });
+  }
+});

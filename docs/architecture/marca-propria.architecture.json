@@ -94,6 +94,8 @@
     { "id": "applayout", "lane": "saida", "col": 7, "type": "frontend", "label": "app/app/layout.tsx", "sublabel": "<EstiloDaMarcaDaOrganizacao/> escopado em [data-marca-org] — não alcança /login" },
     { "id": "marcacliente", "lane": "saida", "col": 8, "type": "frontend", "label": "lib/branding/contexto.tsx", "sublabel": "a marca atravessa por PROP do servidor (useMarcaDaInstalacao) — era branding(), que lê window.__PUBLIC_ENV__ no navegador e process.env no SSR: com logo no banco e APP_LOGO_URL vazio, o servidor desenhava <span> e o cliente <img> (React #418)" },
     { "id": "iconroute", "lane": "saida", "col": 7, "type": "api", "label": "app/icon.tsx", "sublabel": "ImageResponse em runtime · force-dynamic · /icon em PUBLIC_PATHS (sem isso, 307 para /login)" },
+    { "id": "iconeapp", "lane": "saida", "col": 7, "type": "api", "label": "app/icone/[lado] + app/manifest.ts", "sublabel": "ícones 180/192/512 + selo, recortados do logo SUBIDO · manifesto force-dynamic · /icone/* em PUBLIC_PATHS" },
+    { "id": "celular", "lane": "humano", "col": 8, "type": "frontend", "label": "O app instalado no celular", "sublabel": "nome e ícone na tela inicial e em TODA notificação (o iOS usa o ícone do app no push)" },
     { "id": "invite", "lane": "saida", "col": 7, "type": "service", "label": "lib/email/templates/invite.ts", "sublabel": "assunto + corpo + botão com a marca de quem convidou" },
     { "id": "lgpdemail", "lane": "saida", "col": 7, "type": "service", "label": "lib/lgpd/email-delivery.ts", "sublabel": "diz quem PROCESSOU a solicitação — era 'DeskcommCRM' em 100% dos casos, não em borda" },
     { "id": "slaalarm", "lane": "saida", "col": 7, "type": "service", "label": "lib/lgpd/sla-alarm.ts", "sublabel": "marca resolvida no cabeçalho; o #dc2626 do alerta FICA — é semântica de urgência, não marca" },
@@ -166,7 +168,10 @@
     { "id": "e61", "from": "bucketlogos", "to": "resolver", "label": "logoDaCamada(): o ARQUIVO vence a URL colada; urlPublicaDoLogo deriva a URL do caminho + host em runtime" },
     { "id": "e62", "from": "rotalogo", "to": "auditlog", "label": "reusa platform_branding.updated / org.branding_updated — código de ação novo não responderia pergunta nova" },
     { "id": "e63", "from": "layout", "to": "marcacliente", "label": "a MESMA marcaResolvida() do título e do CSS desce por prop, no payload do RSC — mesma rota de user/activeOrg" },
-    { "id": "e64", "from": "marcacliente", "to": "interface", "label": "useMarcaDaInstalacao(): SSR e hidratação leem o mesmo objeto, então o logo do revendedor não troca de elemento no meio do caminho" }
+    { "id": "e64", "from": "marcacliente", "to": "interface", "label": "useMarcaDaInstalacao(): SSR e hidratação leem o mesmo objeto, então o logo do revendedor não troca de elemento no meio do caminho" },
+    { "id": "e65", "from": "saida", "to": "iconeapp", "label": "nome e logo da instalação. Só busca o logo do bucket brand-logos (caminho de forma fixa), nunca logo_url colada" },
+    { "id": "e66", "from": "bucketlogos", "to": "iconeapp", "label": "PNG decodificado sem dependência (lib/branding/png.ts): cor do fundo + recorte do símbolo" },
+    { "id": "e67", "from": "iconeapp", "to": "celular", "label": "manifesto lido em runtime — congelado no build, o iPhone instalava com o nome padrão do produto (medido em produção)" }
   ],
   "cards": [
     {
@@ -191,6 +196,7 @@
         "o schema do jsonb é LOOSE com catchall, exceção declarada ao .strict() do repo: rollback põe código velho sobre schema novo POR CONSTRUÇÃO (update.sh aplica o baseline antes de puxar a imagem)",
         "cor recusada não apaga a camada de baixo — a pilha continua descendo até o padrão do produto, e o motivo fica escrito em fallback_reason",
         "app/icon.tsx precisa de force-dynamic: sem isso o build congela o ícone dentro da imagem pré-buildada, e o defeito é invisível em dev, em teste e na Vercel — só aparece na VPS do revendedor",
+        "app/manifest.ts e app/icone/[lado] também precisam de force-dynamic: o manifesto congelado no build instalava o app no celular com o nome padrão do produto, com a marca certa no título da aba (medido em produção, 25/09/2026)",
         "/icon precisa estar em PUBLIC_PATHS: o matcher do proxy só exclui caminho COM extensão, então GET /icon respondia 307 para /login (medido em produção)",
         "as duas ações de auditoria da marca estão nas DUAS listas de código (union + painel), e desde 2026-08-14 há gate cobrando que a divergência não cresça"
       ]

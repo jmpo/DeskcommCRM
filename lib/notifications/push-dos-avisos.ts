@@ -25,12 +25,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { normalizarIdioma, type Idioma } from "@/lib/i18n/idiomas";
 
+import { etapaDoTituloDoAviso, inicioDoDia, montarPushDeVenda, novasDeHoje } from "./push-de-venda";
 import { truncar, type PushPayload } from "./push_payload";
 import { somDoAviso } from "./sons-da-org";
 
-async function idiomaDaOrganizacao(admin: SupabaseClient, orgId: string): Promise<Idioma> {
-  const { data } = await admin.from("organizations").select("locale").eq("id", orgId).maybeSingle();
-  return normalizarIdioma((data as { locale?: string | null } | null)?.locale ?? null);
+/** Idioma e fuso da organização — o push sai sem ninguém logado. */
+export async function organizacaoDoPush(
+  admin: SupabaseClient,
+  orgId: string,
+): Promise<{ idioma: Idioma; fuso: string | null }> {
+  const { data } = await admin.from("organizations").select("locale, timezone").eq("id", orgId).maybeSingle();
+  const org = data as { locale?: string | null; timezone?: string | null } | null;
+  return { idioma: normalizarIdioma(org?.locale ?? null), fuso: org?.timezone ?? null };
 }
 
 /**
@@ -53,7 +59,7 @@ export async function pushDoAvisoDaCentral(
 
   const som = somDoAviso(item);
   if (som === null) return null;
-  const idioma = await idiomaDaOrganizacao(admin, orgId);
+  const { idioma, fuso } = await organizacaoDoPush(admin, orgId);
 
   // Caso aberto: o aviso guarda texto genérico (LGPD — ver o handler); o
   // título que a IA escreveu vai no push, que não fica guardado.
@@ -93,20 +99,29 @@ export async function pushDoAvisoDaCentral(
     };
   }
 
-  // Venda: o título do aviso já nasceu no idioma da organização
-  // (`aviso-de-etapa.handler.ts`) e diz a etapa; o corpo diz qual negócio.
-  let corpo = "";
+  // Venda: o valor no título e a soma do dia no corpo — ver
+  // `./push-de-venda.ts`, inclusive por que o nome do cliente NÃO vai.
   let href = "/app/ai/inbox";
+  let valor: { cents: number; moeda: string } | null = null;
   if (item.ref_kind === "lead" && item.ref_id) {
     const { data: lead } = await admin
       .from("crm_leads")
-      .select("title, pipeline_id")
+      .select("pipeline_id, value_cents, currency")
       .eq("organization_id", orgId)
       .eq("id", item.ref_id)
       .maybeSingle();
-    const l = lead as { title?: string | null; pipeline_id?: string | null } | null;
-    corpo = l?.title?.trim() ?? "";
+    const l = lead as { pipeline_id?: string | null; value_cents?: number | null; currency?: string | null } | null;
     if (l?.pipeline_id) href = `/app/pipelines/${l.pipeline_id}`;
+    if (l?.value_cents && l.currency) valor = { cents: Number(l.value_cents), moeda: l.currency };
   }
-  return { title: truncar(item.title), body: truncar(corpo), tag: `aviso:${item.id}`, href };
+  const hoje = await novasDeHoje(admin, orgId, item.title, valor?.moeda ?? null, inicioDoDia(new Date(), fuso));
+  return montarPushDeVenda({
+    momento: "nova",
+    valor,
+    etapa: etapaDoTituloDoAviso(item.title),
+    hoje,
+    idioma,
+    tag: `aviso:${item.id}`,
+    href,
+  });
 }
