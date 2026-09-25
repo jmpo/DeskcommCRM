@@ -43,19 +43,22 @@ const evento = (event_type: string, payload: Record<string, unknown>): EventRow 
 beforeEach(() => vi.mocked(enviarPushDaOrg).mockClear());
 
 describe("aviso da Central → celular", () => {
-  it("venda confirmada: o título do aviso e o negócio, abrindo o funil", async () => {
+  it("venda confirmada: o VALOR no título e a etapa no corpo, abrindo o funil", async () => {
     vi.mocked(createAdminClient).mockReturnValue(banco({
       agent_inbox_items: { id: "i1", kind: "other", ref_kind: "lead", ref_id: "l1", title: "Negocio entró en «Pedido confirmado»" },
       organizations: { locale: "es" },
-      crm_leads: { title: "Pico de alta presión x1 - Juan Pompa", pipeline_id: "p1" },
+      crm_leads: { title: "Pico de alta presión x1 - Juan Pompa", pipeline_id: "p1", value_cents: 12_500_000, currency: "PYG" },
     }) as never);
     const r = await webPushInboundHandler.handle(evento("central.aviso_criado", { item_id: "i1" }));
     expect(r.status).toBe("ok");
+    // Sem o resumo do dia: este banco de mentira não responde à lista, e o push
+    // sai mesmo assim. O resumo é medido em `push-de-venda.test.ts`.
     expect(vi.mocked(enviarPushDaOrg).mock.calls[0]![1]).toEqual({
-      title: "Negocio entró en «Pedido confirmado»",
-      body: "Pico de alta presión x1 - Juan Pompa",
+      title: "🎉 ¡Nueva venta! Gs. 125.000",
+      body: "Pedido confirmado",
       tag: "aviso:i1",
       href: "/app/pipelines/p1",
+      icon: "/icone/192",
     });
   });
 
