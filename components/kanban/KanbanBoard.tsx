@@ -253,9 +253,14 @@ export function KanbanBoard({
           continua inteiro, e o cabeçalho de cada etapa fica preso em cima
           (`sticky` em StageColumn). `items-start` + `min-h-full` na coluna: a
           coluna curta ocupa a altura toda (dá para soltar card no vazio) e a
-          comprida cresce com os cards, com o fundo acompanhando. */}
+          comprida cresce com os cards, com o fundo acompanhando.
+          Sem padding no ALTO, e é de propósito: o `sticky` prende o cabeçalho
+          na borda do conteúdo do contêiner, então um `pt-4` deixava uma faixa
+          de 16px acima dele por onde os cards apareciam rolando (medido no e2e
+          "o quadro cabe na tela"). O respiro até os filtros vem do `gap-4` da
+          página. */}
       <div
-        className="flex min-h-0 flex-1 items-start gap-3 overflow-auto p-4"
+        className="flex min-h-0 flex-1 items-start gap-3 overflow-auto px-4 pb-4"
         data-quadro-do-funil
       >
         {data.stages.map((stage) => (
