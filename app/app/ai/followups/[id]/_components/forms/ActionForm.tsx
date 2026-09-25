@@ -61,12 +61,13 @@ function SeletorDeModelo({
       </p>
     );
   }
-  if (prontos.length === 0 && doCanal.length === 0) {
+  // O plano B é OPCIONAL: sem modelo aprovado, o seletor continua de pé com
+  // "Nenhum" e diz o que falta — trocá-lo por uma frase faria o campo sumir da
+  // tela justamente para quem ainda não tem modelo, e nada explicaria onde ele foi.
+  if (!soAprovados && prontos.length === 0 && doCanal.length === 0) {
     return (
       <p className="text-xs text-text-muted">
-        {soAprovados
-          ? t("Nenhum modelo aprovado no WhatsApp ainda. Crie um em Conexões → Modelos e ele aparece aqui quando for aprovado.")
-          : t("Você ainda não tem modelos de mensagem. Crie um em Ajustes → Modelos e ele aparece aqui.")}
+        {t("Você ainda não tem modelos de mensagem. Crie um em Ajustes → Modelos e ele aparece aqui.")}
       </p>
     );
   }
@@ -107,6 +108,11 @@ function SeletorDeModelo({
         </SelectContent>
       </Select>
       {escolhido && <p className="whitespace-pre-line text-xs text-text-muted">{escolhido.texto}</p>}
+      {soAprovados && doCanal.length === 0 && (
+        <p className="text-xs text-text-muted">
+          {t("Nenhum modelo aprovado no WhatsApp ainda. Crie um em Conexões → Modelos e ele aparece aqui quando for aprovado.")}
+        </p>
+      )}
     </div>
   );
 }
