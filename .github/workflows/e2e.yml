@@ -1102,10 +1102,17 @@ jobs:
       # A `vps-fresh-onboarding` saiu desta lista no PR da issue #179 (a infra
       # dela está no `SPECS_PARTE_4` logo acima). As duas abaixo continuam
       # fora, e o motivo delas é o que o job `resumo` imprime no run.
+      #
+      # `modelos-do-parceiro-editar-apagar` (2026-09-25): o servidor do app tem
+      # de NASCER apontado para um dublê do provedor intermediado
+      # (ZERNIO_API_BASE_URL + conta e chave), e isso é ambiente do `next start`,
+      # não da spec — ligá-lo no `.env.e2e` de todas as partes mudaria o que as
+      # outras specs medem. Roda local; o comando está no cabeçalho da spec.
       FORA_DO_CI: >-
         inbox-tempo-real.spec.ts
         cadastro-sem-confirmacao-de-email.spec.ts
         aviso-de-caso-chega-no-whatsapp.spec.ts
+        modelos-do-parceiro-editar-apagar.spec.ts
     steps:
       # ── O RELÓGIO DESTA PARTE: ONDE O TETO DE 30 MIN COMEÇA A CONTAR ──────
       #

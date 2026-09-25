@@ -962,6 +962,31 @@ export const DICIONARIO: Traducoes = {
   "Provedor parceiro": { es: "Proveedor asociado" },
   Conexão: { es: "Conexión" },
   "Modelos do parceiro": { es: "Plantillas del proveedor" },
+  Editando: { es: "Editando" },
+  "nome, idioma e categoria não mudam depois de criado.": {
+    es: "el nombre, el idioma y la categoría no cambian después de creada.",
+  },
+  "Ao salvar, a plataforma revisa o modelo de novo. A Meta limita quantas vezes um modelo aprovado pode ser editado; se passar do limite, a resposta dela aparece aqui.":
+    {
+      es: "Al guardar, la plataforma vuelve a revisar la plantilla. Meta limita cuántas veces se puede editar una plantilla aprobada; si pasás el límite, su respuesta aparece acá.",
+    },
+  "Salvar e enviar para revisão": { es: "Guardar y enviar a revisión" },
+  "Modelo atualizado e enviado para revisão.": { es: "Plantilla actualizada y enviada a revisión." },
+  "Modelo apagado.": { es: "Plantilla eliminada." },
+  "Apagar o modelo": { es: "¿Eliminar la plantilla" },
+  "Ele é apagado também na plataforma do WhatsApp, e não dá para desfazer. A Meta não deixa usar o mesmo nome de novo por 30 dias.":
+    {
+      es: "También se elimina en la plataforma de WhatsApp y no se puede deshacer. Meta no deja usar el mismo nombre de nuevo por 30 días.",
+    },
+  "Este modelo está em uso:": { es: "Esta plantilla está en uso:" },
+  "Sem ele, esse passo do follow-up é pulado e o agente não consegue mandá-lo. Troque antes, ou apague assim mesmo.":
+    {
+      es: "Sin ella, ese paso del seguimiento se saltea y el agente no puede enviarla. Cambiala antes, o eliminala igual.",
+    },
+  "Apagar assim mesmo": { es: "Eliminar igual" },
+  "Este modelo está em uso. Confirme para apagar assim mesmo.": {
+    es: "Esta plantilla está en uso. Confirmá para eliminarla igual.",
+  },
   "Templates da Meta": { es: "Plantillas de Meta" },
   Sincronizar: { es: "Sincronizar" },
   "Criar modelo": { es: "Crear plantilla" },
