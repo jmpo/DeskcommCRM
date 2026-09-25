@@ -190,6 +190,11 @@ test("liga o módulo, cria um roteiro pela tela, o cliente responde pelo WhatsAp
 
   try {
     await test.step("o dono do servidor liga o módulo em /admin/sistema", async () => {
+      // A spec garante a própria precondição: o `dono` só é administrador da
+      // plataforma depois do `seed-e2e-system-update` (idempotente). Sem isto ela
+      // passava só quando outra spec da MESMA parte já o tinha rodado antes — e
+      // fora dessa ordem a tela é "Acesso negado" (medido no fork, parte 6).
+      execFileSync("npx", ["tsx", "scripts/seed-e2e-system-update.ts"], { stdio: "inherit" });
       await loginComoDono(page, lerCreds());
       await page.goto("/admin/sistema");
       const chave = page.getByRole("switch", { name: "Fluxos de atendimento" });
