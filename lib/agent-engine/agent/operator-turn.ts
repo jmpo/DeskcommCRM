@@ -37,13 +37,14 @@ import { setExecutionAgentOperation } from '@/lib/atendimento/fronteira-server';
 import { z } from 'zod';
 import type pg from 'pg';
 
-import { withFields } from '../obs/logger';
+import { withFields, type Logger } from '../obs/logger';
 import type { JobRow } from '../queue/queue';
 import type { InboundTurnDeps } from './inbound-turn';
 import { checkpointDoJob } from './inbound-turn';
 import { declaracaoDoTurnoSchema, promessasEmAberto, type DeclaracaoDoTurno } from './declaracao';
 import { loadPublishedAgentConfigById } from './agent-config';
 import { isLeadInHandoff } from './human-handoff';
+import { resolveActiveLeadForContact, type LeadCandidate } from '@/lib/leads/active-lead';
 import { fusoDaOrganizacao } from './fuso-da-org';
 import { renderAgora } from '@/lib/tempo/agora';
 import { insertInboxItem } from '../db/repository';
@@ -112,9 +113,25 @@ export function renderBriefingDoOperador(
   declaracao: DeclaracaoDoTurno | null,
   promessas: ReturnType<typeof promessasEmAberto>,
   agoraBlock = '',
+  ids?: { leadId: string | null; contactId: string; conversationId: string },
 ): string {
+  // Identificadores REAIS do atendimento. Sem eles o modelo inventava UUIDs
+  // zerados (`00000000-…`) em `crm_get_lead`/`crm_get_conversation_history` a
+  // cada turno — chamadas inúteis que falhavam ("Lead não encontrado") e
+  // gastavam modelo. ATENÇÃO ao par: `lead_id` é o CARD do funil (`crm_leads.id`),
+  // não o contato — passar o contato fazia `crm_get_lead` falhar mesmo com o id
+  // "real". O Operador não fala com o cliente; expor ids aqui é seguro.
+  const idsLinhas =
+    ids === undefined
+      ? []
+      : [
+          '',
+          `Identificadores deste atendimento: lead_id=${ids.leadId ?? '(sem card)'} · contact_id=${ids.contactId} · conversation_id=${ids.conversationId}.`,
+          'Ao usar ferramentas de lead, use o `lead_id` acima (o card do funil) — nunca invente UUID. ' +
+            (ids.leadId === null ? 'Não há card para este contato: não chame ferramentas de lead.' : ''),
+        ];
   const comAgora = (linhas: string[]): string =>
-    (agoraBlock === '' ? linhas : [agoraBlock, '', ...linhas]).join('\n');
+    (agoraBlock === '' ? linhas : [agoraBlock, '', ...linhas]).concat(idsLinhas).join('\n');
   if (declaracao === null) {
     // Ausente ≠ vazia, de novo — e aqui a diferença vira instrução. Dizer ao
     // modelo "não houve declaração" e pedir que ele olhe o estado é diferente de
@@ -139,6 +156,41 @@ export function renderBriefingDoOperador(
   }
   linhas.push('', 'Deixe o sistema refletindo isso. O que já estiver registrado, não repita.');
   return comAgora(linhas);
+}
+
+/**
+ * O CARD do funil (`crm_leads.id`) do contato — que NÃO é o `contact_id`. As
+ * ferramentas de lead do Operador operam sobre o card; sem este id o modelo
+ * inventava UUIDs zerados e `crm_get_lead`/`crm_update_lead` falhavam.
+ *
+ * Qual card é a MESMA regra do resto do motor (`resolveActiveLeadForContact`):
+ * o negócio ABERTO; ambíguo ou nenhum = `null`, e o briefing diz para não chamar
+ * ferramenta de lead. "O mais recente" apontaria para um negócio perdido/ganho.
+ *
+ * Best-effort: falha de leitura vira `null` — mas registrada, não engolida.
+ */
+export async function cardDoFunil(
+  pool: Pick<pg.Pool, 'query'>,
+  tenantId: string,
+  contactId: string,
+  log: Pick<Logger, 'warn'>,
+): Promise<string | null> {
+  try {
+    const { rows } = await pool.query<LeadCandidate>(
+      `select l.id, l.organization_id, l.pipeline_id, l.status,
+              l.last_activity_at, l.created_at
+         from crm_leads l
+        where l.organization_id = $1 and l.contact_id = $2`,
+      [tenantId, contactId],
+    );
+    const alvo = resolveActiveLeadForContact(rows);
+    return alvo.routed ? alvo.leadId : null;
+  } catch (err) {
+    log.warn('card do funil não resolvido — o briefing do operador segue sem lead_id', {
+      error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
+    });
+    return null;
+  }
 }
 
 /** O que o Operador decidiu neste turno — vai a `event_log` e, quando muda o que
@@ -464,6 +516,8 @@ export function createOperatorTurnHandler(deps: InboundTurnDeps) {
     // tempo: o desfecho não tinha o que persistir (virou log.info) e o aviso
     // precisou de um proxy — a contagem de promessas DECLARADAS, que é um fato
     // sobre o Conversador, não sobre o Operador.
+    const leadCardId = mcp === null ? null : await cardDoFunil(pool, tenantId, leadId, log);
+
     let saida: Awaited<ReturnType<typeof runModelCall>> | null = null;
     try {
       if (mcp !== null) {
@@ -489,6 +543,7 @@ export function createOperatorTurnHandler(deps: InboundTurnDeps) {
                     deps.clock?.() ?? new Date(),
                     await fusoDaOrganizacao(pool, tenantId, log),
                   ),
+                  { leadId: leadCardId, contactId: leadId, conversationId: payload.conversation_id },
                 ),
               },
             ],

@@ -46,7 +46,7 @@ export type PlataformaDeAnuncio = "meta_ads" | "google_ads";
 
 /**
  * `Purchase` é a venda (na entrega, em quem vende contra entrega). Os demais são
- * eventos de ETAPA do funil (`crm_stages.evento_de_conversao`, migration 0403):
+ * eventos de ETAPA do funil (`crm_stages.evento_de_conversao`, migration 0416):
  * o sinal de intenção que chega dias antes da entrega — é com ele que o
  * otimizador da plataforma aprende rápido numa venda que só se paga ao receber.
  */

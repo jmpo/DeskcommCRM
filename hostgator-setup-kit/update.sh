@@ -467,6 +467,12 @@ if [ -f supabase/baseline.sql ]; then
 else
   c_ylw "⚠ supabase/baseline.sql não encontrado — pulei a parte do banco."
 fi
+# Retentativa não cura estes: a migration NÃO chegou, e seguir daqui trocava o
+# app por cima de um banco pela metade com status 0 — o "deu certo" do cron.
+# DEPOIS da conferência das regras de isolamento, nunca antes: ela recria as que
+# faltam e, se não conseguir, mantém o CRM parado. Sair antes dela deixaria o
+# trap subir o app sem regra — tela vazia para todo mundo.
+[ -z "$BANCO_RESTANTE" ] || die "O banco NÃO terminou limpo e os erros acima repetir não cura: a migration NÃO chegou. A atualização PARA aqui."
 [ -n "${DESKCOMM_AGENT_REPORT:-}" ] && eval "${DESKCOMM_AGENT_REPORT_CMD}" banco
 
 # ── 4.5 E-mails de acesso, para quem já estava instalado ────────────────────

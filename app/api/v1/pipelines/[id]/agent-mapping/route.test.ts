@@ -263,7 +263,7 @@ describe("GET /api/v1/pipelines/[id]/agent-mapping", () => {
       // Decidido na migration 0401: a tela de etapas lê daqui a chave «avisar
       // na Central». Ausente na fixture = etapa anterior à coluna = desligada.
       avisar_na_central: false,
-      // Idem, migration 0403: sem evento de conversão configurado.
+      // Idem, migration 0416: sem evento de conversão configurado.
       evento_de_conversao: null,
       last_change_actor_kind: null,
       last_change_at: null,

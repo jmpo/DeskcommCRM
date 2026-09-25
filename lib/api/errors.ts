@@ -72,6 +72,11 @@ export const ApiErrorCodes = {
   state_conflict: "state_conflict",
   invalid_state: "invalid_state", // resposta a um agent_case que saiu de awaiting_human (spec 15 §7)
   tenant_already_exists: "tenant_already_exists",
+  // POST /api/v1/settings/api-tokens quando a organização já está no teto de
+  // tokens ATIVOS (migration 0415, issue #1448). O corpo devolve a MESMA
+  // mensagem que o gatilho levantou — com o limite e a instrução de revogar um
+  // token para liberar espaço —, então quem lê sabe o que fazer sem perguntar.
+  api_token_teto_atingido: "api_token_teto_atingido",
   // POST /api/v1/contacts com telefone já cadastrado na mesma organização
   // (índice uniq_contacts_org_phone). O corpo traz `details.contact_id` para a
   // tela oferecer o contato existente em vez de só mostrar que deu erro.
@@ -91,6 +96,10 @@ export const ApiErrorCodes = {
   invalid_state_transition: "invalid_state_transition",
   invalid_owner: "invalid_owner", // novo dono não é membro ativo agent+ da org (bulk assign, G3-04)
   trigger_kind_not_implemented: "trigger_kind_not_implemented", // publish de followup-flow com kind sem motor de enrollment (stage_change/conversation_end)
+  // PATCH /api/v1/ai/jev ao ligar. Dois códigos porque são duas ações de quem lê:
+  // colar e testar a chave, ou marcar o aceite de mandar a mensagem para fora.
+  jev_exige_chave_validada: "jev_exige_chave_validada",
+  jev_exige_aceite: "jev_exige_aceite",
 
   // 415 — tipo de mídia
   unsupported_media_type: "unsupported_media_type",
