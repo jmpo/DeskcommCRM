@@ -90,6 +90,19 @@ describe("total da coluna do funil", () => {
     expect(semNbsp(total.textContent ?? "")).toBe("R$ 249,90");
   });
 
+  it("⭐ em guarani soma certo: dois pedidos de ₲125.000 dão ₲250.000, não Gs. 25.000.000", () => {
+    // O negócio guarda ×100 em QUALQUER moeda (12.500.000 = ₲125.000); o PYG não
+    // tem subunidade, e passar a soma direto a `formatCents` a mostrava cem vezes
+    // maior — medido numa instalação real. Ver `formatValorDoNegocio`.
+    montar([
+      lead({ id: "p1", currency: "PYG", value_cents: 12_500_000 }),
+      lead({ id: "p2", currency: "PYG", value_cents: 12_500_000 }),
+    ]);
+
+    const total = screen.getByText((texto) => semNbsp(texto).includes("Gs."));
+    expect(semNbsp(total.textContent ?? "")).toBe("Gs. 250.000");
+  });
+
   it("a moeda vem do primeiro lead COM valor, ignorando os sem valor", () => {
     montar([
       lead({ id: "l3", currency: "BRL", value_cents: null }),
