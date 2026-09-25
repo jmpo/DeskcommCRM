@@ -293,7 +293,7 @@ export interface PedidoDeEdicao {
   depois_de?: string | null;
   /** Liga ou desliga o aviso na Central para quem entra nesta etapa (0401). */
   avisar_na_central?: boolean;
-  /** Evento de conversão ao entrar (0403); `null` desliga. */
+  /** Evento de conversão ao entrar (0416); `null` desliga. */
   evento_de_conversao?: "InitiateCheckout" | "LeadSubmitted" | "AddToCart" | null;
 }
 

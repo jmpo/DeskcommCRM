@@ -490,7 +490,7 @@ export function StagesSection({
                 {t("Avisar a equipe na Central quando um negócio entrar aqui")}
               </label>
 
-              {/* Evento de conversão ao entrar (migration 0403): em venda contra
+              {/* Evento de conversão ao entrar (migration 0416): em venda contra
                   entrega, a confirmação do pedido é o sinal cedo para a
                   plataforma do anúncio — a venda só sai na entrega. */}
               <label className="flex flex-wrap items-center gap-2 text-xs text-text-muted">

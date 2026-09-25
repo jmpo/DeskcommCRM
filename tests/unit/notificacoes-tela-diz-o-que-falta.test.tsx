@@ -52,7 +52,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const vapidPronto = vi.hoisted(() => vi.fn<() => boolean>());
-// A seção de sons (migration 0404) lê por react-query, e este teste renderiza a
+// A seção de sons (migration 0417) lê por react-query, e este teste renderiza a
 // árvore do servidor sem o QueryClientProvider que o app tem no layout. O que
 // este arquivo mede é o texto sobre Push; a seção de sons tem teste próprio.
 vi.mock("@/app/app/settings/notifications/_sons", () => ({ SonsDosAvisos: () => null }));

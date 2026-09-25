@@ -378,8 +378,13 @@ while IFS= read -r nome; do
     continue
   fi
 
-  colisao_n="$(grep -E "^[0-9]{14}_${nnnn}_.+\.sql$" <<<"$base_arvore" || true)"
-  colisao_t="$(grep -E "^${ts}_[0-9]{4}_.+\.sql$" <<<"$base_arvore" || true)"
+  # Só conta o arquivo da base que CONTINUA no fim do PR (`head_arvore`). Um PR que
+  # renumera a migration da base e reusa o número liberado — medido na sincronização
+  # com a upstream de 25/09/2026, que ocupou 0403–0405 do fork — não deixa número
+  # repetido depois do merge; a base ainda o mostra só porque o renome é deste PR.
+  # A sonda de árvore do push na main (uniq -d) continua valendo depois do merge.
+  colisao_n="$(grep -E "^[0-9]{14}_${nnnn}_.+\.sql$" <<<"$base_arvore" | grep -Fx -f <(printf '%s\n' "$head_arvore") || true)"
+  colisao_t="$(grep -E "^${ts}_[0-9]{4}_.+\.sql$" <<<"$base_arvore" | grep -Fx -f <(printf '%s\n' "$head_arvore") || true)"
   if [ -n "$colisao_n" ]; then
     lista="$(tr '\n' ' ' <<<"$colisao_n" | sed 's/ *$//')"
     echo "::error file=$caminho::NNNN=$nnnn já existe em '$BASE': $lista"

@@ -244,6 +244,15 @@ saida="$(gate "$c")"; code=$?
 assert_exit "$code" 0 "merge da própria main passa (a migration que veio da main não é adição do PR)"
 assert_not_contains "$saida" "0266_da_main.sql" "não culpa o PR pela migration que a main trouxe"
 
+echo "6b. renumerar a migration da base e reusar o número liberado passa (sincronização com a upstream)"
+c="$TMP/c6b"; clonar "$c"; git -C "$c" switch -q -c sync/renumera
+git -C "$c" mv supabase/migrations/20260101120000_0262_existente.sql \
+              supabase/migrations/20260917120000_0270_existente.sql
+migrar "$c" "20260917130000_0262_da_upstream.sql"; commit "$c" "renumera a do fork e traz a da upstream no número"
+saida="$(gate "$c")"; code=$?
+assert_exit "$code" 0 "o número liberado pelo renome deste PR não é colisão"
+assert_not_contains "$saida" "CI REPROVADO" "não acusa o arquivo da base que o próprio PR renomeou"
+
 echo "7. o caso do #804/#0161: número disputado que entra pela base"
 c="$TMP/c7"; clonar "$c"; git -C "$c" switch -q -c fix/disputa
 migrar "$c" "20260916160000_0268_lembrete.sql"; commit "$c" "PR A: 0268"

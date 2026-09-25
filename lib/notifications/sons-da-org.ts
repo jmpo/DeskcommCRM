@@ -8,7 +8,7 @@
  *                 um negócio (`lib/leads/aviso-de-etapa.handler.ts`);
  *   - `pessoa` — o assistente passou a conversa para uma pessoa (`handoff`).
  *
- * O arquivo vive no bucket PRIVADO `org-sounds` (migration 0404), em
+ * O arquivo vive no bucket PRIVADO `org-sounds` (migration 0417), em
  * `<organization_id>/<tipo>-<uuid>.<ext>`; o caminho fica em
  * `organizations.settings.sons_de_aviso`. A tela recebe URL assinada.
  * Sem arquivo, toca o bipe do produto — o aviso nunca fica mudo por falta de

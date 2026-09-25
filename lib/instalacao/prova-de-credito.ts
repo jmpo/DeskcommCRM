@@ -23,6 +23,7 @@ import {
   cabecalhosDeAtribuicaoOpenRouter,
   DEEPSEEK_ENDPOINT,
   OPENROUTER_ENDPOINT,
+  REQUESTY_ENDPOINT,
 } from "@/lib/agent-engine/edge/llm/providers";
 
 export type ResultadoDaProva =
@@ -99,6 +100,29 @@ export function montarRequisicaoDeProva(
         url: `${baseUrl ?? DEEPSEEK_ENDPOINT}/chat/completions`,
         headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
         body: { model: modelo, max_tokens: 1, messages: msg },
+      };
+    case "requesty":
+      // OpenAI-compatível. `max_tokens: 16` e não 1: os modelos da OpenAI
+      // atrás do roteador recusam `max_tokens` abaixo de 16 (400, medido), e o
+      // modelo mais barato do catálogo da Requesty é justamente da OpenAI.
+      return {
+        url: `${baseUrl ?? REQUESTY_ENDPOINT}/chat/completions`,
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        body: { model: modelo, max_tokens: 16, messages: msg },
+      };
+    // Provedor personalizado (#1642): a instalação não coleta o endereço no
+    // install.sh, então sem `baseUrl` não há para onde provar — `null` é a
+    // leitura honesta de "não sei testar isto aqui", e não um ok por omissão
+    // (fail-closed, a mesma régua do `default` abaixo).
+    case "custom":
+      if (!baseUrl) return null;
+      return {
+        url: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        // `max_tokens: 16` e não 1: modelos da OpenAI atrás de um gateway
+        // recusam menos que 16 (medido na Requesty), e este é um gateway
+        // qualquer — o custo de 16 tokens é irrelevante e o risco, nenhum.
+        body: { model: modelo, max_tokens: 16, messages: msg },
       };
     case "google":
       return {
