@@ -53,7 +53,7 @@ function groupLeadsByStage(stages: Stage[], leads: Lead[]): Map<string, Lead[]> 
 
 function BoardSkeleton() {
   return (
-    <div className="flex gap-3 overflow-x-auto p-4">
+    <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
       {[0, 1, 2].map((c) => (
         <div
           key={c}
@@ -245,7 +245,24 @@ export function KanbanBoard({
 
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
-      <div className="flex h-full gap-3 overflow-x-auto p-4">
+      {/* UM contêiner de rolagem só, nos dois eixos. Rolar cada coluna por
+          conta própria seria o desenho "Trello", mas o @hello-pangea/dnd não
+          suporta Droppable rolável dentro de outro contêiner rolável ("nested
+          scroll containers are currently not supported") — o arraste perderia
+          a rolagem automática. Com o quadro como único pai rolável, o arraste
+          continua inteiro, e o cabeçalho de cada etapa fica preso em cima
+          (`sticky` em StageColumn). `items-start` + `min-h-full` na coluna: a
+          coluna curta ocupa a altura toda (dá para soltar card no vazio) e a
+          comprida cresce com os cards, com o fundo acompanhando.
+          Sem padding no ALTO, e é de propósito: o `sticky` prende o cabeçalho
+          na borda do conteúdo do contêiner, então um `pt-4` deixava uma faixa
+          de 16px acima dele por onde os cards apareciam rolando (medido no e2e
+          "o quadro cabe na tela"). O respiro até os filtros vem do `gap-4` da
+          página. */}
+      <div
+        className="flex min-h-0 flex-1 items-start gap-3 overflow-auto px-4 pb-4"
+        data-quadro-do-funil
+      >
         {data.stages.map((stage) => (
           <StageColumn
             key={stage.id}
