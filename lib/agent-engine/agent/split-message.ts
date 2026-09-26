@@ -1,43 +1,55 @@
 /**
- * Quebra o texto da resposta em "bolhas" curtas (Onda 4) — parágrafo → sentença
- * → palavra, juntando pedaços adjacentes que caibam em maxChars. Puro. Usado no
- * send do agente quando split_messages está on; o pacing anti-ban espaça cada
- * bolha. Nunca devolve bolha vazia nem (salvo palavra atômica gigante) > maxChars.
+ * Quebra o texto da resposta em "bolhas" curtas (Onda 4). Puro. Usado no send
+ * do agente quando split_messages está on; o pacing anti-ban espaça cada bolha.
+ * Nunca devolve bolha vazia nem (salvo palavra atômica gigante) > maxChars.
+ *
+ * O PARÁGRAFO É A FRONTEIRA DA BOLHA. Quem escreve em bolhas no WhatsApp decide
+ * onde uma termina e a outra começa, e o modelo diz isso com a linha em branco
+ * (é o que `instrucaoDeBolhas` pede). Cada parágrafo sai como bolha própria, na
+ * ordem do texto; `maxChars` só entra para partir o parágrafo que sozinho
+ * estoura — por sentença, depois por palavra —, juntando dentro DELE os
+ * pedaços que caibam.
+ *
+ * Antes, parágrafos vizinhos eram juntados enquanto coubessem em maxChars, e o
+ * texto inteiro abaixo do teto saía numa bolha só. Isso deixava a opção sem
+ * ajuste possível: teto alto (600) e três parágrafos curtos viravam UMA bolha;
+ * teto baixo e o resumo do pedido — uma lista numa linha por item, sem ponto —
+ * era cortado por palavra no meio de uma linha, com as quebras de linha
+ * perdidas. Medido numa VPS em produção (26/09/2026): com teto 500, o corte do
+ * sistema quase nunca agia, e as "bolhas" que o cliente via eram o modelo
+ * chamando send_message várias vezes — em paralelo, fora de ordem.
  */
 export function splitIntoBubbles(text: string, maxChars: number): string[] {
   const trimmed = (text ?? "").trim();
   if (trimmed === "") return [];
-  if (trimmed.length <= maxChars) return [trimmed];
 
-  // Unidades atômicas: parágrafos → sentenças. Cada unidade que ainda estoura é
-  // quebrada por palavra.
-  const units: string[] = [];
+  const bubbles: string[] = [];
   for (const para of trimmed.split(/\n{2,}/)) {
     const p = para.trim();
     if (p === "") continue;
     if (p.length <= maxChars) {
-      units.push(p);
+      bubbles.push(p);
       continue;
     }
+    // Parágrafo que estoura: sentenças (palavra como último recurso), juntando
+    // as vizinhas DESTE parágrafo enquanto couberem.
+    const units: string[] = [];
     for (const sentence of splitSentences(p)) {
       if (sentence.length <= maxChars) units.push(sentence);
       else units.push(...splitWords(sentence, maxChars));
     }
-  }
-
-  // Junta unidades adjacentes enquanto couberem (com espaço).
-  const bubbles: string[] = [];
-  let cur = "";
-  for (const u of units) {
-    const joined = cur === "" ? u : `${cur} ${u}`;
-    if (joined.length <= maxChars) {
-      cur = joined;
-    } else {
-      if (cur !== "") bubbles.push(cur);
-      cur = u;
+    let cur = "";
+    for (const u of units) {
+      const joined = cur === "" ? u : `${cur} ${u}`;
+      if (joined.length <= maxChars) {
+        cur = joined;
+      } else {
+        if (cur !== "") bubbles.push(cur);
+        cur = u;
+      }
     }
+    if (cur !== "") bubbles.push(cur);
   }
-  if (cur !== "") bubbles.push(cur);
   return bubbles;
 }
 
@@ -148,6 +160,27 @@ export interface SendInBubblesOpts<T extends BubbleOutcome = BubbleOutcome> {
  * se o warm-up precisar de precisão por mensagem física.
  */
 export const OK_KINDS = new Set(["sent", "already_sent", "queued"]);
+
+/**
+ * O QUE O TURNO DIZ AO MODELO quando `split_messages` está ligado.
+ *
+ * A tela promete "a resposta sai em bolhas separadas… o agente também é
+ * instruído a escrever em parágrafos curtos". O texto que ia ao modelo dizia
+ * outra coisa — "Prefira várias mensagens curtas a um texto único e longo" — e
+ * o modelo obedecia chamando `send_message` VÁRIAS vezes no mesmo passo. Essas
+ * chamadas rodam em paralelo e disputam o envio: o cliente recebia a lista de
+ * dados de entrega fora de ordem. Medido numa VPS em produção (26/09/2026, 50
+ * turnos reais): 17 respostas saíram partidas pelo próprio modelo — enquanto o
+ * corte do sistema, com o teto de 500 caracteres, quase nunca agia.
+ *
+ * Quem parte em bolhas, EM ORDEM e no ritmo de quem digita, é `sendInBubbles`.
+ * O modelo só precisa escrever UM envio em parágrafos curtos.
+ */
+export function instrucaoDeBolhas(ligado: boolean): string {
+  return ligado
+    ? "Escreva cada resposta numa ÚNICA chamada de send_message, em parágrafos curtos separados por uma linha em branco — como uma pessoa digitando no WhatsApp. O sistema quebra o texto em mensagens separadas nos limites de parágrafo, em ordem e com a pausa de quem digita. Nunca chame send_message mais de uma vez no mesmo turno: mensagens enviadas juntas podem chegar fora de ordem."
+    : "";
+}
 
 /**
  * A decisão de fatiamento do `sendInBubbles`, exposta separadamente (issue #654).
