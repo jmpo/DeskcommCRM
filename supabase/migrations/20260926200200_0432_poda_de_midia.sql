@@ -37,8 +37,20 @@ begin
      limit v_lim
      for update of m skip locked
   ), fila as (
+    -- O arquivo só vai para a fila quando nenhuma OUTRA mensagem o usa: a foto
+    -- de catálogo tem caminho fixo por conversa e é reaproveitada a cada
+    -- reenvio (`fotos-do-produto.ts`), então a mensagem de ontem pode apontar
+    -- para o mesmo arquivo da vencida. A vencida perde o caminho do mesmo
+    -- jeito; o arquivo sai quando a última referência vencer (aqui) ou no
+    -- passo 2, como órfão.
     insert into public.storage_redaction_queue (organization_id, bucket, object_path)
-    select organization_id, 'whatsapp-media', caminho from alvo
+    select distinct a.organization_id, 'whatsapp-media', a.caminho
+      from alvo a
+     where not exists (
+       select 1 from public.messages m2
+        where m2.media_storage_path = a.caminho
+          and m2.id not in (select id from alvo)
+     )
     on conflict (bucket, object_path) do nothing
     returning 1
   ), limpas as (
