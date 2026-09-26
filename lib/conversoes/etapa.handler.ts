@@ -1,6 +1,6 @@
 /**
  * Evento de conversão de ETAPA: quando um negócio entra numa etapa com
- * `crm_stages.evento_de_conversao` (migration 0416), o evento sai para a
+ * `crm_stages.evento_de_conversao` (migration 0428), o evento sai para a
  * plataforma do anúncio que trouxe o contato.
  *
  * Existe porque, em quem vende com pagamento na entrega, a venda (`Purchase`)
@@ -66,14 +66,20 @@ async function handle(row: EventRow): Promise<HandlerResult> {
   const l = lead as { id: string; value_cents: number | null; currency: string | null; contact_id: string | null };
   // Sem `closed_at`: o negócio não fechou. O instante do evento é o da entrada
   // na etapa, que é o `created_at` da linha do event_log.
-  return reportarConversao(
-    admin,
-    row,
-    { id: l.id, value_cents: l.value_cents && l.value_cents > 0 ? l.value_cents : null, currency: l.currency, closed_at: null, contact_id: l.contact_id },
-    evento,
-    CONSUMER_KEY,
-    { exigeValor: false },
-  );
+  // `reportarConversao` LANÇA quando a conexão não pôde ser lida (e o livro-razão
+  // não pode ser escrito): é transitório, e a mesma regra da venda vale aqui.
+  try {
+    return await reportarConversao(
+      admin,
+      row,
+      { id: l.id, value_cents: l.value_cents && l.value_cents > 0 ? l.value_cents : null, currency: l.currency, closed_at: null, contact_id: l.contact_id },
+      evento,
+      CONSUMER_KEY,
+      { exigeValor: false },
+    );
+  } catch {
+    return tentarDeNovo("Falha ao ler ou registrar a conversão. Nova tentativa agendada.");
+  }
 }
 
 export const conversaoDeEtapaHandler: EventHandler = {

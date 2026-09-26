@@ -260,10 +260,10 @@ describe("GET /api/v1/pipelines/[id]/agent-mapping", () => {
       name: "Novo",
       is_won: false,
       is_lost: false,
-      // Decidido na migration 0401: a tela de etapas lê daqui a chave «avisar
+      // Decidido na migration 0426: a tela de etapas lê daqui a chave «avisar
       // na Central». Ausente na fixture = etapa anterior à coluna = desligada.
       avisar_na_central: false,
-      // Idem, migration 0416: sem evento de conversão configurado.
+      // Idem, migration 0428: sem evento de conversão configurado.
       evento_de_conversao: null,
       last_change_actor_kind: null,
       last_change_at: null,

@@ -22,6 +22,7 @@ import { followupGatilhoCasoHandler } from "@/lib/followup/gatilho-caso.handler"
 import { mediaPersistHandler } from "@/workers/media-persist-worker.handler";
 import { mediaDeriveHandler } from "@/workers/media-derive-worker.handler";
 import { webPushInboundHandler } from "@/lib/notifications/push.handler";
+import { conversaoDeQualificacaoHandler } from "@/lib/conversoes/qualificacao.handler";
 import { conversaoDeVendaHandler } from "@/lib/conversoes/envio.handler";
 import { conversaoDeEtapaHandler } from "@/lib/conversoes/etapa.handler";
 import { avisoDeEtapaHandler } from "@/lib/leads/aviso-de-etapa.handler";
@@ -74,5 +75,6 @@ export function ensureHandlersRegistered(): void {
   registerHandler(conversaoDeVendaHandler);
   // Mesmo critério: evento de etapa também sai por rede de terceiro.
   registerHandler(conversaoDeEtapaHandler);
+  registerHandler(conversaoDeQualificacaoHandler);
   _registered = true;
 }

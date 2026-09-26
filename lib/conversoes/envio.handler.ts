@@ -44,7 +44,7 @@ import { canalQueReportaConversao } from "@/lib/channels/conversao-pelo-canal";
 import type { ChannelConversionResult } from "@/lib/channels/types";
 import type { EventHandler, EventRow, HandlerResult } from "@/lib/event-log/dispatcher";
 import { lerCredencial } from "@/lib/plataformas-de-anuncio/credenciais";
-import { transporteDe } from "@/lib/plataformas-de-anuncio/registry";
+import { transporteDe, ehPlataformaConhecida } from "@/lib/plataformas-de-anuncio/registry";
 import type {
   ConversaoOffline,
   NomeDoEvento,
@@ -52,10 +52,9 @@ import type {
 } from "@/lib/plataformas-de-anuncio/types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lerAtribuicao } from "./leitura-da-atribuicao";
-import { jaFoiEnviada, registraEnvio } from "./registro-de-envio";
+import { lerRegistro, registraEnvio } from "./registro-de-envio";
 
 const CONSUMER_KEY = "conversoes.venda";
-const EVENTO: NomeDoEvento = "Purchase";
 
 /** Backoff do transitório. O drain reagenda sem contar tentativa. */
 const ESPERA_PADRAO_MS = 5 * 60 * 1000;
@@ -66,7 +65,17 @@ const ok = (status: HandlerResult["status"], detail?: string): HandlerResult => 
   detail,
 });
 
-async function handle(row: EventRow): Promise<HandlerResult> {
+export async function processarConversao(
+  row: EventRow,
+  qualificacao?: { ocorridoEm: string; googleActionId: string },
+): Promise<HandlerResult> {
+  const EVENTO: NomeDoEvento = qualificacao ? "QualifiedLead" : "Purchase";
+  if (
+    !qualificacao &&
+    row.event_type === "ad_conversion.retry_requested" &&
+    row.payload.event_name === "QualifiedLead"
+  )
+    return ok("skipped", "outro_evento");
   if (!row.entity_id) return ok("skipped", "sem_entidade");
 
   const admin = createAdminClient();
@@ -100,17 +109,18 @@ async function handle(row: EventRow): Promise<HandlerResult> {
     contact_id: string | null;
   };
 
-  // O filtro que faz `lead.stage_changed` valer a pena escutar: a grande maioria
-  // das mudanças de etapa não é fechamento, e sai por aqui sem tocar no banco de
-  // novo nem sujar o livro-razão.
-  if (lead.status !== "won") return ok("skipped", "nao_e_ganho");
-
-  return reportarConversao(admin, row, lead, EVENTO, CONSUMER_KEY, { exigeValor: true });
+  return reportarConversao(admin, row, lead, EVENTO, CONSUMER_KEY, {
+    exigeValor: !qualificacao,
+    exigeGanho: !qualificacao,
+    qualificacao,
+  });
 }
 
 /** O lead como `reportarConversao` precisa dele — relido do banco por quem chama. */
 export interface LeadDaConversao {
   id: string;
+  /** Só a venda (`exigeGanho`) olha o status; o evento de etapa não. */
+  status?: string;
   value_cents: number | null;
   currency: string | null;
   closed_at: string | null;
@@ -121,13 +131,15 @@ export interface LeadDaConversao {
  * Reporta UM evento de conversão de UM negócio: livro-razão (não duplica),
  * atribuição do anúncio, canal com a ponte primeiro, transporte direto depois.
  *
- * Compartilhado pela venda (`Purchase`, na entrega) e pelo evento de ETAPA
- * (`lib/conversoes/etapa.handler.ts` — ex.: `InitiateCheckout` quando o pedido
- * é confirmado). Um caminho só, para as duas regras não divergirem.
+ * Compartilhado pela venda (`Purchase`, na entrega), pela qualificação do Google
+ * (`QualifiedLead`) e pelo evento de ETAPA (`lib/conversoes/etapa.handler.ts` —
+ * ex.: `InitiateCheckout` quando o pedido é confirmado). Um caminho só, para as
+ * regras não divergirem.
  *
  * `exigeValor`: `Purchase` sem valor é recusado pela plataforma e ensinaria ao
  * otimizador que a venda vale zero — vira pendência. Evento de etapa segue sem
  * valor: a plataforma aceita e o sinal de intenção é o que importa ali.
+ * `exigeGanho`: só a venda exige o negócio ganho.
  */
 export async function reportarConversao(
   admin: ReturnType<typeof createAdminClient>,
@@ -135,30 +147,56 @@ export async function reportarConversao(
   lead: LeadDaConversao,
   EVENTO: NomeDoEvento,
   CONSUMER_KEY: string,
-  opcoes: { exigeValor: boolean },
+  opcoes: {
+    exigeValor: boolean;
+    exigeGanho?: boolean;
+    qualificacao?: { ocorridoEm: string; googleActionId: string };
+  },
 ): Promise<HandlerResult> {
+  let qualificacao = opcoes.qualificacao;
   const ok = (status: HandlerResult["status"], detail?: string): HandlerResult => ({
     consumer_key: CONSUMER_KEY,
     status,
     detail,
   });
-  if (await jaFoiEnviada(admin, row.organization_id, lead.id, EVENTO)) {
+
+  // O filtro que faz `lead.stage_changed` valer a pena escutar: a grande maioria
+  // das mudanças de etapa não é fechamento, e sai por aqui sem tocar no banco de
+  // novo nem sujar o livro-razão.
+  const registro = await lerRegistro(admin, row.organization_id, lead.id, EVENTO);
+  if (opcoes.exigeGanho && lead.status !== "won" && !registro?.remote_request_id)
+    return ok("skipped", "nao_e_ganho");
+  if (registro?.status === "sent") {
     return ok("skipped", "ja_enviada");
   }
 
-  const leitura = await lerAtribuicao(admin, row.organization_id, lead.contact_id);
+  const leitura =
+    registro?.remote_request_id && ehPlataformaConhecida(registro.platform)
+      ? {
+          temAtribuicao: true as const,
+          atribuicao: { plataforma: registro.platform, cliqueDeOrigem: "", telefone: null },
+        }
+      : await lerAtribuicao(admin, row.organization_id, lead.contact_id);
   if (!leitura.temAtribuicao) return ok("skipped", leitura.motivo);
 
   const { plataforma, cliqueDeOrigem, telefone } = leitura.atribuicao;
-
-  // O Google recebe só a venda (uma ação de conversão, com valor). Evento de
-  // etapa em contato do Google não é pendência de ninguém — é não-aplicável.
-  if (plataforma !== "meta_ads" && EVENTO !== "Purchase") return ok("skipped", "plataforma_so_recebe_venda");
+  const identificadoresGoogle =
+    "identificadoresGoogle" in leitura.atribuicao
+      ? leitura.atribuicao.identificadoresGoogle
+      : undefined;
+  if (qualificacao && plataforma !== "google_ads")
+    return ok("skipped", "qualificacao_sem_origem_google");
+  // O Google recebe a venda e a qualificação. Evento de ETAPA em contato do
+  // Google não é pendência de ninguém — é não-aplicável.
+  if (plataforma !== "meta_ads" && EVENTO !== "Purchase" && EVENTO !== "QualifiedLead")
+    return ok("skipped", "plataforma_so_recebe_venda");
 
   const registra = (
     status: "sent" | "skipped" | "error",
     motivo: string | null,
     detalhe?: string,
+    protocolo?: string | null,
+    solicitadoEm?: string | null,
   ) =>
     registraEnvio(admin, {
       organizationId: row.organization_id,
@@ -168,9 +206,21 @@ export async function reportarConversao(
       status,
       motivo,
       eventoId: `${lead.id}:${EVENTO}`,
-      valorCentavos: lead.value_cents,
-      moeda: lead.currency,
+      valorCentavos: qualificacao
+        ? null
+        : registro?.remote_request_id
+          ? registro.value_cents
+          : lead.value_cents,
+      ...(qualificacao
+        ? {
+            ocorridoEm: registro?.event_occurred_at ?? qualificacao.ocorridoEm,
+            googleActionId: registro?.google_action_id ?? qualificacao.googleActionId,
+          }
+        : {}),
+      moeda: registro?.remote_request_id ? registro.currency : lead.currency,
       detalhe: detalhe ?? null,
+      protocolo,
+      solicitadoEm,
     });
 
   const transporte = transporteDe(plataforma);
@@ -186,38 +236,25 @@ export async function reportarConversao(
   // nullable e nada obriga a preenchê-lo no fechamento (baseline.sql:1452), então
   // esta é a pendência MAIS COMUM — e a razão de a tela existir. Mandar `0` para
   // "resolver" seria aceito e ensinaria ao otimizador que a venda não vale nada.
-  if (opcoes.exigeValor && (lead.value_cents === null || lead.value_cents <= 0)) {
+  if (
+    opcoes.exigeValor &&
+    !registro?.remote_request_id &&
+    (lead.value_cents === null || lead.value_cents <= 0)
+  ) {
     await registra("skipped", "sem_valor");
     return ok("skipped", "sem_valor");
   }
 
-  const conversao: ConversaoOffline = {
-    organizationId: row.organization_id,
-    leadId: lead.id,
-    evento: EVENTO,
-    eventoId: `${lead.id}:${EVENTO}`,
-    // `closed_at` é escrito pelo trigger junto com o `status`, então em won ele
-    // existe. O fallback é para a linha antiga de um banco que fechou por outro
-    // caminho — e cair em `created_at` do evento é melhor que em `now()`, que
-    // fingiria que a venda é de hoje.
-    ocorridoEm: new Date(lead.closed_at ?? row.created_at ?? Date.now()),
-    cliqueDeOrigem,
-    telefone,
-    // A coluna tem `DEFAULT 'BRL'` e um CHECK de ISO-4217; o fallback só cobre a
-    // linha que teve a moeda apagada à mão.
-    moeda: lead.currency ?? "BRL",
-    valorCentavos: lead.value_cents,
-  };
-
   // ─── O CANAL PRIMEIRO ─────────────────────────────────────────────────────
   //
   // Quando a conversa do cliente passa por um canal intermediado que já tem a
-  // ponte com o conjunto de dados da Meta (configurada na tela do provedor), a
-  // venda vai por ele: é o canal quem guardou o vínculo com o clique, e o CRM
-  // não precisa de token nem de dataset próprios. Só um caminho por venda —
+  // ponte com o conjunto de dados da Meta (configurada na tela do provedor), o
+  // evento vai por ele: é o canal quem guardou o vínculo com o clique, e o CRM
+  // não precisa de token nem de dataset próprios. Por isso vem ANTES de exigir a
+  // credencial da Meta: quem usa o canal não a tem. Só um caminho por evento —
   // mandar pelos dois contaria a mesma compra duas vezes se os ids de
   // deduplicação não casassem do outro lado.
-  if (plataforma === "meta_ads") {
+  if (plataforma === "meta_ads" && EVENTO !== "QualifiedLead" && !registro?.remote_request_id) {
     let canal;
     try {
       canal = await canalQueReportaConversao(admin, row.organization_id, lead.contact_id);
@@ -232,34 +269,117 @@ export async function reportarConversao(
     if (canal) {
       const pelo = await canal.reportar({
         event: EVENTO,
-        eventId: conversao.eventoId,
-        occurredAt: conversao.ocorridoEm,
+        eventId: `${lead.id}:${EVENTO}`,
+        occurredAt: new Date(lead.closed_at ?? row.created_at ?? Date.now()),
         phone: telefone,
         valueCents: lead.value_cents,
-        currency: conversao.moeda,
+        currency: lead.currency ?? "BRL",
       });
-      return desfecho(doCanal(pelo));
+      return desfecho(doCanal(pelo), false);
     }
   }
 
   const credencial = await lerCredencial(admin, row.organization_id, plataforma);
   if (!credencial.ok) {
+    if (credencial.motivo === "leitura_indisponivel")
+      throw new Error("Leitura da conexão indisponível.");
     await registra("skipped", credencial.motivo);
     return ok("skipped", credencial.motivo);
   }
 
-  return desfecho(await transporte.enviar(credencial.credencial, conversao));
+  if (qualificacao && credencial.credencial.google) {
+    credencial.credencial.google.conversionActionId =
+      registro?.google_action_id ?? qualificacao.googleActionId;
+  }
+  if (qualificacao && !registro?.event_occurred_at) {
+    await registra("skipped", "nova_tentativa_agendada");
+    // O primeiro snapshot vence também quando dois movimentos concorrem.
+    const salvo = await lerRegistro(admin, row.organization_id, lead.id, EVENTO);
+    if (!salvo?.event_occurred_at || !salvo.google_action_id)
+      throw new Error("Snapshot da qualificação ausente.");
+    qualificacao = { ocorridoEm: salvo.event_occurred_at, googleActionId: salvo.google_action_id };
+    if (credencial.credencial.google)
+      credencial.credencial.google.conversionActionId = salvo.google_action_id;
+  }
 
-  async function desfecho(resultado: ResultadoDeEnvio): Promise<HandlerResult> {
+  const conversao: ConversaoOffline = {
+    organizationId: row.organization_id,
+    leadId: lead.id,
+    evento: EVENTO,
+    eventoId: `${lead.id}:${EVENTO}`,
+    // `closed_at` é escrito pelo trigger junto com o `status`, então em won ele
+    // existe. O fallback é para a linha antiga de um banco que fechou por outro
+    // caminho — e cair em `created_at` do evento é melhor que em `now()`, que
+    // fingiria que a venda é de hoje.
+    ocorridoEm: new Date(
+      qualificacao
+        ? (registro?.event_occurred_at ?? qualificacao.ocorridoEm)
+        : (lead.closed_at ?? row.created_at ?? Date.now()),
+    ),
+    cliqueDeOrigem,
+    identificadoresGoogle,
+    telefone,
+    // A coluna tem `DEFAULT 'BRL'` e um CHECK de ISO-4217; o fallback só cobre a
+    // linha que teve a moeda apagada à mão.
+    moeda: lead.currency ?? "BRL",
+    // Evento de etapa segue sem valor quando o negócio não tem (ver `exigeValor`).
+    valorCentavos: qualificacao ? null : opcoes.exigeValor ? (lead.value_cents ?? 0) : lead.value_cents,
+  };
+
+  // Protocolo já recebido: consultar é a única operação permitida até concluir.
+  const resultado =
+    registro?.remote_request_id && transporte.consultar
+      ? await transporte.consultar(credencial.credencial, registro.remote_request_id)
+      : await transporte.enviar(credencial.credencial, conversao);
+
+  return desfecho(resultado, Boolean(credencial.credencial.testEventCode));
+
+  async function desfecho(resultado: ResultadoDeEnvio, modoDeTeste: boolean): Promise<HandlerResult> {
+    if (resultado.tipo === "processando") {
+      const solicitadoEm =
+        registro?.remote_request_id === resultado.protocolo
+          ? (registro.remote_requested_at ?? new Date().toISOString())
+          : new Date().toISOString();
+      const vencido = Date.now() - new Date(solicitadoEm).getTime() > 24 * 60 * 60 * 1000;
+      await registra(
+        "skipped",
+        vencido ? "processamento_demorado" : "aguardando_processamento",
+        resultado.detalhe,
+        resultado.protocolo,
+        solicitadoEm,
+      );
+      if (vencido) return ok("skipped", "processamento_demorado");
+      return {
+        consumer_key: CONSUMER_KEY,
+        status: "retry",
+        retry_at: new Date(Date.now() + ESPERA_PADRAO_MS).toISOString(),
+        detail: resultado.detalhe,
+      };
+    }
+
     if (resultado.tipo === "ok") {
+      if (modoDeTeste) {
+        await registra(
+          "skipped",
+          "evento_de_teste",
+          "Evento recebido em modo de teste. Desative o teste antes de reportar a venda real.",
+        );
+        return ok("skipped", "evento_de_teste");
+      }
       await registra("sent", null, resultado.detalhe);
       return ok("ok", `conversão reportada (${plataforma})`);
     }
 
     if (resultado.tipo === "transitorio") {
-      // Nada no livro-razão: a tela mostra o que precisa de HUMANO, e isto ainda
-      // pode se resolver sozinho. Registrar aqui produziria alarme para uma
-      // instabilidade que some no próximo drain.
+      if (
+        registro?.remote_requested_at &&
+        Date.now() - new Date(registro.remote_requested_at).getTime() > 24 * 60 * 60 * 1000
+      ) {
+        await registra("skipped", "processamento_demorado", resultado.detalhe);
+        return ok("skipped", "processamento_demorado");
+      }
+      await registra("skipped", "nova_tentativa_agendada", resultado.detalhe);
+      // Transitório visível na mesma tela das pendências.
       return {
         consumer_key: CONSUMER_KEY,
         status: "retry",
@@ -268,8 +388,13 @@ export async function reportarConversao(
       };
     }
 
-    await registra("error", "recusado_pela_plataforma", resultado.detalhe);
-    return ok("error", resultado.detalhe);
+    await registra(
+      "error",
+      "recusado_pela_plataforma",
+      resultado.detalhe,
+      resultado.rejeicaoConfirmada ? null : undefined,
+    );
+    return ok("skipped", "recusado_pela_plataforma");
   }
 }
 
@@ -280,10 +405,23 @@ function doCanal(r: ChannelConversionResult): ResultadoDeEnvio {
   return { tipo: "permanente", detalhe: r.detail };
 }
 
+async function handle(row: EventRow): Promise<HandlerResult> {
+  try {
+    return await processarConversao(row);
+  } catch {
+    return {
+      consumer_key: CONSUMER_KEY,
+      status: "retry",
+      retry_at: new Date(Date.now() + ESPERA_PADRAO_MS).toISOString(),
+      detail: "Falha ao ler ou registrar a conversão. Nova tentativa agendada.",
+    };
+  }
+}
+
 export const conversaoDeVendaHandler: EventHandler = {
   key: CONSUMER_KEY,
   // As duas portas. Ver o cabeçalho: `lead.stage_changed` cobre o arrasto no
   // kanban E o mover em lote, e o `status` do payload não é confiável em nenhum.
-  events: ["lead.won", "lead.stage_changed"],
+  events: ["lead.won", "lead.stage_changed", "ad_conversion.retry_requested"],
   handle,
 };

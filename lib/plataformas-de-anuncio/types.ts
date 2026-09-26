@@ -1,3 +1,5 @@
+import type { IdentificadoresGoogle } from "./google/identificadores";
+
 /**
  * O vocabulário AGNÓSTICO do eixo de plataformas de anúncio.
  *
@@ -42,17 +44,21 @@
  * REPORTAR. Os dois conjuntos coincidem hoje e não têm por que coincidir sempre
  * — existe plataforma que atribui e não recebe conversão de volta.
  */
+export type ApiDeConversaoGoogle = "google_ads" | "data_manager";
+
 export type PlataformaDeAnuncio = "meta_ads" | "google_ads";
 
 /**
- * `Purchase` é a venda (na entrega, em quem vende contra entrega). Os demais são
- * eventos de ETAPA do funil (`crm_stages.evento_de_conversao`, migration 0416):
- * o sinal de intenção que chega dias antes da entrega — é com ele que o
- * otimizador da plataforma aprende rápido numa venda que só se paga ao receber.
+ * `Purchase` é a venda (na entrega, em quem vende contra entrega) e
+ * `QualifiedLead` a qualificação do Google — resultados distintos, deduplicados
+ * separadamente. Os demais são eventos de ETAPA do funil
+ * (`crm_stages.evento_de_conversao`): o sinal de intenção que chega dias antes da
+ * entrega — é com ele que o otimizador da plataforma aprende rápido numa venda
+ * que só se paga ao receber. Evento de etapa vai só à Meta.
  */
 export const EVENTOS_DE_ETAPA = ["InitiateCheckout", "LeadSubmitted", "AddToCart"] as const;
 export type EventoDeEtapa = (typeof EVENTOS_DE_ETAPA)[number];
-export type NomeDoEvento = "Purchase" | EventoDeEtapa;
+export type NomeDoEvento = "Purchase" | "QualifiedLead" | EventoDeEtapa;
 
 /**
  * Uma conversão pronta para sair — no formato da CASA, não no da plataforma.
@@ -81,9 +87,10 @@ export interface ConversaoOffline {
   ocorridoEm: Date;
   /** O clique que originou a conversa — `ad_source_id` do contato (0164). */
   cliqueDeOrigem: string;
+  identificadoresGoogle?: IdentificadoresGoogle;
   /** E.164 sem `+`, ainda EM CLARO: o hash é responsabilidade do transporte. */
   telefone: string | null;
-  /** `null` só em evento de etapa sem valor — `Purchase` sempre traz. */
+  /** `null` na qualificação e em evento de etapa sem valor — `Purchase` sempre traz. */
   valorCentavos: number | null;
   moeda: string;
 }
@@ -107,8 +114,9 @@ export interface ConversaoOffline {
  */
 export type ResultadoDeEnvio =
   | { tipo: "ok"; detalhe?: string }
+  | { tipo: "processando"; protocolo: string; detalhe: string }
   | { tipo: "transitorio"; detalhe: string; tentarEmMs?: number }
-  | { tipo: "permanente"; detalhe: string };
+  | { tipo: "permanente"; detalhe: string; rejeicaoConfirmada?: boolean };
 
 /**
  * As credenciais que o transporte precisa, já decifradas.
@@ -127,6 +135,7 @@ export interface CredencialDeConversao {
   /** Preenchido = envio marcado como teste, não conta para otimização. */
   testEventCode: string | null;
   google?: {
+    api?: ApiDeConversaoGoogle;
     /** Decifrado; NUNCA o access token — esse é derivado a cada envio. */
     refreshToken: string;
     customerId: string;
@@ -139,10 +148,8 @@ export interface CredencialDeConversao {
 /** O contrato que todo transporte de conversão cumpre. */
 export interface TransporteDeConversao {
   plataforma: PlataformaDeAnuncio;
-  enviar(
-    credencial: CredencialDeConversao,
-    conversao: ConversaoOffline,
-  ): Promise<ResultadoDeEnvio>;
+  consultar?(credencial: CredencialDeConversao, protocolo: string): Promise<ResultadoDeEnvio>;
+  enviar(credencial: CredencialDeConversao, conversao: ConversaoOffline): Promise<ResultadoDeEnvio>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
