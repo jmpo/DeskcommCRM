@@ -38786,6 +38786,91 @@ revoke execute on function public.fn_expurgar_observacoes_do_jev(int,int) from a
 revoke execute on function public.fn_expurgar_observacoes_do_jev(int,int) from authenticated;
 grant  execute on function public.fn_expurgar_observacoes_do_jev(int,int) to service_role;
 
+-- ---- os candidatos ao golden set viram linha de rótulo (migration 0428) ----
+--
+-- O candidato do matcher de skills (F3-09) e do classificador de etapa (F3-11)
+-- sai do disco (JSON em `GOLDEN_CANDIDATES_DIR`) e vira linha SEM texto de
+-- cliente, com ponteiro `lead_id` para quem quiser ler a conversa de verdade.
+-- ANTES da varredura de anon, como a 0421: a tabela nasce aqui para quem só
+-- aplica o baseline. Racional inteiro na migration 0428.
+create table if not exists public.golden_candidates (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  lead_id uuid,
+  job_id uuid not null,
+  fonte text not null
+    constraint golden_candidates_fonte_check check (fonte in ('skill_match_miss', 'stage_classifier_divergence')),
+  skill text,
+  motivo text,
+  estagio_sugerido text,
+  estagio_confirmado text,
+  constraint golden_candidates_rotulos_check check (
+    (fonte = 'skill_match_miss'
+      and skill is not null
+      and motivo is not null
+      and estagio_sugerido is null
+      and estagio_confirmado is null)
+    or (fonte = 'stage_classifier_divergence'
+      and estagio_sugerido is not null
+      and estagio_confirmado is not null
+      and skill is null
+      and motivo is null)
+  ),
+  created_at timestamptz not null default now()
+);
+
+comment on table public.golden_candidates is
+  'Candidatos ao golden set (near-miss de skill e divergência classificador×modelo), em RÓTULO: sem texto de cliente, com ponteiro lead_id para quem quiser ler a conversa de verdade. Escrita só do servidor (lib/agent-engine/agent); leitura por membro da organização. Expurgada por fn_expurgar_candidatos_do_golden (cron data-retention).';
+
+create index if not exists golden_candidates_criada_idx
+  on public.golden_candidates (created_at);
+create index if not exists golden_candidates_org_criada_idx
+  on public.golden_candidates (organization_id, created_at desc);
+create unique index if not exists golden_candidates_uma_por_job_skill_idx
+  on public.golden_candidates (organization_id, job_id, skill)
+  where fonte = 'skill_match_miss';
+create unique index if not exists golden_candidates_uma_por_job_divergencia_idx
+  on public.golden_candidates (organization_id, job_id)
+  where fonte = 'stage_classifier_divergence';
+
+alter table public.golden_candidates enable row level security;
+drop policy if exists tenant_isolation_golden_candidates_select on public.golden_candidates;
+create policy tenant_isolation_golden_candidates_select on public.golden_candidates
+  for select using (organization_id in (select public.fn_user_org_ids()));
+
+revoke all on public.golden_candidates from anon, authenticated;
+grant select on public.golden_candidates to authenticated;
+grant all on public.golden_candidates to service_role;
+
+create or replace function public.fn_expurgar_candidatos_do_golden(
+  p_retencao_dias int default null,
+  p_limite int default null
+) returns int
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_dias int := greatest(coalesce(p_retencao_dias, 90), 30);
+  v_limite int := least(greatest(coalesce(p_limite, 1000), 1), 10000);
+  v_apagadas int;
+begin
+  with vencidas as (
+    select g.id from public.golden_candidates g
+     where g.created_at < now() - make_interval(days => v_dias)
+     order by g.created_at
+     limit v_limite
+  )
+  delete from public.golden_candidates g using vencidas v where g.id = v.id;
+  get diagnostics v_apagadas = row_count;
+  return v_apagadas;
+end;
+$$;
+revoke all    on function public.fn_expurgar_candidatos_do_golden(int,int) from public;
+revoke execute on function public.fn_expurgar_candidatos_do_golden(int,int) from anon;
+revoke execute on function public.fn_expurgar_candidatos_do_golden(int,int) from authenticated;
+grant  execute on function public.fn_expurgar_candidatos_do_golden(int,int) to service_role;
+
 -- ---- a retenção de mídia passa a existir (migration 0432) ----
 -- Ver o cabeçalho da migration: enfileira arquivo vencido e órfão na mesma
 -- fila da LGPD; o cron storage-redaction remove pelo Storage API.

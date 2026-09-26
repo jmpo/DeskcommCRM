@@ -1179,17 +1179,18 @@ export interface InboundTurnKnobs {
    */
   prune?: PruneToolResultsKnobs;
   /**
-   * Skills situacionais (F3-09): diretório onde os near-misses de matching viram
-   * candidatos ao golden set (GOLDEN_CANDIDATES_DIR). Ausente = misses NÃO gravados (o
-   * matching + injeção de corpo seguem valendo) — main.ts sempre o preenche pelo env;
-   * testes injetam um dir TEMP e nunca o golden real (freeze do tree).
+   * Skills situacionais (F3-09): gravação dos near-misses de matching como candidato ao
+   * golden set. Ausente/false = misses NÃO gravados (o matching + injeção de corpo seguem
+   * valendo) — main.ts sempre o preenche pelo env (`GOLDEN_CANDIDATES_ENABLED`); testes
+   * que não querem linha no banco omitem a knob. Desde a #1695 a gravação é uma LINHA em
+   * `golden_candidates` (só rótulo, sem texto de cliente), nunca arquivo em disco.
    */
-  goldenCandidatesDir?: string;
+  goldenCandidates?: boolean;
   /**
    * Stage-classifier por turno (F3-11; SalesGPT). Ausente = classificador NÃO roda (o
    * turno segue sem hint de estágio) — main.ts sempre o preenche pelo env; testes que não
-   * o exercitam o omitem sem custo. A DIVERGÊNCIA classificador×modelo é gravada em
-   * goldenCandidatesDir (mesmo dir da F3-09) — só se ele estiver configurado.
+   * o exercitam o omitem sem custo. A DIVERGÊNCIA classificador×modelo vira candidato em
+   * `golden_candidates` (mesma knob da F3-09) — só se a knob estiver ligada.
    */
   stageClassifier?: StageClassifierKnobs;
   /**
@@ -2907,8 +2908,9 @@ async function executarTurnoDoAgente(
   // Guideline-matching if-then (F3-09): o SINAL do turno (última mensagem inbound) decide
   // quais skills disparam. Corpos casados vão no SUFIXO da abertura (situacional, por-lead —
   // depois do prefixo cacheável); situação neutra ⇒ nenhum corpo (economia de tokens). Os
-  // near-misses (probe sem hard-match) viram candidatos ao golden set, gravados por fs em
-  // runtime (não a tool Write) — só se o dir estiver configurado. Calculado AQUI, ANTES de
+  // near-misses (probe sem hard-match) viram candidatos ao golden set, gravados como LINHA
+  // em `golden_candidates` (sem texto de cliente, issue #1695) — só com a knob ligada.
+  // Calculado AQUI, ANTES de
   // montar rawTools (Fase 2): o gate de read_skill_reference precisa do resultado do match
   // para decidir se a tool entra no turno (mesmo padrão de gate de search_knowledge/
   // request_human_handoff, feito antes do wrapToolsWithBreaker).
@@ -2930,14 +2932,13 @@ async function executarTurnoDoAgente(
     .filter((sk): sk is (typeof skills)[number] => sk !== undefined)
     .filter((sk) => !skillMatch.matched.some((m) => m.name === sk.name));
   const matchedSkillsBlock = renderMatchedSkillBodies([...skillMatch.matched, ...skillsDoRoteiro]);
-  if (!preview && deps.knobs.goldenCandidatesDir !== undefined) {
+  if (!preview && deps.knobs.goldenCandidates === true) {
     await recordSkillMissCandidates(
-      deps.knobs.goldenCandidatesDir,
+      pool,
       {
         tenantId,
         leadId,
         jobId: liveJob().id,
-        signal: sinalDoMatcher,
         candidates: skillMatch.missCandidates,
       },
       runLog,
@@ -4775,21 +4776,21 @@ async function executarTurnoDoAgente(
 
     // F3-11: divergência classificador×modelo. O classificador sugeriu um estágio; se o
     // modelo confirmou (via update_lead_state — a máquina F2-10) um estágio DIFERENTE, o
-    // desacordo vira candidato ao golden set (fs em runtime — reuso do dir da F3-09). Sem
-    // sugestão, sem confirmação, ou concordância ⇒ nenhum arquivo (zero divergência).
+    // desacordo vira candidato ao golden set (linha em `golden_candidates` — mesma tabela
+    // da F3-09, migration 0428). Sem sugestão, sem confirmação, ou concordância ⇒ nenhuma
+    // linha (zero divergência).
     if (
-      deps.knobs.goldenCandidatesDir !== undefined &&
+      deps.knobs.goldenCandidates === true &&
       stageSuggestion !== null &&
       confirmedStage !== null &&
       stageSuggestion !== confirmedStage
     ) {
       await recordStageDivergenceCandidate(
-        deps.knobs.goldenCandidatesDir,
+        pool,
         {
           tenantId,
           leadId,
           jobId: liveJob().id,
-          signal: skillSignal,
           divergence: { suggested: stageSuggestion, confirmed: confirmedStage },
         },
         runLog,

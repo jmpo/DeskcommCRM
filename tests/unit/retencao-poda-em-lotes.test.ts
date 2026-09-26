@@ -12,6 +12,8 @@ import {
 import {
   RETENCAO_AUDITORIA_DIAS_PADRAO,
   RETENCAO_AUDITORIA_DIAS_PISO,
+  RETENCAO_CANDIDATOS_GOLDEN_DIAS_PADRAO,
+  RETENCAO_CANDIDATOS_GOLDEN_DIAS_PISO,
   RETENCAO_AVISO_DE_CASO_DIAS_PADRAO,
   RETENCAO_CONVERSA_DO_CASO_DIAS_PADRAO,
   RETENCAO_ESPELHO_AGENDA_DIAS_PADRAO,
@@ -400,6 +402,11 @@ describe("houveEfeito — as duas direções", () => {
     lotes_rascunhos: 0,
     rascunhos_tem_resto: false,
     retencao_rascunho_dias: RETENCAO_RASCUNHO_DIAS_PADRAO,
+    // Décima primeira poda (migration 0428, issue #1695): o candidato ao golden set.
+    candidatos_do_golden_apagados: 0,
+    lotes_candidatos_do_golden: 0,
+    candidatos_do_golden_tem_resto: false,
+    retencao_candidatos_do_golden_dias: RETENCAO_CANDIDATOS_GOLDEN_DIAS_PADRAO,
     avisos: [] as string[],
   };
 
@@ -432,6 +439,13 @@ describe("houveEfeito — as duas direções", () => {
     // laço — a lição da quarta, da quinta e das demais. E é a única que apaga
     // TEXTO escrito para uma pessoa: apagaria dado pessoal sem trilha.
     expect(houveEfeito({ ...base, rascunhos_apagados: 1 })).toBe(true);
+  });
+
+  it("...e apagou candidato ao golden set vencido → TAMBÉM audita (0428)", () => {
+    // A décima primeira poda entra em `houveEfeito` no MESMO commit em que
+    // entra no laço — a mesma lição das dez anteriores: o predicado esquecido
+    // é mudo.
+    expect(houveEfeito({ ...base, candidatos_do_golden_apagados: 1 })).toBe(true);
   });
 
   it("apagou job → audita; apagou auditoria → audita", () => {
@@ -502,6 +516,23 @@ describe("os pisos do TypeScript e os do SQL são os mesmos números", () => {
     expect(bloco.length).toBeGreaterThan(500);
     expect(bloco).toContain(
       `greatest(coalesce(p_retencao_dias, ${RETENCAO_ESPELHO_AGENDA_DIAS_PADRAO}), ${RETENCAO_ESPELHO_AGENDA_DIAS_PISO})`,
+    );
+  });
+
+  it("...e o dos candidatos ao golden set também (migration 0428)", async () => {
+    // Mesma régua das três acima: piso que só existe no TypeScript é decorativo.
+    // O apêndice do baseline é o que quem instalou numa VPS aplica — se o número
+    // divergir lá, a instalação inteira poda com outro prazo que o `.env.example`
+    // promete.
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const sql = readFileSync(join(__dirname, "..", "..", "supabase", "baseline.sql"), "utf8");
+    const bloco = sql.slice(
+      sql.indexOf("-- ---- os candidatos ao golden set viram linha de rótulo (migration 0428) ----"),
+    );
+    expect(bloco.length).toBeGreaterThan(500);
+    expect(bloco).toContain(
+      `greatest(coalesce(p_retencao_dias, ${RETENCAO_CANDIDATOS_GOLDEN_DIAS_PADRAO}), ${RETENCAO_CANDIDATOS_GOLDEN_DIAS_PISO})`,
     );
   });
 });

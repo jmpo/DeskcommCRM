@@ -67,6 +67,8 @@ const DONO_NO_SQL: Record<string, string> = {
   PROSPECCAO: "fn_expurgar_prospeccao_vencida",
   // migration 0421 — as observações do Jev. Entra no MESMO commit da migration.
   OBSERVACOES_DO_JEV: "fn_expurgar_observacoes_do_jev",
+  // migration 0428 — os candidatos ao golden set (issue #1695).
+  CANDIDATOS_GOLDEN: "fn_expurgar_candidatos_do_golden",
 };
 
 /**

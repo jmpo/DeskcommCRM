@@ -243,6 +243,26 @@ export const RETENCAO_RASCUNHO_DIAS_PADRAO = 30;
  */
 export const RETENCAO_RASCUNHO_DIAS_PISO = 7;
 
+/**
+ * 90 dias para os CANDIDATOS AO GOLDEN SET (`golden_candidates`, migration 0428).
+ *
+ * A linha não guarda texto de cliente — só o rótulo do near-miss de skill ou da
+ * divergência classificador×modelo e os ponteiros do lead e do job. Ela existe
+ * para uma pergunta só ("este probe merece curadoria?"), respondida nos
+ * primeiros meses; depois disso o rótulo não muda a curadoria de ninguém, e a
+ * issue que criou a tabela (#1695) é justamente sobre dado de titular parado
+ * fora de qualquer prazo.
+ *
+ * Quem aplica é `fn_expurgar_candidatos_do_golden` (0428), em lotes pelo cron
+ * `data-retention`, com o piso no CORPO da função, como as irmãs.
+ */
+export const RETENCAO_CANDIDATOS_GOLDEN_DIAS_PADRAO = 90;
+/**
+ * Piso de 30 dias: a janela em que um near-miss ainda é curável. Abaixo dela a
+ * poda viraria apagador de rastro recente para quem acabou de ligar o knob.
+ */
+export const RETENCAO_CANDIDATOS_GOLDEN_DIAS_PISO = 30;
+
 export interface RetencaoInterpretada {
   /** Dias a pedir ao banco. Nunca abaixo do piso, nunca `NaN`. */
   readonly dias: number;
