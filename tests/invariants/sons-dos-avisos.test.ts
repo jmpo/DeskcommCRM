@@ -1,5 +1,5 @@
 /**
- * O bucket dos sons dos avisos (migration 0417) existe como a lib supõe:
+ * O bucket dos sons dos avisos (migration 0429) existe como a lib supõe:
  * privado, com o teto e os tipos de `lib/notifications/sons-da-org.ts`, e sem
  * policy nenhuma — só o service_role lê e grava.
  */

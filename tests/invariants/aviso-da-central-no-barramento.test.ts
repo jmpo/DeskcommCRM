@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 
 /**
- * `trg_aviso_da_central_criado` (migration 0418): todo aviso da Central de uma
+ * `trg_aviso_da_central_criado` (migration 0430): todo aviso da Central de uma
  * organização anuncia `central.aviso_criado`, para o push decidir o que vai ao
  * celular. Aviso de plataforma não anuncia, e a função não é RPC de ninguém.
  */

@@ -13,7 +13,7 @@
  */
 import { randomInt, randomUUID } from "node:crypto";
 
-import { test } from "@playwright/test";
+import { test } from "./helpers/test";
 
 import { abreConversa, admin, captura, creds, expect, insere, login, registra, type Creds } from "./qa-l12-comum";
 

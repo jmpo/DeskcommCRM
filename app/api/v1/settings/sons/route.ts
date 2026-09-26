@@ -8,7 +8,7 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  *   DELETE — `?tipo=`. Manager ou acima. Volta ao bipe do produto.
  *
  * O tipo do arquivo é FAREJADO pelos bytes; o bucket é privado e só o
- * service_role lê e grava (migration 0417). Organização sempre da sessão.
+ * service_role lê e grava (migration 0429). Organização sempre da sessão.
  */
 import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
