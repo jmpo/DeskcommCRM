@@ -1,6 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { apiTranscriptionProvider } from "@/lib/messaging/media/transcription";
+import {
+  apiTranscriptionProvider,
+  idiomasDaTranscricao,
+  modeloDeTranscricaoEmVigor,
+} from "@/lib/messaging/media/transcription";
+
+function respostaOk() {
+  return vi.fn().mockResolvedValue(
+    new Response(JSON.stringify({ text: "ok" }), { status: 200, headers: { "content-type": "application/json" } }),
+  );
+}
+
+async function corpoEnviado(creds: Parameters<typeof apiTranscriptionProvider>[0]): Promise<FormData> {
+  const fetchMock = respostaOk();
+  await apiTranscriptionProvider(creds, fetchMock).transcribe(Buffer.from([1]), "audio/ogg");
+  return fetchMock.mock.calls[0]![1].body as FormData;
+}
 
 describe("apiTranscriptionProvider", () => {
   it("POSTa multipart pro endpoint de transcrição e devolve o texto", async () => {
@@ -44,5 +60,46 @@ describe("apiTranscriptionProvider", () => {
       await provider.transcribe(Buffer.from([1]), "audio/ogg");
       expect(String(fetchMock.mock.calls[0]![0])).toBe(c.esperado);
     }
+  });
+});
+
+// Medido em produção (Paraguai, 26/09/2026): sem idioma declarado, `whisper-1`
+// transformou um áudio sem fala em "Thanks for watching!" e um cancelamento em
+// grego. O idioma tem de chegar ao serviço — e no campo que CADA modelo aceita.
+describe("idioma da transcrição", () => {
+  it("sem idioma configurado, o corpo não leva campo de idioma (comportamento de sempre)", async () => {
+    const corpo = await corpoEnviado({ apiKey: "sk-test" });
+    expect(corpo.get("model")).toBe("whisper-1");
+    expect(corpo.has("language")).toBe(false);
+    expect(corpo.has("languages[]")).toBe(false);
+  });
+
+  it("whisper-1 e os modelos anteriores recebem UM `language`", async () => {
+    for (const model of ["whisper-1", "gpt-4o-transcribe", "whisper-large-v3"]) {
+      const corpo = await corpoEnviado({ apiKey: "sk-test", model, languages: ["es", "gn"] });
+      expect(corpo.getAll("language")).toEqual(["es"]);
+      expect(corpo.has("languages[]")).toBe(false);
+    }
+  });
+
+  it("gpt-transcribe e gpt-live-transcribe recebem a LISTA `languages[]`, nunca os dois campos", async () => {
+    for (const model of ["gpt-transcribe", "gpt-live-transcribe"]) {
+      const corpo = await corpoEnviado({ apiKey: "sk-test", model, languages: ["es", "gn"] });
+      expect(corpo.get("model")).toBe(model);
+      expect(corpo.getAll("languages[]")).toEqual(["es", "gn"]);
+      expect(corpo.has("language")).toBe(false);
+    }
+  });
+
+  it("TRANSCRIPTION_LANGUAGES é lido com tolerância: grafia errada fica de fora sem derrubar nada", () => {
+    expect(idiomasDaTranscricao(" ES, pt ,x1,, gn")).toEqual(["es", "pt", "gn"]);
+    expect(idiomasDaTranscricao("")).toEqual([]);
+    expect(idiomasDaTranscricao(undefined)).toEqual([]);
+  });
+
+  it("o modelo em vigor é o do ambiente quando definido, senão whisper-1 — o mesmo para worker e tela", () => {
+    expect(modeloDeTranscricaoEmVigor(undefined)).toBe("whisper-1");
+    expect(modeloDeTranscricaoEmVigor("  ")).toBe("whisper-1");
+    expect(modeloDeTranscricaoEmVigor("gpt-transcribe")).toBe("gpt-transcribe");
   });
 });
