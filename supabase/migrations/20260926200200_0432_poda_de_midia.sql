@@ -1,4 +1,4 @@
--- 0427 — a retenção de mídia passa a EXISTIR: arquivo vencido e arquivo órfão saem do bucket.
+-- 0432 — a retenção de mídia passa a EXISTIR: arquivo vencido e arquivo órfão saem do bucket.
 --
 -- `organizations.media_retention_days` era prometida pelo formulário e não
 -- era executada por nada: o bucket `whatsapp-media` só crescia. Medido numa

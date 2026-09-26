@@ -38764,7 +38764,7 @@ revoke execute on function public.fn_expurgar_observacoes_do_jev(int,int) from a
 revoke execute on function public.fn_expurgar_observacoes_do_jev(int,int) from authenticated;
 grant  execute on function public.fn_expurgar_observacoes_do_jev(int,int) to service_role;
 
--- ---- a retenção de mídia passa a existir (migration 0427) ----
+-- ---- a retenção de mídia passa a existir (migration 0432) ----
 -- Ver o cabeçalho da migration: enfileira arquivo vencido e órfão na mesma
 -- fila da LGPD; o cron storage-redaction remove pelo Storage API.
 create or replace function public.fn_enfileirar_midia_vencida(p_limite integer default 500)

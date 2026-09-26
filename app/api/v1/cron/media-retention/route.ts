@@ -1,7 +1,7 @@
 /**
  * GET /api/v1/cron/media-retention
  *
- * A retenção de mídia EXECUTADA (migration 0427). Enfileira, em tandas, os
+ * A retenção de mídia EXECUTADA (migration 0432). Enfileira, em tandas, os
  * arquivos de `whatsapp-media` que devem sair — o de mensagem mais velho que
  * `organizations.media_retention_days` e o órfão de conversa apagada — na
  * `storage_redaction_queue`, que o cron `storage-redaction` drena pelo Storage
