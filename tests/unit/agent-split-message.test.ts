@@ -115,6 +115,8 @@ describe("instrucaoDeBolhas", () => {
     const t = instrucaoDeBolhas(true);
     expect(t).toMatch(/ÚNICA chamada de send_message/);
     expect(t).toMatch(/parágrafos curtos separados por uma linha em branco/);
+    // Resposta curta NÃO é partida: parágrafo só quando há mais de uma ideia.
+    expect(t).toMatch(/Resposta curta vai num parágrafo só/);
     expect(t).toMatch(/Nunca chame send_message mais de uma vez/);
     expect(t).not.toMatch(/várias mensagens/i);
   });

@@ -5617,6 +5617,8 @@ export const DICIONARIO: Traducoes = {
   "Nenhuma demanda aberta.": { es: "No hay casos abiertos." },
   "Demandas abertas": { es: "Casos abiertos" },
   "Leads recentes": { es: "Leads recientes" },
+  "1 conversa esperando uma pessoa": { es: "1 conversación esperando a una persona" },
+  "conversas esperando uma pessoa": { es: "conversaciones esperando a una persona" },
   "Pedidos recentes": { es: "Pedidos recientes" },
   "O que acontece a seguir?": { es: "¿Qué pasa a continuación?" },
   "Próximo passo desta demanda": { es: "Siguiente paso de este caso" },
@@ -5858,6 +5860,8 @@ export const DICIONARIO: Traducoes = {
   "A IA passou uma conversa para a equipe": { es: "La IA pasó una conversación al equipo" },
   "Abra a conversa para responder o cliente.": { es: "Abrí la conversación para responder al cliente." },
   "A IA pediu ajuda à equipe": { es: "La IA pidió ayuda al equipo" },
+  "Atendimento automático parou — assumir a conversa": { es: "La IA pasó la conversación al equipo — asúmela" },
+  "Handoff humano solicitado — assumir a conversa": { es: "Pidieron atención de una persona — asume la conversación" },
   "Abra os casos para responder.": { es: "Abrí los casos para responder." },
   "Abra o caso para responder. A IA continua atendendo o cliente enquanto isso.": {
     es: "Abrí el caso para responder. La IA sigue atendiendo al cliente mientras tanto.",
