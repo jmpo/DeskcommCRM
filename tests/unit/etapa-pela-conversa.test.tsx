@@ -104,7 +104,7 @@ describe("crm-summary: a etapa do negócio e as etapas do funil", () => {
     ]);
     const select = banco.selects.join("|");
     expect(select).toContain("stage_id");
-    expect(select).toContain("etapas:crm_stages(id, name, position, is_won, is_lost, is_archived)");
+    expect(select).toContain("etapas:crm_stages!crm_stages_pipeline_id_fkey(id, name, position, is_won, is_lost, is_archived)");
   });
 });
 
