@@ -48,7 +48,7 @@ export interface NavMetadata {
    * Contador de pendências ao lado do rótulo. `casos`: casos em que a IA espera
    * uma pessoa (`awaiting_human`) — quem desenha é `ContadorDeCasos`.
    */
-  contador?: "casos";
+  contador?: "casos" | "fila";
   /**
    * A porta de um MÓDULO OPCIONAL da instalação (`lib/instalacao/modulos.ts`).
    * Com o módulo desligado ela some do menu, do hub e do ⌘K — para todo papel.
@@ -144,6 +144,8 @@ export const NAV_CATALOG = [
     icon: "Inbox",
     group: "atendimento",
     sidebar: true,
+    // Quantas conversas a IA passou para a equipe e esperam uma pessoa (aba Fila).
+    contador: "fila",
   },
   {
     href: "/app/radar",

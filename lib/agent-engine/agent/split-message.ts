@@ -175,10 +175,15 @@ export const OK_KINDS = new Set(["sent", "already_sent", "queued"]);
  *
  * Quem parte em bolhas, EM ORDEM e no ritmo de quem digita, é `sendInBubbles`.
  * O modelo só precisa escrever UM envio em parágrafos curtos.
+ *
+ * E só quando a resposta tem mais de uma ideia. Pedir parágrafos SEMPRE (a
+ * primeira redação desta instrução) fez o agente partir em três bolhas até a
+ * resposta de uma frase — "o preço é X" virava saudação + preço + pergunta —,
+ * e a loja percebeu a conversa mais longa e mais insistente (medido, 26/09/2026).
  */
 export function instrucaoDeBolhas(ligado: boolean): string {
   return ligado
-    ? "Escreva cada resposta numa ÚNICA chamada de send_message, em parágrafos curtos separados por uma linha em branco — como uma pessoa digitando no WhatsApp. O sistema quebra o texto em mensagens separadas nos limites de parágrafo, em ordem e com a pausa de quem digita. Nunca chame send_message mais de uma vez no mesmo turno: mensagens enviadas juntas podem chegar fora de ordem."
+    ? "Escreva cada resposta numa ÚNICA chamada de send_message. Resposta curta vai num parágrafo só; quando ela tiver mais de uma ideia (apresentar o produto, pedir os dados, o resumo do pedido), use parágrafos curtos separados por uma linha em branco — o sistema entrega cada parágrafo como uma mensagem, em ordem e com a pausa de quem digita, como uma pessoa no WhatsApp. Nunca chame send_message mais de uma vez no mesmo turno: mensagens enviadas juntas podem chegar fora de ordem."
     : "";
 }
 
