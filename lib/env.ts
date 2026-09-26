@@ -219,6 +219,11 @@ const schema = z.object({
   TRANSCRIPTION_API_KEY: z.string().optional().default(""),
   TRANSCRIPTION_BASE_URL: z.string().optional().default(""),
   TRANSCRIPTION_MODEL: z.string().optional().default(""),
+  // Idiomas esperados no áudio, ISO-639-1 separados por vírgula ("es" ou
+  // "pt,es"). Vazio = o serviço detecta sozinho. Vale com a chave acima E com a
+  // da OpenAI da organização — assim como `TRANSCRIPTION_MODEL`. Leitura
+  // tolerante em `idiomasDaTranscricao` (grafia errada não derruba o worker).
+  TRANSCRIPTION_LANGUAGES: z.string().optional().default(""),
   // Endereço da API do Jev (TypeSafe AI). Vazio é ausente: vale
   // https://api.typesafe.ai. Existe para o dublê do e2e — a CHAVE nunca vem
   // daqui, é por organização (BYOK). Quem lê é `baseDaApiDoJev()`, em
