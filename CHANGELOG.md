@@ -8,6 +8,310 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
 ## [Não lançado]
 
+## [1.56.1] — 2026-09-27
+
+### Corrigido
+
+- **A anotação interna do compromisso aparece no painel de detalhe da Agenda** O assistente coletava a qualificação inteira do lead, marcava a reunião e gravava
+  o resumo na anotação interna do compromisso. A anotação era salva — e não
+  aparecia em tela nenhuma: quem ia atender chegava à reunião sem a ficha. Pelo
+  caminho da transferência o mesmo resumo chegava à Central; era só o caminho da
+  reunião marcada que o perdia.
+
+  Agora o painel de detalhe do compromisso mostra a anotação, com o rótulo
+  "Anotação", logo depois da observação. É leitura: nada muda no que sobe para o
+  calendário do cliente, que continua usando o campo próprio de observação, e a
+  anotação segue interna ao CRM.
+
+  Contribuição de @hiro-nikaitou (#1803, issue #511).
+
+- **O aviso de caso não sai mais para um número que virou de uma conexão da própria conta** Uma conexão de WhatsApp arquivada deixou de contar como número da própria conta,
+  para que o número dela pudesse voltar a receber os avisos. Mas arquivar não apaga
+  a conexão: se ela for reativada depois, o número volta a ser atendido por um robô
+  da própria conta — e o aviso passava a sair para ele, respondendo a si mesmo.
+
+  Agora o envio do aviso confere o destino na hora de sair: se o número voltou a ser
+  o de uma conexão ativa da sua conta, o aviso NÃO é enviado, o motivo fica
+  registrado no histórico de avisos da tela e um alerta é aberto na Central. O
+  atendimento continua na fila, esperando alguém — só não vai para o robô da casa.
+
+  O botão "Enviar aviso de teste" recusa o mesmo número pelo mesmo motivo, em vez
+  de mandar a mensagem e aparecer como sucesso.
+
+  Contribuição de @hiro-nikaitou (#1804).
+
+- **Em espanhol, a tela de rastreio e conversões do Google Ads passa a tratar por "tú", e o painel de perdas escreve cada moeda na convenção dela** A tela de rastreio do site e de conversões do Google Ads em espanhol deixou de alternar entre "usted" e "tú" e passou a usar "calificado"/"calificación" em vez das formas peninsulares "cualificado"/"cualificación", como o resto do produto. O painel de perdas das métricas passou a escrever o valor perdido na convenção da própria moeda, com o mesmo formatador da previsão, em vez de sempre no formato brasileiro; em BRL nada muda. Não exige ação de quem opera a instalação. Contribuição de @JowaniOrantes (#1807).
+
+- **Em espanhol, os gatilhos e ações de Webhooks, o papel de assistente com autonomia e a gravidade "informativo" dos avisos da IA deixam de aparecer em português** Nove rótulos que a tela montava a partir de tabelas continuavam em português para quem escolheu espanhol: os gatilhos de agenda (horário marcado, confirmado, remarcado, cancelado), aniversário de contato e prazo de data do funil, a ação "Iniciar fluxo de mensagem" nas regras de Webhooks, o papel "Assistente com autonomia de operação" no convite de equipe e a gravidade "informativo" na Central de avisos da IA. Agora aparecem em espanhol. Para quem usa em português nada muda, e não exige ação de quem opera a instalação. Contribuição de @JowaniOrantes (#1808).
+
+- **"Não me contate mais", "não entre mais em contato" e "pode me remover da lista" passam a descadastrar o contato** Três jeitos comuns de pedir para sair não eram reconhecidos, e quem escrevia
+  assim continuava recebendo mensagens: "não me contate mais" (e "não me escreva
+  mais", "não me chame mais"), "não entre mais em contato" (e "parem de entrar em
+  contato comigo") e "pode me remover da lista". Agora eles bloqueiam o contato,
+  como "não me mande mais" e "me tira da lista" já faziam.
+
+  A regra continua exigindo que o pedido seja sobre as mensagens: "o dente não
+  incomoda mais", "a dor não me perturba mais", "não entre em contato com meu
+  marido, fale comigo" e "tira da lista de presentes" seguem sem bloquear. De
+  brinde, "me tira da lista de espera", que é paciente pedindo para ser chamado,
+  deixou de bloquear.
+
+  Contribuição de @deskcommopp4s-cmd (#1607, trazida no #1805).
+
+## [1.56.0] — 2026-09-27
+
+### Adicionado
+
+- **Busca dentro da conversa, nas mensagens já carregadas** Na Inbox, o botão de lupa no cabeçalho da conversa abre um campo que procura um
+  termo nas mensagens que já estão na tela, sem diferenciar maiúsculas. As bolhas
+  que batem ganham um contorno, a primeira vai para o campo de visão e um contador
+  diz quantas foram achadas. A busca não consulta o servidor: mensagens mais
+  antigas só entram depois de "Carregar mais antigas", e o rótulo diz isso para
+  que "0" não seja lido como "não existe na conversa". Mensagens apagadas ou
+  ocultas ficam de fora. Esc ou o botão de fechar encerram a busca, e trocar de
+  conversa também.
+  Contribuição de @gustavorodcruz96 (#1793, trazida no #1795).
+
+- **Histórico e diagnóstico das conversões de anúncios** Em Configurações › Conversões, consulte envios por período, situação, plataforma, evento e negócio, com identificação da entrega e protocolo. O diagnóstico mostra ausência de configuração, falhas recentes e envios antigos; uma consulta indisponível aparece como erro, sem sugerir que está tudo funcionando.
+
+  Contribuição de @gustavorodcruz96 (#1789).
+
+- **Conversões do Google Ads por etapa do funil, venda sem valor e telefone criptografado** Em Configurações › Conversões, cada etapa aberta do funil pode enviar a sua própria ação de conversão ao Google Ads quando um negócio entra nela, com nome, categoria e filtro de canal de entrada (todos, só WhatsApp ou só fora dele). O botão "Usar o recomendado" liga as etapas sugeridas, e "Criar no Google" cria a ação de importação de cliques direto na conta quando a instalação tem developer token do Google Ads. A qualificação de etapa única que já existia vira a primeira regra, com o mesmo nome de evento — nada já enviado é reenviado. A venda do negócio ganho pode sair sem valor (nunca como zero), conforme a opção "Valor do negócio"; o padrão continua exigindo valor. Opcionalmente, o telefone do contato vai junto em SHA-256 (E.164), nunca em claro.
+
+  Contribuição de @gustavorodcruz96 (#1789).
+
+- **Links rastreáveis por campanha e instalação do script no site** Configurações › Conversões › Links rastreáveis permite criar, editar e desativar links de WhatsApp por campanha, copiar o script do site e verificar seu carregamento no navegador. A mensagem recebe um código que liga o clique ao contato quando o visitante a envia. A tela mostra cliques, contatos e negócios dos registros ainda retidos, sem apresentar isso como total histórico ou pessoas únicas. Se a gravação do clique falhar, o atendimento continua disponível, sem código de atribuição falso.
+
+  Contribuição de @gustavorodcruz96 (#1789).
+
+### Alterado
+
+- **A checagem de permissão das rotas espera uma ida à rede a menos** Toda rota protegida por papel consultava primeiro o papel da pessoa no banco e,
+  só depois da resposta, perguntava ao serviço de login se a sessão devia a
+  verificação em duas etapas. As duas leituras agora saem juntas, e a espera
+  passa a ser a da mais lenta, não a soma das duas.
+
+  As respostas não mudam: quem não tem papel suficiente continua recebendo a
+  recusa por falta de papel, sem que a verificação em duas etapas seja olhada; e
+  uma falha ao ler a verificação continua impedindo o acesso quando ela seria
+  exigida. Nada fica guardado entre uma requisição e outra.
+
+  Contribuição de @gustavorodcruz96 (#1793, trazida no #1794).
+
+### Corrigido
+
+- **O número de uma conexão removida volta a poder receber os avisos** Ao remover uma conexão de WhatsApp, o número dela continuava sendo recusado como
+  destino do aviso de caso, com a mensagem "Esse é um dos números conectados da sua
+  conta". A verificação contava a conexão ARQUIVADA como se ela ainda estivesse
+  ativa — e, como a conexão que já teve um agente publicado não pode ser apagada, o
+  número ficava bloqueado para sempre. Agora a verificação considera apenas as
+  conexões ativas. O número de uma conexão em uso continua recusado, que é o que
+  evita um aviso respondendo ao outro sem parar.
+
+  Contribuição de @hiro-nikaitou (#1797, issue #1779).
+
+- **Host da Graph em `http` externo deixa de ser aceito em produção** `META_GRAPH_BASE_URL` e `META_ADS_GRAPH_BASE_URL` aceitavam `http://` em qualquer
+  ambiente. Em produção o token da Meta viaja no cabeçalho de toda chamada, e um
+  endereço externo em `http` o mandaria em texto claro por todo o caminho.
+
+  Agora, em produção, `http://` só passa para destino que não sai da máquina:
+  loopback (`127.0.0.0/8`, `::1`), faixas privadas (RFC 1918), ULA e link-local do
+  IPv6, `localhost` e nome de serviço sem ponto. Fora daí o valor cai no host real,
+  com o mesmo aviso de antes. Fora de produção nada mudou, e o receptor local da
+  prova em tela continua aceito — é para isso que ele existe.
+
+  Contribuição de @hiro-nikaitou (#1791, issue #1788).
+
+- **A verificação em duas etapas não é dispensada quando a leitura dos fatores falha** Quando o serviço de login não responde no momento de conferir se a conta tem a verificação em duas etapas, a ação agora é recusada em vez de seguir como se a conta não tivesse o fator. Basta tentar de novo quando o serviço voltar.
+
+- **Levar o negócio para outro funil passa a respeitar os campos exigidos pela etapa de destino** O funil pode declarar que entrar numa etapa exige um campo preenchido, e essa
+  régua já valia no arrasto, no lote, no botão de ganhar/perder e nas ferramentas
+  do assistente. A tela "Levar para outro funil" era o caminho que faltava: o
+  negócio era criado no funil de destino — inclusive numa etapa exigente — com o
+  campo em branco, e a exigência só aparecia na próxima escrita, quando o negócio
+  já estava lá.
+
+  Agora a troca de funil pergunta a mesma régua antes de escrever, e o campo que
+  o negócio novo já traz da origem passa normalmente. Quem não declara etapa
+  exigente nenhuma não vê diferença: a recusa só existe onde a exigência já
+  estava ligada.
+
+  Contribuição de @hiro-nikaitou (#1798, issue #1710).
+
+## [1.55.0] — 2026-09-27
+
+### Adicionado
+
+- **O canal oficial pode apontar para um servidor de testes próprio** Quem opera a instalação pode, pela primeira vez, mandar o canal oficial do
+  WhatsApp falar com um servidor diferente do da Meta, definindo
+  `META_GRAPH_BASE_URL` no ambiente. Sem essa variável, nada muda: o sistema
+  continua enviando, validando credenciais, baixando mídia, sincronizando modelos
+  e registrando webhook exatamente para onde mandava.
+
+  O que se abre com ela é a PROVA EM TELA do canal oficial. Até aqui não havia
+  para onde a instalação falar durante um teste de ponta a ponta, porque o endereço
+  do provedor estava escrito dentro do código, em onze lugares: a jornada de
+  conectar e enviar era coberta só por testes de unidade, que provam a lógica e
+  não a conversa de verdade com o outro lado. Com a variável apontando para um
+  servidor local, a mesma jornada passa a poder ser exercitada na tela, contra um
+  destino que responde. A conta de anúncios tem a sua própria variável,
+  `META_ADS_GRAPH_BASE_URL`, justamente para que apontar o canal para o servidor de
+  testes não leve junto o relatório de conversão.
+
+  Dois cuidados escritos na própria configuração: o endereço precisa ser uma base
+  `http://` ou `https://` de verdade (endereço colado sem esquema, `ftp://`,
+  `file://` ou caminho relativo é recusado, com aviso no log, e a instalação volta
+  a falar com o endereço de sempre), e ele é decisão da instalação inteira — não
+  existe campo na tela nem valor por organização, porque destino de chamada
+  definido por tenant mandaria o token de uma empresa por um servidor escolhido
+  pela outra.
+
+  Crédito: @webtecnica (#817).
+
+  Contribuição de @webtecnica (#1787, issue #817).
+
+### Alterado
+
+- **Os 12 HANDOFF da raiz foram para docs/handoffs/ e um gate impede a volta** Os arquivos `HANDOFF*.md` de épico saíram da raiz do repositório para
+  `docs/handoffs/`, com índice em `docs/handoffs/README.md`, e um teste impede
+  que voltem. A regra antiga ("épico vivo mantém o handoff na raiz") saiu do
+  `docs/index.md`: item de doutrina envelhece, teste reprova.
+
+  Nada muda para quem opera a instalação.
+
+  Contribuição de @webtecnica (#1771).
+
+- **O caso de aceite que passa pelo agente agora mede o par** A doutrina mandava provar pela tela, e era o que ela cobrava. Só que um caso
+  de aceite que atravessa um agente de IA não se prova com o verde do agente: em
+  setembro, na validação da v1.12.0, o caso `"quero 2 iphone 15"` passou por uma
+  bateria que o esperava reprovar — o agente perguntou se era o 128 ou o 256 — e a
+  ferramenta, medida direto com o mesmo texto, devolvia zero. O verde media o
+  modelo, não a ferramenta.
+
+  Agora todo caso de aceite que atravessa o agente vem **em par** com a medição
+  direta da ferramenta, com o mesmo texto cru, e só conta como prova quando os
+  dois lados concordam. A regra está escrita nos guias de aceite, no pré-voo e no
+  checklist da triagem, e um teste impede que ela suma sem ninguém ver.
+
+  Nada muda para quem opera a VPS: nenhuma tela, nenhum dado e nenhuma variável de
+  ambiente foi tocada.
+
+  Contribuição de @webtecnica (#1781, issue #489).
+
+### Corrigido
+
+- **A fila de remoção de mídia avisa quantas linhas ela expurgou** O cron diário de retenção de mídia deixa de apagar a fila em silêncio. Ele já
+  expurgava as linhas de mídia que saíram do bucket havia mais de 90 dias — o
+  que impedia a fila de crescer sem teto — mas não dizia quantas: a contagem
+  saía só da função interna, não chegava nem no registro de auditoria nem na
+  resposta do cron. Agora quem administra o sistema vê, na trilha de auditoria e
+  no retorno da rotina, quantas linhas da fila saíram na rodada, inclusive nas
+  rodadas em que o expurgo foi a única coisa que aconteceu. Nada a fazer para
+  quem já roda o sistema: é contabilidade, não mudança de comportamento do que
+  é removido.
+
+  Contribuição de @webtecnica (#1777, issue #1765).
+
+- **A prova de tela passa a ser versionada junto com o repositório** A documentação de QA mandava gravar a evidência visual (screenshots e traces de
+  Playwright) numa pasta que o `.gitignore` ignorava. A prova ficava só no
+  computador de quem rodou o teste: quem clonasse o repositório recebia o mapa de
+  jornadas apontando para imagens que não existiam, e nenhuma imagem aparecia.
+
+  Agora as specs gravam na pasta `evidence/`, que é versionada — quem clona recebe
+  a prova. Um teste novo impede que a documentação volte a mandar gravar fora do
+  versionamento.
+
+  Nada muda para quem opera a VPS: nenhuma tela, nenhum dado e nenhuma variável de
+  ambiente foi tocada.
+
+  Contribuição de @webtecnica (#1770, issue #533).
+
+- **Quem já tinha o DeskcommCRM rodando em ARM (VPS aarch64) volta a conseguir atualizar** Quem já tinha o DeskcommCRM instalado numa VPS ARM (Oracle Ampere, aarch64)
+  volta a conseguir rodar `update.sh`. Desde a v1.35.0 a atualização era recusada
+  logo na primeira linha, dizendo que só existe VPS x86_64, mesmo onde o CRM já
+  estava funcionando. Agora, onde já existe instalação, a recusa vira um aviso e
+  as imagens da versão nova são construídas na própria VPS (leva de 15 a 25
+  minutos a mais).
+
+  A instalação NOVA continua recusada: quem ainda não instalou precisa de uma VPS
+  x86_64, como antes.
+
+  Se a sua VPS ARM está numa versão anterior à v1.35.0, a atualização normal já
+  traz este conserto. Se ela já está na v1.35.0 ou mais nova e a atualização vinha
+  sendo recusada, o `update.sh` que está no disco é o antigo e continua recusando,
+  tanto no terminal quanto no botão "Atualizar". Para sair, rode uma vez na pasta
+  do CRM, trocando `vX.Y.Z` pelo número desta versão:
+
+  ```bash
+  git fetch --tags origin
+  git checkout vX.Y.Z
+  bash hostgator-setup-kit/update.sh --to vX.Y.Z --force
+  ```
+
+  Depois disso as atualizações seguintes voltam a rodar sozinhas.
+
+  Contribuição de @webtecnica (#1775).
+
+- **Instalar pela primeira vez numa VPS ARM volta a ser recusado, mesmo com o .env já preenchido** Se você começou a instalar o DeskcommCRM numa VPS ARM (Oracle Ampere,
+  aarch64) com o `.env` já preenchido — copiado de outra máquina, gerado por
+  automação, ou deixado por uma instalação que parou no meio —, o `install.sh`
+  não recusava como devia: confundia a pasta com uma instalação que já estava no
+  ar e passava 15 a 25 minutos construindo as imagens na própria VPS. Agora ele
+  recusa logo no começo e orienta a usar uma VPS x86_64/amd64.
+
+  A instalação passa a ser reconhecida pelo que ela deixou de verdade: os
+  contêineres do DeskcommCRM (ou do seu Supabase) no Docker, parados ou
+  rodando, ou o arquivo `.deskcomm-instalado` que o próprio instalador grava
+  quando termina. Quem já tem o CRM numa VPS ARM continua atualizando
+  normalmente, com o aviso e o build local de sempre. Para quem instalou antes
+  desta versão e ainda não tem o arquivo, o `update.sh` desta versão em diante
+  o grava sempre que termina com o app no ar. Se nessa VPS ARM você derrubou os contêineres
+  (`docker compose down` sem `-v`) antes de atualizar, suba-os de novo com
+  `docker compose ... up -d` e rode a atualização.
+
+  Se você usa o comando de "recomeçar" (`docker compose down -v && rm -f .env`),
+  ele passou a apagar esse arquivo junto — ele faz parte do estado da instalação.
+
+  Contribuição de @webtecnica (#1783, issue #1778).
+
+- **A poda do arquivo de webhooks passa a ordenar o lote e a dizer quando falha** A limpeza automática do arquivo de webhooks passou a apagar em lotes
+  **ordenados** (pelo identificador, do mais antigo ao mais novo — a mesma ordem
+  que a limpeza do histórico de captação já usa) e a falha do banco deixou de ser
+  engolida: ela sobe, responde 500, grava a linha `falhou` na trilha e chega ao
+  Sentry — em vez de virar um "não havia nada para apagar" que não era verdade.
+
+  A ordem não é enfeite. O banco de dados usado nas instalações novas recusa
+  apagar um lote sem ordem definida, e nenhuma linha do arquivo era removida —
+  com o arquivo sendo 468 MB de um banco de 545 MB medido numa instalação real,
+  crescendo ~23 MB/dia contra o teto de 500 MB do plano gratuito. Onde a
+  limpeza funcionava, a ordem torna o ritmo de esvaziamento reproduzível: hoje
+  ela apaga sempre as mesmas linhas mais antigas primeiro.
+
+  Sem ação para quem opera: as duas tabelas, os dois prazos e o tamanho do lote
+  são os mesmos. O efeito é que uma instalação em que o banco recusa a limpeza
+  passa a ser vista — na trilha e no Sentry — em vez de acumular arquivo em
+  silêncio.
+
+  Contribuição de @webtecnica (#1784, issue #1769).
+
+- **A poda do histórico de captação passa a ordenar o lote e a dizer quando falha** A retenção do histórico de leads captados passou a apagar em lotes **ordenados**
+  (`id` ascendente, a mesma coluna e a mesma direção da poda de rascunhos), e a
+  falha do banco deixou de ser engolida: ela sobe, responde 500, grava a linha
+  `falhou` na trilha e chega ao Sentry — em vez de virar um "não havia nada
+  vencido" que não era verdade.
+
+  Sem ação para quem opera: as duas tabelas e os dois horizontes são os mesmos. O
+  efeito é que a poda deixa de poder escolher um subconjunto arbitrário a cada
+  lote, e uma instalação em que o banco recusa o DELETE passa a ser vista.
+
+  Contribuição de @webtecnica (#1768, issue #1721).
+
+- **Voltar e avançar numa spec e2e também esperam a revelação da página** A suíte de e2e passa a esperar o streaming SSR terminar de revelar a página também depois de voltar (`goBack`) e avançar (`goForward`), como carregar e recarregar já esperavam desde o #1706; uma spec que volta a uma tela deixa de poder achar a cópia escondida da revelação e reprovar sozinha.
+
+  Nada a fazer para quem já roda o sistema: a mudança é na suíte de testes, e o aplicativo se comporta exatamente como antes.
+
+  Contribuição de @webtecnica (#1782, issue #884).
+
 ## [1.54.0] — 2026-09-27
 
 ### Adicionado
@@ -8536,7 +8840,10 @@ Primeira versão marcada do DeskcommCRM. O projeto vinha sendo desenvolvido publ
 
 - **Node 22 é obrigatório para desenvolvimento.** A suíte de invariantes instancia o cliente do Supabase, que exige o `WebSocket` global — nativo apenas a partir do Node 22. Isso não afeta quem apenas hospeda: a VPS roda a imagem pronta.
 
-[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.54.0...HEAD
+[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.56.1...HEAD
+[1.56.1]: https://github.com/melgarafael/DeskcommCRM/compare/v1.56.0...v1.56.1
+[1.56.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.55.0...v1.56.0
+[1.55.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.54.0...v1.55.0
 [1.54.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.53.0...v1.54.0
 [1.53.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.52.0...v1.53.0
 [1.52.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.51.0...v1.52.0

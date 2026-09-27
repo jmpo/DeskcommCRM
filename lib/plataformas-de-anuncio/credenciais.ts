@@ -45,11 +45,18 @@ export async function lerCredencial(
   admin: SupabaseClient,
   organizationId: string,
   plataforma: PlataformaDeAnuncio,
+  /**
+   * A compra usa `google_conversion_action_id`; um envio de ETAPA leva a ação
+   * da própria regra (0436) e não precisa dela. Sem esta opção, a organização
+   * que só configurou etapas teria todo envio recusado como incompleto.
+   */
+  opcoes: { exigirAcaoDeVenda?: boolean } = {},
 ): Promise<LeituraDeCredencial> {
+  const exigirAcaoDeVenda = opcoes.exigirAcaoDeVenda ?? true;
   const { data, error } = await admin
     .from("ad_platform_connections")
     .select(
-      "dataset_id, access_token_encrypted, test_event_code, enabled, google_refresh_token_encrypted, google_customer_id, google_login_customer_id, google_conversion_action_id, google_api",
+      "dataset_id, access_token_encrypted, test_event_code, enabled, google_refresh_token_encrypted, google_customer_id, google_login_customer_id, google_conversion_action_id, google_api, google_purchase_value_mode, google_send_hashed_phone",
     )
     .eq("organization_id", organizationId)
     .eq("platform", plataforma)
@@ -76,6 +83,8 @@ export async function lerCredencial(
     google_login_customer_id: string | null;
     google_conversion_action_id: string | null;
     google_api: "google_ads" | "data_manager";
+    google_purchase_value_mode?: "obrigatorio" | "quando_houver" | "nunca" | null;
+    google_send_hashed_phone?: boolean | null;
   };
 
   if (!linha.enabled) return { ok: false, motivo: "conexao_desabilitada" };
@@ -90,7 +99,7 @@ export async function lerCredencial(
     if (
       !linha.google_refresh_token_encrypted ||
       !linha.google_customer_id ||
-      !linha.google_conversion_action_id
+      (exigirAcaoDeVenda && !linha.google_conversion_action_id)
     ) {
       return { ok: false, motivo: "credencial_incompleta" };
     }
@@ -111,7 +120,9 @@ export async function lerCredencial(
           refreshToken,
           customerId: linha.google_customer_id,
           loginCustomerId: linha.google_login_customer_id,
-          conversionActionId: linha.google_conversion_action_id,
+          conversionActionId: linha.google_conversion_action_id ?? "",
+          modoDeValorDaVenda: linha.google_purchase_value_mode ?? "obrigatorio",
+          enviarTelefone: linha.google_send_hashed_phone === true,
         },
       },
     };

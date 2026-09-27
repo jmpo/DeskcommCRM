@@ -37,7 +37,18 @@ export interface AppDoGoogleAds {
  */
 export function montarUrlDeConsentimento(
   app: AppDoGoogleAds,
-  opcoes: { state: string; api?: ApiDeConversaoGoogle },
+  opcoes: {
+    state: string;
+    api?: ApiDeConversaoGoogle;
+    /**
+     * Pede TAMBÉM o escopo do Google Ads na autorização do Data Manager (0436).
+     * É o que permite criar/listar ações de conversão e ler métricas de
+     * campanha — coisas que o Data Manager não faz. Só faz sentido quando a
+     * instalação tem developer token; sem ele, o escopo extra seria pedido à
+     * toa.
+     */
+    incluirGoogleAds?: boolean;
+  },
 ): string {
   const clientId = app.clientId?.trim();
   const redirectUri = app.redirectUri?.trim();
@@ -54,7 +65,12 @@ export function montarUrlDeConsentimento(
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: opcoes.api === "data_manager" ? ESCOPO_DATA_MANAGER : ESCOPO_OBRIGATORIO,
+    scope:
+      opcoes.api === "data_manager"
+        ? opcoes.incluirGoogleAds
+          ? `${ESCOPO_DATA_MANAGER} ${ESCOPO_OBRIGATORIO}`
+          : ESCOPO_DATA_MANAGER
+        : ESCOPO_OBRIGATORIO,
     // Sem `offline` não vem refresh_token nenhum; sem `consent` ele some na
     // segunda vez — mesma armadilha 1 do irmão da Agenda.
     access_type: "offline",

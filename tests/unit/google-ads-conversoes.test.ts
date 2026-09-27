@@ -265,6 +265,8 @@ describe("lerCredencial — ramo google_ads", () => {
         customerId: "1234567890",
         loginCustomerId: "5555555555",
         conversionActionId: "987",
+        modoDeValorDaVenda: "obrigatorio",
+        enviarTelefone: false,
       });
     }
   });

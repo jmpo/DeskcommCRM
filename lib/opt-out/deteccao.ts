@@ -119,7 +119,28 @@ const VERBOS_DE_COMUNICACAO =
   // `contactar` faltava — "no me contacten más" e "deja de contactarme" não
   // casavam nenhum padrão, embora sejam pedido de descadastro tão direto
   // quanto "no me escriba".
-  "contactar|contacta|contacte|contacten|contactes";
+  "contactar|contacta|contacte|contacten|contactes|" +
+  // IMPERATIVO português (#1607). O padrão "não me X mais" tinha lista própria,
+  // escrita à mão, e passou a ler esta constante — estas são as formas de
+  // comando que ele precisa e que faltavam aqui (`contate` é a grafia
+  // brasileira de `contacte`, que já estava acima). Só imperativo/subjuntivo,
+  // de propósito: nenhuma cabe depois de "parar de", "deixar de" ou "no
+  // quiero", que pedem infinitivo — os outros padrões que leem esta constante
+  // não se alargam. Infinitivo novo aqui ("procurar", "falar") alarga o
+  // "parar de …" e já produziu "vou parar de procurar outro dentista" bloqueado.
+  "contate|contatem|chame|chamem|ligue|liguem|escreva|escrevam|perturbe|perturbem";
+
+/**
+ * Formas da constante acima que, depois de "não me", DESCREVEM outra pessoa em
+ * vez de dar uma ordem: 3ª pessoa do indicativo, com sujeito que não é quem
+ * escreve — "o convênio não me recebe mais", "a dor não me perturba mais", "a
+ * doutora não me escreve mais a receita". O padrão "não me X mais" as recusa.
+ *
+ * `manda|envia|chama|liga` ficam DENTRO, e não por esquecimento: são também o
+ * imperativo informal ("não me liga mais") e já bloqueavam antes do #1607.
+ * Tirá-las seria regressão; acrescentar as de cá seria falso positivo novo.
+ */
+const FORMAS_DESCRITIVAS_DEPOIS_DE_ME = "recebe|escreve|perturba|enche|insiste|contacta";
 
 /**
  * Objetos que aparecem depois de um verbo de comunicação mas NÃO são a
@@ -188,12 +209,47 @@ const FRASES_DE_OPT_OUT: readonly RegExp[] = [
   // resolvia no padrão de cessação ("parar de mandar o pedido"), e que ficou
   // sem ele aqui — conserto por instância, não por classe. Esta é a forma
   // mais COMUM das duas: "não me mande mais X" é como se reclama direto.
+  //
+  // A lista de verbos deste padrão era escrita à mão (`mande|manda|…|liga`) e
+  // mais estreita que `VERBOS_DE_COMUNICACAO`: "não me contate mais" não
+  // bloqueava (#1607). Agora lê a constante. O `me` é OBRIGATÓRIO — é ele que
+  // diz que o objeto é quem escreve: "o dente não incomoda mais" e "o carro não
+  // liga mais" não têm `me` e não bloqueiam. E `incomodar` não é verbo de
+  // comunicação: "a dor não me incomoda mais" também não.
   new RegExp(
-    `\\bnao\\s+me\\s+(?:mande|manda|mandem|envie|envia|enviem|chame|chama|ligue|liga)\\s+mais\\b` +
+    `\\bnao\\s+me\\s+(?!(?:${FORMAS_DESCRITIVAS_DEPOIS_DE_ME})\\b)(?:${VERBOS_DE_COMUNICACAO})\\s+mais\\b` +
       `(?!\\s+(?:${DETERMINANTES_DE_OBJETO})?\\s*(?:${OBJETOS_NAO_COMUNICATIVOS})\\b)`,
     "u",
   ),
-  /\bme\s+(?:tira|tire|tirem|remove|remova|removam|retira|retire|exclui|exclua|apaga|apague)\s+(?:da|dessa|desta|de\s+sua|da\s+sua)\s+lista\b/u,
+  // "não entre (mais) em contato", "parem de entrar em contato comigo" (#1607).
+  // A locução não tem verbo de comunicação — `entre` é de ENTRAR —, então
+  // nenhuma lista de verbos a alcançava. Só o imperativo (`entre|entrem`):
+  // "o médico não entra mais em contato" é reclamação, não pedido.
+  //
+  // O lookahead é o mesmo precedente de "não quero receber ligação, só
+  // whatsapp": `com <outra pessoa>` e `por <outro canal>` mudam o destinatário
+  // ou o canal, não pedem para sair — "não entre em contato com meu marido,
+  // fale comigo" QUER continuar sendo atendida. `comigo` não casa `com\b`, e
+  // "por aqui/este/esse" é o próprio canal.
+  new RegExp(
+    `\\b(?:nao\\s+(?:entre|entrem)\\s+(?:mais\\s+)?|nao\\s+(?:volte|voltem)\\s+a\\s+entrar\\s+|` +
+      `(?:par|deix)(?:ar|a|e|em)\\s+de\\s+entrar\\s+)em\\s+contato\\b` +
+      `(?!\\s+(?:com|pel[oa]|via)\\b|\\s+por\\s+(?!(?:aqui|est[ea]|ess[ea])\\b))`,
+    "u",
+  ),
+  // "me tira da lista" — e, desde o #1607, o infinitivo: "pode me REMOVER da
+  // lista" não bloqueava porque só `remove|remova|removam` estavam aqui.
+  //
+  // O `me` segue obrigatório e a lista precisa ser a de ENVIO: se vem "lista de
+  // X", X tem de ser comunicação. "me tira da lista de espera" é paciente
+  // querendo ser chamado, e bloqueava; "tira da lista de presentes" é compra.
+  new RegExp(
+    "\\bme\\s+(?:tira|tire|tirem|tirar|remove|remova|removam|remover|retira|retire|retirar|" +
+      "exclui|exclua|excluir|apaga|apague|apagar)\\s+(?:da|dessa|desta|de\\s+sua|da\\s+sua)\\s+lista\\b" +
+      "(?!\\s+de\\s+(?!(?:contatos?|transmissao|envios?|mensagens|disparos?|divulgacao|promocoes|" +
+      "ofertas|whatsapp|zap|voces|vcs)\\b))",
+    "u",
+  ),
   /\bsair\s+d(?:a|essa|esta)\s+lista\b/u,
   /\bcancelar?\s+(?:a\s+)?(?:inscricao|assinatura)\b/u,
   /\b(?:me\s+)?descadastr\w*\b/u,

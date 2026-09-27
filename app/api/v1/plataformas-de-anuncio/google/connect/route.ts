@@ -64,5 +64,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return voltarComErro("estado_invalido");
   }
 
-  return NextResponse.redirect(montarUrlDeConsentimento(app, { state, api }));
+  // Com developer token, a mesma autorização libera criar ações de conversão e
+  // ler campanhas pela API do Google Ads (0436).
+  const incluirGoogleAds = Boolean(env.GOOGLE_ADS_DEVELOPER_TOKEN?.trim());
+  return NextResponse.redirect(montarUrlDeConsentimento(app, { state, api, incluirGoogleAds }));
 }

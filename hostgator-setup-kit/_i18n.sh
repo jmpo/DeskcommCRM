@@ -35,6 +35,9 @@ _I18N_TABELA=1
 declare -A _ES=(
   ["Este servidor usa arquitetura '{1}', mas as imagens publicadas do DeskcommCRM hoje são linux/amd64."]="Este servidor usa arquitectura '{1}', pero las imágenes publicadas de DeskcommCRM hoy son linux/amd64."
   ["  Use uma VPS x86_64/amd64. Repetir o download não resolve; ARM64 só será suportado quando houver imagens multi-arquitetura."]="  Usa una VPS x86_64/amd64. Repetir la descarga no soluciona nada; ARM64 solo se admitirá cuando existan imágenes multiarquitectura."
+  ["Este servidor usa arquitetura '{1}', e as imagens publicadas do DeskcommCRM são só linux/amd64."]="Este servidor usa arquitectura '{1}', y las imágenes publicadas de DeskcommCRM son solo linux/amd64."
+  ["Como esta instalação JÁ EXISTE, sigo em frente: as imagens da versão alvo serão construídas nesta própria VPS."]="Como esta instalación YA EXISTE, sigo adelante: las imágenes de la versión destino se construirán en esta misma VPS."
+  ["Leva de 15 a 25 minutos. Uma instalação NOVA nesta arquitetura precisaria de imagens multi-arquitetura, que o DeskcommCRM ainda não publica."]="Tarda de 15 a 25 minutos. Una instalación NUEVA en esta arquitectura necesitaría imágenes multiarquitectura, que DeskcommCRM todavía no publica."
   ["  (rede '{1}' criada — é por ela que o Traefik alcança o CRM)"]="  (red '{1}' creada: por ella Traefik llega al CRM)"
   ["A rede Docker '{1}' (a do Nginx Proxy Manager) não existe.
 Rode 'docker network ls', identifique a rede do seu NPM (Settings > a que o
@@ -116,6 +119,8 @@ sin eso un contenedor de compose común no puede entrar en ella."
   ["apaga a configuração digitada"]="borra la configuración ingresada"
   ["derruba o que subiu"]="derriba lo que se levantó"
   ["começa de novo"]="empieza de nuevo"
+  ["apaga o marcador desta instalação"]="borra el marcador de esta instalación"
+  ["⚠ Não consegui gravar o marcador desta instalação (arquivo .deskcomm-instalado). O CRM está no ar; numa VPS ARM a atualização pode pedir a VPS x86_64 até o marcador existir."]="⚠ No pude escribir el marcador de esta instalación (archivo .deskcomm-instalado). El CRM está en línea; en una VPS ARM la actualización puede pedir la VPS x86_64 hasta que el marcador exista."
   ["Se o schema chegou a ser aplicado e você quer o banco limpo de novo,"]="Si el esquema llegó a aplicarse y quieres la base de datos limpia de nuevo,"
   ["abra o Supabase > SQL Editor e rode (ATENÇÃO: apaga todos os dados):"]="abre Supabase > SQL Editor y ejecuta (ATENCIÓN: borra todos los datos):"
 

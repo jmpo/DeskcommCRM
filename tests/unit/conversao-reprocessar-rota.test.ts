@@ -52,6 +52,31 @@ describe("reprocessamento autorizado", () => {
       p_event: "QualifiedLead",
     });
   });
+  it("aceita o evento de uma etapa configurada (0436)", async () => {
+    const etapa = "Etapa:11111111-1111-4111-8111-111111111111";
+    const resposta = await POST(
+      new Request(`https://example.test?event_name=${encodeURIComponent(etapa)}`, {
+        method: "POST",
+      }),
+      { params: Promise.resolve({ id }) },
+    );
+    expect(resposta.status).toBe(200);
+    expect(rpc).toHaveBeenCalledWith("fn_solicitar_reenvio_conversao", {
+      p_org: "org-da-sessao",
+      p_lead: id,
+      p_event: etapa,
+    });
+  });
+  it("recusa etapa com identificador malformado", async () => {
+    expect(
+      (
+        await POST(new Request("https://example.test?event_name=Etapa:1%27%3B--", { method: "POST" }), {
+          params: Promise.resolve({ id }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(rpc).not.toHaveBeenCalled();
+  });
   it("recusa evento arbitrário antes de acessar o banco", async () => {
     expect(
       (

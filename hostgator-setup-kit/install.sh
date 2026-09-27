@@ -166,6 +166,7 @@ show_recovery() {
   printf '\n%s\n\n' "$(t "Como voltar atrás e recomeçar do zero:")"
   printf '  %s\n' "cd ${dir}"
   printf '  %s\n' "rm -f .env                                    # $(t "apaga a configuração digitada")"
+  printf '  %s\n' "rm -f ${MARCA_INSTALACAO_NOME:-.deskcomm-instalado}          # $(t "apaga o marcador desta instalação")"
   printf '  %s\n' "docker compose $(dc_files) down -v          # $(t "derruba o que subiu")"
   printf '  %s\n' "bash ${KIT_DIR:-hostgator-setup-kit}/install.sh   # $(t "começa de novo")"
   printf '\n%s\n' "$(t "Se o schema chegou a ser aplicado e você quer o banco limpo de novo,")"
@@ -2272,6 +2273,26 @@ marcar_segredo_do_cron_como_novo
 setup_event_log_drain_cron
 setup_update_agent_cron
 
+# ── O marcador que diz que esta instalação EXISTE (#1778) ───────────────────
+# A guarda de arquitetura (#1042, contornada pelo #1266) precisa distinguir
+# "instalação nova" de "instalação que já está no ar", e ela não pode usar
+# "tem compose e tem `.env`" como prova: o `.env` chega pronto numa instalação
+# NOVA (copiado, gerado por automação, ou deixado por um `--yes` que parou no
+# meio), e com esse critério uma VPS ARM nova começava a instalação construindo
+# as imagens na própria VPS — o que a guarda existe para impedir.
+#
+# O marcador vai aqui, e não antes, porque só a partir daqui é verdade que a
+# instalação EXISTE: os contêineres subiram e o app respondeu. Gravar antes
+# deixaria o arquivo afirmando uma instalação que pode não ter acontecido — e
+# a próxima rodada da guarda confiaria numa instalação que não está no ar.
+# `|| true` porque a ausência do marcador não pode derrubar uma instalação
+# cujos contêineres já estão no ar: no pior caso a guarda cai no sinal do
+# contêiner, que é o mesmo que ela usava para quem instalou numa versão
+# anterior.
+if [ "${APP_SAUDAVEL:-0}" = 1 ]; then
+  marcar_instalacao_feita "$VERSAO_ALVO" || c_ylw "$(t "⚠ Não consegui gravar o marcador desta instalação (arquivo .deskcomm-instalado). O CRM está no ar; numa VPS ARM a atualização pode pedir a VPS x86_64 até o marcador existir.")"
+fi
+
 # ── Final ───────────────────────────────────────────────────────────────────
 # O app não confirmou que está de pé: dizer "Instalação concluída!" aqui seria
 # mentir na única tela que a pessoa vai ler inteira. Ela recebe o estado real e
@@ -2367,7 +2388,7 @@ $(telemetria_no_banner)
     $(t "backup:")        bash hostgator-setup-kit/backup.sh
     $(t "trocar config:") bash hostgator-setup-kit/install.sh
                    $(t "(mostra tudo o que você respondeu e deixa corrigir por número)")
-    $(t "recomeçar:")     docker compose $(dc_files) down -v && rm -f .env
+    $(t "recomeçar:")     docker compose $(dc_files) down -v && rm -f .env ${MARCA_INSTALACAO_NOME:-.deskcomm-instalado}
                    $(t "(derruba tudo; depois rode o install.sh de novo)")
 
 DONE

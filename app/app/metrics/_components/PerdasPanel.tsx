@@ -16,6 +16,7 @@ import { useT } from "@/hooks/i18n/useT";
 import { rotuloDoMotivoDePerda } from "@/lib/schemas/leads";
 import { SEM_CATEGORIA, SEM_ETAPA, SEM_MOEDA, SEM_MOTIVO } from "@/lib/metrics/perdas";
 import { usePerdasMetrics } from "@/hooks/metrics/usePerdasMetrics";
+import { formatValorDoNegocio } from "@/lib/money";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -28,13 +29,7 @@ import {
 
 function formataMoeda(moeda: string, cents: number): string {
   if (!/^[A-Z]{3}$/.test(moeda)) return "—";
-  try {
-    return new Intl.NumberFormat("pt-BR", { style: "currency", currency: moeda }).format(
-      cents / 100,
-    );
-  } catch {
-    return `${(cents / 100).toFixed(2)} ${moeda}`;
-  }
+  return formatValorDoNegocio(cents, moeda);
 }
 
 /** Os rótulos que o SERVIDOR põe no lugar da ausência: texto do produto, traduzível. */

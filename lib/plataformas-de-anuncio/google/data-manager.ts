@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ConversaoOffline, CredencialDeConversao, ResultadoDeEnvio } from "../types";
 import { configuracaoDoGoogleAds } from "./config";
 import { renovarToken } from "./token";
+import { telefoneCriptografado } from "./telefone";
 
 const BASE = "https://datamanager.googleapis.com/v1";
 const texto = z.string().min(1);
@@ -26,6 +27,10 @@ const diagnostico = z.object({
 export function montarEvento(credencial: CredencialDeConversao, conversao: ConversaoOffline) {
   const google = credencial.google!;
   const conta = (id: string) => ({ accountType: "GOOGLE_ADS", accountId: id.replace(/\D/g, "") });
+  const clique =
+    conversao.identificadoresGoogle ??
+    (conversao.cliqueDeOrigem ? { gclid: conversao.cliqueDeOrigem } : null);
+  const telefone = google.enviarTelefone ? telefoneCriptografado(conversao.telefone) : null;
   return {
     destinations: [
       {
@@ -34,12 +39,14 @@ export function montarEvento(credencial: CredencialDeConversao, conversao: Conve
         productDestinationId: google.conversionActionId,
       },
     ],
+    ...(telefone ? { encoding: "HEX" } : {}),
     events: [
       {
         transactionId: conversao.eventoId,
         eventTimestamp: conversao.ocorridoEm.toISOString(),
         eventSource: "MESSAGE",
-        adIdentifiers: conversao.identificadoresGoogle ?? { gclid: conversao.cliqueDeOrigem },
+        ...(clique ? { adIdentifiers: clique } : {}),
+        ...(telefone ? { userData: { userIdentifiers: [{ phoneNumber: telefone }] } } : {}),
         ...(conversao.valorCentavos !== null
           ? {
               conversionValue: conversao.valorCentavos / 100,
@@ -48,7 +55,8 @@ export function montarEvento(credencial: CredencialDeConversao, conversao: Conve
           : {}),
       },
     ],
-    // Não inventa consentimento nem envia dados pessoais para preencher ausência de clique.
+    // Não inventa consentimento. O telefone só vai quando a organização ligou
+    // `google_send_hashed_phone` (0436) — e sempre criptografado, nunca em claro.
   };
 }
 

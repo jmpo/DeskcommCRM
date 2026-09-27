@@ -149,7 +149,7 @@ export const MOTIVO_LEGIVEL: Record<string, string> = {
   evento_de_teste:
     "Evento recebido em modo de teste. Desative o teste antes de reportar a venda real.",
   sem_valor:
-    "A venda fechou sem valor preenchido. A plataforma exige valor e moeda em uma compra — preencha o valor do negócio e use o botão de reprocessamento.",
+    "A venda fechou sem valor preenchido. A Meta exige valor e moeda em uma compra — preencha o valor do negócio e use o botão de reprocessamento. No Google, você também pode escolher enviar a venda sem valor em \"Valor do negócio\".",
   sem_conexao:
     "Nenhuma conta de anúncios conectada nesta organização. Preencha o formulário acima.",
   conexao_desabilitada: "A conexão existe mas está desligada. Ligue o envio no formulário acima.",

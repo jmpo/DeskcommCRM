@@ -3,6 +3,8 @@
  * Match precedence: array order. First match wins.
  */
 export const PUBLIC_PATHS: RegExp[] = [
+  // Link público persistido: org e destino são resolvidos exclusivamente no servidor.
+  /^\/api\/v1\/rastreio\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
   /^\/$/,
   /^\/login(\/.*)?$/,
   /^\/signup$/,

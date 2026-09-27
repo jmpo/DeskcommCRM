@@ -49,16 +49,22 @@ export type ApiDeConversaoGoogle = "google_ads" | "data_manager";
 export type PlataformaDeAnuncio = "meta_ads" | "google_ads";
 
 /**
- * `Purchase` é a venda (na entrega, em quem vende contra entrega) e
- * `QualifiedLead` a qualificação do Google — resultados distintos, deduplicados
- * separadamente. Os demais são eventos de ETAPA do funil
- * (`crm_stages.evento_de_conversao`): o sinal de intenção que chega dias antes da
- * entrega — é com ele que o otimizador da plataforma aprende rápido numa venda
- * que só se paga ao receber. Evento de etapa vai só à Meta.
+ * Venda, qualificação e cada etapa configurada são resultados distintos e
+ * deduplicados separadamente. `Etapa:<uuid>` vem das regras por etapa do Google
+ * (0436). Os nomes de `EVENTOS_DE_ETAPA` são os eventos de ETAPA que vão à Meta
+ * (`crm_stages.evento_de_conversao`, deste fork): o sinal de intenção que chega
+ * dias antes da entrega em quem vende contra entrega — é com ele que o
+ * otimizador da plataforma aprende rápido numa venda que só se paga ao receber.
  */
 export const EVENTOS_DE_ETAPA = ["InitiateCheckout", "LeadSubmitted", "AddToCart"] as const;
 export type EventoDeEtapa = (typeof EVENTOS_DE_ETAPA)[number];
-export type NomeDoEvento = "Purchase" | "QualifiedLead" | EventoDeEtapa;
+export type NomeDoEvento = "Purchase" | "QualifiedLead" | EventoDeEtapa | `Etapa:${string}`;
+
+/** Evento de ETAPA que vai à Meta (`crm_stages.evento_de_conversao`, deste fork) — não
+ *  confundir com `ehEventoDeEtapa` de `lib/conversoes/regras-google.ts` (as `Etapa:<uuid>`). */
+export function ehEventoDeEtapaDaMeta(v: unknown): v is EventoDeEtapa {
+  return typeof v === "string" && (EVENTOS_DE_ETAPA as readonly string[]).includes(v);
+}
 
 /**
  * Uma conversão pronta para sair — no formato da CASA, não no da plataforma.
@@ -142,6 +148,10 @@ export interface CredencialDeConversao {
     /** `null` = acesso direto, sem conta de gerente (MCC). */
     loginCustomerId: string | null;
     conversionActionId: string;
+    /** Negócio ganho sem valor (0436). Ausente = `obrigatorio`, o comportamento de sempre. */
+    modoDeValorDaVenda?: "obrigatorio" | "quando_houver" | "nunca";
+    /** Envia o telefone em SHA-256 (E.164) junto da conversão (0436). */
+    enviarTelefone?: boolean;
   };
 }
 

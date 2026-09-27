@@ -509,6 +509,88 @@ describe("POST /api/v1/leads/[id]/clone", () => {
       numero_da_os: "OS-99",
     });
   });
+  it("a etapa de destino do clone passa pela régua de campos exigidos", async () => {
+    // O clone NASCE numa etapa do funil de destino, e entrar nela é o mesmo
+    // gatilho do arrasto. Sem a pergunta, a troca de funil aterrissava numa
+    // etapa exigente com o campo em branco — e o negócio já estava lá.
+    const base = seed();
+    db = fakeDb({
+      ...base,
+      crm_pipelines: (base.crm_pipelines ?? []).map((funil) =>
+        funil.id === P2
+          ? {
+              ...funil,
+              settings: {
+                fields: [
+                  {
+                    key: "concorrente",
+                    label: "Concorrente",
+                    type: "text",
+                    obrigatorio_em: { etapas: [S2_B] },
+                  },
+                ],
+              },
+            }
+          : funil,
+      ),
+    });
+    vi.mocked(createClient).mockResolvedValue(db.client);
+    const { POST } = await import("./route");
+
+    const response = await POST(cloneRequest({ pipeline_id: P2, stage_id: S2_B }), params);
+    const body = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(body.error.code).toBe("required_fields_missing");
+    expect(body.error.details.faltando).toEqual([
+      { chave: "concorrente", rotulo: "Concorrente", tipo: "text" },
+    ]);
+    // NENHUMA escrita: o negócio não pode nascer no destino para a exigência
+    // ser cobrada só na próxima escrita.
+    expect(db.tables.crm_leads).toHaveLength(1);
+    const origemIntocada = (db.tables.crm_leads ?? [])[0] as Row;
+    expect(origemIntocada.status).toBe("open");
+    expect(origemIntocada.pipeline_id).toBe(P1);
+  });
+
+  it("o clone passa quando o campo exigido já vem preenchido da origem", async () => {
+    // O mesmo funil exigente, e o mesmo destino: o que muda é o VALOR. O
+    // controle negativo fica vazio sem ele — sem este caso, um gate que
+    // recusasse TODA troca de funil passaria no teste de cima.
+    const base = seed();
+    const origem = (base.crm_leads ?? [])[0];
+    if (!origem) throw new Error("o teste espera um crm_leads semeado neste ponto");
+    origem.custom_fields = { concorrente: "Loja do bairro" };
+    db = fakeDb({
+      ...base,
+      crm_pipelines: (base.crm_pipelines ?? []).map((funil) =>
+        funil.id === P2
+          ? {
+              ...funil,
+              settings: {
+                fields: [
+                  {
+                    key: "concorrente",
+                    label: "Concorrente",
+                    type: "text",
+                    obrigatorio_em: { etapas: [S2_B] },
+                  },
+                ],
+              },
+            }
+          : funil,
+      ),
+    });
+    vi.mocked(createClient).mockResolvedValue(db.client);
+    const { POST } = await import("./route");
+
+    const response = await POST(cloneRequest({ pipeline_id: P2, stage_id: S2_B }), params);
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect((body.data.lead as Row).stage_id).toBe(S2_B);
+    expect((body.data.lead as Row).custom_fields).toEqual({ concorrente: "Loja do bairro" });
+  });
 });
 
 describe("POST /api/v1/leads/[id]/move cross-pipeline", () => {

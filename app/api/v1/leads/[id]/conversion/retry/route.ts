@@ -10,8 +10,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const requestId = randomUUID();
   const parsed = z.object({ id: z.uuid() }).safeParse(await ctx.params);
   if (!parsed.success) return fail("validation_failed", "Negócio inválido.", 400, { requestId });
+  // Compra, a qualificação legada (0402) e as etapas configuradas (0436).
   const evento = z
-    .enum(["Purchase", "QualifiedLead"])
+    .union([
+      z.enum(["Purchase", "QualifiedLead"]),
+      z.string().regex(/^Etapa:[0-9a-f-]{36}$/),
+    ])
     .safeParse(new URL(req.url).searchParams.get("event_name") ?? "Purchase");
   if (!evento.success) return fail("validation_failed", "Evento inválido.", 400, { requestId });
   const supportDenied = await requireSupportWrite();
@@ -22,7 +26,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { data, error } = await admin.rpc("fn_solicitar_reenvio_conversao", {
     p_org: authz.org.orgId,
     p_lead: parsed.data.id,
-    ...(evento.data === "QualifiedLead" ? { p_event: evento.data } : {}),
+    ...(evento.data !== "Purchase" ? { p_event: evento.data } : {}),
   });
   if (error)
     return fail("internal_error", "Não foi possível agendar o reprocessamento.", 500, {

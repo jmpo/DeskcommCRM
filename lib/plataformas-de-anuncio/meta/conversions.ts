@@ -36,6 +36,8 @@ import { createHash } from "node:crypto";
 
 import { VERSAO_PADRAO_DA_GRAPH } from "@/lib/graph-version";
 import { logger } from "@/lib/logger";
+
+import { baseDaGraphDeAnuncio } from "./graph-base";
 import type {
   ConversaoOffline,
   CredencialDeConversao,
@@ -121,8 +123,7 @@ async function enviar(
   if (credencial.testEventCode) corpo.test_event_code = credencial.testEventCode;
 
   const url =
-    `https://graph.facebook.com/${VERSAO_DA_API}/` +
-    `${encodeURIComponent(credencial.datasetId)}/events`;
+    `${baseDaGraphDeAnuncio()}/${encodeURIComponent(credencial.datasetId)}/events`;
 
   let resposta: Response;
   try {
