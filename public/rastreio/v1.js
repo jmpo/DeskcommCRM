@@ -4,7 +4,10 @@
   var script = document.currentScript;
   if (!script) return;
   var org = script.getAttribute("data-org") || "";
-  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(org)) return;
+  var linkId = script.getAttribute("data-link-id") || "";
+  if (linkId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(linkId))
+    return;
+  if (!linkId && !/^[a-zA-Z0-9_-]{1,100}$/.test(org)) return;
   var base;
   try {
     base = new URL(script.src);
@@ -18,8 +21,9 @@
   }
   var google = phone(script.getAttribute("data-google-whatsapp"));
   var meta = phone(script.getAttribute("data-meta-whatsapp"));
-  if (!google && !meta) return;
-  var key = "rastreio:v1:" + base.origin + ":" + org;
+  var namedPhone = phone(script.getAttribute("data-whatsapp"));
+  if (linkId ? !namedPhone : !google && !meta) return;
+  var key = "rastreio:v1:" + base.origin + ":" + (linkId || org);
   // Uma instalação por página. Carregar o mesmo snippet duas vezes não duplica observadores.
   var installed = window.__rastreioCaptureV1 || (window.__rastreioCaptureV1 = {});
   if (installed[key]) return;
@@ -83,10 +87,12 @@
   refresh();
   function destination() {
     var isGoogle = Boolean(origin.gclid || origin.gbraid || origin.wbraid);
-    var target = isGoogle ? google : meta;
-    if (!target || !Object.keys(origin).length) return null;
+    var target = linkId ? namedPhone : isGoogle ? google : meta;
+    if (!target || (!linkId && !Object.keys(origin).length)) return null;
     var url = new URL(
-      "/api/v1/anuncios/" + (isGoogle ? "google" : "meta") + "/" + encodeURIComponent(org),
+      linkId
+        ? "/api/v1/rastreio/" + linkId
+        : "/api/v1/anuncios/" + (isGoogle ? "google" : "meta") + "/" + encodeURIComponent(org),
       base.origin,
     );
     Object.keys(origin).forEach(function (name) {
@@ -140,6 +146,22 @@
     scan(document);
   }
   update();
+  // Verificação explícita iniciada pelo administrador. Só retorna dados públicos
+  // ao próprio CRM que hospeda o script; sem HTTP do servidor para URL arbitrária.
+  var probe = new URLSearchParams(location.hash.slice(1)).get("rastreio-verificar");
+  if (linkId && probe && /^[a-zA-Z0-9-]{16,80}$/.test(probe) && window.opener) {
+    window.opener.postMessage(
+      {
+        type: "rastreio:v1:instalado",
+        nonce: probe,
+        linkId: linkId,
+        buttons: Array.from(document.querySelectorAll("a[href]")).filter(function (el) {
+          return el.href.indexOf(base.origin + "/api/v1/rastreio/" + linkId) === 0;
+        }).length,
+      },
+      base.origin,
+    );
+  }
   new MutationObserver(function (records) {
     refresh();
     records.forEach(function (record) {

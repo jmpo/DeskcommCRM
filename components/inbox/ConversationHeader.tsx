@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, type RefObject } from "react";
 import { useT } from "@/hooks/i18n/useT";
 import Link from "next/link";
 import {
@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { JanelaSelo } from "@/components/inbox/JanelaSelo";
 import { ChannelLogo } from "@/components/inbox/ChannelLogo";
-import { Phone, ArrowRight } from "@/lib/ui/icons";
+import { Phone, ArrowRight, MagnifyingGlass } from "@/lib/ui/icons";
 import { useAuth } from "@/hooks/auth/AuthProvider";
 import { useClaimConversation } from "@/hooks/inbox/useClaimConversation";
 import { useReleaseConversation } from "@/hooks/inbox/useReleaseConversation";
@@ -39,6 +39,14 @@ import { phoneForDisplay } from "@/lib/channels/phone-variants";
 
 interface Props {
   conversation: ConversationWithContact;
+  /**
+   * A busca DENTRO da conversa (#1793): abre um campo que filtra só as
+   * mensagens já carregadas. O ref devolve o foco a este botão quando o campo
+   * fecha — senão o Esc largava o foco no `body`.
+   */
+  onBuscar?: () => void;
+  buscaAberta?: boolean;
+  botaoBuscaRef?: RefObject<HTMLButtonElement | null>;
   /** Seleciona outra conversa no Inbox — a aba Número do Transferir abre a do outro número. */
   onAbrirConversa?: (id: string) => void;
 }
@@ -69,7 +77,13 @@ const STATUS_LABEL: Record<string, string> = {
   archived: "Arquivada",
 };
 
-export function ConversationHeader({ conversation, onAbrirConversa }: Props) {
+export function ConversationHeader({
+  conversation,
+  onAbrirConversa,
+  onBuscar,
+  buscaAberta,
+  botaoBuscaRef,
+}: Props) {
   const t = useT();
   const { user } = useAuth();
   const claim = useClaimConversation();
@@ -212,6 +226,24 @@ export function ConversationHeader({ conversation, onAbrirConversa }: Props) {
           motivo da barra. */}
       <div className="flex min-w-0 flex-col items-end gap-1">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        {/* Primeira da barra e sem rótulo escrito: é ferramenta de LEITURA, não
+            ação de atendimento, e não muda de lugar com o estado da conversa.
+            Só o ícone porque a barra já quebrou a caixa útil em 1280px uma vez
+            (ver o comentário do interruptor abaixo). */}
+        {onBuscar && (
+          <Button
+            ref={botaoBuscaRef}
+            size="sm"
+            variant="ghost"
+            className="w-11 px-0 lg:w-8"
+            onClick={onBuscar}
+            aria-label={t("Buscar nesta conversa")}
+            title={t("Buscar nesta conversa")}
+            aria-expanded={buscaAberta}
+          >
+            <MagnifyingGlass size={16} aria-hidden />
+          </Button>
+        )}
         {/* A chamada usa o telefone da ficha, mesmo quando o contato chegou por
             outro canal. Grupos não representam uma pessoa para ligar. */}
         {!conversation.is_group && c?.id && (

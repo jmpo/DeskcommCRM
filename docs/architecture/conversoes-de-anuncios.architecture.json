@@ -21,7 +21,15 @@
       "label": "Dados"
     }
   ],
-  "mainPath": ["funil", "eventos", "handler", "transporte", "registro", "tela", "retry"],
+  "mainPath": [
+    "funil",
+    "eventos",
+    "handler",
+    "transporte",
+    "registro",
+    "tela",
+    "retry"
+  ],
   "nodes": [
     {
       "id": "origem",
@@ -127,6 +135,20 @@
       "col": 1,
       "type": "component",
       "label": "Script público v1: origem da visita"
+    },
+    {
+      "id": "links",
+      "lane": "tela",
+      "col": 0,
+      "type": "component",
+      "label": "Links rastreáveis: cadastro e métricas"
+    },
+    {
+      "id": "refs",
+      "lane": "dados",
+      "col": 1,
+      "type": "component",
+      "label": "ad_tracking_links + click_refs"
     }
   ],
   "edges": [
@@ -249,6 +271,36 @@
       "from": "script",
       "to": "captura",
       "label": "clique no número configurado"
+    },
+    {
+      "id": "links-config",
+      "from": "links",
+      "to": "refs",
+      "label": "admin / organização / auditoria"
+    },
+    {
+      "id": "links-script",
+      "from": "links",
+      "to": "script",
+      "label": "snippet por link"
+    },
+    {
+      "id": "links-capture",
+      "from": "script",
+      "to": "refs",
+      "label": "clique público / ref"
+    },
+    {
+      "id": "links-origin",
+      "from": "refs",
+      "to": "origem",
+      "label": "ref na mensagem"
+    },
+    {
+      "id": "links-metrics",
+      "from": "refs",
+      "to": "links",
+      "label": "métricas retidas / corrigir ou desativar"
     }
   ]
 }

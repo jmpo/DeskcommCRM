@@ -92,3 +92,42 @@ O arquivo `public/rastreio/v1.js` é servido anonimamente, inclusive no Docker q
 Teste de instalação: abra o site com parâmetros de uma campanha, navegue para outra página, confira o destino do botão e envie a mensagem mantendo `[ref:XXXXXX]`. Confira a origem no contato antes de habilitar conversões reais. O teste de navegador automatizado usa campanha sintética e intercepta WhatsApp; não prova atribuição final por uma plataforma de anúncios.
 
 Living System Checklist do script: entrada = URL e capturas salvas; saída = rotas de captura e referência na mensagem; registro = click refs e origem do contato existentes; superfície/configuração = seção do script em Conversões; continuidade = mensagem normal no atendimento; falha = link original quando script/origem ausente, com roteiro de diagnóstico acima; retorno = ajustar configuração e repetir a visita de teste; mapa = site → script → captura → contato. O script não muda responsável, etapa ou decisão do agente.
+
+## Links nomeados e script do site
+
+Em **Configurações → Conversões → Links rastreáveis**, um administrador salva nome,
+telefone internacional, mensagem e origem. Cada link tem um UUID público; a rota
+`/api/v1/rastreio/[id]` resolve organização e telefone na linha persistida. Um link
+inativo responde como indisponível. Editar preserva o mesmo endereço; desativar
+preserva o histórico.
+
+Para o site, copie o snippet gerado após salvar. `data-link-id` seleciona o link e
+`data-whatsapp` limita os botões que serão alterados. Use um único snippet por
+número na página, substituindo o snippet anterior desse número. Os atributos
+anteriores `data-org`, `data-google-whatsapp` e `data-meta-whatsapp` continuam
+compatíveis. `data-storage="none"` e `data-rastreio-ignorar` continuam disponíveis.
+
+**Verificar instalação** abre o site com um desafio no fragmento da URL. O script
+responde ao CRM pelo `postMessage` do navegador; o CRM exige a janela, origem,
+nonce e UUID esperados. Não há busca do servidor a uma URL arbitrária. Isso prova
+carregamento e botão reconhecido naquele instante, não entrega de uma conversão.
+Redirecionamento de domínio, popup bloqueado ou políticas que separam a janela
+podem impedir confirmação; o aviso orienta conferência manual e não afirma ausência.
+
+O código `[ref:...]` só faz o vínculo quando chega numa mensagem do visitante.
+No Google, preserve gclid/gbraid/wbraid via codificação automática; o sufixo de UTM
+é complementar. UTM sem identificador de clique informa origem no CRM e não cria
+identificador pago. Falha ao persistir clique mantém o WhatsApp sem ref.
+
+As métricas são agregadas por organização e link sobre os refs **ainda retidos**.
+Cliques são acessos gravados (inclusive repetidos), contatos e negócios são distintos
+por link. A retenção reduz as contagens; não são totais vitalícios nem pessoas únicas.
+A mesma pessoa pode aparecer em links diferentes. Não somar como audiência única.
+
+Destino: **núcleo**, evolução do contrato de captura/conversões já distribuído.
+Sem configurar links, a operação comum e os endereços legados continuam inteiros.
+Entrada: cadastro/script; saída: refs → atribuição do contato → conversões existentes.
+Auditoria `ad_tracking_link.saved` aparece no histórico de auditoria. Falhas de leitura
+aparecem na aba; falhas de captura geram log sem parâmetros pessoais e preservam
+atendimento. O operador ajusta/desativa links pela mesma tela após observar resultados.
+Não há envio automático de mensagens ao criar/testar links.

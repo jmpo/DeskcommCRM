@@ -47,6 +47,37 @@ const PEDE_PARA_SAIR = [
   "quero sair da lista",
   "quero cancelar a inscrição",
   "me descadastra aí",
+  // ─── Formas que passavam batido (medido por @deskcommopp4s-cmd, #1607) ─────
+  //
+  // INFINITIVO — "pode me remover da lista" é como se pede de fato; a lista de
+  // verbos tinha `remove|remova` e não `remover`.
+  "pode me remover da lista",
+  "me retirar da lista",
+  "me excluir da lista",
+  "me apagar da lista",
+  "gostaria de me remover da lista",
+  // IMPERATIVO NEGATIVO — o padrão "não me X mais" tinha lista própria, mais
+  // estreita que a constante compartilhada. E a locução "entrar em contato"
+  // não existia em lista nenhuma: `entre` é de ENTRAR, não de comunicar.
+  "não entre mais em contato neste numero",
+  "nao entre em contato comigo",
+  "nao me contate mais",
+  "nao me contacte mais",
+  "nao me escreva mais",
+  "nao me perturbe mais",
+  "nao volte a entrar em contato",
+  // Variações das três formas, com a regra estreitada do #1607: `me`
+  // obrigatório, imperativo, e lista de ENVIO.
+  "Não me contate mais!",
+  "por favor nao me contate mais",
+  "nao me contatem mais",
+  "nao me chame mais",
+  "nao entrem mais em contato",
+  "parem de entrar em contato comigo",
+  "pare de entrar em contato",
+  "nao entre mais em contato por aqui",
+  "me tira da lista de transmissão",
+  "me remove da lista de contatos",
 ];
 
 /** Frases do dia a dia que usam a palavra e NÃO são pedido de descadastro. */
@@ -80,6 +111,65 @@ const NAO_PEDE_PARA_SAIR = [
   // colagem — o defeito da versão com `\b` ASCII, que já tinha sido corrigido
   "amanhã ele sairá do escritório e pararão as obras",
   "a obra pararia se chovesse",
+  // ─── Invasores das aberturas do #1607 (@deskcommopp4s-cmd) ────────────────
+  //
+  // remover/apagar/tirar aparecem, mas o OBJETO não é a comunicação com o
+  // cliente. Nenhuma bloqueia.
+  "remove o produto do carrinho",
+  "tira meu nome do e-mail",
+  "remove meu contato do grupo",
+  "apaga a luz quando sair",
+  "retire o item da sacola",
+  "excluir minha conta do banco",
+  "me tira uma duvida",
+  "posso remover o produto",
+  "retirei o pedido ontem",
+  "vou remover o app",
+  "tira da lista de espera",
+  // A locução `entrar em contato` também é afirmativa na vida real: quem MARCA
+  // um contato não está pedindo para sair dele.
+  "nao vou poder entrar em contato hoje",
+  "vou entrar em contato amanha",
+  "quando voces vao entrar em contato?",
+  "nao consegui entrar em contato ontem",
+  // ─── O que o #1607 bloqueava a mais: clínica, oficina, loja ──────────────
+  //
+  // Medido na triagem do #1607 — todas `false` na main e `true` no PR. Cada
+  // grupo é uma abertura que a regra NÃO fez:
+  //
+  // sem `me`, o sujeito não é quem escreve (3ª pessoa descritiva)
+  "o dente nao incomoda mais",
+  "o implante nao incomoda mais",
+  "o carro nao liga mais",
+  "meu celular nao liga mais",
+  "o pix nao recebe mais",
+  "meu filho nao fala mais comigo",
+  "a caneta nao escreve mais",
+  // com `me`, mas `incomodar` não é verbo de comunicação — e as formas
+  // descritivas da constante (`FORMAS_DESCRITIVAS_DEPOIS_DE_ME`) ficam fora
+  "a dor nao me incomoda mais",
+  "a dor nao me perturba mais",
+  "o convenio nao me recebe mais",
+  "a doutora nao me escreve mais a receita",
+  // infinitivo novo na constante alargaria o "parar de …"
+  "vou parar de procurar outro dentista",
+  "pode parar de falar da cirurgia?",
+  "para de falar besteira kkk",
+  // remoção sem `me`, ou com destino que não é lista de envio
+  "ja exclui do celular",
+  "apaga do whatsapp aquela foto",
+  "remove do sistema a consulta de amanha",
+  "tira da base do dente",
+  "remove da lista de desejos",
+  "tira da lista de presentes",
+  "me tira da lista de espera",
+  "me tira da lista de presentes",
+  "me remove da lista de desejos",
+  // "entrar em contato" com outro destinatário ou outro canal, e a reclamação
+  "nao entre em contato com meu marido, fale comigo",
+  "nao entrem em contato por email, so whatsapp",
+  "vou parar de entrar em contato com o fornecedor",
+  "o medico nao entra mais em contato",
   // vazios
   "",
   "   ",

@@ -187,3 +187,22 @@ describe("ConversationHeader — Fechar e Arquivar por AlertDialog", () => {
     ).toBeNull();
   });
 });
+
+describe("ConversationHeader — busca dentro da conversa (#1793)", () => {
+  it("o botão só existe com quem o atenda, e só abre a busca — nenhuma ação de atendimento", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<ConversationHeader conversation={conversa("open")} />);
+    expect(screen.queryByRole("button", { name: "Buscar nesta conversa" })).toBeNull();
+
+    const buscar = vi.fn();
+    rerender(
+      <ConversationHeader conversation={conversa("open")} onBuscar={buscar} buscaAberta={false} />,
+    );
+    const botao = screen.getByRole("button", { name: "Buscar nesta conversa" });
+    expect(botao).toHaveAttribute("aria-expanded", "false");
+    await user.click(botao);
+    expect(buscar).toHaveBeenCalledOnce();
+    expect(closeMutate).not.toHaveBeenCalled();
+    expect(arquivarMutate).not.toHaveBeenCalled();
+  });
+});

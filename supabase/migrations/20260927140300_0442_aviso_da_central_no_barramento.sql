@@ -1,13 +1,14 @@
--- 0439 (era 0405 e depois 0430 no fork; renumerada ao sincronizar com a upstream em 25/09 e 27/09) — o aviso da Central anuncia no barramento que nasceu.
+-- 0442 — o aviso da Central anuncia no barramento que nasceu.
 --
--- Os avisos que pedem gente (a IA passou a conversa para uma pessoa; um negócio
--- entrou numa etapa que avisa, a venda confirmada de quem vende contra entrega)
+-- Os avisos que pedem gente (a IA passou a conversa para uma pessoa; a IA
+-- ficou sem saldo no provedor; um negócio entrou numa etapa que avisa, 0440)
 -- só existiam na tela: com o CRM fechado, ninguém sabia. O push para o celular
 -- já existia para mensagem nova, e faltava o gancho destes. TRIGGER e não
 -- emissor em código pelo mesmo motivo da 0148: os avisos nascem em vários
--- lugares (motor, rotas, handlers), e o próximo caminho nasceria mudo. SQL puro,
--- sem I/O — quem manda o push é o consumidor (`lib/notifications/push.handler.ts`),
--- e é ele quem decide QUAIS avisos vão para o celular.
+-- lugares (motor, rotas, handlers, crons), e o próximo caminho nasceria mudo.
+-- SQL puro, sem I/O — quem manda o push é o consumidor
+-- (`lib/notifications/push.handler.ts`), e é ele quem decide QUAIS avisos vão
+-- para o celular (`somDoAviso`, a mesma regra do som da Central).
 --
 -- O aviso NUNCA deixa de nascer por causa do anúncio: o `emit_event` fica num
 -- bloco que engole a falha. Um aviso de passagem para pessoa que não grava porque
@@ -46,7 +47,8 @@ $$;
 
 alter function public.fn_emit_aviso_da_central() owner to postgres;
 
--- As DUAS origens de EXECUTE (doutrina de migrations, item 9).
+-- As DUAS origens de EXECUTE (doutrina de migrations, item 9). Função de
+-- trigger: ninguém a chama pela REST, então não há `grant` a ninguém.
 revoke all     on function public.fn_emit_aviso_da_central() from public;
 revoke execute on function public.fn_emit_aviso_da_central() from anon, authenticated;
 

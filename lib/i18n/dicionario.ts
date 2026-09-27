@@ -37,6 +37,194 @@ import type { Idioma } from "./idiomas";
 type Traducoes = Record<string, Partial<Record<Exclude<Idioma, "pt-BR">, string>>>;
 
 export const DICIONARIO: Traducoes = {
+  // ─── BUSCA DENTRO DA CONVERSA (extraída do PR #1793) ───
+  "Resultados nas mensagens carregadas": { es: "Resultados en los mensajes cargados" },
+  "Buscar nesta conversa": { es: "Buscar en esta conversación" },
+  "Buscar nas mensagens carregadas": { es: "Buscar en los mensajes cargados" },
+  "Fechar busca": { es: "Cerrar búsqueda" },
+  "Estado": { es: "Estado" },
+  // Links rastreáveis.
+  "Links rastreáveis": { es: "Enlaces rastreables" },
+  "Informe a URL HTTPS pública do seu site.": { es: "Introduce la URL HTTPS pública de tu sitio." },
+  "Permita a abertura da aba para verificar o site.": { es: "Permite abrir la pestaña para verificar el sitio." },
+  "Script carregado e botão de WhatsApp reconhecido. Confira o código ao clicar no site.": { es: "Script cargado y botón de WhatsApp reconocido. Comprueba el código al hacer clic en el sitio." },
+  "Script carregado, mas nenhum botão deste número foi encontrado na abertura da página.": { es: "Script cargado, pero no se encontró ningún botón de este número al abrir la página." },
+  "Não foi possível confirmar automaticamente. Confira o script, o domínio e os bloqueios do navegador; este resultado não prova que o script está ausente.": { es: "No se pudo confirmar automáticamente. Revisa el script, el dominio y los bloqueos del navegador; este resultado no demuestra que falte el script." },
+  "Verificando na aba aberta. Aguarde até 20 segundos.": { es: "Verificando en la pestaña abierta. Espera hasta 20 segundos." },
+  "Crie um link por campanha ou botão. O código liga o clique à mensagem enviada pelo visitante.": { es: "Crea un enlace por campaña o botón. El código vincula el clic con el mensaje enviado por el visitante." },
+  "As métricas estão indisponíveis. Atualize a página para tentar novamente.": { es: "Las métricas no están disponibles. Actualiza la página para volver a intentarlo." },
+  "Cliques": { es: "Clics" },
+  "As contagens usam os registros ainda retidos no CRM. Cliques incluem acessos repetidos; contatos e negócios são distintos por link. Não representam pessoas únicas nem o total histórico após o expurgo.": { es: "Los recuentos usan los registros aún conservados en el CRM. Los clics incluyen visitas repetidas; contactos y negocios son distintos por enlace. No representan personas únicas ni el total histórico tras la eliminación por retención." },
+  "Link salvo.": { es: "Enlace guardado." },
+  "Não foi possível salvar este link. Atualize a página e tente novamente.": { es: "No se pudo guardar este enlace. Actualiza la página y vuelve a intentarlo." },
+  "Editar link": { es: "Editar enlace" },
+  "Novo link": { es: "Nuevo enlace" },
+  "WhatsApp com código do país": { es: "WhatsApp con código de país" },
+  "Mensagem inicial": { es: "Mensaje inicial" },
+  "Onde será usado": { es: "Dónde se usará" },
+  "Orgânico": { es: "Orgánico" },
+  "Origem da campanha": { es: "Origen de la campaña" },
+  "Meio da campanha": { es: "Medio de la campaña" },
+  "Link ativo": { es: "Enlace activo" },
+  "Prévia da mensagem": { es: "Vista previa del mensaje" },
+  "Este link está desativado e não abre o WhatsApp. Ative e salve para usar.": { es: "Este enlace está desactivado y no abre WhatsApp. Actívalo y guarda para usarlo." },
+  "Os códigos abaixo refletem a última configuração salva.": { es: "Los códigos siguientes reflejan la última configuración guardada." },
+  "Instale uma vez antes de fechar o head e mantenha o botão normal de WhatsApp. Use apenas um script por número. O visitante precisa enviar a mensagem com o código para a atribuição chegar ao CRM.": { es: "Instálalo una vez antes de cerrar el head y conserva el botón normal de WhatsApp. Usa solo un script por número. El visitante debe enviar el mensaje con el código para que la atribución llegue al CRM." },
+  "URL do site": { es: "URL del sitio" },
+  "Sufixo de URL final do Google Ads": { es: "Sufijo de URL final de Google Ads" },
+  "Copiar sufixo": { es: "Copiar sufijo" },
+  "Ative a codificação automática no Google Ads. O script preserva gclid, gbraid ou wbraid recebidos no site. UTMs sozinhas identificam a origem no CRM, mas não comprovam uma conversão no Google.": { es: "Activa el etiquetado automático en Google Ads. El script conserva gclid, gbraid o wbraid recibidos en el sitio. Las UTM solas identifican el origen en el CRM, pero no demuestran una conversión en Google." },
+  "Não foi possível ler os links. Atualize a página para tentar novamente.": { es: "No se pudieron leer los enlaces. Actualiza la página para volver a intentarlo." },
+  "Confira o nome, o telefone internacional e a mensagem.": { es: "Revisa el nombre, el teléfono internacional y el mensaje." },
+  "Entre novamente para salvar.": { es: "Vuelve a iniciar sesión para guardar." },
+  "Esta sessão de suporte não permite alterações.": { es: "Esta sesión de soporte no permite cambios." },
+  "Somente administradores podem alterar os links.": { es: "Solo los administradores pueden modificar los enlaces." },
+  // Conversões: histórico e diagnóstico.
+  "Seções de conversões": { es: "Secciones de conversiones" },
+  "Não consegui ler o histórico agora. Atualize a página em instantes.": { es: "No pude leer el historial ahora. Actualiza la página en unos instantes." },
+  "Não consegui ler o diagnóstico agora. Atualize a página em instantes.": { es: "No pude leer el diagnóstico ahora. Actualiza la página en unos instantes." },
+  "Instalação sem credenciais do Google Ads": { es: "Instalación sin credenciales de Google Ads" },
+  "Quem instalou o sistema precisa configurar GOOGLE_ADS_OAUTH_CLIENT_ID e GOOGLE_ADS_OAUTH_CLIENT_SECRET. Até lá, nada é enviado ao Google.": { es: "Quien instaló el sistema debe configurar GOOGLE_ADS_OAUTH_CLIENT_ID y GOOGLE_ADS_OAUTH_CLIENT_SECRET. Hasta entonces, no se envía nada a Google." },
+  "Conta Google não conectada": { es: "Cuenta de Google no conectada" },
+  "Clique em Conectar com Google e informe o Customer ID da conta de anúncios.": { es: "Haz clic en Conectar con Google e indica el Customer ID de la cuenta de anuncios." },
+  "Envio pausado": { es: "Envío en pausa" },
+  "A conta está conectada, mas o envio está desligado na aba Configuração.": { es: "La cuenta está conectada, pero el envío está desactivado en la pestaña Configuración." },
+  "A conta está conectada e o envio está ligado.": { es: "La cuenta está conectada y el envío está activado." },
+  "Conversões chegando ao Google": { es: "Conversiones llegando a Google" },
+  "Nenhuma conversão aceita ainda": { es: "Ninguna conversión aceptada todavía" },
+  "Pode ser falta de negócios vindos de anúncio do Google, ou a captura do clique ainda não configurada no site.": { es: "Puede deberse a que no hay negocios que vengan de anuncios de Google o a que la captura del clic aún no está configurada en el sitio." },
+  "Sem falhas recentes": { es: "Sin fallos recientes" },
+  "Abra o histórico filtrando por Falhas: o detalhe de cada linha é a resposta do Google.": { es: "Abre el historial filtrando por Fallos: el detalle de cada línea es la respuesta de Google." },
+  "Nenhum envio foi recusado nos últimos 7 dias.": { es: "Ningún envío fue rechazado en los últimos 7 días." },
+  "Nada aguardando o Google": { es: "Nada en espera de Google" },
+  "A confirmação é consultada sozinha. Passadas 24 horas, vira pendência na aba Configuração.": { es: "La confirmación se consulta sola. Pasadas 24 horas, se convierte en pendiente en la pestaña Configuración." },
+  "Todos os envios já têm resposta.": { es: "Todos los envíos ya tienen respuesta." },
+  "A venda está configurada. Etapas ligadas dão mais sinal ao Google antes da venda.": { es: "La venta está configurada. Las etapas activadas le dan más señal a Google antes de la venta." },
+  "A venda (negócio ganho) não tem ação de conversão: é ela que ensina o Google a buscar quem compra.": { es: "La venta (negocio ganado) no tiene acción de conversión: es la que le enseña a Google a buscar a quien compra." },
+  "Dê um nome à conversão antes de criar a ação no Google.": {
+    es: "Dale un nombre a la conversión antes de crear la acción en Google.",
+  },
+  "Ação criada no Google:": { es: "Acción creada en Google:" },
+  "Salve as regras.": { es: "Guarda las reglas." },
+  "Não consegui criar a ação no Google agora.": { es: "No pude crear la acción en Google ahora." },
+  "Cria a ação de conversão na sua conta do Google Ads": {
+    es: "Crea la acción de conversión en tu cuenta de Google Ads",
+  },
+  "Criar direto no Google exige o developer token do Google Ads nesta instalação e a conta reconectada. Enquanto isso, cole o ID da ação.":
+    {
+      es: "Crear directamente en Google requiere el developer token de Google Ads en esta instalación y la cuenta reconectada. Mientras tanto, pega el ID de la acción.",
+    },
+  "Criar no Google": { es: "Crear en Google" },
+  "Saúde da integração com o Google Ads": { es: "Estado de la integración con Google Ads" },
+  Problema: { es: "Problema" },
+  "Venda (negócio ganho)": { es: "Venta (negocio ganado)" },
+  "Ação de conversão da venda (ID)": { es: "Acción de conversión de la venta (ID)" },
+  "Recebe a compra quando o negócio é marcado como ganho. Deixe vazio se você só quer enviar etapas do funil.":
+    {
+      es: "Recibe la compra cuando el negocio se marca como ganado. Déjalo vacío si solo quieres enviar etapas del embudo.",
+    },
+  "Categoria da conversão": { es: "Categoría de la conversión" },
+  "Valor do negócio": { es: "Valor del negocio" },
+  "Com o valor, o Google pode otimizar por receita e não só por volume. Venda sem valor vai sem valor — nunca como zero.":
+    {
+      es: "Con el valor, Google puede optimizar por ingresos y no solo por volumen. Una venta sin valor se envía sin valor, nunca como cero.",
+    },
+  "Enviar o telefone do contato criptografado": { es: "Enviar el teléfono del contacto cifrado" },
+  "O telefone vai em SHA-256, nunca em claro, e ajuda o Google a ligar a conversão a quem clicou no anúncio. É dado pessoal: ligue só se a sua política de privacidade cobre esse uso.":
+    {
+      es: "El teléfono va en SHA-256, nunca en claro, y ayuda a Google a vincular la conversión con quien hizo clic en el anuncio. Es un dato personal: actívalo solo si tu política de privacidad cubre ese uso.",
+    },
+  "Enviar a venda; o valor vai quando estiver preenchido": {
+    es: "Enviar la venta; el valor va cuando esté completado",
+  },
+  "Só enviar venda com valor preenchido": { es: "Solo enviar ventas con valor completado" },
+  "Enviar a venda sempre sem valor": { es: "Enviar la venta siempre sin valor" },
+  "Últimas 24h": { es: "Últimas 24 h" },
+  "7 dias": { es: "7 días" },
+  "30 dias": { es: "30 días" },
+  "Todo o período": { es: "Todo el período" },
+  "Não enviados": { es: "No enviados" },
+  "Não enviado": { es: "No enviado" },
+  "Todos os eventos": { es: "Todos los eventos" },
+  Plataforma: { es: "Plataforma" },
+  "Buscar por negócio": { es: "Buscar por negocio" },
+  "Nome do negócio": { es: "Nombre del negocio" },
+  Filtrar: { es: "Filtrar" },
+  envio: { es: "envío" },
+  envios: { es: "envíos" },
+  "Nenhum envio com estes filtros.": { es: "Ningún envío con estos filtros." },
+  "ID do evento": { es: "ID del evento" },
+  Protocolo: { es: "Protocolo" },
+  "sem valor": { es: "sin valor" },
+  "Aconteceu em": { es: "Ocurrió el" },
+  "Etapas recomendadas ligadas. Informe ou crie a ação de conversão de cada uma e salve.": {
+    es: "Etapas recomendadas activadas. Indica o crea la acción de conversión de cada una y guarda.",
+  },
+  "Regras salvas.": { es: "Reglas guardadas." },
+  "Crie um funil com etapas para escolher o que cada etapa informa ao Google Ads.": {
+    es: "Crea un embudo con etapas para elegir qué informa cada etapa a Google Ads.",
+  },
+  "O que cada etapa do funil informa ao Google Ads": {
+    es: "Qué informa cada etapa del embudo a Google Ads",
+  },
+  "Quanto mais cedo você avisa, mais dados a campanha tem para aprender — mas só a venda ensina o Google a buscar quem compra. Cada etapa ligada envia a sua ação de conversão uma vez por negócio, quando ele entra ali.":
+    {
+      es: "Cuanto antes avisas, más datos tiene la campaña para aprender, pero solo la venta le enseña a Google a buscar a quien compra. Cada etapa activada envía su acción de conversión una vez por negocio, cuando este entra en ella.",
+    },
+  "etapas enviando": { es: "etapas enviando" },
+  "Usar o recomendado": { es: "Usar lo recomendado" },
+  "não envia conversão": { es: "no envía conversión" },
+  "Enviar conversão nesta etapa": { es: "Enviar conversión en esta etapa" },
+  "Nome da conversão": { es: "Nombre de la conversión" },
+  "ex.: Lead qualificado": { es: "ej.: Lead calificado" },
+  "Ação de conversão (ID)": { es: "Acción de conversión (ID)" },
+  "É como o Google agrupa a conversão nos relatórios e nos lances.": {
+    es: "Es cómo Google agrupa la conversión en los informes y en las pujas.",
+  },
+  "Canal de entrada": { es: "Canal de entrada" },
+  'Incluir na coluna "Conversões" (os lances otimizam por ela)': {
+    es: 'Incluir en la columna "Conversiones" (las pujas optimizan por ella)',
+  },
+  "As conversões só saem quando o negócio muda de etapa — pela equipe, pela IA ou por automação — e só para quem veio de anúncio do Google. Movimentos anteriores a ligar a regra não são enviados.":
+    {
+      es: "Las conversiones solo salen cuando el negocio cambia de etapa, por el equipo, por la IA o por una automatización, y solo para quien llegó desde un anuncio de Google. Los movimientos anteriores a activar la regla no se envían.",
+    },
+  "Salvar regras": { es: "Guardar reglas" },
+  "Toda etapa ligada precisa de um nome e do ID da ação de conversão.": {
+    es: "Toda etapa activada necesita un nombre y el ID de la acción de conversión.",
+  },
+  "Só um administrador da organização pode mudar estas regras.": {
+    es: "Solo un administrador de la organización puede cambiar estas reglas.",
+  },
+  "Uma das etapas não existe mais ou foi fechada. Atualize a página.": {
+    es: "Una de las etapas ya no existe o fue cerrada. Actualiza la página.",
+  },
+  "Contato (conversa, ligação, e-mail)": { es: "Contacto (conversación, llamada, correo)" },
+  "Envio de formulário de lead": { es: "Envío de formulario de lead" },
+  "Lead importado": { es: "Lead importado" },
+  "Lead convertido": { es: "Lead convertido" },
+  "Pedido de orçamento": { es: "Solicitud de presupuesto" },
+  "Assinatura paga": { es: "Suscripción paga" },
+  "Início de checkout": { es: "Inicio de pago" },
+  "Adicionou ao carrinho": { es: "Agregó al carrito" },
+  "Lead por ligação": { es: "Lead por llamada" },
+  "Visita à loja": { es: "Visita a la tienda" },
+  "Venda em loja física": { es: "Venta en tienda física" },
+  "Visualização de página": { es: "Vista de página" },
+  Download: { es: "Descarga" },
+  "Pedido de rota": { es: "Solicitud de ruta" },
+  "Clique de saída": { es: "Clic de salida" },
+  Engajamento: { es: "Interacción" },
+  "Todos os canais": { es: "Todos los canales" },
+  "Só WhatsApp": { es: "Solo WhatsApp" },
+  "Só fora do WhatsApp": { es: "Solo fuera de WhatsApp" },
+  "Histórico de envios": { es: "Historial de envíos" },
+  Diagnóstico: { es: "Diagnóstico" },
+  'A venda fechou sem valor preenchido. A Meta exige valor e moeda em uma compra — preencha o valor do negócio e use o botão de reprocessamento. No Google, você também pode escolher enviar a venda sem valor em "Valor do negócio".':
+    {
+      es: 'La venta se cerró sin importe. Meta exige importe y moneda en una compra: completa el valor del negocio y usa el botón para reprocesar. En Google también puedes elegir enviar la venta sin valor en "Valor del negocio".',
+    },
+
   // ─── CAMPOS OBRIGATÓRIOS (issue #1536) ───
   "Campos obrigatórios": { es: "Campos obligatorios" },
   // Editor de `obrigatorio_em` no funil (CR do mantenedor no PR #1688).
@@ -77,43 +265,43 @@ export const DICIONARIO: Traducoes = {
     es: "Este motivo de negocio ganado no está en la lista del embudo. Elige uno de los motivos registrados.",
   },
   "Script para instalar no site": { es: "Script para instalar en el sitio" },
-  "Salve e ligue a captura do Google ou do site. Depois, copie este script uma única vez para todas as páginas do seu site, antes de fechar o head. Se trocar os números configurados, copie o script novamente.": { es: "Guarde y active la captura de Google o del sitio. Después, copie este script una sola vez en todas las páginas de su sitio, antes de cerrar el head. Si cambia los números configurados, vuelva a copiar el script." },
+  "Salve e ligue a captura do Google ou do site. Depois, copie este script uma única vez para todas as páginas do seu site, antes de fechar o head. Se trocar os números configurados, copie o script novamente.": { es: "Guarda y activa la captura de Google o del sitio. Después, copia este script una sola vez en todas las páginas de tu sitio, antes de cerrar el head. Si cambias los números configurados, vuelve a copiar el script." },
   "Script copiado.": { es: "Script copiado." },
   "Copiar script do site": { es: "Copiar script del sitio" },
   "O script aparece depois que uma captura ativa estiver salva.": { es: "El script aparece después de guardar una captura activa." },
-  "Mantenha os links normais de WhatsApp nos botões. O script ajusta apenas os links dos números configurados, inclusive os adicionados depois. Sem origem reconhecida, o link original permanece.": { es: "Mantenga los enlaces normales de WhatsApp en los botones. El script ajusta solo los enlaces de los números configurados, incluidos los añadidos después. Sin un origen reconocido, el enlace original se mantiene." },
+  "Mantenha os links normais de WhatsApp nos botões. O script ajusta apenas os links dos números configurados, inclusive os adicionados depois. Sem origem reconhecida, o link original permanece.": { es: "Mantén los enlaces normales de WhatsApp en los botones. El script ajusta solo los enlaces de los números configurados, incluidos los agregados después. Sin un origen reconocido, el enlace original se mantiene." },
   "A origem fica na mesma aba e no mesmo domínio durante a navegação. Uma nova campanha substitui a anterior. Ao clicar, o CRM gera o código na mensagem; ele precisa ser enviado pelo visitante. A mensagem usada é a que você salvou na captura.": { es: "El origen se conserva en la misma pestaña y dominio durante la navegación. Una nueva campaña sustituye a la anterior. Al hacer clic, el CRM genera el código en el mensaje; el visitante debe enviarlo. Se usa el mensaje guardado en la captura." },
-  "Para não guardar a origem na aba, adicione data-storage=\"none\" ao script. Para excluir um link, adicione data-rastreio-ignorar nele. Botões controlados apenas por JavaScript e links abreviados precisam de adaptação no site.": { es: "Para no guardar el origen en la pestaña, añada data-storage=\"none\" al script. Para excluir un enlace, añada data-rastreio-ignorar. Los botones controlados solo por JavaScript y los enlaces acortados necesitan adaptación en el sitio." },
-  "Teste abrindo o site com os parâmetros de uma campanha, navegando para outra página e clicando no WhatsApp. Confira o código na mensagem e a origem no contato. UTMs identificam a campanha no CRM; não garantem atribuição de conversão pela Meta.": { es: "Pruebe abriendo el sitio con los parámetros de una campaña, navegando a otra página y haciendo clic en WhatsApp. Compruebe el código del mensaje y el origen del contacto. Las UTM identifican la campaña en el CRM; no garantizan atribución de conversión por Meta." },
+  "Para não guardar a origem na aba, adicione data-storage=\"none\" ao script. Para excluir um link, adicione data-rastreio-ignorar nele. Botões controlados apenas por JavaScript e links abreviados precisam de adaptação no site.": { es: "Para no guardar el origen en la pestaña, agrega data-storage=\"none\" al script. Para excluir un enlace, agrega data-rastreio-ignorar. Los botones controlados solo por JavaScript y los enlaces acortados necesitan adaptación en el sitio." },
+  "Teste abrindo o site com os parâmetros de uma campanha, navegando para outra página e clicando no WhatsApp. Confira o código na mensagem e a origem no contato. UTMs identificam a campanha no CRM; não garantem atribuição de conversão pela Meta.": { es: "Prueba abriendo el sitio con los parámetros de una campaña, navegando a otra página y haciendo clic en WhatsApp. Comprueba el código del mensaje y el origen del contacto. Las UTM identifican la campaña en el CRM; no garantizan atribución de conversión por Meta." },
   "Enviar conversões para o Google Ads ainda não está disponível nesta instalação — não é nada que você tenha feito. Quem instalou o sistema precisa configurar": { es: "El envío de conversiones a Google Ads aún no está disponible en esta instalación. No se debe a nada que hayas hecho. Quien instaló el sistema debe configurar" },
   "Enviar conversões para o Google Ads": { es: "Enviar conversiones a Google Ads" },
   "O botão do site precisa repassar gclid, gbraid ou wbraid recebidos na página. Um endereço fixo sem esses parâmetros não identifica o clique. Mantenha o código na mensagem enviada ao WhatsApp.":
     {
-      es: "El botón del sitio debe transmitir el gclid, gbraid o wbraid recibido en la página. Una dirección fija sin estos parámetros no identifica el clic. Mantenga el código en el mensaje enviado a WhatsApp.",
+      es: "El botón del sitio debe transmitir el gclid, gbraid o wbraid recibido en la página. Una dirección fija sin estos parámetros no identifica el clic. Mantén el código en el mensaje enviado a WhatsApp.",
     },
-  "Lead qualificado (opcional)": { es: "Lead cualificado (opcional)" },
-  "Lead qualificado": { es: "Lead cualificado" },
+  "Lead qualificado (opcional)": { es: "Lead calificado (opcional)" },
+  "Lead qualificado": { es: "Lead calificado" },
   Compra: { es: "Compra" },
   "Captura de origem do Google Ads": { es: "Captura de origen de Google Ads" },
   "Ao entrar na etapa escolhida, o negócio envia uma qualificação sem valor monetário. A compra continua sendo enviada ao ganhar o negócio com valor. Cada evento é contado uma vez por negócio.":
     {
-      es: "Al entrar en la etapa elegida, el negocio envía una cualificación sin valor monetario. La compra se sigue enviando al ganar el negocio con un valor. Cada evento se cuenta una vez por negocio.",
+      es: "Al entrar en la etapa elegida, el negocio envía una calificación sin valor monetario. La compra se sigue enviando al ganar el negocio con un valor. Cada evento se cuenta una vez por negocio.",
     },
-  "Etapa de qualificação": { es: "Etapa de cualificación" },
-  "Não enviar qualificação": { es: "No enviar cualificación" },
-  "Etapa indisponível — escolha outra": { es: "Etapa no disponible — elija otra" },
+  "Etapa de qualificação": { es: "Etapa de calificación" },
+  "Não enviar qualificação": { es: "No enviar calificación" },
+  "Etapa indisponível — escolha outra": { es: "Etapa no disponible — elige otra" },
   "Não foi possível carregar as etapas. Atualize a página antes de salvar.": {
-    es: "No se pudieron cargar las etapas. Actualice la página antes de guardar.",
+    es: "No se pudieron cargar las etapas. Actualiza la página antes de guardar.",
   },
-  "Ação de conversão de lead qualificado": { es: "Acción de conversión de lead cualificado" },
+  "Ação de conversão de lead qualificado": { es: "Acción de conversión de lead calificado" },
   "Informe uma ação do Google diferente da compra. Configure a categoria de lead qualificado e o uso na otimização no Google Ads. Salvar não envia qualificações antigas.":
     {
-      es: "Introduzca una acción de Google distinta de la compra. Configure la categoría de lead cualificado y su uso en la optimización en Google Ads. Guardar no envía cualificaciones anteriores.",
+      es: "Ingresa una acción de Google distinta de la compra. Configura la categoría de lead calificado y su uso en la optimización en Google Ads. Guardar no envía calificaciones anteriores.",
     },
   "Conversões que não foram reportadas": { es: "Conversiones que no se han enviado" },
   "conversões aceitas pela plataforma": { es: "conversiones aceptadas por la plataforma" },
   "Nenhuma pendência. Ainda pode não haver vendas ou qualificações com origem em anúncio.": {
-    es: "No hay envíos pendientes. Puede que aún no haya ventas o cualificaciones procedentes de anuncios.",
+    es: "No hay envíos pendientes. Puede que aún no haya ventas o calificaciones provenientes de anuncios.",
   },
   Evento: { es: "Evento" },
   "A plataforma recebeu o envio. A confirmação será consultada automaticamente.": { es: "La plataforma recibió el envío. La confirmación se consultará automáticamente." },
@@ -1051,6 +1239,8 @@ export const DICIONARIO: Traducoes = {
   "Sem pedidos.": { es: "Sin pedidos." },
   "Sem atividade.": { es: "Sin actividad." },
   "Nova tag…": { es: "Nueva etiqueta…" },
+  // lib/atendimento/proximo-passo-padrao.ts — o texto que o banco grava na demanda nova
+  "Responder à nova mensagem do cliente": { es: "Responder al nuevo mensaje del cliente" },
   "Sem próximo passo definido": { es: "Sin siguiente paso definido" },
   "Marcar próximo passo": { es: "Definir siguiente paso" },
   Lead: { es: "Lead" },
@@ -2184,6 +2374,13 @@ export const DICIONARIO: Traducoes = {
   "Minutos de silêncio": { es: "Minutos de silencio" },
   // ─── gatilho de silêncio — pausa de reentrada (lib/followup/pausa-de-reentrada.ts) ───
   "Pausa antes de recomeçar (horas)": { es: "Pausa antes de volver a empezar (horas)" },
+  "Silêncio máximo, em minutos (opcional)": { es: "Silencio máximo, en minutos (opcional)" },
+  "Precisa ser maior que o mínimo e no máximo 10080 (7 dias).": {
+    es: "Tiene que ser mayor que el mínimo y como máximo 10080 (7 días).",
+  },
+  "Com um máximo, o fluxo só começa enquanto o silêncio for recente — por exemplo, entre 10 e 60 minutos depois da última mensagem do cliente. Quem está calado há mais tempo fica de fora. 0 = sem máximo.": {
+    es: "Con un máximo, el flujo solo empieza mientras el silencio sea reciente — por ejemplo, entre 10 y 60 minutos después del último mensaje del cliente. Quien lleva más tiempo callado queda afuera. 0 = sin máximo.",
+  },
   "Use de 0 a 2160 horas (90 dias).": { es: "Usa de 0 a 2160 horas (90 días)." },
   "pausa de": { es: "pausa de" },
   "Vale para quem já passou por este fluxo e respondeu ou chegou ao fim: ele só recomeça depois deste tempo sem o cliente escrever. Quem nunca passou por ele entra no tempo de silêncio de sempre. 0 = sem pausa.": {
@@ -4424,6 +4621,13 @@ export const DICIONARIO: Traducoes = {
   },
   "Quando alguém comparecer ao compromisso": { es: "Cuando alguien asista a la cita" },
   "Quando alguém faltar ao compromisso": { es: "Cuando alguien falte a la cita" },
+  "Quando um horário for marcado": { es: "Cuando se agende una cita" },
+  "Quando um horário pendente for confirmado": { es: "Cuando se confirme una cita pendiente" },
+  "Quando um horário for remarcado": { es: "Cuando se reagende una cita" },
+  "Quando um horário for cancelado": { es: "Cuando se cancele una cita" },
+  "No aniversário de um contato": { es: "En el cumpleaños de un contacto" },
+  "Quando faltarem N dias para uma data do funil": { es: "Cuando falten N días para una fecha del embudo" },
+  "Iniciar fluxo de mensagem": { es: "Iniciar flujo de mensaje" },
   Sucesso: { es: "Éxito" },
   "Aguardando envio": { es: "Esperando envío" },
   "Essa ação não funcionou.": { es: "Esta acción no funcionó." },
@@ -6743,6 +6947,7 @@ export const DICIONARIO: Traducoes = {
 
   // ─── Onboarding: invite-team — ROTULO_DO_PAPEL (lib/auth/types.ts) ───
   "Somente leitura": { es: "Solo lectura" },
+  "Assistente com autonomia de operação": { es: "Asistente con autonomía de operación" },
   "Gerente": { es: "Gerente" },
   "Administrador": { es: "Administrador" },
 
@@ -8230,6 +8435,7 @@ export const DICIONARIO: Traducoes = {
   "demandas abertas sem próximo passo": { es: "casos abiertos sin siguiente paso" },
   "Ninguém marcou o que acontece a seguir. Cada uma é alguém esperando sem que nada esteja combinado.": { es: "Nadie definió qué sigue. Cada caso es alguien esperando sin que haya nada acordado." },
   "aberta há": { es: "abierto hace" },
+  "informativo": { es: "informativo" },
   "crítico": { es: "crítico" },
   "em risco": { es: "en riesgo" },
   "em voo": { es: "en seguimiento" },
@@ -9050,7 +9256,7 @@ export const DICIONARIO: Traducoes = {
   "Revisar credencial": { es: "Revisar credencial" },
   // ─── app/app/products/_client.tsx — descrição do produto ───
   "sem descrição": { es: "sin descripción" },
-  // ─── sons dos avisos (migration 0438) ───
+  // ─── sons dos avisos (migration 0441) ───
   "Sons dos avisos": { es: "Sonidos de los avisos" },
   "Tocam com o site aberto quando o aviso chega na Central. MP3, OGG ou WAV de até 1 MB.": {
     es: "Suenan con el sitio abierto cuando el aviso llega a la Central. MP3, OGG o WAV de hasta 1 MB.",
@@ -9076,7 +9282,7 @@ export const DICIONARIO: Traducoes = {
   "O som pode ter no máximo 1 MB.": { es: "El sonido puede tener como máximo 1 MB." },
   "O som precisa ser MP3, OGG ou WAV.": { es: "El sonido tiene que ser MP3, OGG o WAV." },
   "Aviso desconhecido.": { es: "Aviso desconocido." },
-  // ─── editor de etapas — evento de conversão (migration 0437) ───
+  // ─── editor de etapas — evento de conversão (migration 0443) ───
   "Evento para a plataforma de anúncio quando um negócio entrar aqui": {
     es: "Evento para la plataforma de anuncios cuando un negocio entre acá",
   },
@@ -9098,7 +9304,7 @@ export const DICIONARIO: Traducoes = {
   "Venda ganha!": { es: "¡Venta ganada!" },
   "1 venda": { es: "1 venta" },
   "vendas": { es: "ventas" },
-  // ─── lib/leads/aviso-de-etapa.handler.ts + editor de etapas (migration 0436) ───
+  // ─── lib/leads/aviso-de-etapa.handler.ts + editor de etapas (migration 0440) ───
   "Negócio entrou em": { es: "Negocio entró en" },
   "Abra o negócio para dar o próximo passo. Este aviso foi pedido na configuração da etapa.": {
     es: "Abrí el negocio para dar el próximo paso. Este aviso se pidió en la configuración de la etapa.",
@@ -11496,6 +11702,10 @@ export const DICIONARIO: Traducoes = {
     { es: "El servicio de WhatsApp de esta instalación no está configurado." },
   "O número de aviso não foi aceito pelo WhatsApp.":
     { es: "WhatsApp no aceptó el número de aviso." },
+  "O número escolhido para os avisos virou o número de uma conexão ativa da sua conta — o aviso não foi enviado.":
+    {
+      es: "El número elegido para los avisos pasó a ser el de una conexión activa de tu cuenta: el aviso no se envió.",
+    },
   "O número que envia os avisos atingiu o limite diário do período de aquecimento.":
     { es: "El número que envía los avisos alcanzó el límite diario del período de calentamiento." },
   "Esta instalação ainda não tem um endereço público — o aviso não teria link para abrir.":

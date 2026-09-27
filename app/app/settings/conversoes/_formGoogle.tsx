@@ -22,6 +22,19 @@ import { Switch } from "@/components/ui/switch";
 import { traduzir } from "@/lib/i18n/dicionario";
 import type { Idioma } from "@/lib/i18n/idiomas";
 import type { EstadoDaConexaoGoogle } from "@/lib/plataformas-de-anuncio/google/estado-da-conexao";
+import {
+  CATEGORIAS_DE_CONVERSAO,
+  type CategoriaDeConversao,
+  type ModoDeValorDaVenda,
+} from "@/lib/conversoes/regras-google";
+
+import { CriarAcaoNoGoogle } from "./_criarAcaoGoogle";
+
+const MODOS_DE_VALOR: Array<{ valor: ModoDeValorDaVenda; rotulo: string }> = [
+  { valor: "quando_houver", rotulo: "Enviar a venda; o valor vai quando estiver preenchido" },
+  { valor: "obrigatorio", rotulo: "Só enviar venda com valor preenchido" },
+  { valor: "nunca", rotulo: "Enviar a venda sempre sem valor" },
+];
 
 const ERRO_EM_PORTUGUES: Record<string, string> = {
   validation_failed: "Confira os campos: algum valor não está no formato esperado.",
@@ -34,16 +47,15 @@ const ERRO_EM_PORTUGUES: Record<string, string> = {
 
 export function FormularioDeConversoesGoogle({
   estado,
-  etapas = [],
-  erroEtapas = false,
   idioma,
   configurado,
   falta,
   dataManagerConfigurado = false,
+  podeCriarAcao = false,
 }: {
-  etapas?: Array<{ id: string; nome: string }>;
-  erroEtapas?: boolean;
   estado: EstadoDaConexaoGoogle;
+  /** Developer token na instalação — libera "Criar no Google". */
+  podeCriarAcao?: boolean;
   idioma: Idioma;
   /** A instalação tem as três variáveis do Google Ads? Ver `config.ts`. */
   configurado: boolean;
@@ -58,19 +70,21 @@ export function FormularioDeConversoesGoogle({
   const [customerId, setCustomerId] = useState(estado.customerId ?? "");
   const [loginCustomerId, setLoginCustomerId] = useState(estado.loginCustomerId ?? "");
   const [conversionActionId, setConversionActionId] = useState(estado.conversionActionId ?? "");
-  const [etapaQualificada, setEtapaQualificada] = useState(estado.qualificationStageId ?? "");
-  const [acaoQualificada, setAcaoQualificada] = useState(estado.qualificationActionId ?? "");
   const [habilitada, setHabilitada] = useState(estado.habilitada);
+  const [modoDeValor, setModoDeValor] = useState<ModoDeValorDaVenda>(
+    estado.modoDeValorDaVenda ?? "obrigatorio",
+  );
+  const [categoriaDaVenda, setCategoriaDaVenda] = useState<CategoriaDeConversao>(
+    (CATEGORIAS_DE_CONVERSAO.some((c) => c.valor === estado.categoriaDaVenda)
+      ? estado.categoriaDaVenda
+      : "PURCHASE") as CategoriaDeConversao,
+  );
+  const [enviarTelefone, setEnviarTelefone] = useState(estado.enviarTelefone ?? false);
 
   const api = estado.api ?? "data_manager";
   const linkDeConexao = `/api/v1/plataformas-de-anuncio/google/connect?api=${api}`;
 
-  const podeSalvar =
-    customerId.replace(/\D/g, "").length === 10 &&
-    conversionActionId.trim().length > 0 &&
-    !erroEtapas &&
-    (!etapaQualificada ||
-      (acaoQualificada.trim().length > 0 && acaoQualificada.trim() !== conversionActionId.trim()));
+  const podeSalvar = customerId.replace(/\D/g, "").length === 10;
 
   function salvar(evento: React.FormEvent) {
     evento.preventDefault();
@@ -80,10 +94,9 @@ export function FormularioDeConversoesGoogle({
         login_customer_id: loginCustomerId.trim() || null,
         conversion_action_id: conversionActionId.trim(),
         enabled: habilitada,
-        qualification: {
-          stage_id: etapaQualificada || null,
-          action_id: etapaQualificada ? acaoQualificada.trim() : null,
-        },
+        purchase_value_mode: modoDeValor,
+        purchase_category: categoriaDaVenda,
+        send_hashed_phone: enviarTelefone,
       });
 
       if (resultado.ok) {
@@ -215,71 +228,89 @@ export function FormularioDeConversoesGoogle({
           </p>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="google_conversion_action_id">{t("Ação de conversão")}</Label>
-          <Input
-            id="google_conversion_action_id"
-            inputMode="numeric"
-            value={conversionActionId}
-            onChange={(e) => setConversionActionId(e.target.value)}
-            placeholder="123456789"
-          />
-          <p className="text-xs text-muted-foreground">
-            {t(
-              "O ID da ação de conversão dentro da conta acima, que vai receber os envios de venda.",
-            )}
-          </p>
-        </div>
-
-        <fieldset className="flex flex-col gap-3 rounded-md border p-4">
-          <legend className="px-1 text-sm font-medium">{t("Lead qualificado (opcional)")}</legend>
-          <p className="text-xs text-muted-foreground">
-            {t(
-              "Ao entrar na etapa escolhida, o negócio envia uma qualificação sem valor monetário. A compra continua sendo enviada ao ganhar o negócio com valor. Cada evento é contado uma vez por negócio.",
-            )}
-          </p>
-          <Label htmlFor="google_qualification_stage">{t("Etapa de qualificação")}</Label>
-          <select
-            id="google_qualification_stage"
-            className="rounded-md border bg-background p-2 text-sm"
-            value={etapaQualificada}
-            onChange={(e) => setEtapaQualificada(e.target.value)}
-            disabled={erroEtapas}
-          >
-            <option value="">{t("Não enviar qualificação")}</option>
-            {etapaQualificada && !etapas.some((e) => e.id === etapaQualificada) && (
-              <option value={etapaQualificada}>{t("Etapa indisponível — escolha outra")}</option>
-            )}
-            {etapas.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.nome}
-              </option>
-            ))}
-          </select>
-          {erroEtapas && (
-            <p role="alert">
-              {t("Não foi possível carregar as etapas. Atualize a página antes de salvar.")}
-            </p>
-          )}
-          {etapaQualificada && (
-            <>
-              <Label htmlFor="google_qualification_action">
-                {t("Ação de conversão de lead qualificado")}
-              </Label>
+        <fieldset className="flex flex-col gap-4 rounded-md border p-4">
+          <legend className="px-1 text-sm font-medium">{t("Venda (negócio ganho)")}</legend>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="google_conversion_action_id">
+              {t("Ação de conversão da venda (ID)")}
+            </Label>
+            <div className="flex gap-2">
               <Input
-                id="google_qualification_action"
+                id="google_conversion_action_id"
                 inputMode="numeric"
-                value={acaoQualificada}
-                onChange={(e) => setAcaoQualificada(e.target.value)}
+                value={conversionActionId}
+                onChange={(e) => setConversionActionId(e.target.value.replace(/\D/g, ""))}
+                placeholder="123456789"
               />
-              <p className="text-xs text-muted-foreground">
-                {t(
-                  "Informe uma ação do Google diferente da compra. Configure a categoria de lead qualificado e o uso na otimização no Google Ads. Salvar não envia qualificações antigas.",
-                )}
-              </p>
-            </>
-          )}
+              <CriarAcaoNoGoogle
+                idioma={idioma}
+                habilitado={podeCriarAcao && estado.temRefreshToken && Boolean(estado.customerId)}
+                nome="Venda"
+                categoria={categoriaDaVenda}
+                incluirEmConversoes
+                onCriada={(id) => setConversionActionId(id)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "Recebe a compra quando o negócio é marcado como ganho. Deixe vazio se você só quer enviar etapas do funil.",
+              )}
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="google_purchase_category">{t("Categoria da conversão")}</Label>
+            <select
+              id="google_purchase_category"
+              className="rounded-md border bg-background p-2 text-sm"
+              value={categoriaDaVenda}
+              onChange={(e) => setCategoriaDaVenda(e.target.value as CategoriaDeConversao)}
+            >
+              {CATEGORIAS_DE_CONVERSAO.map((c) => (
+                <option key={c.valor} value={c.valor}>
+                  {t(c.rotulo)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="google_purchase_value_mode">{t("Valor do negócio")}</Label>
+            <select
+              id="google_purchase_value_mode"
+              className="rounded-md border bg-background p-2 text-sm"
+              value={modoDeValor}
+              onChange={(e) => setModoDeValor(e.target.value as ModoDeValorDaVenda)}
+            >
+              {MODOS_DE_VALOR.map((m) => (
+                <option key={m.valor} value={m.valor}>
+                  {t(m.rotulo)}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "Com o valor, o Google pode otimizar por receita e não só por volume. Venda sem valor vai sem valor — nunca como zero.",
+              )}
+            </p>
+          </div>
         </fieldset>
+
+        <div className="flex items-start gap-3">
+          <Switch
+            id="google_send_hashed_phone"
+            checked={enviarTelefone}
+            onCheckedChange={setEnviarTelefone}
+          />
+          <div>
+            <Label htmlFor="google_send_hashed_phone">
+              {t("Enviar o telefone do contato criptografado")}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "O telefone vai em SHA-256, nunca em claro, e ajuda o Google a ligar a conversão a quem clicou no anúncio. É dado pessoal: ligue só se a sua política de privacidade cobre esse uso.",
+              )}
+            </p>
+          </div>
+        </div>
 
         <div className="flex items-center gap-3">
           <Switch id="google_enabled" checked={habilitada} onCheckedChange={setHabilitada} />

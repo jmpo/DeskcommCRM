@@ -1,4 +1,4 @@
--- 0436 (era 0426 no fork; renumerada ao sincronizar com a upstream em 27/09) — a etapa que AVISA a equipe na Central quando um negócio entra nela.
+-- 0440 — a etapa que AVISA a equipe na Central quando um negócio entra nela.
 --
 -- Numa operação de pagamento na entrega, o fechamento que importa para a equipe
 -- não é o `is_won` (o dinheiro só entra quando o pedido é entregue): é o cliente
@@ -14,4 +14,4 @@ alter table public.crm_stages
   add column if not exists avisar_na_central boolean not null default false;
 
 comment on column public.crm_stages.avisar_na_central is
-  'Negócio que entra nesta etapa abre um aviso na Central de avisos (0436).';
+  'Negócio que entra nesta etapa abre um aviso na Central de avisos (0440).';

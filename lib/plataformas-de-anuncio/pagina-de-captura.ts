@@ -28,12 +28,7 @@ export function clientIp(req: NextRequest): string | null {
  * lê como defeito do link. O `replace` do `{token}` continua depois, para o
  * template que escreve o placeholder fora de colchetes.
  */
-export function textoSemRef(template: string): string {
-  return template
-    .replace(/\s*\[[^[\]]*\{token\}[^[\]]*\]/g, "")
-    .replaceAll("{token}", "")
-    .trim();
-}
+export { textoSemRef } from "./texto-do-ref";
 
 export function whatsAppUrl(whatsappE164: string, mensagem: string): string {
   const digitos = whatsappE164.replace(/\D/g, "");

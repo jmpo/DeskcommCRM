@@ -726,6 +726,7 @@ jobs:
         agenda-remarcar-e-cancelar.spec.ts
         agenda-tipos-de-agendamento.spec.ts
         cliente-pela-agenda.spec.ts
+        agenda-dia-desenhado-na-virada-do-mes.spec.ts
         agenda-grade-interativa.spec.ts
         agenda-papel-de-leitura.spec.ts
         agenda-busca-cliente-pelo-nome-do-perfil.spec.ts
@@ -967,6 +968,7 @@ jobs:
         troca-de-organizacao-tem-volta.spec.ts
         organizacoes-criacao-convite-e-cache.spec.ts
         inbox-abas-espelham-o-comando.spec.ts
+        busca-na-conversa.spec.ts
         moeda-da-organizacao.spec.ts
         zona-de-perigo-apaga-dados-de-teste.spec.ts
         email-da-instalacao-pela-tela.spec.ts

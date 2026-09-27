@@ -45,13 +45,15 @@ import type { ChannelConversionResult } from "@/lib/channels/types";
 import type { EventHandler, EventRow, HandlerResult } from "@/lib/event-log/dispatcher";
 import { lerCredencial } from "@/lib/plataformas-de-anuncio/credenciais";
 import { transporteDe, ehPlataformaConhecida } from "@/lib/plataformas-de-anuncio/registry";
-import type {
-  ConversaoOffline,
-  NomeDoEvento,
-  ResultadoDeEnvio,
+import {
+  ehEventoDeEtapaDaMeta,
+  type ConversaoOffline,
+  type NomeDoEvento,
+  type ResultadoDeEnvio,
 } from "@/lib/plataformas-de-anuncio/types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lerAtribuicao } from "./leitura-da-atribuicao";
+import { ehEventoDeEtapa } from "./regras-google";
 import { lerRegistro, registraEnvio } from "./registro-de-envio";
 
 const CONSUMER_KEY = "conversoes.venda";
@@ -67,13 +69,13 @@ const ok = (status: HandlerResult["status"], detail?: string): HandlerResult => 
 
 export async function processarConversao(
   row: EventRow,
-  qualificacao?: { ocorridoEm: string; googleActionId: string },
+  qualificacao?: { ocorridoEm: string; googleActionId: string; evento?: NomeDoEvento },
 ): Promise<HandlerResult> {
-  const EVENTO: NomeDoEvento = qualificacao ? "QualifiedLead" : "Purchase";
+  const EVENTO: NomeDoEvento = qualificacao ? (qualificacao.evento ?? "QualifiedLead") : "Purchase";
   if (
     !qualificacao &&
     row.event_type === "ad_conversion.retry_requested" &&
-    row.payload.event_name === "QualifiedLead"
+    ehEventoDeEtapa(row.payload.event_name)
   )
     return ok("skipped", "outro_evento");
   if (!row.entity_id) return ok("skipped", "sem_entidade");
@@ -188,8 +190,12 @@ export async function reportarConversao(
     return ok("skipped", "qualificacao_sem_origem_google");
   // O Google recebe a venda e a qualificação. Evento de ETAPA em contato do
   // Google não é pendência de ninguém — é não-aplicável.
-  if (plataforma !== "meta_ads" && EVENTO !== "Purchase" && EVENTO !== "QualifiedLead")
+  if (plataforma !== "meta_ads" && ehEventoDeEtapaDaMeta(EVENTO))
     return ok("skipped", "plataforma_so_recebe_venda");
+
+  /** O valor que a compra leva — `null` quando sai sem valor (0436). */
+  let valorDaVenda: number | null =
+    lead.value_cents !== null && lead.value_cents > 0 ? lead.value_cents : null;
 
   const registra = (
     status: "sent" | "skipped" | "error",
@@ -210,7 +216,7 @@ export async function reportarConversao(
         ? null
         : registro?.remote_request_id
           ? registro.value_cents
-          : lead.value_cents,
+          : valorDaVenda,
       ...(qualificacao
         ? {
             ocorridoEm: registro?.event_occurred_at ?? qualificacao.ocorridoEm,
@@ -232,15 +238,22 @@ export async function reportarConversao(
     return ok("skipped", "plataforma_sem_transporte");
   }
 
-  // `Purchase` exige valor E moeda na plataforma. `crm_leads.value_cents` é
+  // `Purchase` exige valor E moeda na Meta. `crm_leads.value_cents` é
   // nullable e nada obriga a preenchê-lo no fechamento (baseline.sql:1452), então
   // esta é a pendência MAIS COMUM — e a razão de a tela existir. Mandar `0` para
   // "resolver" seria aceito e ensinaria ao otimizador que a venda não vale nada.
-  if (
+  //
+  // No Google a organização escolhe (0436, `google_purchase_value_mode`): a
+  // compra pode sair SEM valor — nunca com zero —, e o Google a conta como uma
+  // conversão sem receita. Por isso a decisão do Google espera a credencial.
+  // Evento de ETAPA da Meta (`exigeValor` falso) segue sem valor: a plataforma
+  // aceita, e o sinal de intenção é o que importa ali.
+  const semValor =
     opcoes.exigeValor &&
+    !qualificacao &&
     !registro?.remote_request_id &&
-    (lead.value_cents === null || lead.value_cents <= 0)
-  ) {
+    (lead.value_cents === null || lead.value_cents <= 0);
+  if (semValor && plataforma !== "google_ads") {
     await registra("skipped", "sem_valor");
     return ok("skipped", "sem_valor");
   }
@@ -254,7 +267,11 @@ export async function reportarConversao(
   // credencial da Meta: quem usa o canal não a tem. Só um caminho por evento —
   // mandar pelos dois contaria a mesma compra duas vezes se os ids de
   // deduplicação não casassem do outro lado.
-  if (plataforma === "meta_ads" && EVENTO !== "QualifiedLead" && !registro?.remote_request_id) {
+  if (
+    plataforma === "meta_ads" &&
+    (EVENTO === "Purchase" || ehEventoDeEtapaDaMeta(EVENTO)) &&
+    !registro?.remote_request_id
+  ) {
     let canal;
     try {
       canal = await canalQueReportaConversao(admin, row.organization_id, lead.contact_id);
@@ -279,13 +296,22 @@ export async function reportarConversao(
     }
   }
 
-  const credencial = await lerCredencial(admin, row.organization_id, plataforma);
+  const credencial = await lerCredencial(admin, row.organization_id, plataforma, {
+    exigirAcaoDeVenda: !qualificacao,
+  });
   if (!credencial.ok) {
     if (credencial.motivo === "leitura_indisponivel")
       throw new Error("Leitura da conexão indisponível.");
-    await registra("skipped", credencial.motivo);
-    return ok("skipped", credencial.motivo);
+    await registra("skipped", semValor ? "sem_valor" : credencial.motivo);
+    return ok("skipped", semValor ? "sem_valor" : credencial.motivo);
   }
+
+  const modoDeValor = credencial.credencial.google?.modoDeValorDaVenda ?? "obrigatorio";
+  if (semValor && modoDeValor === "obrigatorio") {
+    await registra("skipped", "sem_valor");
+    return ok("skipped", "sem_valor");
+  }
+  if (!qualificacao && modoDeValor === "nunca") valorDaVenda = null;
 
   if (qualificacao && credencial.credencial.google) {
     credencial.credencial.google.conversionActionId =
@@ -322,8 +348,8 @@ export async function reportarConversao(
     // A coluna tem `DEFAULT 'BRL'` e um CHECK de ISO-4217; o fallback só cobre a
     // linha que teve a moeda apagada à mão.
     moeda: lead.currency ?? "BRL",
-    // Evento de etapa segue sem valor quando o negócio não tem (ver `exigeValor`).
-    valorCentavos: qualificacao ? null : opcoes.exigeValor ? (lead.value_cents ?? 0) : lead.value_cents,
+    // Evento de ETAPA da Meta segue sem valor quando o negócio não tem (`exigeValor`).
+    valorCentavos: qualificacao ? null : opcoes.exigeValor ? valorDaVenda : lead.value_cents,
   };
 
   // Protocolo já recebido: consultar é a única operação permitida até concluir.

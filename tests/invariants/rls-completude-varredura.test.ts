@@ -252,6 +252,23 @@ const PROVA_PROPRIA: readonly Excecao[] = [
       "de captura de gclid redireciona.",
   },
   {
+    tabela: "google_ads_conversion_rules",
+    razao:
+      "tests/invariants/captura-de-clique-e-server-side.test.ts — RLS ligada, " +
+      "zero policies, privilégios revogados e permission denied sob set role " +
+      "anon/authenticated. O servidor aplica organization_id às regras por etapa. " +
+      "tests/invariants/google-regras-etapa-isoladas.test.ts também prova a FK " +
+      "composta que recusa etapa de outra organização.",
+  },
+  {
+    tabela: "ad_tracking_links",
+    razao:
+      "tests/invariants/captura-de-clique-e-server-side.test.ts — mesmo teste " +
+      "comportamental deny-all, com controle positivo de service_role. " +
+      "tests/invariants/links-rastreaveis-isolados.test.ts prova as FKs compostas " +
+      "e o isolamento das métricas por organização.",
+  },
+  {
     tabela: "google_ads_click_refs",
     razao:
       "tests/invariants/captura-de-clique-e-server-side.test.ts — mesmo " +

@@ -102,7 +102,12 @@ function silenceSweepDb(): SilenceSweepDb {
         active_version_id: string | null;
         trigger_config: {
           kind: string;
-          params?: { threshold_minutes: number; segments?: string[]; reentry_pause_minutes?: number };
+          params?: {
+            threshold_minutes: number;
+            segments?: string[];
+            reentry_pause_minutes?: number;
+            max_silence_minutes?: number;
+          };
         };
         handoff_policy: "pause" | "cancel" | "allow";
       }>(
@@ -120,12 +125,15 @@ function silenceSweepDb(): SilenceSweepDb {
           threshold_minutes: row.trigger_config.params!.threshold_minutes,
           segments: row.trigger_config.params!.segments ?? [],
           reentry_pause_minutes: row.trigger_config.params!.reentry_pause_minutes ?? 0,
+          ...(row.trigger_config.params!.max_silence_minutes
+            ? { max_silence_minutes: row.trigger_config.params!.max_silence_minutes }
+            : {}),
           handoff_policy: row.handoff_policy,
         });
       }
       return pointers;
     },
-    async loadSilentContactIds(orgId, cutoffIso, segments) {
+    async loadSilentContactIds(orgId, cutoffIso, segments, desdeIso) {
       const { rows } = await pool.query<{ contact_id: string; last_inbound_at: string; tags: string[]; is_blocked: boolean }>(
         `select conv.contact_id, max(conv.last_inbound_at) as last_inbound_at,
                 c.tags as tags, c.is_blocked as is_blocked
@@ -137,9 +145,11 @@ function silenceSweepDb(): SilenceSweepDb {
         [orgId, CONVERSATION_TERMINAL_STATUSES],
       );
       const cutoff = new Date(cutoffIso).getTime();
+      const desde = desdeIso ? new Date(desdeIso).getTime() : null;
       return rows
         .filter((r) => !r.is_blocked)
         .filter((r) => new Date(r.last_inbound_at).getTime() <= cutoff)
+        .filter((r) => desde === null || new Date(r.last_inbound_at).getTime() >= desde)
         .filter((r) => segments.length === 0 || segments.some((s) => r.tags.includes(s)))
         .map((r) => r.contact_id);
     },
@@ -333,6 +343,7 @@ async function seedSilenceFlow(
     comIa?: boolean;
     reentryPauseMinutes?: number;
     handoffPolicy?: "pause" | "cancel" | "allow";
+    maxSilenceMinutes?: number;
   },
 ): Promise<{ pointerId: string; versionId: string }> {
   const graph = {
@@ -356,6 +367,7 @@ async function seedSilenceFlow(
       threshold_minutes: opts?.thresholdMinutes ?? 60,
       segments: opts?.segments ?? [],
       ...(opts?.reentryPauseMinutes !== undefined ? { reentry_pause_minutes: opts.reentryPauseMinutes } : {}),
+      ...(opts?.maxSilenceMinutes !== undefined ? { max_silence_minutes: opts.maxSilenceMinutes } : {}),
     },
   };
   const { rows: pointerRows } = await pool.query<{ id: string }>(
@@ -998,5 +1010,21 @@ describe("runSilenceSweep — pessoa no comando da conversa", () => {
     const summary = await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
     expect(summary.skipped_human_owned).toBe(0);
     expect(await countEnrollments(pointerId, contactId)).toBe(1);
+  });
+});
+
+describe("runSilenceSweep — teto do silêncio", () => {
+  it("⭐ com teto de 60 min, quem está calado há 20 min entra e quem está há 3 h fica de fora", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const { pointerId } = await seedSilenceFlow(org, { thresholdMinutes: 10, maxSilenceMinutes: 60 });
+    const naFaixa = await seedContact(org);
+    await seedConversation(org, naFaixa, 20);
+    const antigo = await seedContact(org);
+    await seedConversation(org, antigo, 180);
+
+    await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
+    expect(await countEnrollments(pointerId, naFaixa)).toBe(1);
+    expect(await countEnrollments(pointerId, antigo)).toBe(0);
   });
 });

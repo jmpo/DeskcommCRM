@@ -77,6 +77,8 @@ export interface SilencePointer {
   segments: string[];
   /** Pausa antes de recomeçar para quem já encerrou uma inscrição deste fluxo; ausente/0 = sem pausa. */
   reentry_pause_minutes?: number;
+  /** Teto do silêncio: só entra quem está calado há MENOS que isto; ausente = sem teto. */
+  max_silence_minutes?: number;
   /** `followup_flow_pointers.handoff_policy`; ausente = `pause` (o default da coluna). */
   handoff_policy?: "pause" | "cancel" | "allow";
 }
@@ -85,8 +87,11 @@ export interface SilencePointer {
 export interface SilenceSweepDb {
   /** Pointers ativos com trigger_config.kind='silence', de TODAS as orgs. */
   loadActiveSilencePointers(): Promise<SilencePointer[]>;
-  /** Contact ids da org sem inbound desde `cutoffIso` (inclusive); `segments` vazio = todos. */
-  loadSilentContactIds(orgId: string, cutoffIso: string, segments: string[]): Promise<string[]>;
+  /**
+   * Contact ids da org sem inbound desde `cutoffIso` (inclusive); `segments` vazio = todos.
+   * Com `desdeIso`, só quem falou pela última vez DEPOIS dele (o teto do silêncio).
+   */
+  loadSilentContactIds(orgId: string, cutoffIso: string, segments: string[], desdeIso?: string): Promise<string[]>;
   /**
    * Contatos com RETORNO agendado vivo — quem tem um "te escrevo no dia 30" a
    * caminho não entra no fluxo de silêncio. Ver `retorno-segura-o-fluxo.ts`.
@@ -192,7 +197,11 @@ export async function runSilenceSweep(deps: SilenceSweepDeps): Promise<SilenceSw
       }
 
       const cutoffIso = new Date(clock().getTime() - pointer.threshold_minutes * 60_000).toISOString();
-      const contactIds = await db.loadSilentContactIds(pointer.organization_id, cutoffIso, pointer.segments);
+      const desdeIso =
+        pointer.max_silence_minutes && pointer.max_silence_minutes > pointer.threshold_minutes
+          ? new Date(clock().getTime() - pointer.max_silence_minutes * 60_000).toISOString()
+          : undefined;
+      const contactIds = await db.loadSilentContactIds(pointer.organization_id, cutoffIso, pointer.segments, desdeIso);
       const nextEvalAt = clock().toISOString();
       const comRetorno =
         contactIds.length > 0 ? await db.loadContatosComRetornoVivo(pointer.organization_id) : new Set<string>();
@@ -296,6 +305,7 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
           threshold_minutes: parsed.data.params.threshold_minutes,
           segments: parsed.data.params.segments ?? [],
           reentry_pause_minutes: parsed.data.params.reentry_pause_minutes ?? 0,
+          ...(parsed.data.params.max_silence_minutes ? { max_silence_minutes: parsed.data.params.max_silence_minutes } : {}),
           handoff_policy:
             row.handoff_policy === "allow" || row.handoff_policy === "cancel" ? row.handoff_policy : "pause",
         });
@@ -303,7 +313,7 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
       return pointers;
     },
 
-    async loadSilentContactIds(orgId, cutoffIso, segments) {
+    async loadSilentContactIds(orgId, cutoffIso, segments, desdeIso) {
       // last_inbound_at é POR CONVERSA; o enrollment é POR CONTATO — reduz
       // client-side pro MAIS RECENTE `last_inbound_at` entre as conversas do
       // contato (um contato com 2+ channel_sessions não pode ser marcado
@@ -340,6 +350,7 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
         sessao: { metadata: Record<string, unknown> | null } | null;
       };
       const cutoff = new Date(cutoffIso).getTime();
+      const desde = desdeIso ? new Date(desdeIso).getTime() : null;
       const agora = new Date();
       const ttlMs = ttlDaAutorizacaoMs(process.env);
       const latest = new Map<
@@ -403,6 +414,7 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
         // continua valendo a autorização temporária da origem.
         if (!v.permitidoPeloGate) continue;
         if (v.at > cutoff) continue; // conversou depois do corte — não é silêncio
+        if (desde !== null && v.at < desde) continue; // silêncio antigo demais para este fluxo
         if (segments.length > 0 && !segments.some((s) => v.tags.includes(s))) continue;
         silentIds.push(contactId);
         origins.set(`${orgId}:${contactId}`, v.boundary);

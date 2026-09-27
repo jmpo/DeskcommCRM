@@ -485,6 +485,20 @@ const schema = z.object({
    * dos webhooks da Meta (#1426), permitindo isolar a interface interna/VPN da URL pública.
    */
   META_WEBHOOK_BASE_URL: z.string().optional().default(""),
+  /**
+   * Base (host) da Graph API do canal oficial, e a do eixo de anúncio (#817).
+   *
+   * `optional().default("")` e NÃO validada como URL aqui, por dois motivos
+   * medidos. Primeiro: o valor recusável é o que fecha a fenda, e a validação
+   * deste arquivo acontece no IMPORT do Next — um `z.string().url()` reprovaria
+   * TODAS as telas, com o contêner `healthy` e nada dizendo o porquê, exatamente
+   * o modo de falha que `diasDeRetencao` (lá em cima) registra e evita. Segundo:
+   * a decisão é do MANTENEDOR, não do boot — quem escreve no `.env` de uma VPS
+   * pode trocar o binário, então o que importa é que o erro de digitação não
+   * derrube o envio, e é o que `graph-base.ts` faz (host real + aviso no log).
+   */
+  META_GRAPH_BASE_URL: z.string().optional().default(""),
+  META_ADS_GRAPH_BASE_URL: z.string().optional().default(""),
 
   // Marca da instalação (white-label) — ver lib/branding.ts.
   // Sem prefixo NEXT_PUBLIC_ de propósito: essas seriam queimadas no bundle

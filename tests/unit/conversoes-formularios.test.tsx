@@ -3,7 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { FormularioDeCapturaDeUtm } from "@/app/app/settings/conversoes/_formCapturaDeUtm";
 import { FormularioDeConversoesGoogle } from "@/app/app/settings/conversoes/_formGoogle";
-const mock = vi.hoisted(() => ({ salvarCaptura: vi.fn(), salvarGoogle: vi.fn() }));
+import { RegrasDeConversaoGoogle } from "@/app/app/settings/conversoes/_regrasGoogle";
+const mock = vi.hoisted(() => ({
+  salvarCaptura: vi.fn(),
+  salvarGoogle: vi.fn(),
+  salvarRegras: vi.fn(),
+  criarAcao: vi.fn(),
+}));
+vi.mock("@/app/actions/settings/salvarRegrasDeConversaoGoogle", () => ({
+  salvarRegrasDeConversaoGoogle: mock.salvarRegras,
+}));
+vi.mock("@/app/actions/settings/acoesDeConversaoGoogle", () => ({
+  criarAcaoDeConversaoGoogle: mock.criarAcao,
+}));
 vi.mock("@/app/actions/settings/updateCapturaDeUtm", () => ({
   updateCapturaDeUtm: mock.salvarCaptura,
 }));
@@ -11,12 +23,14 @@ vi.mock("@/app/actions/settings/updateGoogleAdsConnection", () => ({
   updateGoogleAdsConnection: mock.salvarGoogle,
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
   mock.salvarCaptura.mockResolvedValue({ ok: true });
   mock.salvarGoogle.mockResolvedValue({ ok: true });
+  mock.salvarRegras.mockResolvedValue({ ok: true });
+  mock.criarAcao.mockResolvedValue({ ok: true, dados: { id: "555", nome: "Novo lead #abcde" } });
 });
 describe("formulários de conversão", () => {
   it("a captura Google salva destino e referência na plataforma certa", async () => {
@@ -44,7 +58,7 @@ describe("formulários de conversão", () => {
     );
     expect(screen.getByText(/O botão do site precisa repassar/)).toBeTruthy();
   });
-  it("a regra salva etapa e ação distintas da compra", async () => {
+  it("a conexão salva venda sem valor, categoria e telefone criptografado", async () => {
     render(
       <FormularioDeConversoesGoogle
         estado={{
@@ -53,34 +67,99 @@ describe("formulários de conversão", () => {
           customerId: "1234567890",
           loginCustomerId: null,
           conversionActionId: "11",
+          modoDeValorDaVenda: "obrigatorio",
+          categoriaDaVenda: "PURCHASE",
+          enviarTelefone: false,
         }}
         idioma="pt-BR"
         configurado
         falta={[]}
-        etapas={[{ id: "etapa", nome: "Vendas — Qualificado" }]}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Etapa de qualificação"), {
-      target: { value: "etapa" },
+    fireEvent.change(screen.getByLabelText("Valor do negócio"), {
+      target: { value: "quando_houver" },
     });
-    fireEvent.change(screen.getByLabelText("Ação de conversão de lead qualificado"), {
-      target: { value: "11" },
-    });
-    expect((screen.getByRole("button", { name: "Salvar" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
-    fireEvent.change(screen.getByLabelText("Ação de conversão de lead qualificado"), {
-      target: { value: "42" },
-    });
+    fireEvent.click(screen.getByLabelText("Enviar o telefone do contato criptografado"));
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() =>
       expect(mock.salvarGoogle).toHaveBeenCalledWith(
         expect.objectContaining({
-          qualification: { stage_id: "etapa", action_id: "42" },
           conversion_action_id: "11",
+          purchase_value_mode: "quando_houver",
+          purchase_category: "PURCHASE",
+          send_hashed_phone: true,
         }),
       ),
     );
+    // Sem developer token, "Criar no Google" aparece mas desligado — o ID segue colável.
+    expect(
+      (screen.getByRole("button", { name: "Criar no Google" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+  it("as regras por etapa ligam o recomendado, criam a ação no Google e salvam a lista inteira", async () => {
+    render(
+      <RegrasDeConversaoGoogle
+        etapas={[
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            nome: "Novo",
+            funil: "Vendas",
+            primeira: true,
+          },
+          {
+            id: "22222222-2222-4222-8222-222222222222",
+            nome: "Qualificado",
+            funil: "Vendas",
+            primeira: false,
+          },
+          {
+            id: "33333333-3333-4333-8333-333333333333",
+            nome: "Negociação",
+            funil: "Vendas",
+            primeira: false,
+          },
+        ]}
+        regras={[]}
+        idioma="pt-BR"
+        podeCriarAcao
+      />,
+    );
+    expect(screen.getByTestId("etapas-enviando").textContent).toContain("0 de 3");
+    fireEvent.click(screen.getByRole("button", { name: "Usar o recomendado" }));
+    expect(screen.getByTestId("etapas-enviando").textContent).toContain("2 de 3");
+    const criar = screen.getAllByRole("button", { name: "Criar no Google" });
+    fireEvent.click(criar[0]!);
+    await waitFor(() =>
+      expect(mock.criarAcao).toHaveBeenCalledWith({
+        nome: "Novo lead",
+        categoria: "CONTACT",
+        incluir_em_conversoes: true,
+      }),
+    );
+    fireEvent.change(
+      screen.getByLabelText("Ação de conversão (ID)", {
+        selector: "#acao-22222222-2222-4222-8222-222222222222",
+      }),
+      {
+        target: { value: "42" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Salvar regras" }));
+    await waitFor(() => expect(mock.salvarRegras).toHaveBeenCalledOnce());
+    const enviadas = mock.salvarRegras.mock.calls[0]![0] as Array<Record<string, unknown>>;
+    expect(enviadas).toHaveLength(3);
+    expect(enviadas[0]).toMatchObject({
+      enabled: true,
+      google_action_id: "555",
+      category: "CONTACT",
+    });
+    expect(enviadas[1]).toMatchObject({
+      enabled: true,
+      google_action_id: "42",
+      category: "QUALIFIED_LEAD",
+      label: "Lead qualificado",
+    });
+    expect(enviadas[2]).toMatchObject({ enabled: false });
   });
 });
 

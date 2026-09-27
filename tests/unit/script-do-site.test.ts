@@ -119,3 +119,25 @@ describe("script público do site", () => {
     expect(new URL(link.href).searchParams.toString()).toBe("wbraid=segundo");
   });
 });
+
+describe("script com link nomeado", () => {
+  const id = "11223344-1111-4111-8111-112233445566";
+  const attrs = `data-link-id="${id}" data-whatsapp="5511999999999"`;
+  it("captura clique orgânico sem alterar o outro número", () => {
+    const { link, window } = site("", undefined, attrs);
+    expect(link.href).toBe(`https://crm.example/api/v1/rastreio/${id}`);
+    expect(window.document.querySelector<HTMLAnchorElement>("#other")!.href).toBe(
+      "https://wa.me/5521888888888",
+    );
+  });
+  it("preserva identificadores sem parâmetros privados", () => {
+    const { link } = site("?gbraid=abc&utm_campaign=teste&email=privado", undefined, attrs);
+    expect(new URL(link.href).searchParams.toString()).toBe("gbraid=abc&utm_campaign=teste");
+  });
+  it("UUID inválido desliga o script em vez de construir rota arbitrária", () => {
+    expect(
+      site("?gclid=real", undefined, 'data-link-id="../admin" data-whatsapp="5511999999999"').link
+        .href,
+    ).toContain("wa.me");
+  });
+});

@@ -36,6 +36,7 @@ import { enviarDataManager, consultarDataManager } from "./data-manager";
 import { logger } from "@/lib/logger";
 import { configuracaoDoGoogleAds } from "./config";
 import { renovarToken } from "./token";
+import { telefoneCriptografado } from "./telefone";
 import { VERSAO_DA_API_DO_GOOGLE_ADS } from "./versao-da-api";
 import type {
   ConversaoOffline,
@@ -207,12 +208,17 @@ async function enviar(
   }
 
   const customerId = soDigitos(google.customerId);
+  // Opt-in da organização (0436): o telefone vai criptografado, nunca em claro.
+  const telefone = google.enviarTelefone ? telefoneCriptografado(conversao.telefone) : null;
   const corpo = {
     conversions: [
       {
-        ...identificadorParaUpload(
-          conversao.identificadoresGoogle ?? { gclid: conversao.cliqueDeOrigem },
-        ),
+        ...(conversao.identificadoresGoogle || conversao.cliqueDeOrigem
+          ? identificadorParaUpload(
+              conversao.identificadoresGoogle ?? { gclid: conversao.cliqueDeOrigem },
+            )
+          : {}),
+        ...(telefone ? { userIdentifiers: [{ hashedPhoneNumber: telefone }] } : {}),
         conversionAction: `customers/${customerId}/conversionActions/${google.conversionActionId}`,
         conversionDateTime: formatarDataDeConversao(conversao.ocorridoEm),
         ...(conversao.valorCentavos !== null

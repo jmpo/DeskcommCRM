@@ -154,6 +154,11 @@ backups/
 # Marcas de execução do kit (agent.sh / update.sh)
 .update.lock
 .deskcomm-site-url-avisado
+# Marcador que o install.sh grava quando a instalação termina com o app no ar,
+# e que a guarda de arquitetura (#1042/#1266) lê para distinguir instalação NOVA
+# de instalação existente numa VPS ARM (#1778). É estado da máquina de quem
+# instalou, nunca entra no repositório — igual ao `.env` que mora ao lado dele.
+.deskcomm-instalado
 
 # Dump de banco de QA. A doutrina já estava escrita duas linhas acima e só o
 # PADRÃO faltava: `backups/` não casa com `.qa-backups/`, e um dump de 1,1 MB de

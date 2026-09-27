@@ -69,9 +69,9 @@ export interface EtapaVisivel {
    * não aqui: gravar seria um segundo lugar para a mesma verdade divergir.
    */
   win_probability: number | null;
-  /** Negócio que entra aqui abre um aviso na Central (migration 0436). */
+  /** Negócio que entra aqui abre um aviso na Central (migration 0440). */
   avisar_na_central: boolean;
-  /** Evento enviado à plataforma de anúncio ao entrar (migration 0437); `null` = nenhum. */
+  /** Evento enviado à plataforma de anúncio ao entrar (migration 0443); `null` = nenhum. */
   evento_de_conversao: string | null;
   /** `user` | `ai` | `system` — `null` nas etapas anteriores a esta coluna. */
   last_change_actor_kind: string | null;
@@ -307,9 +307,9 @@ export interface PedidoDeEdicao {
    * duas divergiriam no primeiro ajuste.
    */
   depois_de?: string | null;
-  /** Liga ou desliga o aviso na Central para quem entra nesta etapa (0436). */
+  /** Liga ou desliga o aviso na Central para quem entra nesta etapa (0440). */
   avisar_na_central?: boolean;
-  /** Evento de conversão ao entrar (0437); `null` desliga. */
+  /** Evento de conversão ao entrar (0443); `null` desliga. */
   evento_de_conversao?: "InitiateCheckout" | "LeadSubmitted" | "AddToCart" | null;
 }
 

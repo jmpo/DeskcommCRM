@@ -23,6 +23,11 @@ import { type NextRequest } from "next/server";
 
 import { createLeadHandler } from "@/app/api/v1/leads/_handler";
 import { modoDeReabertura } from "@/lib/leads/reabertura";
+import {
+  recusaDeCamposObrigatorios,
+  settingsDoFunil,
+  validaCamposExigidos,
+} from "@/lib/leads/campos-exigidos";
 import { listPipelinesHandler } from "@/app/api/v1/pipelines/_handler";
 import type { HandlerCtx } from "@/lib/api/handlers/types";
 import { ApiError } from "@/lib/api/types";
@@ -220,6 +225,40 @@ export async function POST(
     );
     if (!destino.ok) {
       return fail(destino.code, t(destino.texto), destino.status, { requestId });
+    }
+
+    // ── A ETAPA DE DESTINO TAMBÉM É UMA ENTRADA ────────────────────────────────
+    //
+    // O clone nasce numa etapa do funil de destino, e entrar nela é o mesmo
+    // gatilho do arrasto e da retomada: o funil que exige um campo para receber
+    // o negócio o exige aqui também. Sem esta pergunta, a troca de funil
+    // aterrissava numa etapa exigente com o campo em branco e a exigência só era
+    // cobrada na PRÓXIMA escrita — o negócio já estava lá.
+    //
+    // A régua é a MESMA função de todos os outros caminhos, e o valor que ela lê
+    // é o que o negócio novo VAI ter: o clone leva os campos personalizados da
+    // origem inteiros. A pergunta vem antes da primeira escrita, como todas as
+    // outras recusas desta rota — recusar depois deixaria o clone no destino e o
+    // 500 escondendo a meia-execução.
+    //
+    // O `settings` perguntado é o do funil de DESTINO: é onde o negócio entra. O
+    // `pipelineOrigem` logo acima é o da origem, e serviria à pergunta errada.
+    const settingsDoDestino = await settingsDoFunil(supabase, destino.etapa.pipeline_id);
+    const vereditoDeCampos = validaCamposExigidos({
+      lead: { custom_fields: (origem as OrigemParaClonar).custom_fields ?? {} },
+      settingsDoFunil: settingsDoDestino,
+      destino: { stageId: destino.etapa.id, desfecho: null },
+      motivoDeGanho: null,
+    });
+    if (vereditoDeCampos.faltando.length > 0) {
+      const recusaDeCampos = recusaDeCamposObrigatorios(
+        vereditoDeCampos.faltando,
+        authz.user.idioma,
+      );
+      return fail(recusaDeCampos.codigo, recusaDeCampos.mensagem, 422, {
+        details: { faltando: vereditoDeCampos.faltando },
+        requestId,
+      });
     }
 
     // ── A ORIGEM PRECISA TER ONDE FECHAR, E ISSO SE PERGUNTA ANTES ─────────────

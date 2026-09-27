@@ -29,6 +29,7 @@
  * `tests/unit/audit-lista-do-painel-e-derivada.test.tsx` reprova quem tentar.
  */
 export const AUDIT_ACTIONS = [
+  "ad_tracking_link.saved",
   "auth.login_success",
   "auth.login_failed",
   /** Teto de tentativas barrou antes de chegar ao provedor (issue #64). */
@@ -454,6 +455,11 @@ export const AUDIT_ACTIONS = [
   // dizendo se o token foi trocado. O token, nem em metadata.
   "ad_platform_connection.updated",
   "ad_conversion.retry_requested",
+  // O que cada etapa do funil informa ao Google Ads (0436) e a ação de
+  // conversão criada NA CONTA do cliente pela tela. A segunda escreve na conta
+  // de mídia, então precisa de dono na trilha como a conexão acima.
+  "google_ads_conversion_rules.updated",
+  "google_ads_conversion_action.created",
   // A conexão de LEITURA da organização com a conta de anúncios (0214).
   // Ação SEPARADA da de cima, e não um `metadata.purpose` na mesma: a pergunta
   // que cada trilha responde é diferente. "Quem apontou minhas vendas para este
@@ -884,7 +890,7 @@ export const AUDIT_ACTIONS = [
   "registration.approved",
   "registration.rejected",
 
-  // ── Sons dos avisos da Central (migration 0438) ─────────────────────────
+  // ── Sons dos avisos da Central (migration 0441) ─────────────────────────
   // O arquivo de som que a organização escolheu para a venda confirmada e
   // para o pedido de pessoa — e a volta ao bipe do produto.
   "settings.notification_sound_updated",

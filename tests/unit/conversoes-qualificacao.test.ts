@@ -45,6 +45,7 @@ let consultas: Array<{ tabela: string; filtros: Record<string, unknown> }>;
 let config: Record<string, unknown> | null;
 let erroLeitura: boolean;
 let etapaExiste: boolean;
+let links: Array<{ id: string }>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -52,10 +53,18 @@ beforeEach(() => {
   consultas = [];
   erroLeitura = false;
   etapaExiste = true;
+  links = [];
   config = {
-    google_qualification_stage_id: ETAPA,
-    google_qualification_action_id: "42",
-    google_qualification_configured_at: "2026-09-24T01:00:00Z",
+    id: "regra",
+    stage_id: ETAPA,
+    event_name: "QualifiedLead",
+    label: "Lead qualificado",
+    google_action_id: "42",
+    category: "QUALIFIED_LEAD",
+    included_in_conversions: true,
+    channel: "todos",
+    enabled: true,
+    configured_at: "2026-09-24T01:00:00Z",
   };
   mocks.enviar.mockResolvedValue({ tipo: "ok" });
   mocks.consultar.mockResolvedValue({ tipo: "ok" });
@@ -78,13 +87,16 @@ beforeEach(() => {
           filtros[k] = v;
           return q;
         },
+        limit: async () => ({ data: tabela === "crm_lead_links" ? links : [], error: null }),
         maybeSingle: async () => {
           if (erroLeitura) return { data: null, error: { message: "offline" } };
           const data =
             tabela === "ad_conversion_dispatches"
               ? (registros[String(filtros.event_name)] ?? null)
-              : tabela === "ad_platform_connections"
-                ? config
+              : tabela === "google_ads_conversion_rules"
+                ? config && filtros.stage_id === config.stage_id
+                  ? config
+                  : null
                 : tabela === "crm_stages"
                   ? etapaExiste
                     ? { id: ETAPA }
@@ -211,5 +223,40 @@ describe("qualificação por etapa", () => {
     erroLeitura = true;
     expect(await conversaoDeQualificacaoHandler.handle(row)).toMatchObject({ status: "retry" });
     expect(mocks.enviar).not.toHaveBeenCalled();
+  });
+
+  it("regra nova de etapa usa o próprio nome de evento e a própria ação", async () => {
+    config = { ...config!, event_name: `Etapa:${ETAPA}`, google_action_id: "77" };
+    expect(await conversaoDeQualificacaoHandler.handle(row)).toMatchObject({ status: "ok" });
+    expect(mocks.enviar).toHaveBeenCalledWith(
+      expect.objectContaining({ google: expect.objectContaining({ conversionActionId: "77" }) }),
+      expect.objectContaining({ evento: `Etapa:${ETAPA}`, eventoId: `lead:Etapa:${ETAPA}` }),
+    );
+    expect(registros[`Etapa:${ETAPA}`]).toMatchObject({ status: "sent", google_action_id: "77" });
+  });
+  it("regra desligada não envia", async () => {
+    config = { ...config!, enabled: false };
+    expect(await conversaoDeQualificacaoHandler.handle(row)).toMatchObject({
+      detail: "etapa_sem_qualificacao",
+    });
+    expect(mocks.enviar).not.toHaveBeenCalled();
+  });
+  it("filtro de canal: só WhatsApp não envia negócio sem conversa vinculada", async () => {
+    config = { ...config!, channel: "whatsapp" };
+    expect(await conversaoDeQualificacaoHandler.handle(row)).toMatchObject({
+      detail: "canal_fora_da_regra",
+    });
+    links = [{ id: "vinculo" }];
+    expect(await conversaoDeQualificacaoHandler.handle(row)).toMatchObject({ status: "ok" });
+    expect(mocks.enviar).toHaveBeenCalledOnce();
+  });
+  it("o reenvio de etapa nova não aciona o consumidor de compra", async () => {
+    expect(
+      await conversaoDeVendaHandler.handle({
+        ...row,
+        event_type: "ad_conversion.retry_requested",
+        payload: { event_name: `Etapa:${ETAPA}` },
+      }),
+    ).toMatchObject({ detail: "outro_evento" });
   });
 });

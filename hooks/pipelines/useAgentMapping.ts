@@ -29,9 +29,9 @@ export interface EtapaDoFunil {
    * sem calibração. `undefined` em leituras antigas em cache.
    */
   win_probability?: number | null;
-  /** Negócio que entra aqui abre um aviso na Central (migration 0436). */
+  /** Negócio que entra aqui abre um aviso na Central (migration 0440). */
   avisar_na_central?: boolean;
-  /** Evento enviado a Meta ao entrar (migration 0437); `null` = nenhum. */
+  /** Evento enviado a Meta ao entrar (migration 0443); `null` = nenhum. */
   evento_de_conversao?: string | null;
   /** Quem mexeu nesta etapa por último (migration 0101). `null` antes dela. */
   last_change_actor_kind?: string | null;

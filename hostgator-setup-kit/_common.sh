@@ -32,10 +32,159 @@ arquitetura_suportada_pelo_kit() {
   esac
 }
 
+# ── JÁ EXISTE UMA INSTALAÇÃO REAL AQUI? (#1266, corrigido pelo #1778) ───────
+#
+# A guarda do #1042 vivia no TOPO dos dois scripts, e por isso matava antes de
+# chegar ao `construir_aqui_e_subir` (#1060/#1143) — a recuperação por build
+# local que existe exatamente para a VPS cuja arquitetura não bate com a das
+# imagens publicadas. As duas mudanças tinham teste verde isoladamente e
+# ninguém rodou as duas juntas: o resultado foi um `exit 1` na PRIMEIRA linha,
+# que deixava quem já tinha uma instalação ARM funcionando PERMANENTEMENTE sem
+# poder rodar `update.sh` de novo, e sem bandeira nenhuma.
+#
+# O sinal NÃO pode ser o estado do DIRETÓRIO. "compose + `.env`" chega junto
+# numa instalação NOVA: o `.env` pode ter sido copiado de outra máquina, gerado
+# por automação, ou deixado por uma rodada anterior do `--yes` que parou no
+# meio. Com esse critério, um `install.sh --yes` numa VPS ARM NOVA com o `.env`
+# já preenchido passava pela guarda como se fosse instalação existente e ia
+# construir as imagens na própria VPS (15–25 min) — exatamente o que a guarda
+# do #1042 existe para impedir. E o `.env` sozinho nunca provou nada: o
+# `git clone` de uma instalação nova pode trazer um `.env` de exemplo.
+#
+# O sinal do DIRETÓRIO entra como CONDIÇÃO, nunca como prova: sem compose nem
+# `.env` não há nem nome de projeto para procurar, e o marcador — que só o
+# install.sh escreve, e sempre ao lado do `.env` — é o mesmo par sem prova.
+#
+# O que prova é o que a instalação DEIXOU no Docker, e a guarda pergunta ao
+# Docker diretamente. `nome_do_projeto_compose` mora mais abaixo, no bloco de
+# proxy/nome de projeto; por isso o cálculo do nome fica em uma função só, e o
+# resto a chama por nome em tempo de execução (o shell resolve a chamada
+# quando ela acontece, não quando o arquivo é lido) — o que deixa esta função
+# aqui em cima, onde a guarda precisa dela, sem depender da ordem do arquivo.
+#
+# O volume do Postgres NÃO entra: ele só existe no modo single-server e some
+# junto com o `down -v` que o próprio kit ensina como receita de "recomeçar" —
+# quem o encontrasse seria uma instalação derrubada, não uma instalação real.
+MARCA_INSTALACAO_NOME=".deskcomm-instalado"
+
+# O nome do projeto Docker DESTA instalação, na ordem que importa. O
+# COMPOSE_PROJECT_NAME do `.env` manda quando existe (é o nome que os
+# contêineres carregam no label); o derivado do diretório é o que o Compose
+# usaria sem ele, e as duas entradas são testadas. Errar o nome faria a guarda
+# não achar o contêiner de quem JÁ TEM instalação — e a recusa voltaria a matar
+# a recuperação do #1775, que é exatamente o que o sinal de contêiner
+# existe para não fazer.
+#
+# O derivado do diretório é REPETIDO aqui, e não chamado de
+# `nome_do_projeto_compose`: essa função mora ~500 linhas abaixo deste ponto, e
+# a guarda roda no TOPO do arquivo, quando ela ainda não existe (chamar por nome
+# aqui daria "command not found" e a recusa do #1042 viraria um erro de
+# sintaxe). A fórmula é a de lá — minúsculo, só [a-z0-9_-], com os `_`/`-` do
+# INÍCIO aparados — e `tests/shell/` mede as duas cópias iguais.
+nomes_do_projeto_da_instalacao() {  # nomes_do_projeto_da_instalacao <diretório>
+  local dir="$1" declarado derivado
+  declarado="$(sed -n 's/^[[:space:]]*COMPOSE_PROJECT_NAME=//p' "$dir/.env" 2>/dev/null \
+    | head -1 | tr -d '\r' | tr -d '"'"'" | tr -d '[:space:]')"
+  derivado="$(basename "$dir" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
+  derivado="${derivado#"${derivado%%[!_-]*}"}"
+  # Um valor fora do que o Compose aceita como nome é melhor ignorado do que
+  # procurado: o `--filter` não valida, e o nome errado devolve vazio — que é a
+  # mesma resposta de "não achei", e é a que manda recusar.
+  case "$declarado" in
+    ''|*[!a-z0-9_-]*) ;;
+    *) printf '%s\n%s\n' "$declarado" "$derivado" ; return 0 ;;
+  esac
+  printf '%s\n' "$derivado"
+}
+
+# Há contêiner (rodando OU parado) do projeto compose informado? O `-a` conta o
+# que está parado: quem instalou e parou o CRM tem instalação do mesmo jeito, e
+# parar o stack é uma pausa, não um desinstalar. `docker` fora do PATH (ou sem
+# permissão no socket) devolve 1, que é a resposta que manda RECUSAR — nunca
+# adivinhar instalação a partir de um `docker` que não respondeu.
+conteiner_do_projeto_existe() {  # conteiner_do_projeto_existe <projeto compose>
+  [ -n "${1:-}" ] || return 1
+  command -v docker >/dev/null 2>&1 || return 1
+  [ -n "$(docker ps -a -q --filter "label=com.docker.compose.project=$1" 2>/dev/null)" ]
+}
+
+instalacao_real_do_kit_aqui() {
+  local d nome
+  for d in "$PWD" "$PWD/deskcommcrm"; do
+    [ -f "$d/$COMPOSE" ] && [ -f "$d/.env" ] || continue
+    [ -f "$d/$MARCA_INSTALACAO_NOME" ] && return 0
+    while IFS= read -r nome; do
+      [ -n "$nome" ] || continue
+      conteiner_do_projeto_existe "$nome" && return 0
+      conteiner_do_projeto_existe "$nome-supabase" && return 0
+    done <<EOF
+$(nomes_do_projeto_da_instalacao "$d")
+EOF
+  done
+  return 1
+}
+
+# O install.sh grava este marcador com a stack no ar, para que a guarda de
+# arquitetura reconheça a instalação pelo QUE ELA DEIXOU, e não pelo que veio
+# pronto no diretório. `chmod 600` pelo mesmo rigor do `.env`: o arquivo não é
+# segredo, mas também não é para vazar.
+marcar_instalacao_feita() {  # marcar_instalacao_feita [versão]
+  # `local` um por linha, e o segundo já com o valor montado: no mesmo `local`,
+  # o nome da esquerda ainda não existe quando a direita é avaliada, e com
+  # `set -u` o `local dir=… marca="$dir/…"` morre em "unbound variable" — o
+  # arquivo nunca era gravado e a instalação que deu certo mesmo assim é que
+  # escondia o defeito.
+  local dir="${PROJECT_DIR:-$PWD}"
+  local marca="$dir/$MARCA_INSTALACAO_NOME"
+  { printf 'instalado_em=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo desconhecido)"
+    printf 'versao=%s\n' "${1:-}"; } > "$marca" 2>/dev/null || return 1
+  chmod 600 "$marca" 2>/dev/null || true
+}
+
+# Ecoa: amd64 | recuperar | nova
+#
+# A decisão é PURA no que recebe: `uname` e a leitura do disco ficam fora, para
+# o teste simular as três respostas sem depender do runner nem de um diretório
+# de verdade. Quem traduz em mensagem é `verificar_arquitetura_do_kit`.
+veredito_da_arquitetura() {  # veredito_da_arquitetura <arquitetura> [0=nova | 1=instalação existente]
+  local arch="${1:-}" existe="${2:-0}"
+  arquitetura_suportada_pelo_kit "$arch" && { printf 'amd64'; return 0; }
+  [ "$existe" = 1 ] && { printf 'recuperar'; return 0; }
+  printf 'nova'
+}
+
 verificar_arquitetura_do_kit() {
-  local arch
+  local arch existe=0
   arch="$(uname -m 2>/dev/null || t "desconhecida")"
-  arquitetura_suportada_pelo_kit "$arch" && return 0
+  # O sinal de "instalação real" SÓ é perguntado quando a arquitetura não é
+  # suportada. Em amd64 o veredito já é `amd64` e a guarda atravessa, então
+  # perguntar seria trabalho inútil — e, com o critério do #1778, trabalho que
+  # chama o `docker` no TOPO do install.sh, antes de qualquer passo do
+  # instalador. A seção 4 do teste de #1778 mede isso: em x86_64 a guarda não
+  # fala com o Docker.
+  if ! arquitetura_suportada_pelo_kit "$arch"; then
+    instalacao_real_do_kit_aqui && existe=1
+  fi
+
+  case "$(veredito_da_arquitetura "$arch" "$existe")" in
+    amd64) return 0 ;;
+    recuperar)
+      # O update.sh relê este arquivo depois do checkout da versão nova, e a
+      # guarda roda de novo no topo: sem esta trava o dono lia o mesmo aviso
+      # duas vezes na mesma atualização. A variável não é exportada, então a
+      # trava vale para ESTE processo e nenhum script filho herda o silêncio.
+      [ -n "${_DESKCOMM_AVISO_ARQ_DADO:-}" ] && return 0
+      _DESKCOMM_AVISO_ARQ_DADO=1
+      # `printf` e não c_ylw: este ponto roda no TOPO do arquivo, e as cores só
+      # são definidas algumas linhas abaixo (é a mesma razão do `printf` da
+      # recusa logo abaixo). O aviso vai para o STDERR, como a recusa: o
+      # agent.sh manda a saída do update.sh para arquivo e o dono lê o fim dela.
+      printf '%s\n' \
+        "⚠ $(t "Este servidor usa arquitetura '{1}', e as imagens publicadas do DeskcommCRM são só linux/amd64." "$arch")" \
+        "  $(t "Como esta instalação JÁ EXISTE, sigo em frente: as imagens da versão alvo serão construídas nesta própria VPS.")" \
+        "  $(t "Leva de 15 a 25 minutos. Uma instalação NOVA nesta arquitetura precisaria de imagens multi-arquitetura, que o DeskcommCRM ainda não publica.")" >&2
+      return 0 ;;
+  esac
 
   printf '%s\n' \
     "✖ $(t "Este servidor usa arquitetura '{1}', mas as imagens publicadas do DeskcommCRM hoje são linux/amd64." "$arch")" \
