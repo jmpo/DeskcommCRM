@@ -30,6 +30,7 @@ import {
   minutosDoLimiar,
   type UnidadeDeLimiar,
 } from "@/lib/followup/gap-de-retorno";
+import { MAX_PAUSA_DE_REENTRADA_MINUTES } from "@/lib/followup/pausa-de-reentrada";
 
 /**
  * Controle de `trigger_config` do pointer (Task 8.5) — como o fluxo começa.
@@ -79,6 +80,8 @@ interface TriggerFormState {
   thresholdValor: number;
   thresholdUnidade: UnidadeDeLimiar;
   segments: string;
+  /** Pausa de reentrada do gatilho de silêncio, em HORAS na tela; o fio guarda minutos. */
+  reentryPauseHours: number;
   stageId: string;
   cancelOnReply: boolean;
   eventTypeIds: string[];
@@ -86,6 +89,7 @@ interface TriggerFormState {
 
 const DEFAULT_THRESHOLD_MINUTES = 60;
 const MIN_THRESHOLD_MINUTES = 5;
+const MAX_PAUSA_HORAS = MAX_PAUSA_DE_REENTRADA_MINUTES / 60;
 
 const KIND_LABEL: Record<TriggerKind, string> = {
   appointment_no_show:"Falta confirmada pela equipe",
@@ -128,7 +132,13 @@ function parseTriggerConfig(raw: Record<string, unknown>): TriggerFormState {
                   ? "lead_created"
                   : "manual";
   const params =
-    (raw.params as { threshold_minutes?: number; segments?: string[]; stage_id?: string; event_type_ids?: string[] } | undefined) ?? {};
+    (raw.params as {
+      threshold_minutes?: number;
+      segments?: string[];
+      stage_id?: string;
+      event_type_ids?: string[];
+      reentry_pause_minutes?: number;
+    } | undefined) ?? {};
   const minutosRetorno =
     kind === "inbound_after_silence" && typeof params.threshold_minutes === "number"
       ? params.threshold_minutes
@@ -147,6 +157,8 @@ function parseTriggerConfig(raw: Record<string, unknown>): TriggerFormState {
       (kind === "silence" || kind === "inbound_after_silence") && Array.isArray(params.segments)
         ? params.segments.join(", ")
         : "",
+    reentryPauseHours:
+      kind === "silence" && typeof params.reentry_pause_minutes === "number" ? params.reentry_pause_minutes / 60 : 0,
     stageId: kind === "stage_change" && typeof params.stage_id === "string" ? params.stage_id : "",
     cancelOnReply: raw.cancel_on_reply === true,
   };
@@ -184,9 +196,14 @@ function toTriggerConfig(form: TriggerFormState): Record<string, unknown> {
     };
   }
 
+  const pausa = Math.round(form.reentryPauseHours * 60);
   return {
     kind: "silence",
-    params: { threshold_minutes: form.thresholdMinutes, ...(segments.length > 0 ? { segments } : {}) },
+    params: {
+      threshold_minutes: form.thresholdMinutes,
+      ...(segments.length > 0 ? { segments } : {}),
+      ...(pausa > 0 ? { reentry_pause_minutes: pausa } : {}),
+    },
     ...cancelOnReply,
   };
 }
@@ -198,8 +215,14 @@ function summaryLabel(
 ): string {
   if(cfg.kind === "appointment_no_show") return t("Gatilho: falta confirmada pela equipe");
   if (cfg.kind === "silence") {
-    const minutes = (cfg.params as { threshold_minutes?: number } | undefined)?.threshold_minutes;
-    return `${t("Gatilho")}: ${t("Silêncio")}${typeof minutes === "number" ? ` (${minutes} min)` : ""}`;
+    const params = cfg.params as { threshold_minutes?: number; reentry_pause_minutes?: number } | undefined;
+    const minutes = params?.threshold_minutes;
+    const pausa = params?.reentry_pause_minutes;
+    const detalhe = [
+      typeof minutes === "number" ? `${minutes} min` : null,
+      typeof pausa === "number" && pausa > 0 ? `${t("pausa de")} ${Math.round((pausa / 60) * 10) / 10} h` : null,
+    ].filter(Boolean);
+    return `${t("Gatilho")}: ${t("Silêncio")}${detalhe.length > 0 ? ` (${detalhe.join(" · ")})` : ""}`;
   }
   if (cfg.kind === "inbound_after_silence") {
     const minutes = (cfg.params as { threshold_minutes?: number } | undefined)?.threshold_minutes;
@@ -267,10 +290,14 @@ export function TriggerConfigControl({ flowId, triggerConfig }: Props) {
   const minutosRetorno = minutosDoLimiar(form.thresholdValor, form.thresholdUnidade);
   const retornoInvalid =
     form.kind === "inbound_after_silence" && !limiarValido(minutosRetorno);
+  const pausaInvalid =
+    form.kind === "silence" &&
+    (!Number.isFinite(form.reentryPauseHours) || form.reentryPauseHours < 0 || form.reentryPauseHours > MAX_PAUSA_HORAS);
   const thresholdInvalid =
     (form.kind === "silence" &&
       (!Number.isFinite(form.thresholdMinutes) || form.thresholdMinutes < MIN_THRESHOLD_MINUTES)) ||
-    retornoInvalid;
+    retornoInvalid ||
+    pausaInvalid;
   // Gatilho de etapa sem etapa escolhida não é rascunho: é um fluxo que ficaria
   // ativo sem nunca disparar. O publish recusa; o Salvar recusa antes.
   const stageInvalid = form.kind === "stage_change" && form.stageId.trim().length === 0;
@@ -278,7 +305,10 @@ export function TriggerConfigControl({ flowId, triggerConfig }: Props) {
     form.kind !== saved.kind ||
     (form.kind === "appointment_no_show" && form.eventTypeIds.join() !== saved.eventTypeIds.join()) ||
     form.cancelOnReply !== saved.cancelOnReply ||
-    (form.kind === "silence" && (form.thresholdMinutes !== saved.thresholdMinutes || form.segments !== saved.segments)) ||
+    (form.kind === "silence" &&
+      (form.thresholdMinutes !== saved.thresholdMinutes ||
+        form.segments !== saved.segments ||
+        form.reentryPauseHours !== saved.reentryPauseHours)) ||
     (form.kind === "inbound_after_silence" &&
       (form.thresholdValor !== saved.thresholdValor ||
         form.thresholdUnidade !== saved.thresholdUnidade ||
@@ -503,6 +533,27 @@ export function TriggerConfigControl({ flowId, triggerConfig }: Props) {
                   value={form.segments}
                   onChange={(e) => setForm((f) => ({ ...f, segments: e.target.value }))}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="trigger-reentry-pause">{t("Pausa antes de recomeçar (horas)")}</Label>
+                <Input
+                  id="trigger-reentry-pause"
+                  type="number"
+                  min={0}
+                  max={MAX_PAUSA_HORAS}
+                  value={form.reentryPauseHours}
+                  onChange={(e) => setForm((f) => ({ ...f, reentryPauseHours: Number(e.target.value) }))}
+                  aria-invalid={pausaInvalid}
+                  data-testid="trigger-reentry-pause"
+                />
+                {pausaInvalid && (
+                  <p className="text-xs text-error-fg">{t("Use de 0 a 2160 horas (90 dias).")}</p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    "Vale para quem já passou por este fluxo e respondeu ou chegou ao fim: ele só recomeça depois deste tempo sem o cliente escrever. Quem nunca passou por ele entra no tempo de silêncio de sempre. 0 = sem pausa.",
+                  )}
+                </p>
               </div>
             </>
           )}
