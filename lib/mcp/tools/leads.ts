@@ -345,7 +345,6 @@ export const crmMoveLeadStage: McpToolDefinition<typeof moveInputShape> = {
     );
     return { lead };
   },
-
 };
 
 
