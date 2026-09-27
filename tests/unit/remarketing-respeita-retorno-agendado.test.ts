@@ -40,7 +40,7 @@ describe("varredura de silêncio", () => {
       loadActiveSilencePointers: async () => [
         { id: "ptr", organization_id: "org", active_version_id: "v1", threshold_minutes: 60, segments: [] },
       ],
-      loadSilentContactIds: async () => ["clara", "outro"],
+      loadSilentContactIds: async () => ["contato-com-retorno", "outro"],
       loadContatosComRetornoVivo: async () => comRetorno,
       loadTriggerNode: async () => ({ id: "inicio", pedeAgente: false }),
       insertEnrollment: insert,
@@ -50,7 +50,7 @@ describe("varredura de silêncio", () => {
   const gateDb = { loadEnabledPublishedFollowupAgents: async () => [] };
 
   it("⭐ quem tem retorno agendado fica de fora; os demais silenciosos entram", async () => {
-    const { db, insert } = sweepDb(new Set(["clara"]));
+    const { db, insert } = sweepDb(new Set(["contato-com-retorno"]));
     const resumo = await runSilenceSweep({ db, gateDb, clock: () => AGORA });
 
     expect(insert).toHaveBeenCalledTimes(1);
@@ -81,7 +81,7 @@ describe("inscrição que já andava", () => {
       organization_id: "org",
       pointer_id: "ptr",
       version_id: "v1",
-      contact_id: "clara",
+      contact_id: "contato-com-retorno",
       conversation_id: null,
       current_node_id: "oferta",
       status: "active",

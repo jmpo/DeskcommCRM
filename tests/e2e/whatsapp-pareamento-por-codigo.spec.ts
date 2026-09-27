@@ -28,7 +28,7 @@ const credentials = credenciaisSupabaseDeTeste();
 const db = createClient(credentials.url, credentials.serviceRole, {
   auth: { persistSession: false },
 });
-const EVIDENCIA = ".superpowers/evidence/pareamento-por-codigo";
+const EVIDENCIA = "evidence/pareamento-por-codigo";
 
 test.use({ trace: "on" });
 test.describe.configure({ timeout: 180_000 });

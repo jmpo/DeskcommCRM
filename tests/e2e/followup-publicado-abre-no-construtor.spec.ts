@@ -164,6 +164,6 @@ test("o fluxo publicado por fora do construtor abre com os nós que estão no ar
   expect(area, "o nó está no DOM mas não tem área na tela").toBeGreaterThan(1000);
 
   await page.screenshot({
-    path: path.join(RAIZ, ".superpowers/evidence/followup-publicado-abre-cheio.png"),
+    path: path.join(RAIZ, "evidence/followup-publicado-abre-cheio.png"),
   });
 });

@@ -22,6 +22,7 @@ import { lerOcupacaoExterna } from "@/lib/agenda/ocupacao-externa";
 import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import type { Actor } from "@/lib/api/handlers/types";
 import { ApiError } from "@/lib/api/types";
+import { chaveDaRequisicao } from "@/lib/api/idempotency";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { traduzir } from "@/lib/i18n/dicionario";
@@ -141,16 +142,20 @@ const cancelarSchema = z.object({
  * igual para a tela e para a IA.
  *
  * O recorte que a grade usa é `de`+`ate`, em INSTANTES. A tela é semanal e
- * mensal (seis semanas), então o filtro por `dia` não a serve — e ele tem um
- * corte em UTC que, para fuso negativo, não é o dia de quem olha: medido para
- * São Paulo, o "dia 12" pega três horas do dia 11 e perde as três últimas do 12.
- * Mandando instante, quem chama calcula os limites no fuso de APRESENTAÇÃO e
- * esta rota não precisa adivinhar em que fuso o dia foi pedido.
+ * mensal (seis semanas), então o filtro por `dia` não a serve — e ele corta no
+ * fuso da ORGANIZAÇÃO (desde a #1744; sem fuso legível, em UTC), que não é
+ * necessariamente o fuso de quem olha. Mandando instante, quem chama calcula os
+ * limites no fuso de APRESENTAÇÃO e esta rota não precisa adivinhar em que fuso
+ * o dia foi pedido.
  */
 export async function GET(req: NextRequest): Promise<Response> {
   const requestId = randomUUID();
 
-  // `viewer`: olhar a agenda é o menor privilégio desta feature.
+  // `viewer`: olhar a agenda é o menor privilégio desta feature. E SEGUE
+  // SÓ-SESSÃO — `requireRole` não lê Bearer, e abrir isto a token é decisão de
+  // produto, não de implementação (a própria suíte da rota trava este estado;
+  // ver o cabeçalho de `GET … continua só-sessão` em `route.test.ts`). Quem
+  // integra agenda por token continua saindo pela ferramenta MCP.
   const authz = await requireRole("viewer", { requestId, resource: "agenda" });
   if (!authz.ok) return authz.response;
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
@@ -187,13 +192,15 @@ export async function GET(req: NextRequest): Promise<Response> {
   });
 
   if (!resultado.ok) {
-    // ⚠️ DUAS DAS TRÊS RECUSAS SÃO ERRO DE QUEM CHAMA — e o `else` de antes
+    // ⚠️ QUATRO DAS CINCO RECUSAS SÃO ERRO DE QUEM CHAMA — e o `else` de antes
     // chamava todas de falha do servidor.
     //
-    // `sem_alvo` (falta recorte) e `alvo_nao_e_lead` (o `lead_id` veio com o id
-    // de um CONTATO — a confusão medida em #509) são consulta malformada: o
-    // servidor está inteiro, e 500 diz ao cliente server-to-server que a culpa é
-    // nossa. Pior: acorda o Sentry por requisição malformada, que é ruído.
+    // `sem_alvo` (falta recorte), `alvo_nao_e_lead` (o `lead_id` veio com o id
+    // de um CONTATO — a confusão medida em #509), `janela_invalida` (período
+    // invertido, incompleto ou acima do teto) e `cursor_invalido` são consulta
+    // malformada: o servidor está inteiro, e 500 diz ao cliente server-to-server
+    // que a culpa é nossa. Pior: acorda o Sentry por requisição malformada, que
+    // é ruído.
     //
     // O mapa é explícito — mesmo desenho de `CODIGO_DA_RECUSA` em `_handler.ts`
     // — porque status e código andam juntos, e a indexação pelo código faz o
@@ -201,6 +208,8 @@ export async function GET(req: NextRequest): Promise<Response> {
     const recusa = {
       sem_alvo: { status: 422, code: "agenda_listagem_sem_recorte" },
       alvo_nao_e_lead: { status: 422, code: "agenda_listagem_alvo_nao_e_lead" },
+      janela_invalida: { status: 422, code: "agenda_listagem_janela_invalida" },
+      cursor_invalido: { status: 422, code: "agenda_listagem_cursor_invalido" },
       erro_interno: { status: 500, code: "internal_error" },
     } as const;
     const { status, code } = recusa[resultado.codigo];
@@ -292,7 +301,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const supportDenied = await requireSupportWrite();
   if (supportDenied) return supportDenied;
 
-  return despachar(req, marcarSchema, marcarAgendamentoHandler, 201);
+  return despachar(req, marcarSchema, marcarAgendamentoHandler, 201, true);
 }
 
 export async function PATCH(req: NextRequest): Promise<Response> {
@@ -334,10 +343,11 @@ async function despachar<T>(
   schema: z.ZodType<T>,
   handler: (
     supabase: Awaited<ReturnType<typeof createClient>>,
-    ctx: { organization_id: string; actor: Actor; requestId: string },
+    ctx: { organization_id: string; actor: Actor; requestId: string; idempotencyKey?: string },
     input: T,
   ) => Promise<Record<string, unknown>>,
   status: 200 | 201,
+  aceitaIdempotencyKey = false,
 ): Promise<Response> {
   const requestId = randomUUID();
 
@@ -360,6 +370,11 @@ async function despachar<T>(
   const t = (texto: string) => traduzir(texto, authz.idioma ?? IDIOMA_PADRAO);
   const { supabase, organizationId, actor } = authz;
 
+  const idempotencyKey = aceitaIdempotencyKey ? chaveDaRequisicao(req) : null;
+  if (idempotencyKey !== null && !z.string().uuid().safeParse(idempotencyKey).success) {
+    return fail("validation_failed", "Idempotency-Key deve ser UUID", 400, { requestId });
+  }
+
   const tetoEstourado = await tetoDeEscritaDoToken(authz, "agenda", requestId);
   if (tetoEstourado) return tetoEstourado;
 
@@ -380,6 +395,7 @@ async function despachar<T>(
         organization_id: organizationId,
         actor,
         requestId,
+        ...(idempotencyKey !== null ? { idempotencyKey } : {}),
       },
       parsed.data,
     );

@@ -160,7 +160,7 @@ const FECHOS = {
  * OS MESMOS avisos em espanhol. O cliente lê a frase no idioma da ORGANIZAÇÃO
  * (`organizations.locale`) — a conversa com ele acontece nesse idioma, e um
  * aviso em português no meio de uma venda em espanhol é a própria prova de que
- * ali tem um robô. Medido numa loja do Paraguai (26/09/2026): o cliente irritado
+ * ali tem um robô. Medido numa loja em espanhol (26/09/2026): o cliente irritado
  * recebeu "Esse caso é melhor resolvido por uma pessoa…" no meio do pedido.
  *
  * Espanhol NEUTRO (tú, sem voseo): este texto serve a toda organização em `es`.

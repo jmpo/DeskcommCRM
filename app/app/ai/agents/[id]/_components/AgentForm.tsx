@@ -74,6 +74,7 @@ import type { AgentVersionRow } from "@/hooks/ai/useAgentVersions";
 import type { CredentialRow, Provider } from "@/hooks/ai/useCredentials";
 import { credentialStatus } from "@/hooks/ai/useCredentials";
 import type { FunilDaResposta } from "@/hooks/pipelines/usePipelines";
+import { callbacksHabilitados } from "@/lib/followup/callback-policy";
 
 /**
  * O canal oferecido no seletor é exatamente o que `listSelectableChannels`
@@ -103,6 +104,16 @@ interface BaseProps {
    * conseguia salvar nada.
    */
   provedoresDaInstalacao?: string[];
+  /**
+   * O provedor que a organização já usa — `organizations.settings.llm.provider`,
+   * lido pela página de CRIAÇÃO junto com as credenciais.
+   *
+   * É o defeito do "agente novo já nasce Anthropic": o formulário oferecia
+   * `anthropic` (e "Cadastrar credencial anthropic") para uma organização cuja
+   * única chave é da OpenAI. Aqui só o valor chega; quem lê `settings` é a
+   * página server component, do mesmo jeito que as credenciais.
+   */
+  provedorPadrao?: string;
   channelSessions: ChannelSessionLite[];
   routerMembership?: { routerId: string; routerName: string } | null;
   readOnly?: boolean;
@@ -185,6 +196,7 @@ interface FormState {
 interface FollowupValue {
   enabled: boolean;
   flow_pointer_ids: string[];
+  callback_enabled: boolean;
   /** Ausente em versões antigas; null = sem janela própria. */
   send_window?: FollowupWindowValue | null;
 }
@@ -193,6 +205,7 @@ const DEFAULT_FOLLOWUP: FollowupValue = {
   enabled: false,
   flow_pointer_ids: [],
   send_window: null,
+  callback_enabled: true,
 };
 
 const DEFAULT_TRIGGER: TriggerValue = {
@@ -206,17 +219,42 @@ const DEFAULT_TRIGGER: TriggerValue = {
   concurrency: "one_per_conversation",
 };
 
-function buildState(args: {
+/**
+ * O provedor inicial de um agente que ainda não tem versão.
+ *
+ * Só a lista que o seletor OFERECE vale como resposta: `settings.llm` é jsonb
+ * gravado por várias telas, e um id que `PROVEDORES` não conhece cairia num
+ * `<Select>` sem opção correspondente — o campo abrindo em branco e o
+ * formulário pedindo para escolher de novo. Fora da lista, `anthropic` (o que
+ * o seed da instalação sempre teve).
+ */
+export function provedorInicial(provedorPadrao?: string): Provider {
+  if (provedorPadrao && PROVEDORES.some((p) => p.id === provedorPadrao)) {
+    return provedorPadrao as Provider;
+  }
+  return "anthropic";
+}
+
+export function buildState(args: {
   agent?: AgentRow;
   version: AgentVersionRow | null;
   t: (texto: string) => string;
+  /**
+   * O provedor que a ORGANIZAÇÃO já usa (`organizations.settings.llm.provider`).
+   *
+   * Sem isto, um agente NOVO nascia `anthropic` — e o formulário mostrava
+   * "Cadastrar credencial anthropic" para uma organização que só tem chave da
+   * OpenAI. A escolha passa a herdar o que a instalação já decidiu; o `anthropic`
+   * continua sendo o último degrau, para instalação que ainda não escolheu nada.
+   */
+  provedorPadrao?: string;
 }): FormState {
-  const { agent, version, t } = args;
+  const { agent, version, t, provedorPadrao } = args;
   return {
     name: agent?.name ?? "",
     description: agent?.description ?? "",
     priority: agent?.priority ?? 0,
-    provider: (version?.provider as Provider) ?? "anthropic",
+    provider: (version?.provider as Provider) ?? provedorInicial(provedorPadrao),
     model: version?.model ?? "",
     // `null` gravado = a versão usa a chave da instalação. Sem esta tradução,
     // reabrir o agente mostraria o campo em branco e pediria para escolher de novo.
@@ -244,7 +282,13 @@ function buildState(args: {
     cases_enabled: version?.cases_enabled ?? false,
     split_messages: version?.split_messages ?? false,
     split_max_chars: version?.split_max_chars ?? 600,
-    followup: version?.followup ?? DEFAULT_FOLLOWUP,
+    followup: version?.followup
+      ? {
+          ...DEFAULT_FOLLOWUP,
+          ...version.followup,
+          callback_enabled: callbacksHabilitados(version.followup),
+        }
+      : DEFAULT_FOLLOWUP,
     operator_enabled: version?.operator_enabled ?? false,
     // O form usa "" onde o banco usa null — Select controlado não aceita null.
     // A conversão de volta acontece em `toVersionPayload`, num ponto só.
@@ -327,7 +371,7 @@ export function AgentForm(props: Props) {
       const ref = props.base ?? props.draft ?? props.published;
       return buildState({ agent: props.agent, version: ref, t });
     }
-    return buildState({ version: null, t });
+    return buildState({ version: null, t, provedorPadrao: props.provedorPadrao });
   }, [isEdit, props, t]);
 
   const [form, setForm] = React.useState<FormState>(baseline);
@@ -1197,6 +1241,24 @@ export function AgentForm(props: Props) {
             <p className="text-xs text-muted-foreground">
               {t(
                 "Retomar sozinho quem parou de responder, para o interessado não sumir sem ninguém perceber.",
+              )}
+            </p>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="callback_enabled"
+                checked={form.followup.callback_enabled}
+                onCheckedChange={(v) =>
+                  patch({ followup: { ...form.followup, callback_enabled: v } })
+                }
+                disabled={disabled}
+              />
+              <Label htmlFor="callback_enabled">
+                {t("Permitir que o agente marque novos retornos por conta própria")}
+              </Label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "Desligar impede novos retornos prometidos pelo agente. Os fluxos configurados abaixo e a consulta ou o cancelamento de retornos existentes continuam disponíveis.",
               )}
             </p>
             <div className="flex items-center gap-2">

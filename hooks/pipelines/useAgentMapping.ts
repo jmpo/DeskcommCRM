@@ -24,9 +24,14 @@ export interface EtapaDoFunil {
   name: string;
   is_won: boolean;
   is_lost: boolean;
-  /** Negócio que entra aqui abre um aviso na Central (migration 0426). */
+  /**
+   * Probabilidade de ganho da etapa, 0–100 (migration 0426). `null` = etapa
+   * sem calibração. `undefined` em leituras antigas em cache.
+   */
+  win_probability?: number | null;
+  /** Negócio que entra aqui abre um aviso na Central (migration 0436). */
   avisar_na_central?: boolean;
-  /** Evento enviado a Meta ao entrar (migration 0403); `null` = nenhum. */
+  /** Evento enviado a Meta ao entrar (migration 0437); `null` = nenhum. */
   evento_de_conversao?: string | null;
   /** Quem mexeu nesta etapa por último (migration 0101). `null` antes dela. */
   last_change_actor_kind?: string | null;

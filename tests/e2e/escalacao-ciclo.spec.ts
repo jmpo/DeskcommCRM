@@ -36,7 +36,7 @@ import { createClient } from "@supabase/supabase-js";
 import { carregarEnvLocal } from "../../scripts/lib/env-de-teste";
 
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
-const EVIDENCIA = path.join(process.cwd(), ".superpowers/evidence/ia-360-w3");
+const EVIDENCIA = path.join(process.cwd(), "evidence/ia-360-w3");
 
 /** O texto que a pessoa escreve ao decidir — é ele que precisa atravessar. */
 const DECISAO_DA_PESSOA =

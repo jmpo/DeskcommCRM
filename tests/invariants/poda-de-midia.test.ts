@@ -1,5 +1,5 @@
 /**
- * A retenção de mídia EXECUTADA (migration 0427) — `fn_enfileirar_midia_vencida`.
+ * A retenção de mídia EXECUTADA (migration 0432) — `fn_enfileirar_midia_vencida`.
  *
  * O que este arquivo vigia, cada um por um modo de falha concreto:
  *   - arquivo vencido sai e a MENSAGEM fica (texto, horário, status);
@@ -13,13 +13,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { lastLine, sql } from "./gov-helpers";
 
-const ORG = "39500000-0000-4000-8000-000000000001";
-const CONTATO = "39500000-0000-4000-8000-000000000002";
-const SESSAO = "39500000-0000-4000-8000-000000000003";
-const CONVERSA = "39500000-0000-4000-8000-000000000004";
-const CONVERSA_APAGADA = "39500000-0000-4000-8000-00000000dead";
-const MSG_VELHA = "39500000-0000-4000-8000-000000000010";
-const MSG_NOVA = "39500000-0000-4000-8000-000000000011";
+const ORG = "42700000-0000-4000-8000-000000000001";
+const CONTATO = "42700000-0000-4000-8000-000000000002";
+const SESSAO = "42700000-0000-4000-8000-000000000003";
+const CONVERSA = "42700000-0000-4000-8000-000000000004";
+const CONVERSA_APAGADA = "42700000-0000-4000-8000-00000000dead";
+const MSG_VELHA = "42700000-0000-4000-8000-000000000010";
+const MSG_NOVA = "42700000-0000-4000-8000-000000000011";
 
 const caminho = (resto: string) => `${ORG}/${resto}`;
 const VELHO = caminho(`${CONVERSA}/velho.mp4`);
@@ -49,18 +49,18 @@ beforeEach(() => {
     delete from channel_sessions where organization_id = '${ORG}';
     delete from contacts where organization_id = '${ORG}';
     insert into organizations (id, slug, legal_name, display_name, media_retention_days)
-      values ('${ORG}', 'org-midia-395', 'Org Midia LTDA', 'Org Midia', 60)
+      values ('${ORG}', 'org-midia-427', 'Org Midia LTDA', 'Org Midia', 60)
       on conflict (id) do update set media_retention_days = 60;
     insert into contacts (id, organization_id, name, phone_number, avatar_storage_path)
-      values ('${CONTATO}', '${ORG}', 'Cliente', '+595981000395', '${AVATAR_EM_USO}');
+      values ('${CONTATO}', '${ORG}', 'Cliente', '+5511900000427', '${AVATAR_EM_USO}');
     insert into channel_sessions (id, organization_id, waha_session_name, status, webhook_secret_encrypted)
-      values ('${SESSAO}', '${ORG}', 'midia-395', 'WORKING', '\\x00'::bytea);
+      values ('${SESSAO}', '${ORG}', 'midia-427', 'WORKING', '\\x00'::bytea);
     insert into conversations (id, organization_id, contact_id, channel_session_id, status, is_group)
       values ('${CONVERSA}', '${ORG}', '${CONTATO}', '${SESSAO}', 'open', false);
     insert into messages (id, organization_id, conversation_id, channel_session_id, contact_id,
                           type, direction, status, body, sent_via, sent_at, created_at, media_storage_path)
       values ('${MSG_VELHA}', '${ORG}', '${CONVERSA}', '${SESSAO}', '${CONTATO}', 'video', 'inbound', 'delivered',
-              'mirá este video', 'external_device', now() - interval '100 days', now() - interval '100 days', '${VELHO}'),
+              'olha este vídeo', 'external_device', now() - interval '100 days', now() - interval '100 days', '${VELHO}'),
              ('${MSG_NOVA}', '${ORG}', '${CONVERSA}', '${SESSAO}', '${CONTATO}', 'image', 'inbound', 'delivered',
               null, 'external_device', now() - interval '10 days', now() - interval '10 days', '${NOVO}');
     ${objeto(VELHO, 100)}
@@ -92,14 +92,21 @@ describe("fn_enfileirar_midia_vencida", () => {
   it("a mensagem vencida perde só o arquivo — texto e horário ficam", () => {
     sql(`select public.fn_enfileirar_midia_vencida(500)`);
     expect(lastLine(sql(`select coalesce(media_storage_path, 'NULO') || '|' || body from messages where id = '${MSG_VELHA}'`)))
-      .toBe("NULO|mirá este video");
+      .toBe("NULO|olha este vídeo");
     expect(lastLine(sql(`select media_storage_path from messages where id = '${MSG_NOVA}'`))).toBe(NOVO);
   });
 
   it("a segunda rodada não enfileira de novo", () => {
     sql(`select public.fn_enfileirar_midia_vencida(500)`);
     const r = JSON.parse(lastLine(sql(`select public.fn_enfileirar_midia_vencida(500)::text`)));
-    expect(r).toEqual({ vencidas: 0, orfas: 0 });
+    // `expurgadas` entra no objeto esperado pela 0435 (#1765): a chave nova é
+    // aditiva EM VALOR, mas `toEqual` do Vitest é exato EM CHAVE, e este
+    // congelado fiscaliza o retorno INTEIRO. Dar a ele o campo novo é a menor
+    // edição que preserva o que a asserção mede — mais forte, na verdade: antes
+    // ela não vigiava a contagem do expurgo, agora vigia (é 0 aqui porque este
+    // fixture não tem linha `deleted` vencida, e é `poda-de-midia-contagem-do-
+    // expurgo.test.ts` que cobre o valor diferente de zero).
+    expect(r).toEqual({ vencidas: 0, orfas: 0, expurgadas: 0 });
   });
 
   it("retenção abaixo de 30 dias vale como 30 — o piso do formulário", () => {

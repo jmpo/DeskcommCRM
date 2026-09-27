@@ -8,7 +8,7 @@ const db = createClient(credentials.url, credentials.serviceRole, {
   auth: { persistSession: false },
 });
 const password = `Local-${randomUUID()}!`;
-const evidence = ".superpowers/evidence/comunidade-360";
+const evidence = "evidence/comunidade-360";
 async function login(page: Page, email: string) {
   await page.goto("/login");
   await page.getByLabel(/e-?mail/i).fill(email);

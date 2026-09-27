@@ -290,7 +290,7 @@ test.describe("Jev no roteador — Testar classificação, pela tela", () => {
       await expect(cartao.getByTestId("jev-nova-roteador")).toContainText("nada muda para o cliente");
       // Há roteador ativo: a tarefa roda, e não aparece "Não roda".
       await expect(cartao.getByTestId("jev-sem-roteador-roteador")).toHaveCount(0);
-      await page.screenshot({ path: ".superpowers/evidence/jev/cartao-tres-tarefas.png", fullPage: true });
+      await page.screenshot({ path: "evidence/jev/cartao-tres-tarefas.png", fullPage: true });
     });
 
     await test.step("Testar classificação: a sua IA e o Jev, lado a lado", async () => {
@@ -313,7 +313,7 @@ test.describe("Jev no roteador — Testar classificação, pela tela", () => {
       // Observando: em produção vale a escolha da sua IA, não a do Jev.
       await expect(page.getByTestId("teste-quem-decide")).toContainText("só observa");
       await expect(page.getByTestId("teste-agente-que-atenderia")).not.toContainText(`Suporte Jev ${sufixo}`);
-      await page.screenshot({ path: ".superpowers/evidence/jev/roteador-testar-classificacao.png", fullPage: true });
+      await page.screenshot({ path: "evidence/jev/roteador-testar-classificacao.png", fullPage: true });
     });
 
     await test.step("o dublê recebeu SÓ a frase, sem o telefone, e só a pergunta do roteador", async () => {

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type * as ModuloDeTranscricao from "@/lib/messaging/media/transcription";
+
 /**
  * Issue #855 — o worker de mídia ignorava a `base_url` do binding de visão.
  *
@@ -154,7 +156,7 @@ vi.mock("ai", () => ({
 vi.mock("@/lib/messaging/media/transcription", async (importOriginal) => ({
   // As funções puras (modelo e idiomas em vigor) seguem REAIS: o worker as usa
   // para montar o que vai ao provedor, e é isso que os casos conferem.
-  ...(await importOriginal<typeof import("@/lib/messaging/media/transcription")>()),
+  ...(await importOriginal<typeof ModuloDeTranscricao>()),
   // A referência é resolvida na CHAMADA, não na fábrica: `vi.mock` é içado para
   // o topo do arquivo e um `const` de módulo ainda não existe nesse momento.
   apiTranscriptionProvider: (cfg: unknown) => provedorDeTranscricaoMock(cfg),
@@ -343,6 +345,26 @@ describe("worker de mídia: base_url do binding de visão (#855)", () => {
     expect(provedorDeTranscricaoMock).toHaveBeenCalledWith(
       expect.objectContaining({ model: "gpt-transcribe", languages: ["es"] }),
     );
+    expect(provedorDeTranscricaoMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ baseUrl: expect.anything() }),
+    );
+  });
+
+  // Um `.env` antigo com o modelo do Groq e sem a chave própria transcrevia com
+  // whisper-1 pela OpenAI. O update não pode passar a pedir `whisper-large-v3`
+  // à OpenAI: o modelo do `.env` só vale nesse caminho sem BASE_URL.
+  it("modelo e BASE_URL de outro serviço sem a chave própria: segue whisper-1 na OpenAI", async () => {
+    comTranscricaoNoEnv({ model: "whisper-large-v3", baseUrl: "https://api.groq.com/openai/v1" });
+    linhaDaMensagem = {
+      ...linhaDaMensagem,
+      type: "audio",
+      media_mime: "audio/ogg",
+      media_storage_path: "org1/conv1/msg1.ogg",
+    };
+
+    await deriveMessageMedia(eventRow());
+
+    expect(provedorDeTranscricaoMock).toHaveBeenCalledWith(expect.objectContaining({ model: "whisper-1" }));
     expect(provedorDeTranscricaoMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ baseUrl: expect.anything() }),
     );

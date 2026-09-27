@@ -87,6 +87,7 @@ import {
 import { applySaveLeadNote, buildNotesIndexBlock, getLeadNoteBody } from './lead-notes';
 import { buildCompromissosBlock } from './compromissos-do-contato';
 import { applyScheduleFollowup, type FollowupWindowKnobs } from './schedule-followup';
+import { podeExporScheduleFollowup } from '@/lib/followup/callback-policy';
 import {
   avisarLeadDaEscalacao,
   avisarLeadLendoOContato,
@@ -1179,17 +1180,18 @@ export interface InboundTurnKnobs {
    */
   prune?: PruneToolResultsKnobs;
   /**
-   * Skills situacionais (F3-09): diretório onde os near-misses de matching viram
-   * candidatos ao golden set (GOLDEN_CANDIDATES_DIR). Ausente = misses NÃO gravados (o
-   * matching + injeção de corpo seguem valendo) — main.ts sempre o preenche pelo env;
-   * testes injetam um dir TEMP e nunca o golden real (freeze do tree).
+   * Skills situacionais (F3-09): gravação dos near-misses de matching como candidato ao
+   * golden set. Ausente/false = misses NÃO gravados (o matching + injeção de corpo seguem
+   * valendo) — main.ts sempre o preenche pelo env (`GOLDEN_CANDIDATES_ENABLED`); testes
+   * que não querem linha no banco omitem a knob. Desde a #1695 a gravação é uma LINHA em
+   * `golden_candidates` (só rótulo, sem texto de cliente), nunca arquivo em disco.
    */
-  goldenCandidatesDir?: string;
+  goldenCandidates?: boolean;
   /**
    * Stage-classifier por turno (F3-11; SalesGPT). Ausente = classificador NÃO roda (o
    * turno segue sem hint de estágio) — main.ts sempre o preenche pelo env; testes que não
-   * o exercitam o omitem sem custo. A DIVERGÊNCIA classificador×modelo é gravada em
-   * goldenCandidatesDir (mesmo dir da F3-09) — só se ele estiver configurado.
+   * o exercitam o omitem sem custo. A DIVERGÊNCIA classificador×modelo vira candidato em
+   * `golden_candidates` (mesma knob da F3-09) — só se a knob estiver ligada.
    */
   stageClassifier?: StageClassifierKnobs;
   /**
@@ -2907,8 +2909,9 @@ async function executarTurnoDoAgente(
   // Guideline-matching if-then (F3-09): o SINAL do turno (última mensagem inbound) decide
   // quais skills disparam. Corpos casados vão no SUFIXO da abertura (situacional, por-lead —
   // depois do prefixo cacheável); situação neutra ⇒ nenhum corpo (economia de tokens). Os
-  // near-misses (probe sem hard-match) viram candidatos ao golden set, gravados por fs em
-  // runtime (não a tool Write) — só se o dir estiver configurado. Calculado AQUI, ANTES de
+  // near-misses (probe sem hard-match) viram candidatos ao golden set, gravados como LINHA
+  // em `golden_candidates` (sem texto de cliente, issue #1695) — só com a knob ligada.
+  // Calculado AQUI, ANTES de
   // montar rawTools (Fase 2): o gate de read_skill_reference precisa do resultado do match
   // para decidir se a tool entra no turno (mesmo padrão de gate de search_knowledge/
   // request_human_handoff, feito antes do wrapToolsWithBreaker).
@@ -2930,14 +2933,13 @@ async function executarTurnoDoAgente(
     .filter((sk): sk is (typeof skills)[number] => sk !== undefined)
     .filter((sk) => !skillMatch.matched.some((m) => m.name === sk.name));
   const matchedSkillsBlock = renderMatchedSkillBodies([...skillMatch.matched, ...skillsDoRoteiro]);
-  if (!preview && deps.knobs.goldenCandidatesDir !== undefined) {
+  if (!preview && deps.knobs.goldenCandidates === true) {
     await recordSkillMissCandidates(
-      deps.knobs.goldenCandidatesDir,
+      pool,
       {
         tenantId,
         leadId,
         jobId: liveJob().id,
-        signal: sinalDoMatcher,
         candidates: skillMatch.missCandidates,
       },
       runLog,
@@ -3374,6 +3376,7 @@ async function executarTurnoDoAgente(
                     body,
                     agentConfig?.splitMessages ?? false,
                     agentConfig?.splitMaxChars ?? 600,
+                    Math.max(1, maxSendsPerTurn - seq),
                   )[0] ?? body,
                 // `processamentoMs` é a contribuição do #849 (@Teowfb): a pausa humana desconta o
                 // tempo que o turno JÁ gastou pensando, em vez de somar em cima dele. Sem este
@@ -3429,6 +3432,8 @@ async function executarTurnoDoAgente(
                   sendInBubbles(texto, {
                     enabled: agentConfig?.splitMessages ?? false,
                     maxChars: agentConfig?.splitMaxChars ?? 600,
+                    // O teto do turno vale para as bolhas: o que passa dele vai junto na última.
+                    maxBubbles: Math.max(1, maxSendsPerTurn - seq),
                     sleep,
                     jitter,
                     // A pausa humana do turno NÃO mora mais aqui: ela subiu para
@@ -3817,12 +3822,12 @@ async function executarTurnoDoAgente(
     }),
   };
 
-  // F3-02: a tool de agendamento (schedule_followup) só entra quando sua janela
-  // está configurada — main.ts sempre a preenche pelos knobs do env; tenant/lead
-  // vêm da ROW do job (closure), nunca do payload do modelo. É MUTANTE (cria
-  // cron_job), por isso fica fora de READ_ONLY_TOOLS.
+  // F3-02: a tool nativa só entra com janela configurada e callback habilitado
+  // na versão publicada. Tenant/lead vêm da ROW do job (closure), nunca do
+  // payload do modelo. É MUTANTE (cria cron_job), por isso fica fora de
+  // READ_ONLY_TOOLS.
   const followupKnobs = deps.knobs.followup;
-  if (followupKnobs !== undefined) {
+  if (podeExporScheduleFollowup(agentConfig?.followup, followupKnobs)) {
     rawTools.schedule_followup = tool({
       ...AGENT_TOOL_DEFS.schedule_followup,
       execute: async (raw) => {
@@ -4772,21 +4777,21 @@ async function executarTurnoDoAgente(
 
     // F3-11: divergência classificador×modelo. O classificador sugeriu um estágio; se o
     // modelo confirmou (via update_lead_state — a máquina F2-10) um estágio DIFERENTE, o
-    // desacordo vira candidato ao golden set (fs em runtime — reuso do dir da F3-09). Sem
-    // sugestão, sem confirmação, ou concordância ⇒ nenhum arquivo (zero divergência).
+    // desacordo vira candidato ao golden set (linha em `golden_candidates` — mesma tabela
+    // da F3-09, migration 0428). Sem sugestão, sem confirmação, ou concordância ⇒ nenhuma
+    // linha (zero divergência).
     if (
-      deps.knobs.goldenCandidatesDir !== undefined &&
+      deps.knobs.goldenCandidates === true &&
       stageSuggestion !== null &&
       confirmedStage !== null &&
       stageSuggestion !== confirmedStage
     ) {
       await recordStageDivergenceCandidate(
-        deps.knobs.goldenCandidatesDir,
+        pool,
         {
           tenantId,
           leadId,
           jobId: liveJob().id,
-          signal: skillSignal,
           divergence: { suggested: stageSuggestion, confirmed: confirmedStage },
         },
         runLog,

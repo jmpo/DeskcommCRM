@@ -247,7 +247,7 @@ test.describe("a ocupação do Google na grade da agenda", () => {
     await expect(bloco).toHaveAttribute("data-arrastavel", "false");
 
     await page.screenshot({
-      path: path.join(RAIZ, ".superpowers/evidence/agenda-ocupacao-google-desenhada.png"),
+      path: path.join(RAIZ, "evidence/agenda-ocupacao-google-desenhada.png"),
       fullPage: false,
     });
   });
@@ -324,7 +324,7 @@ test.describe("a ocupação do Google na grade da agenda", () => {
     ).not.toContain(TITULO_SIGILOSO);
 
     await page.screenshot({
-      path: path.join(RAIZ, ".superpowers/evidence/agenda-ocupacao-google-mes.png"),
+      path: path.join(RAIZ, "evidence/agenda-ocupacao-google-mes.png"),
       fullPage: false,
     });
   });
@@ -410,7 +410,7 @@ test.describe("a ocupação do Google na grade da agenda", () => {
     await expect(meu).toContainText(/compromisso nosso qa/i);
 
     await page.screenshot({
-      path: path.join(RAIZ, ".superpowers/evidence/agenda-nosso-x-google.png"),
+      path: path.join(RAIZ, "evidence/agenda-nosso-x-google.png"),
       fullPage: false,
     });
   });

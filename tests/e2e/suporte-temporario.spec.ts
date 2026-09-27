@@ -98,7 +98,7 @@ test("suporte mantém identidade, opera B e encerra sem misturar A; readonly/exp
  const receiverUrl = new URL(process.env.WAHA_API_BASE_URL!);
  expect(receiverUrl.hostname).toBe("127.0.0.1");
  await new Promise<void>((resolve,reject) => {receiver.once("error",reject); receiver.listen(Number(receiverUrl.port),receiverUrl.hostname,resolve);});
- mkdirSync(".superpowers/evidence/comunidade-360",{recursive:true});
+ mkdirSync("evidence/comunidade-360",{recursive:true});
  try{
   const contacts:string[]=[];const convs:string[]=[];const channels:string[]=[];
   for(const label of ["A","B"]){
@@ -130,7 +130,7 @@ test("suporte mantém identidade, opera B e encerra sem misturar A; readonly/exp
   await page.getByLabel("Nome",{exact:true}).fill(`Editado B ${suffix}`);await page.getByRole("button",{name:"Salvar",exact:true}).click();
   await expect.poll(async()=> (await db.from("contacts").select("name").eq("id",contacts[1]).single()).data?.name).toBe(`Editado B ${suffix}`);
   await expect.poll(async()=> (await db.from("api_audit_log").select("metadata,actor_user_id").eq("organization_id",orgs[1]).eq("actor_user_id",actor).eq("resource_id",contacts[1]).order("created_at",{ascending:false}).limit(1)).data?.[0]?.metadata?.support_session_id).toBeTruthy();
-  await page.screenshot({path:".superpowers/evidence/comunidade-360/suporte-full-edita-b.png"});
+  await page.screenshot({path:"evidence/comunidade-360/suporte-full-edita-b.png"});
   const typeCreate=await page.request.post("/api/v1/agenda/tipos",{data:{name:`Tipo suporte ${suffix}`,duration_minutes:30,category:"outro",location_kind:"in_person"}});
   expect(typeCreate.status()).toBe(201);
   const typeId=(await typeCreate.json()).data.id;
@@ -210,7 +210,7 @@ test("suporte mantém identidade, opera B e encerra sem misturar A; readonly/exp
   const api=await page.request.patch(`/api/v1/contacts/${contacts[1]}`,{data:{name:"Forbidden"}});expect(api.status()).toBe(403);
   const send=await page.request.post("/api/v1/messages",{data:{conversation_id:convs[1],content:"Não enviar"}});expect(send.status()).toBe(403);
   const adminApi=await page.request.post(`/api/v1/admin/tenants/${orgs[1]}/suspend`,{data:{reason:"Teste de recusa readonly"}});expect(adminApi.status()).toBe(403);
-  await page.screenshot({path:".superpowers/evidence/comunidade-360/suporte-readonly-b.png"});
+  await page.screenshot({path:"evidence/comunidade-360/suporte-readonly-b.png"});
   const expire=await db.from("platform_support_sessions").update({expires_at:new Date(Date.now()-1000).toISOString()}).eq("actor_user_id",actor).is("ended_at",null);if(expire.error)throw expire.error;
   const stale=await page.request.patch(`/api/v1/contacts/${contacts[1]}`,{data:{name:"Forbidden expired"}});expect(stale.status()).toBe(403);
   await page.reload();await page.waitForURL("**/support-ended");await expect(page.getByRole("heading",{name:"Encerre o acompanhamento para continuar"})).toBeVisible();

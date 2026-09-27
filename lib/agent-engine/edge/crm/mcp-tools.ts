@@ -25,6 +25,7 @@ import { IDS_DO_HARNESS, motivoDoHarness } from '@/lib/mcp/tools/ferramentas-do-
 import type { McpAuthResult } from '@/lib/mcp/auth';
 import type { McpContext } from '@/lib/mcp/types';
 import { modulosLigados } from '@/lib/instalacao/modulos';
+import { filtrarToolsComCallbackDesabilitado } from '@/lib/followup/callback-policy';
 
 import type { Logger } from '../../obs/logger';
 import type { CrmEdgeConfig } from './mcp-client';
@@ -60,7 +61,11 @@ export async function buildMcpTurnTools(
   log: Logger,
   options?: { readOnly: boolean },
 ): Promise<McpTurnTools | null> {
-  const allowed = agentConfig.toolIds.filter((id) => !BLOCKED_TOOL_IDS.has(id));
+  const callbackFiltered = filtrarToolsComCallbackDesabilitado(
+    agentConfig.toolIds,
+    agentConfig.followup,
+  );
+  const allowed = callbackFiltered.filter((id) => !BLOCKED_TOOL_IDS.has(id));
   const blocked = agentConfig.toolIds.filter((id) => BLOCKED_TOOL_IDS.has(id));
   if (blocked.length > 0) {
     // A tela não oferece mais estas capacidades (a rota serve `marcavel: false`
@@ -89,6 +94,7 @@ export async function buildMcpTurnTools(
   const boundary = currentExecutionBoundary();
   const claim = originJob ? claimOfJob(originJob) : undefined;
   const ctx: McpContext = {
+    sourceJobId: ids.jobId,
     ...(originJob?.id === ids.jobId && boundary && claim
       ? { meetingBooking: { sourceJobId: originJob.id, claim, boundary } }
       : {}),

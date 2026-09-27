@@ -31,7 +31,12 @@ export interface AgentVersionRow {
   knowledge_source_ids: string[];
   split_messages: boolean;
   split_max_chars: number;
-  followup: { enabled: boolean; flow_pointer_ids: string[] };
+  followup: {
+    enabled: boolean;
+    flow_pointer_ids: string[];
+    callback_enabled?: boolean;
+    send_window?: { start: string; end: string; weekdays: number[] } | null;
+  };
   status: "draft" | "published" | "superseded" | "archived";
   published_at: string | null;
   superseded_at: string | null;

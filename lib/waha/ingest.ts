@@ -431,8 +431,8 @@ function bodyOf(p: WahaPayload): string | null {
 /**
  * O telefone REAL de quem escreveu, quando o chat chega como `@lid`.
  *
- * `from` vem opaco (`70192801575156@lid`), mas `_data.key.remoteJidAlt` traz
- * `558183647258@s.whatsapp.net`. Em grupo, o equivalente é `participantAlt`.
+ * `from` vem opaco (`100000000000001@lid`), mas `_data.key.remoteJidAlt` traz
+ * `5511900000001@s.whatsapp.net`. Em grupo, o equivalente é `participantAlt`.
  *
  * Devolve E.164 (`+55…`) ou null. **Só aceita o que parece telefone**: o campo é
  * de fora, e um valor estranho aqui viraria `phone_number` — que é chave de

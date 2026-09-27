@@ -51,7 +51,7 @@ const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL!, env.SUPABASE_SERVICE_R
 
 /** O servidor sob prova. `PROVA_APP` permite apontar para um `next start` recém-buildado do HEAD. */
 const APP = process.env.PROVA_APP ?? "http://localhost:3000";
-const EVID = ".superpowers/evidence";
+const EVID = "evidence";
 const SENHA = "Clinica!Prova1234";
 
 /** O que o gatilho semeia, na ordem. É o fato que motiva a feature inteira. */

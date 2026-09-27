@@ -48,7 +48,7 @@ import * as path from "node:path";
 import { expect, test, type Page } from "./helpers/test";
 
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
-const EVIDENCIA = path.join(process.cwd(), ".superpowers/evidence/notificacoes-sem-chaves");
+const EVIDENCIA = path.join(process.cwd(), "evidence/notificacoes-sem-chaves");
 
 interface Creds {
   password: string;

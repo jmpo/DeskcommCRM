@@ -82,6 +82,7 @@ const followupConfigObjectSchema = z
     enabled: z.boolean().default(false),
     flow_pointer_ids: z.array(UUID).max(20).default([]),
     send_window: followupSendWindowSchema.nullable().optional().default(null),
+    callback_enabled: z.boolean().optional(),
   })
   .strict();
 
@@ -96,6 +97,7 @@ const followupPatchSchema = followupConfigObjectSchema
     enabled: followupConfigObjectSchema.shape.enabled.removeDefault(),
     flow_pointer_ids: followupConfigObjectSchema.shape.flow_pointer_ids.removeDefault(),
     send_window: followupConfigObjectSchema.shape.send_window.removeDefault(),
+    callback_enabled: followupConfigObjectSchema.shape.callback_enabled,
   })
   .partial();
 

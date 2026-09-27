@@ -211,5 +211,5 @@ test("o selo de plantão distingue de plantão, fora do horário e desligado", a
     "sem jornada publicada o plantão é 24/7 — e ninguém tocou na chave entre um passo e outro",
   ).toBeVisible({ timeout: 15_000 });
 
-  await page.screenshot({ path: ".superpowers/evidence/plantao-tres-estados.png" });
+  await page.screenshot({ path: "evidence/plantao-tres-estados.png" });
 });

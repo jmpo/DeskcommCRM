@@ -13,10 +13,14 @@
  *
  * ⚠️ FORA DO CI (ver `FORA_DO_CI` em .github/workflows/e2e.yml): o servidor do
  * app precisa nascer apontado para o dublê, e isso é ambiente do `next start`,
- * não da spec. Roda local com:
+ * não da spec. Roda local (receita inteira em
+ * `.agents/skills/deskcomm-contribuir/references/receita-e2e-local.md`) com:
  *
+ *   pnpm e2e:env && pnpm e2e:build
  *   ZERNIO_API_BASE_URL=http://127.0.0.1:3998 ZERNIO_ACCOUNT_ID=ACC-E2E-MODELOS \
- *   ZERNIO_API_KEY=duble ./e2e-local.sh tests/e2e/modelos-do-parceiro-editar-apagar.spec.ts
+ *   ZERNIO_API_KEY=duble pnpm exec playwright test tests/e2e/modelos-do-parceiro-editar-apagar.spec.ts
+ *
+ * O `next start` que o `playwright.config.ts` sobe herda essas três variáveis.
  *
  * Sem essas variáveis a spec se declara pulada, em vez de falhar por ambiente.
  */
@@ -36,7 +40,7 @@ const CONTA = "ACC-E2E-MODELOS";
 const TEM_DUBLE = process.env.ZERNIO_API_BASE_URL === URL_DO_DUBLE && process.env.ZERNIO_ACCOUNT_ID === CONTA;
 
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
-const EVIDENCIA = process.env.E2E_EVIDENCIA ?? path.join(process.cwd(), ".superpowers/evidence/modelos-do-parceiro");
+const EVIDENCIA = process.env.E2E_EVIDENCIA ?? path.join(process.cwd(), "evidence/modelos-do-parceiro");
 
 interface Creds {
   password: string;
@@ -48,7 +52,7 @@ interface Creds {
 type Modelo = { name: string; language: string; status: string; category: string; components: unknown[] };
 const NOME = "recordatorio_e2e_modelos";
 const TEXTO_APROVADO = "Hola! Sale ₲125.000, con envío gratis. ¿Te lo reservamos?";
-const TEXTO_NOVO = "Hola! Ahora sale ₲135.000, con envío gratis. ¿Te lo reservamos?";
+const TEXTO_NOVO = "Hola! Ahora sale ₲150.000, con envío gratis. ¿Te lo reservamos?";
 
 const modelos = new Map<string, Modelo>();
 const recebidos: { metodo: string; caminho: string; corpo: unknown }[] = [];
@@ -115,7 +119,7 @@ test.describe("modelos do canal intermediado pela tela", () => {
       category: "MARKETING",
       components: [
         { type: "BODY", text: TEXTO_APROVADO },
-        { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Sí, lo quiero" }, { type: "URL", text: "Ver", url: "https://pedilo.test/pico" }] },
+        { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Sí, lo quiero" }, { type: "URL", text: "Ver", url: "https://loja.example/produto" }] },
       ],
     });
     servidor = dubleDoProvedor();
@@ -129,7 +133,7 @@ test.describe("modelos do canal intermediado pela tela", () => {
         webhook_path_token: `e2e-modelos-${Date.now()}`,
         webhook_secret_encrypted: "\\x00",
         display_name: "Número E2E",
-        phone_number: "+595981000999",
+        phone_number: "+5511900000999",
         status: "WORKING",
       })
       .select("id")
@@ -170,7 +174,7 @@ test.describe("modelos do canal intermediado pela tela", () => {
     const corpo = form.getByLabel("Conteúdo");
     await expect(corpo).toHaveValue(TEXTO_APROVADO);
     await corpo.fill(TEXTO_NOVO);
-    await expect(form.locator("[data-previa-do-modelo]")).toContainText("₲135.000");
+    await expect(form.locator("[data-previa-do-modelo]")).toContainText("₲150.000");
     await page.screenshot({ path: path.join(EVIDENCIA, "02-editando.png"), fullPage: true });
     await form.getByRole("button", { name: "Salvar e enviar para revisão" }).click();
     await expect(form).toBeHidden({ timeout: 30_000 });
@@ -178,8 +182,8 @@ test.describe("modelos do canal intermediado pela tela", () => {
     const patch = recebidos.find((r) => r.metodo === "PATCH");
     expect(patch?.caminho, "a edição chegou ao provedor").toBe(`/v1/whatsapp/templates/${NOME}`);
     const enviado = JSON.stringify(patch?.corpo);
-    expect(enviado, "com o texto novo").toContain("₲135.000");
-    expect(enviado, "e sem perder o botão de link").toContain("https://pedilo.test/pico");
+    expect(enviado, "com o texto novo").toContain("₲150.000");
+    expect(enviado, "e sem perder o botão de link").toContain("https://loja.example/produto");
     await expect(page.getByRole("button", { name: new RegExp(NOME) })).toContainText("PENDING", { timeout: 30_000 });
 
     // 3. Apagar: pede confirmação, avisa que não volta, e some da lista.

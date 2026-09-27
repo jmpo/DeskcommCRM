@@ -48,7 +48,7 @@ import { createClient } from "@supabase/supabase-js";
 import { carregarEnvLocal } from "../../scripts/lib/env-de-teste";
 
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
-const EVIDENCIA = path.join(process.cwd(), ".superpowers/evidence/inbox-rotulo-de-origem");
+const EVIDENCIA = path.join(process.cwd(), "evidence/inbox-rotulo-de-origem");
 
 interface Creds {
   password: string;

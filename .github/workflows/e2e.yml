@@ -1153,12 +1153,19 @@ jobs:
       # MEDIDO na API real. O que só esta prova é que o contrato ainda é esse — a
       # versão fixada responde e a chave passa no teste. Sem a chave, ela pula; o
       # cabeçalho dela tem a receita para rodar contra a API de verdade.
+      #
+      # `modelos-do-parceiro-editar-apagar` entrou aqui em 2026-09-26: o servidor
+      # do app tem de NASCER apontado para um dublê do provedor intermediado
+      # (ZERNIO_API_BASE_URL + conta e chave), e isso é ambiente do `next start`,
+      # não da spec — ligá-lo no `.env.e2e` de todas as partes mudaria o que as
+      # outras specs medem. Roda local; o comando está no cabeçalho da spec.
       FORA_DO_CI: >-
         inbox-tempo-real.spec.ts
         cadastro-sem-confirmacao-de-email.spec.ts
         aviso-de-caso-chega-no-whatsapp.spec.ts
         modelos-do-parceiro-editar-apagar.spec.ts
         jev-chave-real.spec.ts
+        modelos-do-parceiro-editar-apagar.spec.ts
     steps:
       # ── O RELÓGIO DESTA PARTE: ONDE O TETO DE 30 MIN COMEÇA A CONTAR ──────
       #

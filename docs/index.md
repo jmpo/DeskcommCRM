@@ -152,11 +152,14 @@ acessibilidade).
 
 Documentação de *processo*. Alta rotatividade; trate como estado, não como contrato.
 
-**Convenção observada:** épico **vivo** mantém o HANDOFF na **raiz** do repo; épico
-**encerrado** é arquivado em [`handoffs/`](handoffs/). Use isso para saber o que está em voo.
+**Convenção:** todo `HANDOFF*.md` vive em [`handoffs/`](handoffs/), indexado
+pelo [`handoffs/README.md`](handoffs/README.md) — encerrado ou não. Até
+setembro de 2026 valia "épico **vivo** mantém o HANDOFF na **raiz**", e a regra
+não segurou: 12 arquivos se acumularam na raiz e quatro carregavam identificador
+de produção num repositório público (#638). O gate que impede a volta é
+`tests/unit/handoff-na-raiz-nao-volta.test.ts`.
 
-- **Raiz (em voo):** `HANDOFF.md` (follow-up), `HANDOFF-harness-evolution.md`, `HANDOFF-operacao-visivel.md`
-- [`handoffs/`](handoffs/) — arquivados: casos humanos, inbox multimodal, CRM vivo, LGPD, wave1-devvivo, contrato wave5, briefing CRM vivo
+- [`handoffs/`](handoffs/) — **todo** o arquivo de handoff, com o índice e a convenção em [`handoffs/README.md`](handoffs/README.md). Quantos: `git ls-files 'docs/handoffs/HANDOFF*.md' | wc -l` (20 em 2026-09-26), mais briefing, contrato e `waves/`
 - [`stories/`](stories/) — épicos e stories (`epics/MASTER.md` = plano por epic/wave)
 - [`superpowers/`](superpowers/) — `plans/` e `specs/` datados por onda, mais `handoffs/`
 - [`growth/`](growth/) — material de crescimento · [`brand/`](brand/) — marca · [`white-label.md`](white-label.md) — instalação com marca própria, também em [en](white-label.en.md) e [es](white-label.es.md) (traduções seladas pelo hash do original; ver `scripts/selar-traducao.ts`)
