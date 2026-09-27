@@ -98,6 +98,10 @@ test.describe("Pausa de reentrada do gatilho de silêncio", () => {
     await expect(painel.getByTestId("trigger-config-save")).toBeDisabled();
 
     await teto.fill("60");
+    // Com 10 e 60 nada está inválido: a borda de erro some dos dois campos.
+    await expect(teto).toHaveAttribute("aria-invalid", "false");
+    await expect(painel.locator("#trigger-threshold")).toHaveAttribute("aria-invalid", "false");
+    await expect(painel.getByTestId("trigger-config-save")).toBeEnabled();
     await captura(page, "silencio-01-teto-de-60");
     await painel.getByTestId("trigger-config-save").click();
     await expect(botao).toHaveText(/10–60 min/, { timeout: 30_000 });

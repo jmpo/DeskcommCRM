@@ -355,7 +355,14 @@ export function TriggerConfigControl({ flowId, triggerConfig }: Props) {
           {summaryLabel(triggerConfig, etapaSalva ?? null, t)}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80" align="end" data-testid="trigger-config-panel">
+      {/* O painel cresce com o gatilho de silêncio (mínimo, teto, segmentos, pausa):
+          numa tela de 720 px o «Salvar gatilho» ficava abaixo da dobra, sem rolagem.
+          Mesma régua do `SelectContent` (altura disponível do Radix + rolagem). */}
+      <PopoverContent
+        className="w-80 max-h-(--radix-popover-content-available-height) overflow-y-auto"
+        align="end"
+        data-testid="trigger-config-panel"
+      >
         <div className="space-y-3">
           <div className="space-y-2">
             <Label htmlFor="trigger-kind">{t("Tipo de gatilho")}</Label>
