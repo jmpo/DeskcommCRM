@@ -1239,6 +1239,8 @@ export const DICIONARIO: Traducoes = {
   "Sem pedidos.": { es: "Sin pedidos." },
   "Sem atividade.": { es: "Sin actividad." },
   "Nova tag…": { es: "Nueva etiqueta…" },
+  // lib/atendimento/proximo-passo-padrao.ts — o texto que o banco grava na demanda nova
+  "Responder à nova mensagem do cliente": { es: "Responder al nuevo mensaje del cliente" },
   "Sem próximo passo definido": { es: "Sin siguiente paso definido" },
   "Marcar próximo passo": { es: "Definir siguiente paso" },
   Lead: { es: "Lead" },
