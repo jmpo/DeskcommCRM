@@ -82,4 +82,28 @@ test.describe("Pausa de reentrada do gatilho de silêncio", () => {
       .not.toContain("reentry_pause_minutes");
     registra(`pausa · depois de zerar = ${JSON.stringify(await gatilhoGravado())}`);
   });
+
+  test("o teto do silêncio: recusa um teto menor que o mínimo, e grava e mostra a faixa", async ({ page }) => {
+    await login(page, c.users.manager!.email, c.password);
+    await page.goto(`/app/ai/followups/${fluxoId}`);
+    const botao = page.getByTestId("trigger-config-button");
+    await expect(botao).toBeVisible({ timeout: 60_000 });
+
+    await botao.click();
+    const painel = page.getByTestId("trigger-config-panel");
+    await painel.locator("#trigger-threshold").fill("10");
+    const teto = painel.getByTestId("trigger-max-silence");
+    await teto.fill("5");
+    await expect(painel.getByText("Precisa ser maior que o mínimo e no máximo 10080 (7 dias).")).toBeVisible();
+    await expect(painel.getByTestId("trigger-config-save")).toBeDisabled();
+
+    await teto.fill("60");
+    await captura(page, "silencio-01-teto-de-60");
+    await painel.getByTestId("trigger-config-save").click();
+    await expect(botao).toHaveText(/10–60 min/, { timeout: 30_000 });
+    await expect
+      .poll(async () => (await gatilhoGravado()).params)
+      .toMatchObject({ threshold_minutes: 10, max_silence_minutes: 60 });
+    registra(`teto · gravado = ${JSON.stringify(await gatilhoGravado())}`);
+  });
 });

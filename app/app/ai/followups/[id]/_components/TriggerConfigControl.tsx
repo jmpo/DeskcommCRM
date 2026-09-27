@@ -82,6 +82,8 @@ interface TriggerFormState {
   segments: string;
   /** Pausa de reentrada do gatilho de silêncio, em HORAS na tela; o fio guarda minutos. */
   reentryPauseHours: number;
+  /** Teto do silêncio, em minutos; 0 = sem teto. */
+  maxSilenceMinutes: number;
   stageId: string;
   cancelOnReply: boolean;
   eventTypeIds: string[];
@@ -90,6 +92,8 @@ interface TriggerFormState {
 const DEFAULT_THRESHOLD_MINUTES = 60;
 const MIN_THRESHOLD_MINUTES = 5;
 const MAX_PAUSA_HORAS = MAX_PAUSA_DE_REENTRADA_MINUTES / 60;
+/** O mesmo teto do mínimo no contrato (7 dias). */
+const MAX_SILENCIO_MINUTOS = 10_080;
 
 const KIND_LABEL: Record<TriggerKind, string> = {
   appointment_no_show:"Falta confirmada pela equipe",
@@ -138,6 +142,7 @@ function parseTriggerConfig(raw: Record<string, unknown>): TriggerFormState {
       stage_id?: string;
       event_type_ids?: string[];
       reentry_pause_minutes?: number;
+      max_silence_minutes?: number;
     } | undefined) ?? {};
   const minutosRetorno =
     kind === "inbound_after_silence" && typeof params.threshold_minutes === "number"
@@ -159,6 +164,8 @@ function parseTriggerConfig(raw: Record<string, unknown>): TriggerFormState {
         : "",
     reentryPauseHours:
       kind === "silence" && typeof params.reentry_pause_minutes === "number" ? params.reentry_pause_minutes / 60 : 0,
+    maxSilenceMinutes:
+      kind === "silence" && typeof params.max_silence_minutes === "number" ? params.max_silence_minutes : 0,
     stageId: kind === "stage_change" && typeof params.stage_id === "string" ? params.stage_id : "",
     cancelOnReply: raw.cancel_on_reply === true,
   };
@@ -203,6 +210,7 @@ function toTriggerConfig(form: TriggerFormState): Record<string, unknown> {
       threshold_minutes: form.thresholdMinutes,
       ...(segments.length > 0 ? { segments } : {}),
       ...(pausa > 0 ? { reentry_pause_minutes: pausa } : {}),
+      ...(form.maxSilenceMinutes > 0 ? { max_silence_minutes: Math.round(form.maxSilenceMinutes) } : {}),
     },
     ...cancelOnReply,
   };
@@ -215,11 +223,14 @@ function summaryLabel(
 ): string {
   if(cfg.kind === "appointment_no_show") return t("Gatilho: falta confirmada pela equipe");
   if (cfg.kind === "silence") {
-    const params = cfg.params as { threshold_minutes?: number; reentry_pause_minutes?: number } | undefined;
+    const params = cfg.params as
+      | { threshold_minutes?: number; reentry_pause_minutes?: number; max_silence_minutes?: number }
+      | undefined;
     const minutes = params?.threshold_minutes;
     const pausa = params?.reentry_pause_minutes;
+    const teto = params?.max_silence_minutes;
     const detalhe = [
-      typeof minutes === "number" ? `${minutes} min` : null,
+      typeof minutes === "number" ? (typeof teto === "number" && teto > 0 ? `${minutes}–${teto} min` : `${minutes} min`) : null,
       typeof pausa === "number" && pausa > 0 ? `${t("pausa de")} ${Math.round((pausa / 60) * 10) / 10} h` : null,
     ].filter(Boolean);
     return `${t("Gatilho")}: ${t("Silêncio")}${detalhe.length > 0 ? ` (${detalhe.join(" · ")})` : ""}`;
@@ -293,11 +304,18 @@ export function TriggerConfigControl({ flowId, triggerConfig }: Props) {
   const pausaInvalid =
     form.kind === "silence" &&
     (!Number.isFinite(form.reentryPauseHours) || form.reentryPauseHours < 0 || form.reentryPauseHours > MAX_PAUSA_HORAS);
+  const tetoInvalid =
+    form.kind === "silence" &&
+    form.maxSilenceMinutes !== 0 &&
+    (!Number.isFinite(form.maxSilenceMinutes) ||
+      form.maxSilenceMinutes <= form.thresholdMinutes ||
+      form.maxSilenceMinutes > MAX_SILENCIO_MINUTOS);
   const thresholdInvalid =
     (form.kind === "silence" &&
       (!Number.isFinite(form.thresholdMinutes) || form.thresholdMinutes < MIN_THRESHOLD_MINUTES)) ||
     retornoInvalid ||
-    pausaInvalid;
+    pausaInvalid ||
+    tetoInvalid;
   // Gatilho de etapa sem etapa escolhida não é rascunho: é um fluxo que ficaria
   // ativo sem nunca disparar. O publish recusa; o Salvar recusa antes.
   const stageInvalid = form.kind === "stage_change" && form.stageId.trim().length === 0;
@@ -308,7 +326,8 @@ export function TriggerConfigControl({ flowId, triggerConfig }: Props) {
     (form.kind === "silence" &&
       (form.thresholdMinutes !== saved.thresholdMinutes ||
         form.segments !== saved.segments ||
-        form.reentryPauseHours !== saved.reentryPauseHours)) ||
+        form.reentryPauseHours !== saved.reentryPauseHours ||
+        form.maxSilenceMinutes !== saved.maxSilenceMinutes)) ||
     (form.kind === "inbound_after_silence" &&
       (form.thresholdValor !== saved.thresholdValor ||
         form.thresholdUnidade !== saved.thresholdUnidade ||
@@ -521,9 +540,30 @@ export function TriggerConfigControl({ flowId, triggerConfig }: Props) {
                   onChange={(e) => setForm((f) => ({ ...f, thresholdMinutes: Number(e.target.value) }))}
                   aria-invalid={thresholdInvalid}
                 />
-                {thresholdInvalid && (
+                {thresholdInvalid && !tetoInvalid && !pausaInvalid && (
                   <p className="text-xs text-error-fg">{t("Mínimo de")} {MIN_THRESHOLD_MINUTES} {t("minutos.")}</p>
                 )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="trigger-max-silence">{t("Até quantos minutos de silêncio (opcional)")}</Label>
+                <Input
+                  id="trigger-max-silence"
+                  type="number"
+                  min={0}
+                  max={MAX_SILENCIO_MINUTOS}
+                  value={form.maxSilenceMinutes}
+                  onChange={(e) => setForm((f) => ({ ...f, maxSilenceMinutes: Number(e.target.value) }))}
+                  aria-invalid={tetoInvalid}
+                  data-testid="trigger-max-silence"
+                />
+                {tetoInvalid && (
+                  <p className="text-xs text-error-fg">{t("Precisa ser maior que o mínimo e no máximo 10080 (7 dias).")}</p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    "Com um máximo, o fluxo só começa enquanto o silêncio for recente — por exemplo, entre 10 e 60 minutos depois da última mensagem do cliente. Quem está calado há mais tempo fica de fora. 0 = sem máximo.",
+                  )}
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="trigger-segments">Segmentos (tags, opcional)</Label>

@@ -511,6 +511,7 @@ Spec: `tests/e2e/pausa-de-reentrada.spec.ts`.
 | J35.2 | Editar OUTRO campo do gatilho | a pausa sobrevive | **PASS pela tela** |
 | J35.3 | Zerar a pausa | a chave sai do gatilho (comportamento de antes) | **PASS pela tela** |
 | J35.4 | Quem encerrou uma inscrição há menos que a pausa / quem nunca passou / conversa com pessoa no comando | pula / entra / pula (salvo `handoff_policy='allow'`) | **PASS (invariante)** — `tests/invariants/followup-silence-sweep.test.ts` |
+| J35.5 | Teto do silêncio: 5 com mínimo 10 é recusado; 60 é gravado e o botão mostra «10–60 min»; na varredura, quem está calado há 20 min entra e há 3 h fica de fora | tela + invariante | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/silencio-01-teto-de-60.png`; invariante no mesmo arquivo de J35.4 |
 
 ---
 
