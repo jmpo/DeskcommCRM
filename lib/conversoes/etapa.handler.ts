@@ -46,12 +46,18 @@ async function handle(row: EventRow): Promise<HandlerResult> {
   // ⚠️ Organização junto do id: o client é service-role e ignora RLS.
   const { data: etapa, error: erroDaEtapa } = await admin
     .from("crm_stages")
-    .select("evento_de_conversao")
+    .select("evento_de_conversao, is_won, is_lost")
     .eq("id", etapaId)
     .eq("organization_id", row.organization_id)
     .maybeSingle();
   if (erroDaEtapa) return tentarDeNovo(`leitura da etapa falhou: ${erroDaEtapa.message}`);
-  const evento = (etapa as { evento_de_conversao?: unknown } | null)?.evento_de_conversao;
+  const linha = etapa as { evento_de_conversao?: unknown; is_won?: boolean; is_lost?: boolean } | null;
+  // Etapa de FECHAMENTO não manda evento de etapa. A de ganho já manda a compra
+  // (`Purchase`, `envio.handler.ts`), e um segundo sinal no mesmo instante
+  // confundiria o otimizador; a de perda não tem sinal de intenção a dar. Um
+  // evento gravado antes de a etapa virar de fechamento fica sem efeito.
+  if (linha?.is_won || linha?.is_lost) return resultado("skipped", "etapa_de_fechamento");
+  const evento = linha?.evento_de_conversao;
   if (!ehEventoDeEtapa(evento)) return resultado("skipped", "etapa_sem_evento");
 
   const { data: lead, error } = await admin

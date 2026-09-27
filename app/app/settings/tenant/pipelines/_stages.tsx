@@ -514,33 +514,45 @@ export function StagesSection({
 
               {/* Evento de conversão ao entrar (migration 0443): em venda contra
                   entrega, a confirmação do pedido é o sinal cedo para a
-                  plataforma do anúncio — a venda só sai na entrega. */}
-              <label className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
-                {t("Evento para a plataforma de anúncio quando um negócio entrar aqui")}
-                <Select
-                  value={etapa.evento_de_conversao ?? "nenhum"}
-                  onValueChange={(v) =>
-                    aplicar(etapa.id, {
-                      evento_de_conversao: v === "nenhum" ? null : (v as "InitiateCheckout" | "LeadSubmitted" | "AddToCart"),
-                    })
-                  }
-                  disabled={ocupado}
-                >
-                  <SelectTrigger
-                    className="h-7 w-auto min-w-44 text-xs"
-                    aria-label={`${t("Evento para a plataforma de anúncio em")} «${etapa.name}»`}
-                    data-testid={`evento-${etapa.id}`}
+                  plataforma do anúncio — a venda só sai na entrega.
+                  Na etapa de FECHAMENTO não há o que escolher, e a tela diz por
+                  quê: a de ganho já manda a compra sozinha (quem procurava onde
+                  a "Purchase" estava configurada não achava em lugar nenhum), e
+                  a de perda não manda nada. `etapa.handler.ts` ignora as duas. */}
+              {etapa.is_won || etapa.is_lost ? (
+                <p className="text-xs text-text-muted" data-testid={`evento-fixo-${etapa.id}`}>
+                  {etapa.is_won
+                    ? t("Aqui a compra (Purchase) vai sozinha para a plataforma do anúncio, com o valor do pedido — não precisa configurar.")
+                    : t("Nesta etapa nenhum evento vai para a plataforma do anúncio.")}
+                </p>
+              ) : (
+                <label className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
+                  {t("Evento para a plataforma de anúncio quando um negócio entrar aqui")}
+                  <Select
+                    value={etapa.evento_de_conversao ?? "nenhum"}
+                    onValueChange={(v) =>
+                      aplicar(etapa.id, {
+                        evento_de_conversao: v === "nenhum" ? null : (v as "InitiateCheckout" | "LeadSubmitted" | "AddToCart"),
+                      })
+                    }
+                    disabled={ocupado}
                   >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="nenhum">{t("Nenhum")}</SelectItem>
-                    <SelectItem value="InitiateCheckout">{t("Início de compra (InitiateCheckout)")}</SelectItem>
-                    <SelectItem value="LeadSubmitted">{t("Lead (LeadSubmitted)")}</SelectItem>
-                    <SelectItem value="AddToCart">{t("Adicionou ao carrinho (AddToCart)")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </label>
+                    <SelectTrigger
+                      className="h-7 w-auto min-w-44 text-xs"
+                      aria-label={`${t("Evento para a plataforma de anúncio em")} «${etapa.name}»`}
+                      data-testid={`evento-${etapa.id}`}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="nenhum">{t("Nenhum")}</SelectItem>
+                      <SelectItem value="InitiateCheckout">{t("Início de compra (InitiateCheckout)")}</SelectItem>
+                      <SelectItem value="LeadSubmitted">{t("Lead (LeadSubmitted)")}</SelectItem>
+                      <SelectItem value="AddToCart">{t("Adicionou ao carrinho (AddToCart)")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+              )}
 
               {passo && (
                 <p className="text-xs text-text-muted" data-testid={`passo-de-${etapa.id}`}>

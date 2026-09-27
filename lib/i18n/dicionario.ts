@@ -9290,6 +9290,12 @@ export const DICIONARIO: Traducoes = {
   "Início de compra (InitiateCheckout)": { es: "Inicio de compra (InitiateCheckout)" },
   "Lead (LeadSubmitted)": { es: "Lead (LeadSubmitted)" },
   "Adicionou ao carrinho (AddToCart)": { es: "Agregó al carrito (AddToCart)" },
+  "Aqui a compra (Purchase) vai sozinha para a plataforma do anúncio, com o valor do pedido — não precisa configurar.": {
+    es: "Acá la compra (Purchase) se envía sola a la plataforma del anuncio, con el valor del pedido — no hace falta configurarla.",
+  },
+  "Nesta etapa nenhum evento vai para a plataforma do anúncio.": {
+    es: "En esta etapa no se envía ningún evento a la plataforma del anuncio.",
+  },
   "Descrição salva": { es: "Descripción guardada" },
   "Salvar descrição": { es: "Guardar descripción" },
   "É o que o atendente de IA conta ao cliente: para que serve, medidas, materiais, diferenciais. Ele repete o que estiver aqui — e não inventa o que faltar.": {
