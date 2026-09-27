@@ -9247,7 +9247,7 @@ export const DICIONARIO: Traducoes = {
   "Revisar credencial": { es: "Revisar credencial" },
   // ─── app/app/products/_client.tsx — descrição do produto ───
   "sem descrição": { es: "sin descripción" },
-  // ─── sons dos avisos (migration 0438) ───
+  // ─── sons dos avisos (migration 0441) ───
   "Sons dos avisos": { es: "Sonidos de los avisos" },
   "Tocam com o site aberto quando o aviso chega na Central. MP3, OGG ou WAV de até 1 MB.": {
     es: "Suenan con el sitio abierto cuando el aviso llega a la Central. MP3, OGG o WAV de hasta 1 MB.",
@@ -9273,7 +9273,7 @@ export const DICIONARIO: Traducoes = {
   "O som pode ter no máximo 1 MB.": { es: "El sonido puede tener como máximo 1 MB." },
   "O som precisa ser MP3, OGG ou WAV.": { es: "El sonido tiene que ser MP3, OGG o WAV." },
   "Aviso desconhecido.": { es: "Aviso desconocido." },
-  // ─── editor de etapas — evento de conversão (migration 0437) ───
+  // ─── editor de etapas — evento de conversão (migration 0443) ───
   "Evento para a plataforma de anúncio quando um negócio entrar aqui": {
     es: "Evento para la plataforma de anuncios cuando un negocio entre acá",
   },
@@ -9295,7 +9295,7 @@ export const DICIONARIO: Traducoes = {
   "Venda ganha!": { es: "¡Venta ganada!" },
   "1 venda": { es: "1 venta" },
   "vendas": { es: "ventas" },
-  // ─── lib/leads/aviso-de-etapa.handler.ts + editor de etapas (migration 0436) ───
+  // ─── lib/leads/aviso-de-etapa.handler.ts + editor de etapas (migration 0440) ───
   "Negócio entrou em": { es: "Negocio entró en" },
   "Abra o negócio para dar o próximo passo. Este aviso foi pedido na configuração da etapa.": {
     es: "Abrí el negocio para dar el próximo paso. Este aviso se pidió en la configuración de la etapa.",

@@ -1,5 +1,5 @@
 /**
- * Evento de conversão de ETAPA (migration 0437): o negócio entra numa etapa
+ * Evento de conversão de ETAPA (migration 0443): o negócio entra numa etapa
  * marcada com `InitiateCheckout` e o evento sai pela ponte do canal — sem valor
  * quando o negócio ainda não tem, e uma vez só.
  */

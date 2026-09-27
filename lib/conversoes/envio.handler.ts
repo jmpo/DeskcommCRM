@@ -267,7 +267,11 @@ export async function reportarConversao(
   // credencial da Meta: quem usa o canal não a tem. Só um caminho por evento —
   // mandar pelos dois contaria a mesma compra duas vezes se os ids de
   // deduplicação não casassem do outro lado.
-  if (plataforma === "meta_ads" && EVENTO !== "QualifiedLead" && !registro?.remote_request_id) {
+  if (
+    plataforma === "meta_ads" &&
+    (EVENTO === "Purchase" || ehEventoDeEtapaDaMeta(EVENTO)) &&
+    !registro?.remote_request_id
+  ) {
     let canal;
     try {
       canal = await canalQueReportaConversao(admin, row.organization_id, lead.contact_id);

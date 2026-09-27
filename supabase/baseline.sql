@@ -37473,7 +37473,7 @@ $$;
 revoke execute on function public.fn_preservar_conversao_enviada() from public, anon, authenticated;
 grant execute on function public.fn_preservar_conversao_enviada() to service_role;
 
--- ---- o aviso da Central anuncia no barramento que nasceu (migration 0439) ----
+-- ---- o aviso da Central anuncia no barramento que nasceu (migration 0442) ----
 --
 -- Os avisos que pedem gente (a IA passou a conversa para uma pessoa; um negócio
 -- entrou numa etapa que avisa, a venda confirmada de quem vende contra entrega)
@@ -40397,18 +40397,18 @@ alter table public.crm_stages
   add constraint crm_stages_win_probability_range
   check (win_probability is null or win_probability between 0 and 100);
 
--- ---- a etapa que avisa a equipe na Central (migration 0436) ----
+-- ---- a etapa que avisa a equipe na Central (migration 0440) ----
 -- Ver o cabeçalho da migration: marca por etapa, desligada por padrão; o
 -- handler `lib/leads/aviso-de-etapa.handler.ts` abre o item na Central.
 alter table public.crm_stages
   add column if not exists avisar_na_central boolean not null default false;
 
 comment on column public.crm_stages.avisar_na_central is
-  'Negócio que entra nesta etapa abre um aviso na Central de avisos (0436).';
+  'Negócio que entra nesta etapa abre um aviso na Central de avisos (0440).';
 
 notify pgrst, 'reload schema';
 
--- ---- a etapa manda evento de conversão à plataforma de anúncio (migration 0437) ----
+-- ---- a etapa manda evento de conversão à plataforma de anúncio (migration 0443) ----
 -- Ver o cabeçalho da migration. Aditivo e idempotente; coluna nova, sem legado.
 alter table public.crm_stages
   add column if not exists evento_de_conversao text;
@@ -40420,11 +40420,11 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 comment on column public.crm_stages.evento_de_conversao is
-  'Evento de conversão enviado à plataforma de anúncio quando um negócio entra nesta etapa (0437).';
+  'Evento de conversão enviado à plataforma de anúncio quando um negócio entra nesta etapa (0443).';
 
 notify pgrst, 'reload schema';
 
--- ---- o bucket dos sons dos avisos da Central (migration 0438) ----
+-- ---- o bucket dos sons dos avisos da Central (migration 0441) ----
 -- Privado; só o service_role lê e grava. Teto e tipos de lib/notifications/sons-da-org.ts.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('org-sounds', 'org-sounds', false, 1048576, array['audio/mpeg', 'audio/ogg', 'audio/wav'])
