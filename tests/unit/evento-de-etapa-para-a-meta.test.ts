@@ -23,11 +23,11 @@ const ETAPA = "44444444-4444-4444-4444-444444444444";
 
 const gravados: Record<string, unknown>[] = [];
 
-function fakeAdmin(t: { evento: string | null; valor?: number | null; jaEnviado?: boolean; anuncio?: boolean }) {
+function fakeAdmin(t: { evento: string | null; valor?: number | null; jaEnviado?: boolean; anuncio?: boolean; ganho?: boolean; perda?: boolean }) {
   return {
     from(tabela: string) {
       const linhas: Record<string, unknown> = {
-        crm_stages: { evento_de_conversao: t.evento },
+        crm_stages: { evento_de_conversao: t.evento, is_won: t.ganho === true, is_lost: t.perda === true },
         crm_leads: { id: LEAD, value_cents: t.valor ?? null, currency: "PYG", contact_id: CONTATO },
         contacts: {
           phone_number: "+595 981 000000",
@@ -105,5 +105,20 @@ describe("evento de conversão da etapa", () => {
     const f = vi.spyOn(globalThis, "fetch");
     expect((await conversaoDeEtapaHandler.handle(evento())).detail).toBe("etapa_sem_evento");
     expect(f).not.toHaveBeenCalled();
+  });
+
+  it("⭐ etapa de fechamento não manda evento de etapa, mesmo com um gravado de antes", async () => {
+    // A de ganho já manda a compra (`envio.handler.ts`): um segundo sinal no mesmo
+    // instante confundiria o otimizador. A de perda não tem intenção a sinalizar.
+    const f = vi.spyOn(globalThis, "fetch");
+    for (const cenario of [
+      { evento: "InitiateCheckout", ganho: true },
+      { evento: "AddToCart", perda: true },
+    ]) {
+      vi.mocked(createAdminClient).mockReturnValue(fakeAdmin(cenario) as never);
+      expect((await conversaoDeEtapaHandler.handle(evento())).detail).toBe("etapa_de_fechamento");
+    }
+    expect(f).not.toHaveBeenCalled();
+    expect(gravados).toHaveLength(0);
   });
 });

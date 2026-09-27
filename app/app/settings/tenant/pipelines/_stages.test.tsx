@@ -602,3 +602,32 @@ describe("StagesSection — arquivar", () => {
     expect(aviso).toHaveTextContent("Não deu para salvar");
   });
 });
+
+describe("StagesSection — o evento para a plataforma de anúncio", () => {
+  /**
+   * Quem opera procurava onde a «Purchase» estava configurada e não achava: ela
+   * sai sozinha quando o negócio entra na etapa de fechamento, e a linha dessa
+   * etapa oferecia o mesmo seletor das outras — onde escolher um evento mandaria
+   * um segundo sinal no mesmo instante da compra.
+   */
+  it("⭐ a etapa de GANHO diz que a compra vai sozinha, e não oferece seletor", async () => {
+    montar();
+    await screen.findByTestId("nome-e3");
+    expect(screen.getByTestId("evento-fixo-e3")).toHaveTextContent("a compra (Purchase) vai sozinha");
+    expect(screen.queryByTestId("evento-e3")).not.toBeInTheDocument();
+  });
+
+  it("a etapa de PERDA diz que nada vai, e não oferece seletor", async () => {
+    montar();
+    await screen.findByTestId("nome-e4");
+    expect(screen.getByTestId("evento-fixo-e4")).toHaveTextContent("nenhum evento vai");
+    expect(screen.queryByTestId("evento-e4")).not.toBeInTheDocument();
+  });
+
+  it("controle: a etapa comum segue com o seletor", async () => {
+    montar();
+    await screen.findByTestId("nome-e1");
+    expect(screen.getByTestId("evento-e1")).toBeInTheDocument();
+    expect(screen.queryByTestId("evento-fixo-e1")).not.toBeInTheDocument();
+  });
+});
