@@ -552,7 +552,7 @@ export function TriggerConfigControl({ flowId, triggerConfig }: Props) {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="trigger-max-silence">{t("Até quantos minutos de silêncio (opcional)")}</Label>
+                <Label htmlFor="trigger-max-silence">{t("Silêncio máximo, em minutos (opcional)")}</Label>
                 <Input
                   id="trigger-max-silence"
                   type="number"

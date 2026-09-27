@@ -2374,7 +2374,7 @@ export const DICIONARIO: Traducoes = {
   "Minutos de silêncio": { es: "Minutos de silencio" },
   // ─── gatilho de silêncio — pausa de reentrada (lib/followup/pausa-de-reentrada.ts) ───
   "Pausa antes de recomeçar (horas)": { es: "Pausa antes de volver a empezar (horas)" },
-  "Até quantos minutos de silêncio (opcional)": { es: "Hasta cuántos minutos de silencio (opcional)" },
+  "Silêncio máximo, em minutos (opcional)": { es: "Silencio máximo, en minutos (opcional)" },
   "Precisa ser maior que o mínimo e no máximo 10080 (7 dias).": {
     es: "Tiene que ser mayor que el mínimo y como máximo 10080 (7 días).",
   },
