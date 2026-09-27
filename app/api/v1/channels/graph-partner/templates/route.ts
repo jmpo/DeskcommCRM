@@ -1,7 +1,7 @@
 import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * GET  /api/v1/channels/graph-partner/templates — o espelho desta conexão, com os slots.
- * POST /api/v1/channels/graph-partner/templates — sincroniza, ou CRIA e sincroniza.
+ * POST /api/v1/channels/graph-partner/templates — sincroniza, CRIA, EDITA ou APAGA.
  *
  * As definições aprovadas do canal parceiro que espelha a Cloud API (recorte do
  * #1130, de @vgamkt). Espelha a rota do outro parceiro, com três diferenças que
@@ -13,6 +13,15 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  *  3. o GET devolve os SLOTS derivados do contrato, como a rota do canal
  *     oficial: sem eles o seletor da janela fechada não pede os `{{n}}`, e o
  *     pré-voo do envio recusa todo modelo que tenha variável.
+ *
+ * ─── Editar e apagar por VARIANTE (issue #1734) ─────────────────────────────
+ *
+ * Foram recusados aqui (422) até a #1734, porque o DELETE desta plataforma, por
+ * nome só, leva TODAS as variantes de idioma enquanto a tela apagaria uma. Agora
+ * o alvo resolve o id da variante por nome+idioma antes de falar com a
+ * plataforma (`lib/channels/graph-parceiro/templates.ts`), e a rota passa a
+ * mesma `executarGestao` da rota do outro parceiro — a regra de "apagar pergunta
+ * onde o modelo está em uso" é uma só, e duas cópias envelheceriam separadas.
  *
  * ─── Desligado por padrão ───────────────────────────────────────────────────
  *
@@ -46,6 +55,7 @@ import {
 } from "@/lib/channels";
 import { canalGraphParceiroLigado } from "@/lib/channels/graph-parceiro/credentials";
 import { findGraphPartnerSession } from "@/lib/channels/graph-parceiro/session";
+import { acaoApagarSchema, acaoEditarSchema, executarGestao } from "@/lib/channels/gestao-de-modelos";
 import { slotKey } from "@/lib/channels/meta/build-components";
 import { hashContract } from "@/lib/channels/meta/contract-hash";
 import { deriveTemplateContract, describeAddress } from "@/lib/channels/meta/template-contract";
@@ -53,7 +63,6 @@ import { traduzir } from "@/lib/i18n/dicionario";
 import type { Idioma } from "@/lib/i18n/idiomas";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { acaoApagarSchema, acaoEditarSchema, executarGestao } from "@/lib/channels/gestao-de-modelos";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -72,7 +81,8 @@ const corpoSchema = z.discriminatedUnion("acao", [
     category: z.enum(["AUTHENTICATION", "MARKETING", "UTILITY"]).default("UTILITY"),
     components: z.array(z.record(z.string(), z.unknown())).min(1).max(10),
   }),
-  // Editar e apagar pela tela (ver lib/channels/gestao-de-modelos.ts).
+  // Editar e apagar pela tela (ver lib/channels/gestao-de-modelos.ts). Os dois
+  // exigem name + language: é o par que identifica a VARIANTE na plataforma.
   acaoEditarSchema,
   acaoApagarSchema,
 ]);

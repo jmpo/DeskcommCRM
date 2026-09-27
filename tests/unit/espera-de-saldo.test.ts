@@ -140,7 +140,7 @@ describe("o que vai para o banco", () => {
       "other",
       "critical",
       "La IA se quedó sin saldo en el proveedor",
-      expect.stringContaining("Recargá el saldo en la cuenta del proveedor"),
+      expect.stringContaining("Recarga el saldo en la cuenta del proveedor"),
       "ai_provider_credential",
       "cred-1",
     ]);

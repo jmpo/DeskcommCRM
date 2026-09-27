@@ -79,7 +79,12 @@ const COR_DO_ESTADO: Record<string, string> = {
  */
 export function TemplatesParceiroClient({
   rota = "/api/v1/channels/partner/templates",
-}: { rota?: string } = {}) {
+  gerenciar = true,
+}: {
+  rota?: string;
+  /** Mostra Editar/Apagar no modelo aberto. A prévia aparece sempre. */
+  gerenciar?: boolean;
+} = {}) {
   const tagDoIdioma = useTagDeIdioma();
   const t = useT();
   const qc = useQueryClient();
@@ -191,8 +196,6 @@ export function TemplatesParceiroClient({
     },
   });
 
-  const templates = lista.data?.data.templates ?? [];
-
   /**
    * DE QUAL NÚMERO SÃO ESTES MODELOS.
    *
@@ -201,10 +204,13 @@ export function TemplatesParceiroClient({
    * da anterior ficaram listados aqui, e não havia nada na tela que permitisse
    * notar. Modelo aprovado pertence a uma conta de WhatsApp Business
    * específica; ver o número ao lado da lista é o que transforma "modelos
-   * estranhos" em "modelos de outro número".
+   * estranhos" em "modelos de outro número". Só na aba do parceiro por
+   * credencial: é dele a rota que devolve o número.
    */
+  const doParceiro = rota === "/api/v1/channels/partner/templates";
   const conexao = useQuery({
     queryKey: ["canal-parceiro-cabecalho"],
+    enabled: doParceiro,
     queryFn: async () => {
       const r = await apiClient.get<{ data: { phone_number: string | null; account_id: string | null } }>(
         "/api/v1/channels/partner",
@@ -212,7 +218,9 @@ export function TemplatesParceiroClient({
       return r.data;
     },
   });
-  const numero = conexao.data?.phone_number ?? null;
+  const numero = doParceiro ? (conexao.data?.phone_number ?? null) : null;
+
+  const templates = lista.data?.data.templates ?? [];
 
   return (
     <div className="flex flex-col gap-4">
@@ -638,20 +646,24 @@ export function TemplatesParceiroClient({
                       </p>
                     )}
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button type="button" variant="outline" size="sm" onClick={() => abrirEdicao(tpl)}>
-                        <PencilSimple size={14} className="mr-1.5" aria-hidden />
-                        {t("Editar")}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => setApagando({ tpl, usos: null })}
-                      >
-                        <Trash size={14} className="mr-1.5" aria-hidden />
-                        {t("Apagar")}
-                      </Button>
+                      {gerenciar && (
+                        <>
+                          <Button type="button" variant="outline" size="sm" onClick={() => abrirEdicao(tpl)}>
+                            <PencilSimple size={14} className="mr-1.5" aria-hidden />
+                            {t("Editar")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setApagando({ tpl, usos: null })}
+                          >
+                            <Trash size={14} className="mr-1.5" aria-hidden />
+                            {t("Apagar")}
+                          </Button>
+                        </>
+                      )}
                       <span className="ml-auto text-[10px] text-muted-foreground">
                         {t("Sincronizado em")} {new Date(tpl.syncedAt).toLocaleString(tagDoIdioma)}
                       </span>

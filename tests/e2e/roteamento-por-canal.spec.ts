@@ -11,7 +11,7 @@ const credentials = credenciaisSupabaseDeTeste();
 const db = createClient(credentials.url, credentials.serviceRole, {
   auth: { persistSession: false },
 });
-const evidence = ".superpowers/evidence/comunidade-360";
+const evidence = "evidence/comunidade-360";
 
 test.use({ trace: "on" });
 test.describe.configure({ timeout: 180_000 });

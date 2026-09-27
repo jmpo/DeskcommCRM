@@ -27,8 +27,17 @@ import { StaleServiceBoundaryError, parseServiceBoundary, assertCurrentServiceBo
  * contato já vivo em QUALQUER fluxo da org barra novo enrollment (1 follow-up
  * vivo por lead), 23505 vira skip silencioso (`insertEnrollment` devolve
  * `inserted:false`), nunca erro. Um contato que COMPLETOU ou foi cancelado
- * pode ser re-enrollado na varredura seguinte se continuar silencioso —
- * aceitável no MVP, sem cooldown table.
+ * pode ser re-enrollado na varredura seguinte se continuar silencioso — a
+ * menos que o fluxo declare `reentry_pause_minutes`: aí quem já encerrou uma
+ * inscrição deste fluxo espera a pausa (`pausa-de-reentrada.ts`).
+ *
+ * Conversa com PESSOA NO COMANDO (assumida por alguém da equipe, contato em
+ * `force_human`, IA silenciada): não é inscrita, salvo fluxo com
+ * `handoff_policy='allow'`. A política de handoff do fluxo já PAUSA ou CANCELA
+ * a inscrição quando a pessoa assume no meio do caminho — mas ela reage ao
+ * EVENTO do handoff, e uma inscrição criada DEPOIS dele não o vê: o passo de
+ * texto saía por cima da pessoa, e o de IA terminava sem enviar e era
+ * cancelado, num laço com a varredura seguinte.
  *
  * agent_id: `decidirAgenteDoEnrollmentAutomatico` pina o agente publicado que
  * ARMA o pointer (menor uuid se >1). Grafo só de texto fixo nasce com
@@ -57,6 +66,7 @@ import {
   type FollowupGateDb,
   type NoDeGatilho,
 } from "./agent-followup-gate";
+import { emPausaDeReentrada, type FatosDaReentrada } from "./pausa-de-reentrada";
 import { contatosComRetornoVivo } from "./retorno-segura-o-fluxo";
 
 export interface SilencePointer {
@@ -65,6 +75,10 @@ export interface SilencePointer {
   active_version_id: string;
   threshold_minutes: number;
   segments: string[];
+  /** Pausa antes de recomeçar para quem já encerrou uma inscrição deste fluxo; ausente/0 = sem pausa. */
+  reentry_pause_minutes?: number;
+  /** `followup_flow_pointers.handoff_policy`; ausente = `pause` (o default da coluna). */
+  handoff_policy?: "pause" | "cancel" | "allow";
 }
 
 /** DB surface o sweep precisa — narrow por consumidor (mesma doutrina de `AdminClient`/`ReactivityAdminClient`/`FollowupGateDb`). */
@@ -78,6 +92,17 @@ export interface SilenceSweepDb {
    * caminho não entra no fluxo de silêncio. Ver `retorno-segura-o-fluxo.ts`.
    */
   loadContatosComRetornoVivo(orgId: string): Promise<Set<string>>;
+  /**
+   * Dos `contactIds`, os que têm uma inscrição ENCERRADA (`completed`,
+   * `cancelled`, `dead`) neste fluxo: quando terminou a mais recente e quando o
+   * contato escreveu por último. Só é chamado com pausa configurada.
+   */
+  loadEncerramentosDoFluxo(orgId: string, pointerId: string, contactIds: string[]): Promise<Map<string, FatosDaReentrada>>;
+  /**
+   * Dos `contactIds`, os que têm uma pessoa no comando da conversa — assumida
+   * por alguém da equipe, contato em `force_human` ou IA silenciada agora.
+   */
+  loadContatosComPessoaNoComando(orgId: string, contactIds: string[]): Promise<Set<string>>;
   /** Nó `trigger` do grafo pinado + se o fluxo pede agente; `null` se version/nó não existir. */
   loadTriggerNode(orgId: string, versionId: string): Promise<NoDeGatilho | null>;
   /** Insere o enrollment nascendo no nó trigger; `inserted:false` = 23505 (já vivo nesse pointer) → skip. */
@@ -99,6 +124,10 @@ export interface SilenceSweepSummary {
   skipped_existing: number;
   /** Silenciosos que ficaram de fora porque já têm um retorno agendado. */
   skipped_pending_return: number;
+  /** Silenciosos que já passaram pelo fluxo e ainda estão na pausa de reentrada. */
+  skipped_reentry_pause: number;
+  /** Silenciosos cuja conversa tem uma pessoa no comando (fluxo sem `handoff_policy='allow'`). */
+  skipped_human_owned: number;
   /**
    * Pointers que FALHARAM nesta varredura (logados e pulados). Um pointer ruim
    * — de uma empresa só — não pode calar a varredura de todas as outras: antes,
@@ -121,6 +150,8 @@ export async function runSilenceSweep(deps: SilenceSweepDeps): Promise<SilenceSw
     enrolled: 0,
     skipped_existing: 0,
     skipped_pending_return: 0,
+    skipped_reentry_pause: 0,
+    skipped_human_owned: 0,
     pointers_failed: 0,
   };
 
@@ -165,10 +196,27 @@ export async function runSilenceSweep(deps: SilenceSweepDeps): Promise<SilenceSw
       const nextEvalAt = clock().toISOString();
       const comRetorno =
         contactIds.length > 0 ? await db.loadContatosComRetornoVivo(pointer.organization_id) : new Set<string>();
+      const pausaMinutos = pointer.reentry_pause_minutes ?? 0;
+      const encerramentos =
+        contactIds.length > 0 && pausaMinutos > 0
+          ? await db.loadEncerramentosDoFluxo(pointer.organization_id, pointer.id, contactIds)
+          : new Map<string, FatosDaReentrada>();
+      const comPessoa =
+        contactIds.length > 0 && pointer.handoff_policy !== "allow"
+          ? await db.loadContatosComPessoaNoComando(pointer.organization_id, contactIds)
+          : new Set<string>();
 
       for (const contactId of contactIds) {
         if (comRetorno.has(contactId)) {
           summary.skipped_pending_return++;
+          continue;
+        }
+        if (comPessoa.has(contactId)) {
+          summary.skipped_human_owned++;
+          continue;
+        }
+        if (emPausaDeReentrada(encerramentos.get(contactId), pausaMinutos, clock())) {
+          summary.skipped_reentry_pause++;
           continue;
         }
         const { inserted } = await db.insertEnrollment({
@@ -202,17 +250,27 @@ type ContactEmbed =
       is_blocked: boolean | null;
       ai_authorized_at: string | null;
       phone_number: string | null;
+      force_human: boolean | null;
     }
   | null;
+
+/** Estados em que a inscrição ACABOU — os que contam para a pausa de reentrada. */
+const STATUS_ENCERRADOS = ["completed", "cancelled", "dead"] as const;
+/** Lote do `in(contact_id, …)`: a lista vai na URL do PostgREST. */
+const LOTE_DE_CONTATOS = 100;
 
 /** Production adapter: `SilenceSweepDb` sobre o client service-role real. */
 export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSweepDb {
   const origins = new Map<string, ServiceBoundary>();
+  // Fatos da conversa MAIS RECENTE de cada silencioso, lidos na mesma consulta
+  // de `loadSilentContactIds` — as duas leituras abaixo não voltam ao banco por eles.
+  const ultimaMensagem = new Map<string, number>();
+  const pessoaNoComando = new Set<string>();
   return {
     async loadActiveSilencePointers() {
       const { data, error } = await admin
         .from("followup_flow_pointers")
-        .select("id, organization_id, active_version_id, trigger_config, surface")
+        .select("id, organization_id, active_version_id, trigger_config, surface, handoff_policy")
         .eq("status", "active")
         .not("active_version_id", "is", null);
       if (error) throw new Error(error.message);
@@ -224,6 +282,7 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
         active_version_id: string | null;
         trigger_config: unknown;
         surface?: string | null;
+        handoff_policy?: string | null;
       }>) {
         // Roteiro de atendimento (0394) é do turno, nunca do relógio: o banco
         // já o prende em gatilho manual, e este corte é a segunda porta.
@@ -236,6 +295,9 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
           active_version_id: row.active_version_id,
           threshold_minutes: parsed.data.params.threshold_minutes,
           segments: parsed.data.params.segments ?? [],
+          reentry_pause_minutes: parsed.data.params.reentry_pause_minutes ?? 0,
+          handoff_policy:
+            row.handoff_policy === "allow" || row.handoff_policy === "cancel" ? row.handoff_policy : "pause",
         });
       }
       return pointers;
@@ -256,7 +318,7 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
       const { data, error } = await admin
         .from("conversations")
         .select(
-          "id, service_revision, current_demanda_id, demandas!conversations_current_demanda_id_fkey(revision,fechada_em), status, messages!messages_conversation_id_fkey(organization_id,contact_id,conversation_id,service_revision,demanda_id,demanda_revision,sent_at), contact_id, last_inbound_at, contacts:contact_id(tags, is_blocked, ai_authorized_at, phone_number), sessao:channel_session_id(metadata)",
+          "id, service_revision, current_demanda_id, demandas!conversations_current_demanda_id_fkey(revision,fechada_em), status, assignee_kind, bot_silenced_until, messages!messages_conversation_id_fkey(organization_id,contact_id,conversation_id,service_revision,demanda_id,demanda_revision,sent_at), contact_id, last_inbound_at, contacts:contact_id(tags, is_blocked, ai_authorized_at, phone_number, force_human), sessao:channel_session_id(metadata)",
         )
         .eq("organization_id", orgId).eq("demandas.organization_id", orgId)
         .eq("contacts.organization_id", orgId).eq("sessao.organization_id", orgId)
@@ -271,6 +333,7 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
       type Row = {
         id: string; service_revision: number; current_demanda_id: string | null; demandas: { revision: number; fechada_em: string | null } | null;
         status: string; messages: Array<ServiceBoundary & { sent_at: string }>;
+        assignee_kind?: string | null; bot_silenced_until?: string | null;
         contact_id: string;
         last_inbound_at: string;
         contacts: ContactEmbed;
@@ -281,7 +344,14 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
       const ttlMs = ttlDaAutorizacaoMs(process.env);
       const latest = new Map<
         string,
-        { boundary: ServiceBoundary; at: number; tags: string[]; blocked: boolean; permitidoPeloGate: boolean }
+        {
+          boundary: ServiceBoundary;
+          at: number;
+          tags: string[];
+          blocked: boolean;
+          permitidoPeloGate: boolean;
+          pessoaNoComando: boolean;
+        }
       >();
       for (const row of (data ?? []) as unknown as Row[]) {
         const source = row.messages?.[0];
@@ -315,6 +385,12 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
             tags: row.contacts?.tags ?? [],
             blocked: row.contacts?.is_blocked ?? false,
             permitidoPeloGate: acesso.permite,
+            // Os três vetos que valem sempre no atendimento (`decidirElegibilidade`),
+            // lidos à parte: quem decide se barram o fluxo é a política de handoff dele.
+            pessoaNoComando:
+              row.assignee_kind === "user" ||
+              row.contacts?.force_human === true ||
+              (row.bot_silenced_until != null && Date.parse(row.bot_silenced_until) > agora.getTime()),
           });
         }
       }
@@ -330,8 +406,39 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
         if (segments.length > 0 && !segments.some((s) => v.tags.includes(s))) continue;
         silentIds.push(contactId);
         origins.set(`${orgId}:${contactId}`, v.boundary);
+        ultimaMensagem.set(`${orgId}:${contactId}`, v.at);
+        if (v.pessoaNoComando) pessoaNoComando.add(`${orgId}:${contactId}`);
+        else pessoaNoComando.delete(`${orgId}:${contactId}`);
       }
       return silentIds;
+    },
+
+    async loadEncerramentosDoFluxo(orgId, pointerId, contactIds) {
+      const encerradaEm = new Map<string, number>();
+      for (let i = 0; i < contactIds.length; i += LOTE_DE_CONTATOS) {
+        const { data, error } = await admin
+          .from("followup_enrollments")
+          .select("contact_id, completed_at, updated_at")
+          .eq("organization_id", orgId)
+          .eq("pointer_id", pointerId)
+          .in("status", [...STATUS_ENCERRADOS])
+          .in("contact_id", contactIds.slice(i, i + LOTE_DE_CONTATOS));
+        if (error) throw new Error(error.message);
+        for (const row of (data ?? []) as Array<{ contact_id: string; completed_at: string | null; updated_at: string | null }>) {
+          // Nem todo caminho de encerramento grava `completed_at`; o mais tardio dos dois é o fim.
+          const fim = Math.max(Date.parse(row.completed_at ?? "") || 0, Date.parse(row.updated_at ?? "") || 0);
+          if (fim > (encerradaEm.get(row.contact_id) ?? 0)) encerradaEm.set(row.contact_id, fim);
+        }
+      }
+      const fatos = new Map<string, FatosDaReentrada>();
+      for (const [contactId, fim] of encerradaEm) {
+        fatos.set(contactId, { encerradaEm: fim, ultimaMensagemEm: ultimaMensagem.get(`${orgId}:${contactId}`) ?? null });
+      }
+      return fatos;
+    },
+
+    async loadContatosComPessoaNoComando(orgId, contactIds) {
+      return new Set(contactIds.filter((id) => pessoaNoComando.has(`${orgId}:${id}`)));
     },
 
     loadContatosComRetornoVivo(orgId) {

@@ -47,7 +47,7 @@ import { carregarEnvLocal } from "../../scripts/lib/env-de-teste";
 
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
 const EVIDENCIA =
-  process.env.E2E_EVIDENCIA ?? path.join(process.cwd(), ".superpowers/evidence/juntar-contatos");
+  process.env.E2E_EVIDENCIA ?? path.join(process.cwd(), "evidence/juntar-contatos");
 
 interface Creds {
   password: string;

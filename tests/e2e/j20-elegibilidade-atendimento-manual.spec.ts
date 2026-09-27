@@ -35,7 +35,7 @@ import { PRAZO_DO_SILENCIO_MS } from "@/lib/escalacao/atendimento-manual";
 
 const APP_URL = `http://localhost:${process.env.E2E_PORT ?? "3001"}`;
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
-const EVIDENCIA = path.join(process.cwd(), ".superpowers/evidence/j20-elegibilidade");
+const EVIDENCIA = path.join(process.cwd(), "evidence/j20-elegibilidade");
 
 interface Creds {
   password: string;

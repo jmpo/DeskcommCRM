@@ -233,7 +233,7 @@ test.describe("Jev — decisões rápidas, pela tela", () => {
 
     await test.step("Execuções mostra a medição com o nome do Jev", async () => {
       await esperarMedicaoEmExecucoes(page, /typesafe\/jev-1\.13\.0/);
-      await page.screenshot({ path: ".superpowers/evidence/jev/execucoes-so-o-jev.png", fullPage: true });
+      await page.screenshot({ path: "evidence/jev/execucoes-so-o-jev.png", fullPage: true });
     });
 
     await test.step("o cartão conta a mensagem medida", async () => {
@@ -242,7 +242,7 @@ test.describe("Jev — decisões rápidas, pela tela", () => {
       await expect(async () => {
         expect(await mensagensMedidas(page)).toBeGreaterThanOrEqual(antes + 1);
       }).toPass({ timeout: 30_000, intervals: [1_000, 2_000, 3_000] });
-      await page.screenshot({ path: ".superpowers/evidence/jev/cartao-decidindo.png", fullPage: true });
+      await page.screenshot({ path: "evidence/jev/cartao-decidindo.png", fullPage: true });
     });
 
     await test.step("catracas: o Jev não é escolhível como IA que conversa", async () => {

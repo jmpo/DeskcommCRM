@@ -158,7 +158,7 @@ async function main(): Promise<void> {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await login(page);
   await escolherNaTela(page, alvo.name);
-  await page.screenshot({ path: ".superpowers/evidence/ciclo-funil-tela.png", fullPage: true });
+  await page.screenshot({ path: "evidence/ciclo-funil-tela.png", fullPage: true });
 
   const depoisDoClique = await etapas();
   const gravada = depoisDoClique.find((e) => e.agent_stage_hint === PASSO);

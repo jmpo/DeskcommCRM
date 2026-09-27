@@ -39,6 +39,8 @@ export interface PublishedAgentConfig {
   multimodalInput: boolean;
   /** tools open_human_case/provide_case_update habilitadas no turno (spec 15). */
   casesEnabled: boolean;
+  /** JSON versionado com `followup.callback_enabled` e os fluxos normais. */
+  followup?: unknown;
   /** tool_ids do catálogo MCP habilitadas na tela (2B-tools). */
   toolIds: string[];
   /**
@@ -110,6 +112,7 @@ interface Row {
   split_max_chars: number;
   multimodal_input: boolean;
   cases_enabled: boolean;
+  followup: unknown;
   tool_ids: string[] | null;
   active_kb_version_id: string | null;
   config: Record<string, unknown> | null;
@@ -139,6 +142,7 @@ const SELECT_AGENT_CONFIG_COLUMNS = `a.operation_mode,a.paused_at,a.operation_re
             v.split_max_chars,
             v.multimodal_input,
             v.cases_enabled,
+            v.followup,
             v.tool_ids,
             a.active_kb_version_id,
             a.config,
@@ -194,6 +198,7 @@ function mapAgentConfigRow(r: Row): PublishedAgentConfig {
     splitMaxChars: r.split_max_chars,
     multimodalInput: r.multimodal_input,
     casesEnabled: r.cases_enabled,
+    followup: r.followup,
     toolIds: r.tool_ids ?? [],
     // `?? []` cobre o clone sem a 0181: sem a coluna, o agente cai no ponteiro
     // legado abaixo em vez de ficar sem material nenhum.

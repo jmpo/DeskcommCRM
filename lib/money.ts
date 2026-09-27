@@ -139,7 +139,8 @@ export function formatCentsUSD(cents: number): string {
  * **As três do kanban já convergiram** — em `formatValorDoNegocio`, e não em
  * `formatCents`, porque o negócio guarda ×100 em qualquer moeda (ver a função);
  * o `maximumFractionDigits: 0` delas virou a opção `semCentavos`. Faltam o
- * inbox e o PDF de LGPD, frentes que a doutrina não deixa misturar com esta. Enquanto não convergem, a duplicação fica DECLARADA aqui
+ * inbox e o PDF de LGPD, frentes que a doutrina não deixa misturar com esta.
+ * Enquanto não convergem, a duplicação fica DECLARADA aqui
  * — que é o que separa o anti-pattern 2 ("duplicação sem source of truth
  * declarado") de uma dívida com dono e endereço.
  *
@@ -254,20 +255,18 @@ export function formatCents(cents: number, moeda: string): string {
  * O VALOR DE UM NEGÓCIO (`crm_leads.value_cents`), escrito na moeda dele.
  *
  * ⚠️ DUAS RÉGUAS DE `_cents` CONVIVEM, e esta função é a ponte entre elas.
- * O catálogo (`preco_cents`) guarda unidades MENORES da moeda — guarani inteiro,
- * porque o PYG não tem subunidade — e é a régua de `formatCents`. O negócio
- * guarda o valor × 100 em QUALQUER moeda: o formulário (`parseReaisToCents`), a
- * planilha, o dossiê, o card e a conversão enviada à Meta, ao Google e ao canal
- * intermediado multiplicam e dividem por
- * 100 também em guarani (o conversor de venda do canal intermediado, em
- * `lib/channels/`, declara isso por escrito), e os testes de conversão fixam isso
- * (`125_000_00` → ₲125.000).
+ * `formatCents` lê UNIDADES MENORES da moeda — as casas vêm do `Intl`, e em
+ * moeda sem subunidade (guarani, iene, peso chileno) o número já é a moeda
+ * inteira. O negócio guarda o valor × 100 em QUALQUER moeda: o formulário
+ * (`parseReaisToCents`) multiplica por 100 sem olhar a moeda, e o card e o
+ * dossiê do funil sempre dividiram por 100 fixo.
  *
  * O total da coluna do funil passava o valor do negócio direto a `formatCents`:
  * dois pedidos de ₲125.000 (`value_cents` 12.500.000 cada) apareciam como
  * `Gs. 25.000.000` — cem vezes mais —, enquanto o card, com o `/100` fixo, dizia
  * o certo. Medido numa instalação real em 25/09/2026. Em BRL, USD e MXN (duas
- * casas) as duas réguas coincidem, e por isso o defeito só apareceu com o PYG.
+ * casas) as duas réguas coincidem, e por isso o defeito só aparece em moeda sem
+ * centavos.
  *
  * `semCentavos` é o formato do card e do dossiê do funil, que nunca mostraram
  * centavos; o total da coluna mostra.

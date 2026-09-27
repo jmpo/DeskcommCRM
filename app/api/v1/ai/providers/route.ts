@@ -173,7 +173,11 @@ export async function GET(): Promise<Response> {
         // roda, pela mesma função que o worker usa.
         modelId:
           ponto.id === "transcricao_de_audio"
-            ? modeloDeTranscricaoEmVigor(process.env.TRANSCRIPTION_MODEL)
+            ? modeloDeTranscricaoEmVigor({
+                model: process.env.TRANSCRIPTION_MODEL,
+                apiKey: process.env.TRANSCRIPTION_API_KEY,
+                baseUrl: process.env.TRANSCRIPTION_BASE_URL,
+              })
             : decisao.modelId,
         credentialId: decisao.credentialId,
         baseUrl: decisao.baseUrl,

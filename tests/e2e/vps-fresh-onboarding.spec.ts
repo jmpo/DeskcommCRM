@@ -25,7 +25,7 @@ import { generateTotp, msUntilNextTotpWindow } from "./utils/totp";
 const OWNER_EMAIL = "dono@qa.local";
 const OWNER_PASSWORD = "QaVps!2026#Dono";
 const OWNER_STATE_PATH = path.join(process.cwd(), ".e2e-owner.json");
-const EVIDENCE_DIR = path.join(process.cwd(), ".superpowers/evidence/vps-qa");
+const EVIDENCE_DIR = path.join(process.cwd(), "evidence/vps-qa");
 
 const svc = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

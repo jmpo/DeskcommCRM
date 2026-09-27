@@ -23,9 +23,13 @@ const followupExistente = {
   enabled: true,
   flow_pointer_ids: [FLOW],
   send_window: null,
+  callback_enabled: true,
 };
 
-function adminStub(atualizacoes: Record<string, unknown>[]) {
+function adminStub(
+  atualizacoes: Record<string, unknown>[],
+  followup: Record<string, unknown> = followupExistente,
+) {
   return {
     from: () => ({
       select: () => ({
@@ -38,7 +42,7 @@ function adminStub(atualizacoes: Record<string, unknown>[]) {
                   status: "draft",
                   agent_id: AGENT,
                   organization_id: ORG,
-                  followup: followupExistente,
+                  followup,
                 },
                 error: null,
               }),
@@ -110,6 +114,37 @@ describe("PATCH .../versions/:vid — atualização parcial", () => {
           enabled: true,
           flow_pointer_ids: [FLOW],
           send_window: sendWindow,
+          callback_enabled: true,
+        },
+      },
+    ]);
+  });
+
+  it("altera callback_enabled isoladamente e preserva followup normal e a janela", async () => {
+    const sendWindow = { start: "09:00", end: "18:00", weekdays: [1, 2, 3, 4, 5] };
+    const { PATCH } = await import("./route");
+    const request = new NextRequest("http://localhost/api/v1/ai/agents/x/versions/y", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ followup: { callback_enabled: false } }),
+    });
+
+    // Este caso comprova também que o estado existente é o mesmo JSON que o PATCH parcial mescla.
+    vi.mocked(createAdminClient).mockReturnValue(
+      adminStub(atualizacoes, { ...followupExistente, send_window: sendWindow }) as never,
+    );
+    const response = await PATCH(request, {
+      params: Promise.resolve({ id: AGENT, vid: VERSION }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(atualizacoes).toEqual([
+      {
+        followup: {
+          enabled: true,
+          flow_pointer_ids: [FLOW],
+          send_window: sendWindow,
+          callback_enabled: false,
         },
       },
     ]);

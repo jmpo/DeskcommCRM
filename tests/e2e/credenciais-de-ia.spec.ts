@@ -61,6 +61,6 @@ test.describe("Chaves de acesso à IA", () => {
     await page.getByRole("button", { name: /^remover$/i }).click();
     await expect(card).toHaveCount(0);
 
-    await page.screenshot({ path: ".superpowers/evidence/credenciais-de-ia.png", fullPage: true });
+    await page.screenshot({ path: "evidence/credenciais-de-ia.png", fullPage: true });
   });
 });

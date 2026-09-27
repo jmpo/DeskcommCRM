@@ -202,7 +202,7 @@ describe("a conta do spinning — por que o gate é desarmado para o aviso", () 
   });
 });
 
-// Medido numa loja do Paraguai (26/09/2026): a organização atende em espanhol e
+// Medido numa loja em espanhol (26/09/2026): a organização atende em espanhol e
 // o cliente irritado recebeu "Esse caso é melhor resolvido por uma pessoa…" no
 // meio do pedido. O aviso sai no idioma da ORGANIZAÇÃO.
 describe("o aviso sai no idioma da organização", () => {
@@ -253,7 +253,7 @@ describe("o aviso sai no idioma da organização", () => {
 
   it("locale espanhol com região vale; sem locale ou idioma sem frases segue em português", () => {
     const es = textoDoAviso("pediu_humano", null, LEAD, "es");
-    expect(textoDoAviso("pediu_humano", null, LEAD, "es-PY")).toBe(es);
+    expect(textoDoAviso("pediu_humano", null, LEAD, "es-MX")).toBe(es);
     const pt = textoDoAviso("pediu_humano", null, LEAD);
     expect(textoDoAviso("pediu_humano", null, LEAD, null)).toBe(pt);
     expect(textoDoAviso("pediu_humano", null, LEAD, "pt-BR")).toBe(pt);

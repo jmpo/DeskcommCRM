@@ -146,6 +146,13 @@ export interface SendInBubblesOpts<T extends BubbleOutcome = BubbleOutcome> {
    * e um follow-up não responde a nada que ele acabou de mandar.
    */
   antesDaPrimeira?: (primeiraBolha: string) => Promise<void>;
+  /**
+   * Quantas bolhas ainda cabem no teto de mensagens do turno (MAX_SENDS_PER_TURN).
+   * Um parágrafo = uma bolha, então sem isto um único send_message de 7 parágrafos
+   * sairia em 7 mensagens físicas, passando do teto que existe para barrar isso.
+   * Ausente = sem teto (o comportamento de antes).
+   */
+  maxBubbles?: number;
 }
 
 /**
@@ -183,7 +190,7 @@ export const OK_KINDS = new Set(["sent", "already_sent", "queued"]);
  */
 export function instrucaoDeBolhas(ligado: boolean): string {
   return ligado
-    ? "Escreva cada resposta numa ÚNICA chamada de send_message. Resposta curta vai num parágrafo só; quando ela tiver mais de uma ideia (apresentar o produto, pedir os dados, o resumo do pedido), use parágrafos curtos separados por uma linha em branco — o sistema entrega cada parágrafo como uma mensagem, em ordem e com a pausa de quem digita, como uma pessoa no WhatsApp. Nunca chame send_message mais de uma vez no mesmo turno: mensagens enviadas juntas podem chegar fora de ordem."
+    ? "Escreva cada resposta numa ÚNICA chamada de send_message. Resposta curta vai num parágrafo só; quando ela tiver mais de uma ideia (apresentar uma opção, pedir dados, resumir o que foi combinado), use parágrafos curtos separados por uma linha em branco — o sistema entrega cada parágrafo como uma mensagem, em ordem e com a pausa de quem digita, como uma pessoa no WhatsApp. Nunca chame send_message mais de uma vez no mesmo turno: mensagens enviadas juntas podem chegar fora de ordem."
     : "";
 }
 
@@ -200,15 +207,29 @@ export function instrucaoDeBolhas(ligado: boolean): string {
  * Pura: sem I/O, sem relógio, sem canal. Devolve `[]` para corpo vazio (quem
  * chama decide — o `sendInBubbles` passa o corpo original ao `send`).
  */
-export function splitForSend(body: string, enabled: boolean, maxChars: number): string[] {
-  return enabled ? splitIntoBubbles(body, maxChars) : [body];
+export function splitForSend(
+  body: string,
+  enabled: boolean,
+  maxChars: number,
+  maxBubbles: number = Number.POSITIVE_INFINITY,
+): string[] {
+  if (!enabled) return [body];
+  const bubbles = splitIntoBubbles(body, maxChars);
+  if (bubbles.length <= maxBubbles || maxBubbles < 1) return bubbles;
+  // Teto de mensagens FÍSICAS do turno (MAX_SENDS_PER_TURN, "bolhas incluídas"): o que
+  // passa dele segue junto na última bolha, na ordem — nada do texto se perde.
+  // ponytail: a última bolha pode passar de maxChars; é o preço de não picotar além do teto.
+  return [
+    ...bubbles.slice(0, maxBubbles - 1),
+    bubbles.slice(maxBubbles - 1).join("\n\n"),
+  ];
 }
 
 export async function sendInBubbles<T extends BubbleOutcome>(
   body: string,
   opts: SendInBubblesOpts<T>,
 ): Promise<T> {
-  const bubbles = splitForSend(body, opts.enabled, opts.maxChars);
+  const bubbles = splitForSend(body, opts.enabled, opts.maxChars, opts.maxBubbles);
   if (bubbles.length === 0) return opts.send(body); // corpo vazio: deixa o canal decidir
   let last: T | undefined;
   for (let i = 0; i < bubbles.length; i++) {

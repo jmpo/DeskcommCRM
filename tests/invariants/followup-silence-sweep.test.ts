@@ -100,9 +100,13 @@ function silenceSweepDb(): SilenceSweepDb {
         id: string;
         organization_id: string;
         active_version_id: string | null;
-        trigger_config: { kind: string; params?: { threshold_minutes: number; segments?: string[] } };
+        trigger_config: {
+          kind: string;
+          params?: { threshold_minutes: number; segments?: string[]; reentry_pause_minutes?: number };
+        };
+        handoff_policy: "pause" | "cancel" | "allow";
       }>(
-        `select id, organization_id, active_version_id, trigger_config
+        `select id, organization_id, active_version_id, trigger_config, handoff_policy
          from followup_flow_pointers
          where status = 'active' and active_version_id is not null`,
       );
@@ -115,6 +119,8 @@ function silenceSweepDb(): SilenceSweepDb {
           active_version_id: row.active_version_id,
           threshold_minutes: row.trigger_config.params!.threshold_minutes,
           segments: row.trigger_config.params!.segments ?? [],
+          reentry_pause_minutes: row.trigger_config.params!.reentry_pause_minutes ?? 0,
+          handoff_policy: row.handoff_policy,
         });
       }
       return pointers;
@@ -146,6 +152,42 @@ function silenceSweepDb(): SilenceSweepDb {
             and enabled and cancelled_at is null and contact_id is not null
             and payload->>'followup_enrollment_id' is null`,
         [orgId],
+      );
+      return new Set(rows.map((r) => r.contact_id));
+    },
+    // Mesma régua de `createSupabaseSilenceSweepDb`: inscrição ENCERRADA deste
+    // fluxo (o mais tardio entre `completed_at` e `updated_at` é o fim) e a
+    // última mensagem do contato.
+    async loadEncerramentosDoFluxo(orgId, pointerId, contactIds) {
+      const { rows } = await pool.query<{ contact_id: string; fim: Date; ultima: Date | null }>(
+        `select e.contact_id,
+                max(greatest(coalesce(e.completed_at, e.updated_at), e.updated_at)) as fim,
+                (select max(conv.last_inbound_at) from conversations conv
+                  where conv.organization_id = $1 and conv.contact_id = e.contact_id) as ultima
+           from followup_enrollments e
+          where e.organization_id = $1 and e.pointer_id = $2
+            and e.status in ('completed', 'cancelled', 'dead')
+            and e.contact_id = any($3::uuid[])
+          group by e.contact_id`,
+        [orgId, pointerId, contactIds],
+      );
+      return new Map(
+        rows.map((r) => [r.contact_id, { encerradaEm: r.fim.getTime(), ultimaMensagemEm: r.ultima?.getTime() ?? null }]),
+      );
+    },
+    // A conversa MAIS RECENTE do contato decide, como na produção.
+    async loadContatosComPessoaNoComando(orgId, contactIds) {
+      const { rows } = await pool.query<{ contact_id: string }>(
+        `select contact_id from (
+           select distinct on (conv.contact_id) conv.contact_id,
+                  (conv.assignee_kind = 'user' or c.force_human
+                   or coalesce(conv.bot_silenced_until > now(), false)) as com_pessoa
+             from conversations conv
+             join contacts c on c.id = conv.contact_id
+            where conv.organization_id = $1 and conv.contact_id = any($2::uuid[])
+            order by conv.contact_id, conv.last_inbound_at desc nulls last
+         ) x where com_pessoa`,
+        [orgId, contactIds],
       );
       return new Set(rows.map((r) => r.contact_id));
     },
@@ -220,10 +262,14 @@ async function seedOrg(org: string): Promise<void> {
   );
 }
 
-async function seedContact(org: string, opts?: { tags?: string[]; isBlocked?: boolean }): Promise<string> {
+async function seedContact(
+  org: string,
+  opts?: { tags?: string[]; isBlocked?: boolean; forceHuman?: boolean },
+): Promise<string> {
   const { rows } = await pool.query<{ id: string }>(
-    `insert into contacts (organization_id, display_name, tags, is_blocked) values ($1, 'Silence Contact', $2, $3) returning id`,
-    [org, opts?.tags ?? [], opts?.isBlocked ?? false],
+    `insert into contacts (organization_id, display_name, tags, is_blocked, force_human)
+     values ($1, 'Silence Contact', $2, $3, $4) returning id`,
+    [org, opts?.tags ?? [], opts?.isBlocked ?? false, opts?.forceHuman ?? false],
   );
   return rows[0]!.id;
 }
@@ -281,7 +327,13 @@ async function seedConversationAt(org: string, contactId: string, atIso: string)
 
 async function seedSilenceFlow(
   org: string,
-  opts?: { thresholdMinutes?: number; segments?: string[]; comIa?: boolean },
+  opts?: {
+    thresholdMinutes?: number;
+    segments?: string[];
+    comIa?: boolean;
+    reentryPauseMinutes?: number;
+    handoffPolicy?: "pause" | "cancel" | "allow";
+  },
 ): Promise<{ pointerId: string; versionId: string }> {
   const graph = {
     nodes: [
@@ -300,12 +352,22 @@ async function seedSilenceFlow(
   const versionId = versionRows[0]!.id;
   const triggerConfig = {
     kind: "silence",
-    params: { threshold_minutes: opts?.thresholdMinutes ?? 60, segments: opts?.segments ?? [] },
+    params: {
+      threshold_minutes: opts?.thresholdMinutes ?? 60,
+      segments: opts?.segments ?? [],
+      ...(opts?.reentryPauseMinutes !== undefined ? { reentry_pause_minutes: opts.reentryPauseMinutes } : {}),
+    },
   };
   const { rows: pointerRows } = await pool.query<{ id: string }>(
-    `insert into followup_flow_pointers (organization_id, name, status, active_version_id, trigger_config)
-     values ($1, $2, 'active', $3, $4) returning id`,
-    [org, `Silence Flow ${Date.now()}-${Math.random()}`, versionId, JSON.stringify(triggerConfig)],
+    `insert into followup_flow_pointers (organization_id, name, status, active_version_id, trigger_config, handoff_policy)
+     values ($1, $2, 'active', $3, $4, $5) returning id`,
+    [
+      org,
+      `Silence Flow ${Date.now()}-${Math.random()}`,
+      versionId,
+      JSON.stringify(triggerConfig),
+      opts?.handoffPolicy ?? "pause",
+    ],
   );
   return { pointerId: pointerRows[0]!.id, versionId };
 }
@@ -824,5 +886,117 @@ describe("dedup 0062 — >1 enrollment vivo pro mesmo (org,contact) vira 1 vivo 
       await pool.query(`delete from followup_enrollments where contact_id = $1`, [contactId]);
       await setOneLiveIndex("organization_id, contact_id");
     }
+  });
+});
+
+// ---- pausa de reentrada e pessoa no comando (lib/followup/pausa-de-reentrada.ts) ----
+
+/** Uma inscrição ENCERRADA deste fluxo, terminada há `agoMinutes`. */
+async function seedEncerrada(
+  org: string,
+  pointerId: string,
+  versionId: string,
+  contactId: string,
+  agoMinutes: number,
+  status: "cancelled" | "completed" = "cancelled",
+): Promise<void> {
+  await pool.query(
+    `insert into followup_enrollments
+       (organization_id, pointer_id, version_id, contact_id, current_node_id, status, next_eval_at, completed_at, updated_at)
+     values ($1, $2, $3, $4, 't1', $5, null, now() - interval '${agoMinutes} minutes', now() - interval '${agoMinutes} minutes')`,
+    [org, pointerId, versionId, contactId, status],
+  );
+}
+
+describe("runSilenceSweep — pausa de reentrada", () => {
+  it("⭐ quem encerrou uma inscrição deste fluxo há menos que a pausa não volta a entrar", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const { pointerId, versionId } = await seedSilenceFlow(org, { thresholdMinutes: 60, reentryPauseMinutes: 48 * 60 });
+    const contactId = await seedContact(org);
+    await seedConversation(org, contactId, 90); // respondeu há 90 min e calou
+    await seedEncerrada(org, pointerId, versionId, contactId, 90); // a resposta cancelou a inscrição
+
+    const summary = await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
+    expect(summary.skipped_reentry_pause).toBe(1);
+    expect(await countEnrollments(pointerId, contactId)).toBe(1); // só a encerrada
+  });
+
+  it("depois da pausa inteira sem o cliente escrever, o fluxo recomeça", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const { pointerId, versionId } = await seedSilenceFlow(org, { thresholdMinutes: 60, reentryPauseMinutes: 48 * 60 });
+    const contactId = await seedContact(org);
+    await seedConversation(org, contactId, 49 * 60);
+    await seedEncerrada(org, pointerId, versionId, contactId, 49 * 60);
+
+    const summary = await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
+    expect(summary.skipped_reentry_pause).toBe(0);
+    expect(summary.enrolled).toBe(1);
+    expect(await countEnrollments(pointerId, contactId)).toBe(2);
+  });
+
+  it("a mensagem mais recente do cliente recomeça a contagem, mesmo com a inscrição encerrada há mais tempo", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const { pointerId, versionId } = await seedSilenceFlow(org, { thresholdMinutes: 60, reentryPauseMinutes: 48 * 60 });
+    const contactId = await seedContact(org);
+    await seedEncerrada(org, pointerId, versionId, contactId, 60 * 60); // encerrada há 60 h
+    await seedConversation(org, contactId, 20 * 60); // mas escreveu de novo há 20 h
+
+    const summary = await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
+    expect(summary.skipped_reentry_pause).toBe(1);
+    expect(await countEnrollments(pointerId, contactId)).toBe(1);
+  });
+
+  it("controle: sem pausa configurada, o mesmo contato volta a entrar no limiar de sempre", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const { pointerId, versionId } = await seedSilenceFlow(org, { thresholdMinutes: 60 });
+    const contactId = await seedContact(org);
+    await seedConversation(org, contactId, 90);
+    await seedEncerrada(org, pointerId, versionId, contactId, 90);
+
+    const summary = await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
+    expect(summary.enrolled).toBe(1);
+    expect(await countEnrollments(pointerId, contactId)).toBe(2);
+  });
+
+  it("quem nunca passou pelo fluxo entra no limiar de sempre, com pausa configurada", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const { pointerId } = await seedSilenceFlow(org, { thresholdMinutes: 60, reentryPauseMinutes: 48 * 60 });
+    const contactId = await seedContact(org);
+    await seedConversation(org, contactId, 90);
+
+    const summary = await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
+    expect(summary.enrolled).toBe(1);
+    expect(await countEnrollments(pointerId, contactId)).toBe(1);
+  });
+});
+
+describe("runSilenceSweep — pessoa no comando da conversa", () => {
+  it("⭐ contato em force_human não é inscrito num fluxo sem handoff_policy='allow'", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const { pointerId } = await seedSilenceFlow(org, { thresholdMinutes: 60, handoffPolicy: "cancel" });
+    const contactId = await seedContact(org, { forceHuman: true });
+    await seedConversation(org, contactId, 90);
+
+    const summary = await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
+    expect(summary.skipped_human_owned).toBe(1);
+    expect(await countEnrollments(pointerId, contactId)).toBe(0);
+  });
+
+  it("controle: com handoff_policy='allow' o fluxo foi feito para rodar com a pessoa — inscreve", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const { pointerId } = await seedSilenceFlow(org, { thresholdMinutes: 60, handoffPolicy: "allow" });
+    const contactId = await seedContact(org, { forceHuman: true });
+    await seedConversation(org, contactId, 90);
+
+    const summary = await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
+    expect(summary.skipped_human_owned).toBe(0);
+    expect(await countEnrollments(pointerId, contactId)).toBe(1);
   });
 });

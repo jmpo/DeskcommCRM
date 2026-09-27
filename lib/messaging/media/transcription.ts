@@ -17,8 +17,8 @@ export interface TranscriptionCreds {
    * que é o comportamento de sempre.
    *
    * Existe porque a detecção sozinha ALUCINA em áudio curto, com ruído ou com
-   * sotaque regional. Medido numa VPS em produção (Paraguai, 26/09/2026, 14
-   * áudios reais de clientes): `whisper-1` sem idioma devolveu "Thanks for
+   * sotaque regional. Medido numa loja em espanhol (26/09/2026, 14 áudios
+   * reais de clientes): `whisper-1` sem idioma devolveu "Thanks for
    * watching!" para um áudio sem fala, uma frase em GREGO para "mejor dejamos
    * ahí nomás" (o cliente cancelando) e "ya es claro" para "ya es caro" — e o
    * agente respondeu ao que leu. Com o idioma declarado, `gpt-transcribe`
@@ -35,14 +35,25 @@ const DEFAULT_MODEL = "whisper-1";
  * instalação o define, senão `whisper-1`. Uma função só para o worker (que
  * transcreve) e a tela de Provedores (que ANUNCIA o modelo) — duas leituras
  * separadas fariam a tela dizer `whisper-1` com outro modelo em uso.
+ *
+ * Com `TRANSCRIPTION_BASE_URL` preenchido e sem `TRANSCRIPTION_API_KEY`, o
+ * modelo do `.env` foi escrito para OUTRO serviço (o exemplo do `.env.example`
+ * é `whisper-large-v3`, do Groq), e a chamada vai à OpenAI com a chave da
+ * organização: pedir esse modelo lá quebraria no update uma transcrição que
+ * funciona com `whisper-1`. Nesse caso vale `whisper-1`, como antes.
  */
-export function modeloDeTranscricaoEmVigor(doAmbiente: string | undefined): string {
-  const m = (doAmbiente ?? "").trim();
-  return m === "" ? DEFAULT_MODEL : m;
+export function modeloDeTranscricaoEmVigor(doAmbiente: {
+  model: string | undefined;
+  apiKey: string | undefined;
+  baseUrl: string | undefined;
+}): string {
+  const m = (doAmbiente.model ?? "").trim();
+  const modeloDeOutroServico = (doAmbiente.baseUrl ?? "").trim() !== "" && (doAmbiente.apiKey ?? "").trim() === "";
+  return m === "" || modeloDeOutroServico ? DEFAULT_MODEL : m;
 }
 
 /**
- * `TRANSCRIPTION_LANGUAGES` ("es" ou "es,gn") → lista de códigos. Tolerante de
+ * `TRANSCRIPTION_LANGUAGES` ("es" ou "pt,es") → lista de códigos. Tolerante de
  * propósito: é variável opcional de `.env`, e grafia errada não pode derrubar
  * o worker — o código que não tem forma de ISO-639 fica de fora e o resto vale.
  */

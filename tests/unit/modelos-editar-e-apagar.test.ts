@@ -53,14 +53,14 @@ function bancoFalso(tabelas: Record<string, unknown[]>) {
 describe("ida e volta do conteúdo", () => {
   it("⭐ o formulário preenchido a partir do modelo remonta os mesmos componentes", () => {
     const original = montarComponents({
-      body: "Hola {{1}}, sale ₲135.000. ¿Te lo reservamos?",
-      footer: "Pedilo",
+      body: "Hola {{1}}, sale ₲150.000. ¿Te lo reservamos?",
+      footer: "Loja Exemplo",
       exemplos: ["María"],
       cabecalho: { texto: "Oferta", midiaUrl: "" },
       botoes: [
         { tipo: "quick_reply", texto: "Sí, lo quiero" },
-        { tipo: "url", texto: "Ver", url: "https://pedilo.test/pico" },
-        { tipo: "phone_number", texto: "Llamar", telefone: "+595981000000" },
+        { tipo: "url", texto: "Ver", url: "https://loja.example/produto" },
+        { tipo: "phone_number", texto: "Llamar", telefone: "+5511900000000" },
       ],
     });
     const f = paraFormulario(lerConteudo(original));
@@ -87,9 +87,9 @@ describe("onde o modelo está em uso", () => {
         { id: "v2", graph: { nodes: [] } },
       ],
       ai_agents: [{ name: "Vendedor", published_version_id: "a1" }],
-      ai_agent_versions: [{ id: "a1", system_prompt: "usá recordatorio_pico_135 si la ventana cerró" }],
+      ai_agent_versions: [{ id: "a1", system_prompt: "usá recordatorio_oferta si la ventana cerró" }],
     });
-    const usos = await usosDoModelo(cliente, "org", { name: "recordatorio_pico_135", ids: ["tpl-1"] });
+    const usos = await usosDoModelo(cliente, "org", { name: "recordatorio_oferta", ids: ["tpl-1"] });
     expect(usos).toEqual([
       { tipo: "fluxo", nome: "Remarketing" },
       { tipo: "agente", nome: "Vendedor" },

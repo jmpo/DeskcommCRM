@@ -16,7 +16,7 @@
  *
  * São os MESMOS que têm som próprio: a regra de quais avisos importam é uma só
  * (`somDoAviso`). Todos chegam pelo barramento como `central.aviso_criado`
- * (migration 0430).
+ * (migration 0439).
  *
  * O texto sai no idioma da ORGANIZAÇÃO — ninguém está logado quando o push sai.
  */

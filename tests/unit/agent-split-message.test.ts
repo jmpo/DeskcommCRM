@@ -70,23 +70,23 @@ describe("splitIntoBubbles", () => {
 // uma bolha só, teto baixo picotava o resumo do pedido no meio da linha).
 describe("splitIntoBubbles — o parágrafo é a bolha", () => {
   it("três parágrafos curtos saem em três bolhas, na ordem, mesmo cabendo numa só", () => {
-    const texto = "¡Hola! Soy Mia 😊\n\nSí, sirve para cualquier manguera.\n\n¿Te lo reservo?";
+    const texto = "Olá! Tudo bem? 😊\n\nSim, serve para qualquer modelo.\n\nQuer que eu reserve?";
     expect(splitIntoBubbles(texto, 600)).toEqual([
-      "¡Hola! Soy Mia 😊",
-      "Sí, sirve para cualquier manguera.",
-      "¿Te lo reservo?",
+      "Olá! Tudo bem? 😊",
+      "Sim, serve para qualquer modelo.",
+      "Quer que eu reserve?",
     ]);
   });
 
   it("o resumo do pedido — lista numa linha por item — sai inteiro, com as quebras de linha", () => {
     const resumo = [
-      "Te resumo tu pedido:",
-      "📦 Pico de alta presión x1 - ₲135.000",
-      "📍 Av. San Ignacio 739, Valle Apu'a, Lambaré, Central",
-      "📌 Ref: 2 cuadras de la cancha",
-      "🕚 Mañana a las 11hs",
-      "💵 Pagás en efectivo cuando te llega",
-      "¿Confirmamos así?",
+      "Resumo do seu pedido:",
+      "📦 Produto X x1 - R$ 135,00",
+      "📍 Rua das Flores, 100, Centro",
+      "📌 Ref: em frente à praça",
+      "🕚 Amanhã às 11h",
+      "💵 Pagamento em dinheiro na entrega",
+      "Confirmamos assim?",
     ].join("\n");
     expect(splitIntoBubbles(resumo, 600)).toEqual([resumo]);
   });
@@ -123,15 +123,15 @@ describe("instrucaoDeBolhas", () => {
 
   it("o texto escrito como a instrução pede sai em bolhas nos parágrafos, na mesma ordem", () => {
     const resposta = [
-      "¡Hola! Soy Mia, de Pedilo 😊",
-      "Te cuento del Pico de alta presión: usa la presión de tu canilla para un chorro fuerte.",
-      "Sale ₲135.000, con envío gratis y pagás cuando te llega. ¿Te lo reservo?",
+      "Olá! Aqui é a assistente da loja 😊",
+      "Sobre o produto: ele usa a pressão da própria torneira para dar um jato forte.",
+      "Sai por R$ 135,00, com frete grátis e pagamento na entrega. Quer que eu reserve?",
     ].join("\n\n");
     const bolhas = splitIntoBubbles(resposta, 90);
     expect(bolhas).toEqual([
-      "¡Hola! Soy Mia, de Pedilo 😊",
-      "Te cuento del Pico de alta presión: usa la presión de tu canilla para un chorro fuerte.",
-      "Sale ₲135.000, con envío gratis y pagás cuando te llega. ¿Te lo reservo?",
+      "Olá! Aqui é a assistente da loja 😊",
+      "Sobre o produto: ele usa a pressão da própria torneira para dar um jato forte.",
+      "Sai por R$ 135,00, com frete grátis e pagamento na entrega. Quer que eu reserve?",
     ]);
   });
 

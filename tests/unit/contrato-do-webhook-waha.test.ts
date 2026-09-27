@@ -73,8 +73,8 @@ const REAL = {
   event: "message.any",
   session: "default",
   payload: {
-    id: "false_70192801575156@lid_3A60443E83484256AF03",
-    from: "70192801575156@lid",
+    id: "false_100000000000001@lid_3A60443E83484256AF03",
+    from: "100000000000001@lid",
     fromMe: false,
     body: "oi, tudo bem?",
     timestamp: 1_760_000_000,
@@ -84,9 +84,9 @@ const REAL = {
       key: {
         id: "3A60443E83484256AF03",
         fromMe: false,
-        remoteJid: "70192801575156@lid",
+        remoteJid: "100000000000001@lid",
         participant: "",
-        remoteJidAlt: "558183647258@s.whatsapp.net",
+        remoteJidAlt: "5511900000001@s.whatsapp.net",
         addressingMode: "lid",
       },
       message: { conversation: "oi, tudo bem?" },

@@ -38,6 +38,7 @@ import {
   decideMotivoDaPerda,
   recusaDeMotivoDaPerdaPeloBanco,
 } from "@/lib/leads/motivo-da-perda";
+import { motivosDaCategoria } from "@/lib/leads/motivos-de-perda-do-funil";
 import type { CreateLeadInput, UpdateLeadInput } from "@/lib/schemas";
 import { ehCorrecaoDeMovimentoDaIa } from "@/lib/leads/correcao-humana";
 
@@ -242,6 +243,10 @@ export interface ListLeadsQuery {
   stage_id?: string;
   status?: "open" | "won" | "lost";
   owner_user_id?: string;
+  /** `lost_reason` exato (issue #1537) — o filtro de perda por motivo. */
+  lost_reason?: string;
+  /** Categoria do motivo de perda (issue #1537), resolvida no funil. */
+  lost_reason_category?: string;
   limit?: number;
   cursor?: string | null;
 }
@@ -295,6 +300,28 @@ export async function listLeadsHandler(
   if (q.stage_id) query = query.eq("stage_id", q.stage_id);
   if (q.status) query = query.eq("status", q.status);
   if (q.owner_user_id) query = query.eq("owner_user_id", q.owner_user_id);
+  // #1537 — perda por motivo e por categoria. A categoria NÃO é coluna: ela
+  // sai do `settings.lost_reasons` do funil, então o caminho é achar os rótulos
+  // da categoria e filtrar por eles. Só os PERDIDOS têm motivo que valha; um
+  // filtro de categoria sozinho não força status (quem quer "Cliente" pode
+  // querer em qualquer aba), mas `lost_reason` em lead aberto não existe.
+  if (q.lost_reason) query = query.eq("lost_reason", q.lost_reason);
+  if (q.lost_reason_category) {
+    const { data: funis, error: funisErr } = await supabase
+      .from("crm_pipelines")
+      .select("id, settings")
+      .eq("organization_id", ctx.organization_id);
+    if (funisErr) throw new ApiError(500, "internal_error", undefined, ctx.requestId, funisErr.message);
+    const escopados = q.pipeline_id
+      ? (funis ?? []).filter((f) => f.id === q.pipeline_id)
+      : (funis ?? []);
+    const permitidos = motivosDaCategoria(
+      escopados.map((f) => ({ settings: f.settings })),
+      q.lost_reason_category,
+    );
+    if (permitidos.length === 0) return { leads: [], cursor: null, has_more: false };
+    query = query.in("lost_reason", permitidos);
+  }
 
   if (q.cursor) {
     const c = decLeadCursor(q.cursor);
@@ -924,6 +951,20 @@ export async function moveLeadHandler(
     position = maxRow?.position_in_stage ? Number(maxRow.position_in_stage) + 1000 : 1000;
   }
 
+  // ── A MESMA ETAPA É REORDENAÇÃO, NÃO ENTRADA ────────────────────────────────
+  //
+  // O negócio que já está NA etapa de destino não está ENTRANDO nela: mover para
+  // onde ele já está só troca a posição. A rota do quadro compara o destino com
+  // `lead.stage_id` antes da régua e pula a régua por isso; aqui a comparação
+  // faltava, e este handler é o escritor de etapa de tudo que NÃO é o quadro (o
+  // MCP `crm_move_lead_stage`, a ação `create_or_move_lead`) — reordenar numa
+  // coluna exigente devolvia a frase de campos faltando e a execução aparecia
+  // como failed na aba Atividade.
+  //
+  // Fora da régua, e não dentro dela: `campos-exigidos.ts` segue sem saber o que
+  // é "mesma etapa" — quem sabe é quem lê a etapa atual ao lado do destino.
+  const mesmaEtapa = stage.id === lead.stage_id;
+
   // ── OS CAMPOS OBRIGATÓRIOS (issue #1536) ────────────────────────────────────
   //
   // Este handler é o escritor de etapa de TODOS os clientes que não são o board
@@ -931,15 +972,17 @@ export async function moveLeadHandler(
   // arrasto, decidida pela MESMA função: o que falta vira 422 com
   // `details.faltando`, e a tool do MCP devolve a frase ao modelo — que pergunta
   // ao cliente ou passa para o humano, em vez de mover calado.
-  const vereditoDeCampos = validaCamposExigidos({
-    lead: lead as Record<string, unknown>,
-    settingsDoFunil: settings,
-    destino: {
-      stageId: stage.id,
-      desfecho: stage.is_won ? "won" : stage.is_lost ? "lost" : null,
-    },
-    motivoDeGanho: input.won_reason ?? null,
-  });
+  const vereditoDeCampos = mesmaEtapa
+    ? { faltando: [] }
+    : validaCamposExigidos({
+        lead: lead as Record<string, unknown>,
+        settingsDoFunil: settings,
+        destino: {
+          stageId: stage.id,
+          desfecho: stage.is_won ? "won" : stage.is_lost ? "lost" : null,
+        },
+        motivoDeGanho: input.won_reason ?? null,
+      });
   if (vereditoDeCampos.faltando.length > 0) {
     const recusa = recusaDeCamposObrigatorios(vereditoDeCampos.faltando, ctx.idioma);
     throw new ApiError(

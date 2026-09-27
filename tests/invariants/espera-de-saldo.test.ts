@@ -24,8 +24,7 @@ import { claimJobs, enqueueJob } from "@/lib/agent-engine/queue/queue";
  *     `max_attempts = 5` e o job continua `pending` — nunca `dead`;
  *   - que o job volta do claim com a marca (`last_error`) que o worker lê para
  *     saber que ele esperou;
- *   - que o aviso na Central é UM por organização, aponta a credencial e passa
- *     pelo trigger que o anuncia ao push sem quebrar;
+ *   - que o aviso na Central é UM por organização e aponta a credencial;
  *   - que "já respondida" lê as colunas da conversa com o filtro de organização.
  *
  * Roda contra o Postgres efêmero do `scripts/test-db.sh`.
@@ -72,7 +71,7 @@ beforeAll(async () => {
   }
   await pool.query(
     `insert into contacts (id, organization_id, name, phone_number)
-     values ($1, $2, 'Lead da Espera', '+595900000001') on conflict (id) do nothing`,
+     values ($1, $2, 'Lead da Espera', '+5511900000001') on conflict (id) do nothing`,
     [CONTATO, ORG],
   );
   await pool.query(

@@ -21,7 +21,7 @@ import {
 // verdadeira continua passando na hora.
 const expect = expectBase.configure({ timeout: 20_000 });
 
-const EVIDENCE = ".superpowers/evidence/extensoes-integracao/e2e/recuperacao";
+const EVIDENCE = "evidence/extensoes-integracao/e2e/recuperacao";
 const CAPTURES = [
   "recuperacao-dark.png",
   "recuperacao-es-fallback.png",

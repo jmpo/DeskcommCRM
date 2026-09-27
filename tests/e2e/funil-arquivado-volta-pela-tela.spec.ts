@@ -56,7 +56,7 @@ import { carregarEnvLocal } from "../../scripts/lib/env-de-teste";
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
 const EVIDENCIA =
   process.env.E2E_EVIDENCIA_ARQUIVO ??
-  path.join(process.cwd(), ".superpowers/evidence/funil-arquivado-volta");
+  path.join(process.cwd(), "evidence/funil-arquivado-volta");
 
 interface Creds {
   password: string;

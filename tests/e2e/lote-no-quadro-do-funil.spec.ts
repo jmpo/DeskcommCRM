@@ -38,7 +38,7 @@ import { carregarEnvLocal } from "../../scripts/lib/env-de-teste";
 
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
 const EVIDENCIA =
-  process.env.E2E_EVIDENCIA ?? path.join(process.cwd(), ".superpowers/evidence/lote-no-funil");
+  process.env.E2E_EVIDENCIA ?? path.join(process.cwd(), "evidence/lote-no-funil");
 /** A prova do toque é citada na triagem do #911: mora em `evidence/`, versionada. */
 const EVIDENCIA_TOQUE =
   process.env.E2E_EVIDENCIA_TOQUE ?? path.join(process.cwd(), "evidence/excluir-card-no-toque");
@@ -477,19 +477,6 @@ test.describe("Quadro do funil — agir em vários cards de uma vez", () => {
   });
 
   /**
-   * EXCLUIR UM CARD PELO MENU, NO TOQUE (issue #910).
-   *
-   * A afirmação-título do conserto é "aparece no toque", e ela não tem prova de
-   * unidade possível: o caso de jsdom compara a STRING do `className`, e o jsdom
-   * não compila Tailwind nem avalia `@media (hover:hover)` — ele diria verde com
-   * a classe escrita errada. Quem responde é a opacidade COMPUTADA num contexto
-   * sem hover, que é o que um celular tem.
-   *
-   * Este bloco não exclui nada de propósito: ele mede alcance. A exclusão em si
-   * já é a mesma rota em lote que o teste de "mover vários" exercita, e apagar um
-   * card aqui mudaria a fixture debaixo dos testes vizinhos.
-   */
-  /**
    * O QUADRO CABE NA TELA. A página rolava com a janela: com uma etapa cheia, a
    * barra de rolagem lateral só aparecia no pé da coluna mais comprida, e o nome
    * da etapa sumia do alto no caminho (pedido de quem opera, 25/09/2026). Agora
@@ -527,7 +514,12 @@ test.describe("Quadro do funil — agir em vários cards de uma vez", () => {
         el.scrollTop = el.scrollHeight;
       });
       const cabecalho = coluna(page, etapaOrigemId).locator("[data-cabecalho-da-etapa]");
-      await expect(cabecalho.getByRole("heading", { name: "Origem" })).toBeInViewport();
+      // Quem entra aqui é manager: para ele o nome da etapa é o campo
+      // editável do cabeçalho (#1738), não um <h2>. É o nome que tem de
+      // ficar à vista, qualquer que seja o elemento que o carrega.
+      const nomeDaEtapa = cabecalho.getByTestId("nome-etapa-quadro");
+      await expect(nomeDaEtapa).toHaveValue("Origem");
+      await expect(nomeDaEtapa).toBeInViewport();
       const topoDoCabecalho = (await cabecalho.boundingBox())!.y;
       const topoDoQuadro = (await quadro.boundingBox())!.y;
       expect(
@@ -538,6 +530,19 @@ test.describe("Quadro do funil — agir em vários cards de uma vez", () => {
     });
   });
 
+  /**
+   * EXCLUIR UM CARD PELO MENU, NO TOQUE (issue #910).
+   *
+   * A afirmação-título do conserto é "aparece no toque", e ela não tem prova de
+   * unidade possível: o caso de jsdom compara a STRING do `className`, e o jsdom
+   * não compila Tailwind nem avalia `@media (hover:hover)` — ele diria verde com
+   * a classe escrita errada. Quem responde é a opacidade COMPUTADA num contexto
+   * sem hover, que é o que um celular tem.
+   *
+   * Este bloco não exclui nada de propósito: ele mede alcance. A exclusão em si
+   * já é a mesma rota em lote que o teste de "mover vários" exercita, e apagar um
+   * card aqui mudaria a fixture debaixo dos testes vizinhos.
+   */
   test.describe("no toque, o menu do card é alcançável — e traz Excluir", () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 

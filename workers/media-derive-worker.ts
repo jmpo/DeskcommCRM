@@ -484,12 +484,17 @@ function buildDeriveDeps(
   //
   // `TRANSCRIPTION_MODEL` e `TRANSCRIPTION_LANGUAGES` valem TAMBÉM aqui, com a
   // chave da OpenAI da organização: trocar `whisper-1` por um modelo melhor da
-  // própria OpenAI não pode exigir copiar a chave para o `.env`.
+  // própria OpenAI não pode exigir copiar a chave para o `.env`. O MODELO só
+  // vale aqui com `TRANSCRIPTION_BASE_URL` vazio (ver `modeloDeTranscricaoEmVigor`).
   const idiomas = idiomasDaTranscricao(env.TRANSCRIPTION_LANGUAGES);
   const transcricaoPadrao: DeriveDeps["transcriber"] = openaiKey
     ? apiTranscriptionProvider({
         apiKey: openaiKey,
-        model: modeloDeTranscricaoEmVigor(env.TRANSCRIPTION_MODEL),
+        model: modeloDeTranscricaoEmVigor({
+          model: env.TRANSCRIPTION_MODEL,
+          apiKey: env.TRANSCRIPTION_API_KEY,
+          baseUrl: env.TRANSCRIPTION_BASE_URL,
+        }),
         languages: idiomas,
       })
     : semTranscricao;
