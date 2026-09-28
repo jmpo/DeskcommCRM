@@ -2,11 +2,11 @@
 
 /**
  * O cartão "Mapas" em Provedores: a chave do Google que transforma o pino de
- * localização do WhatsApp em rua, bairro e cidade aproximados.
+ * localização do WhatsApp em rua e cidade aproximadas.
  *
  * Mora aqui, e não em Credenciais, porque Credenciais é a chave da IA que
  * conversa; esta é outro provedor que o atendimento usa — e quem procura "de
- * onde o agente tira o bairro" procura em Provedores (pedido de uma loja,
+ * onde o agente tira a cidade do pino" procura em Provedores (pedido de uma loja,
  * 28/09/2026).
  *
  * A chave nunca volta ao browser: a tela vê os 4 últimos caracteres. "Testar"
@@ -157,7 +157,7 @@ export function CartaoDeMapas() {
       </div>
       <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
         {t(
-          "Quando o cliente manda a localização pelo WhatsApp, o sistema consulta o Google e o agente lê a rua, o bairro e a cidade aproximados — em vez de só as coordenadas. Sem chave, nada muda.",
+          "Quando o cliente manda a localização pelo WhatsApp, o sistema consulta o Google e o agente lê a rua e a cidade aproximadas — em vez de só as coordenadas. Sem chave, nada muda.",
         )}
       </p>
 

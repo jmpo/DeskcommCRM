@@ -113,8 +113,8 @@ export async function completarLocalizacao(
       });
       return msg;
     }
-    // Com a chave de Mapas da organização, as coordenadas ganham rua, bairro e
-    // cidade aproximados — o agente deixa de perguntar a cidade de quem mandou o
+    // Com a chave de Mapas da organização, as coordenadas ganham rua, cidade e
+    // região aproximadas — o agente deixa de perguntar a cidade de quem mandou o
     // pino. Sem chave, nenhuma rede a mais; e a falha nunca derruba o pino.
     const aproximado = await enderecoAproximadoDoPino(admin, organizationId, location);
     return { ...msg, location: aproximado ? { ...location, aproximado } : location };

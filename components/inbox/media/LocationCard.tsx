@@ -10,7 +10,7 @@ import { linkDoMapa, type Localizacao } from "@/lib/messaging/localizacao";
  * app de mapas) — é o que quem monta a entrega precisa, e o texto cru com as
  * coordenadas não é clicável.
  *
- * Com a chave de Mapas da organização, o pino chega com rua, bairro e cidade
+ * Com a chave de Mapas da organização, o pino chega com rua, cidade e região
  * aproximados: a equipe vê onde é sem abrir o mapa. Nome e endereço que o
  * próprio cliente escolheu no WhatsApp vêm antes — são exatos.
  */

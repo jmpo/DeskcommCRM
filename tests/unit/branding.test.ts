@@ -818,7 +818,7 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
   "maps.googleapis.com": {
     categoria: "FORNECEDOR",
     motivo:
-      "endpoint da Geocoding API do Google (`lib/mapas/geocodificacao.ts`), chamado com a chave da PRÓPRIA organização para transformar as coordenadas do pino em rua, bairro e cidade aproximados. É o destino do request: trocar pelo domínio do revendedor faria a chamada não chegar a lugar nenhum. Sem chave cadastrada, o código não fala com ele.",
+      "endpoint da Geocoding API do Google (`lib/mapas/geocodificacao.ts`), chamado com a chave da PRÓPRIA organização para transformar as coordenadas do pino em rua e cidade aproximadas. É o destino do request: trocar pelo domínio do revendedor faria a chamada não chegar a lugar nenhum. Sem chave cadastrada, o código não fala com ele.",
   },
   // ── prospecção (PR #963): destino de chamada do crawler ──
   "api.apify.com": {
