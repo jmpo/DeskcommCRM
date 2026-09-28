@@ -19,6 +19,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { logger } from "@/lib/logger";
+import { enderecoAproximadoDoPino } from "@/lib/mapas/credencial";
 import { lerLocalizacao, type Localizacao } from "@/lib/messaging/localizacao";
 
 import { resolveZernioCreds, type ZernioCredentials } from "./credentials";
@@ -112,7 +113,11 @@ export async function completarLocalizacao(
       });
       return msg;
     }
-    return { ...msg, location };
+    // Com a chave de Mapas da organização, as coordenadas ganham rua, bairro e
+    // cidade aproximados — o agente deixa de perguntar a cidade de quem mandou o
+    // pino. Sem chave, nenhuma rede a mais; e a falha nunca derruba o pino.
+    const aproximado = await enderecoAproximadoDoPino(admin, organizationId, location);
+    return { ...msg, location: aproximado ? { ...location, aproximado } : location };
   } catch (err) {
     logger.warn("zernio: busca das coordenadas do pino falhou — mensagem entra com o marcador", {
       organization_id: organizationId,
