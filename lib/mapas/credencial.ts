@@ -31,7 +31,6 @@ export const chaveDeMapasSchema = z
   .min(20)
   .max(200)
   .regex(/^[A-Za-z0-9_-]+$/);
-const TABELA = "map_provider_credentials";
 
 export interface EstadoDaChaveDeMapas {
   configurada: boolean;
@@ -44,7 +43,7 @@ export async function estadoDaChaveDeMapas(
   organizationId: string,
 ): Promise<EstadoDaChaveDeMapas> {
   const { data, error } = await admin
-    .from(TABELA)
+    .from("map_provider_credentials")
     .select("api_key_last4, updated_at")
     .eq("organization_id", organizationId)
     .eq("provider", PROVEDOR_DE_MAPAS)
@@ -62,7 +61,7 @@ export async function estadoDaChaveDeMapas(
 export async function lerChaveDeMapas(admin: SupabaseClient, organizationId: string): Promise<string | null> {
   try {
     const { data, error } = await admin
-      .from(TABELA)
+      .from("map_provider_credentials")
       .select("api_key_encrypted")
       .eq("organization_id", organizationId)
       .eq("provider", PROVEDOR_DE_MAPAS)
@@ -95,7 +94,7 @@ export async function guardarChaveDeMapas(
   const ultimos4 = input.chave.slice(-4);
   // `upsert` sobre o índice único `(organization_id, provider)`: trocar a chave
   // é gravar de novo, e um `update` casaria zero linhas em quem nunca gravou.
-  const { error } = await admin.from(TABELA).upsert(
+  const { error } = await admin.from("map_provider_credentials").upsert(
     {
       organization_id: input.organizationId,
       provider: PROVEDOR_DE_MAPAS,
@@ -112,7 +111,7 @@ export async function guardarChaveDeMapas(
 /** `true` se havia chave e ela saiu. */
 export async function removerChaveDeMapas(admin: SupabaseClient, organizationId: string): Promise<boolean> {
   const { data, error } = await admin
-    .from(TABELA)
+    .from("map_provider_credentials")
     .delete()
     .eq("organization_id", organizationId)
     .eq("provider", PROVEDOR_DE_MAPAS)

@@ -814,6 +814,12 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     motivo:
       "link de mapa que `lib/messaging/localizacao.ts` monta com as coordenadas do pino que o CLIENTE mandou pelo WhatsApp: é o que o atendente toca para ver o endereço de entrega e o que o agente lê. O código não chama o host; o celular abre o app de mapas. Trocar pelo domínio do revendedor não abriria mapa nenhum.",
   },
+  // ── geocodificação reversa do pino (0444): destino de chamada ──
+  "maps.googleapis.com": {
+    categoria: "FORNECEDOR",
+    motivo:
+      "endpoint da Geocoding API do Google (`lib/mapas/geocodificacao.ts`), chamado com a chave da PRÓPRIA organização para transformar as coordenadas do pino em rua, bairro e cidade aproximados. É o destino do request: trocar pelo domínio do revendedor faria a chamada não chegar a lugar nenhum. Sem chave cadastrada, o código não fala com ele.",
+  },
   // ── prospecção (PR #963): destino de chamada do crawler ──
   "api.apify.com": {
     categoria: "FORNECEDOR",
