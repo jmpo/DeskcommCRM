@@ -110,4 +110,44 @@ test.describe("Pausa de reentrada do gatilho de silêncio", () => {
       .toMatchObject({ threshold_minutes: 10, max_silence_minutes: 60 });
     registra(`teto · gravado = ${JSON.stringify(await gatilhoGravado())}`);
   });
+
+  test("a pausa contada do último envio: liga, grava a base, e desligar a tira", async ({ page }) => {
+    // Um toque curto "no máximo 1× por dia": contada da última mensagem, a pausa
+    // de 24 h não se cumpriria nunca dentro de um teto de 60 min.
+    await login(page, c.users.manager!.email, c.password);
+    await page.goto(`/app/ai/followups/${fluxoId}`);
+    const botao = page.getByTestId("trigger-config-button");
+    await expect(botao).toBeVisible({ timeout: 60_000 });
+
+    await botao.click();
+    const painel = page.getByTestId("trigger-config-panel");
+    const pausa = painel.getByTestId("trigger-reentry-pause");
+    const base = painel.getByTestId("trigger-pause-basis");
+    await pausa.fill("0");
+    // Sem pausa, a escolha da base não existe.
+    await expect(base).toHaveCount(0);
+    await pausa.fill("24");
+    await expect(base).toBeVisible();
+    await expect(base).not.toBeChecked();
+    await base.click();
+    await expect(base).toBeChecked();
+    await captura(page, "pausa-03-base-do-ultimo-envio");
+    await painel.getByTestId("trigger-config-save").click();
+
+    await expect(botao).toHaveText(/no máximo 1× a cada 24 h/, { timeout: 30_000 });
+    await expect
+      .poll(async () => (await gatilhoGravado()).params)
+      .toMatchObject({ reentry_pause_minutes: 1440, reentry_pause_basis: "ultimo_envio" });
+    registra(`base · gravado = ${JSON.stringify(await gatilhoGravado())}`);
+
+    // Reabrir mostra a escolha gravada; desligar volta à base padrão e tira a chave.
+    await botao.click();
+    await expect(base).toBeChecked();
+    await base.click();
+    await painel.getByTestId("trigger-config-save").click();
+    await expect(botao).toHaveText(/pausa de 24 h/, { timeout: 30_000 });
+    await expect
+      .poll(async () => Object.keys((await gatilhoGravado()).params as Record<string, unknown>))
+      .not.toContain("reentry_pause_basis");
+  });
 });

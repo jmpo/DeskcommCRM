@@ -84,6 +84,8 @@ interface TriggerFormState {
   reentryPauseHours: number;
   /** Teto do silêncio, em minutos; 0 = sem teto. */
   maxSilenceMinutes: number;
+  /** A pausa conta do último ENVIO deste fluxo (e não da última mensagem do cliente). */
+  pauseFromLastSend: boolean;
   stageId: string;
   cancelOnReply: boolean;
   eventTypeIds: string[];
@@ -143,6 +145,7 @@ function parseTriggerConfig(raw: Record<string, unknown>): TriggerFormState {
       event_type_ids?: string[];
       reentry_pause_minutes?: number;
       max_silence_minutes?: number;
+      reentry_pause_basis?: string;
     } | undefined) ?? {};
   const minutosRetorno =
     kind === "inbound_after_silence" && typeof params.threshold_minutes === "number"
@@ -166,6 +169,7 @@ function parseTriggerConfig(raw: Record<string, unknown>): TriggerFormState {
       kind === "silence" && typeof params.reentry_pause_minutes === "number" ? params.reentry_pause_minutes / 60 : 0,
     maxSilenceMinutes:
       kind === "silence" && typeof params.max_silence_minutes === "number" ? params.max_silence_minutes : 0,
+    pauseFromLastSend: kind === "silence" && params.reentry_pause_basis === "ultimo_envio",
     stageId: kind === "stage_change" && typeof params.stage_id === "string" ? params.stage_id : "",
     cancelOnReply: raw.cancel_on_reply === true,
   };
@@ -210,6 +214,7 @@ function toTriggerConfig(form: TriggerFormState): Record<string, unknown> {
       threshold_minutes: form.thresholdMinutes,
       ...(segments.length > 0 ? { segments } : {}),
       ...(pausa > 0 ? { reentry_pause_minutes: pausa } : {}),
+      ...(pausa > 0 && form.pauseFromLastSend ? { reentry_pause_basis: "ultimo_envio" } : {}),
       ...(form.maxSilenceMinutes > 0 ? { max_silence_minutes: Math.round(form.maxSilenceMinutes) } : {}),
     },
     ...cancelOnReply,
@@ -224,14 +229,18 @@ function summaryLabel(
   if(cfg.kind === "appointment_no_show") return t("Gatilho: falta confirmada pela equipe");
   if (cfg.kind === "silence") {
     const params = cfg.params as
-      | { threshold_minutes?: number; reentry_pause_minutes?: number; max_silence_minutes?: number }
+      | { threshold_minutes?: number; reentry_pause_minutes?: number; max_silence_minutes?: number; reentry_pause_basis?: string }
       | undefined;
     const minutes = params?.threshold_minutes;
     const pausa = params?.reentry_pause_minutes;
     const teto = params?.max_silence_minutes;
     const detalhe = [
       typeof minutes === "number" ? (typeof teto === "number" && teto > 0 ? `${minutes}–${teto} min` : `${minutes} min`) : null,
-      typeof pausa === "number" && pausa > 0 ? `${t("pausa de")} ${Math.round((pausa / 60) * 10) / 10} h` : null,
+      typeof pausa === "number" && pausa > 0
+        ? params?.reentry_pause_basis === "ultimo_envio"
+          ? `${t("no máximo 1× a cada")} ${Math.round((pausa / 60) * 10) / 10} h`
+          : `${t("pausa de")} ${Math.round((pausa / 60) * 10) / 10} h`
+        : null,
     ].filter(Boolean);
     return `${t("Gatilho")}: ${t("Silêncio")}${detalhe.length > 0 ? ` (${detalhe.join(" · ")})` : ""}`;
   }
@@ -327,7 +336,8 @@ export function TriggerConfigControl({ flowId, triggerConfig }: Props) {
       (form.thresholdMinutes !== saved.thresholdMinutes ||
         form.segments !== saved.segments ||
         form.reentryPauseHours !== saved.reentryPauseHours ||
-        form.maxSilenceMinutes !== saved.maxSilenceMinutes)) ||
+        form.maxSilenceMinutes !== saved.maxSilenceMinutes ||
+        form.pauseFromLastSend !== saved.pauseFromLastSend)) ||
     (form.kind === "inbound_after_silence" &&
       (form.thresholdValor !== saved.thresholdValor ||
         form.thresholdUnidade !== saved.thresholdUnidade ||
@@ -601,6 +611,19 @@ export function TriggerConfigControl({ flowId, triggerConfig }: Props) {
                     "Vale para quem já passou por este fluxo e respondeu ou chegou ao fim: ele só recomeça depois deste tempo sem o cliente escrever. Quem nunca passou por ele entra no tempo de silêncio de sempre. 0 = sem pausa.",
                   )}
                 </p>
+                {form.reentryPauseHours > 0 && (
+                  <div className="flex items-start justify-between gap-2">
+                    <Label htmlFor="trigger-pause-basis" className="text-xs font-normal leading-snug">
+                      {t("Contar a pausa a partir do último envio deste fluxo (e não da última mensagem do cliente)")}
+                    </Label>
+                    <Switch
+                      id="trigger-pause-basis"
+                      checked={form.pauseFromLastSend}
+                      onCheckedChange={(checked) => setForm((f) => ({ ...f, pauseFromLastSend: checked }))}
+                      data-testid="trigger-pause-basis"
+                    />
+                  </div>
+                )}
               </div>
             </>
           )}

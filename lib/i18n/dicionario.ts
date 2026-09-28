@@ -2375,6 +2375,12 @@ export const DICIONARIO: Traducoes = {
   // ─── gatilho de silêncio — pausa de reentrada (lib/followup/pausa-de-reentrada.ts) ───
   "Pausa antes de recomeçar (horas)": { es: "Pausa antes de volver a empezar (horas)" },
   "Silêncio máximo, em minutos (opcional)": { es: "Silencio máximo, en minutos (opcional)" },
+  "Da última mensagem do cliente": { es: "Desde el último mensaje del cliente" },
+  "Do último envio deste fluxo": { es: "Desde el último envío de este flujo" },
+  "Contar a pausa a partir do último envio deste fluxo (e não da última mensagem do cliente)": {
+    es: "Contar la pausa desde el último envío de este flujo (y no desde el último mensaje del cliente)",
+  },
+  "no máximo 1× a cada": { es: "como máximo 1× cada" },
   "Precisa ser maior que o mínimo e no máximo 10080 (7 dias).": {
     es: "Tiene que ser mayor que el mínimo y como máximo 10080 (7 días).",
   },

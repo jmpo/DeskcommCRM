@@ -57,6 +57,7 @@ import {
   type waitConfigSchema,
 } from "./graph-schema";
 import type { EnrollmentOutcome, EnrollmentStatus } from "./node-handlers";
+import type { BaseDaPausa } from "./pausa-de-reentrada";
 
 type ConditionConfig = z.infer<typeof conditionConfigSchema>;
 type Check = ConditionConfig["checks"][number];
@@ -587,4 +588,14 @@ export const GATILHOS: Record<TipoDeGatilho, string> = {
   case_opened: "Quando o agente pede ajuda de um humano",
   inbound_after_silence: "Cliente voltou",
   conversation_end: "Fim da conversa",
+};
+
+/**
+ * De onde conta a pausa antes de o gatilho de silêncio recomeçar
+ * (`params.reentry_pause_basis`). A tela a oferece como um interruptor, mas o
+ * valor não pode chegar cru a quem lê o gatilho em outro lugar.
+ */
+export const BASES_DA_PAUSA_DE_REENTRADA: Record<BaseDaPausa, string> = {
+  ultima_mensagem: "Da última mensagem do cliente",
+  ultimo_envio: "Do último envio deste fluxo",
 };

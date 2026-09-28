@@ -512,6 +512,7 @@ Spec: `tests/e2e/pausa-de-reentrada.spec.ts`.
 | J35.3 | Zerar a pausa | a chave sai do gatilho (comportamento de antes) | **PASS pela tela** |
 | J35.4 | Quem encerrou uma inscrição há menos que a pausa / quem nunca passou / conversa com pessoa no comando | pula / entra / pula (salvo `handoff_policy='allow'`) | **PASS (invariante)** — `tests/invariants/followup-silence-sweep.test.ts` |
 | J35.5 | Teto do silêncio: 5 com mínimo 10 é recusado; 60 é gravado e o botão mostra «10–60 min»; na varredura, quem está calado há 20 min entra e há 3 h fica de fora | tela + invariante | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/silencio-01-teto-de-60.png`; invariante no mesmo arquivo de J35.4 |
+| J35.6 | Pausa de 24 h contada do último envio (a opção só aparece com pausa > 0) | o banco guarda `reentry_pause_basis: "ultimo_envio"`; o botão diz «no máximo 1× a cada 24 h»; desligar tira a chave; na varredura, quem encerrou há 25 h e escreveu há 20 min entra (pela base padrão, fica na pausa) | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-03-base-do-ultimo-envio.png`; invariante no mesmo arquivo de J35.4 |
 
 ---
 

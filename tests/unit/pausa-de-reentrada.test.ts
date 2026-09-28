@@ -285,3 +285,65 @@ describe("createSupabaseSilenceSweepDb — a consulta de PRODUÇÃO", () => {
     expect(pointer).toMatchObject({ reentry_pause_minutes: 2880, handoff_policy: "cancel" });
   });
 });
+
+describe("base da pausa: a partir do último ENVIO do fluxo", () => {
+  // Um toque curto "10 min depois de o cliente parar, no máximo 1× por dia": com a
+  // base `ultima_mensagem` e o teto de silêncio de 60 min, a pausa de 24 h nunca se
+  // cumpria — contava da mensagem que acabou de chegar.
+  const pausa24h = 24 * 60;
+
+  it("⭐ encerrada há 25 h, cliente escreveu há 20 min: pela base do envio, pode entrar", () => {
+    const fatos: FatosDaReentrada = { encerradaEm: AGORA.getTime() - 25 * H, ultimaMensagemEm: AGORA.getTime() - (20 * H) / 60 };
+    expect(emPausaDeReentrada(fatos, pausa24h, AGORA, "ultimo_envio")).toBe(false);
+    // controle: pela base da última mensagem, a mesma situação segue em pausa
+    expect(emPausaDeReentrada(fatos, pausa24h, AGORA, "ultima_mensagem")).toBe(true);
+    expect(emPausaDeReentrada(fatos, pausa24h, AGORA)).toBe(true);
+  });
+
+  it("encerrada há 2 h: pela base do envio, ainda em pausa", () => {
+    const fatos: FatosDaReentrada = { encerradaEm: AGORA.getTime() - 2 * H, ultimaMensagemEm: AGORA.getTime() - (15 * H) / 60 };
+    expect(emPausaDeReentrada(fatos, pausa24h, AGORA, "ultimo_envio")).toBe(true);
+  });
+
+  it("o contrato aceita as duas bases e recusa outra", () => {
+    const base = { kind: "silence", params: { threshold_minutes: 10, reentry_pause_minutes: 1440 }, cancel_on_reply: true };
+    for (const b of ["ultima_mensagem", "ultimo_envio"])
+      expect(triggerConfigSchema.safeParse({ ...base, params: { ...base.params, reentry_pause_basis: b } }).success).toBe(true);
+    expect(triggerConfigSchema.safeParse({ ...base, params: { ...base.params, reentry_pause_basis: "outra" } }).success).toBe(false);
+  });
+
+  it("a varredura aplica a base do ponteiro", async () => {
+    const insert = vi.fn(async (_row: { contact_id: string }) => ({ inserted: true }));
+    const db: SilenceSweepDb = {
+      loadActiveSilencePointers: async () => [
+        { id: "ptr", organization_id: "org", active_version_id: "v1", threshold_minutes: 10, segments: [], reentry_pause_minutes: pausa24h, reentry_pause_basis: "ultimo_envio" },
+      ],
+      loadSilentContactIds: async () => ["ontem", "hoje"],
+      loadContatosComRetornoVivo: async () => new Set<string>(),
+      loadEncerramentosDoFluxo: async () =>
+        new Map<string, FatosDaReentrada>([
+          ["ontem", { encerradaEm: AGORA.getTime() - 25 * H, ultimaMensagemEm: AGORA.getTime() - H / 3 }],
+          ["hoje", { encerradaEm: AGORA.getTime() - 2 * H, ultimaMensagemEm: AGORA.getTime() - H / 3 }],
+        ]),
+      loadContatosComPessoaNoComando: async () => new Set<string>(),
+      loadTriggerNode: async () => ({ id: "inicio", pedeAgente: false }),
+      insertEnrollment: insert,
+    };
+    const resumo = await runSilenceSweep({ db, gateDb: { loadEnabledPublishedFollowupAgents: async () => [] }, clock: () => AGORA });
+    expect(insert.mock.calls.map((c) => c[0].contact_id)).toEqual(["ontem"]);
+    expect(resumo.skipped_reentry_pause).toBe(1);
+  });
+
+  it("a leitura do fluxo carrega a base", async () => {
+    const { client } = fakeSupabase([
+      [
+        {
+          id: "ptr", organization_id: "org", active_version_id: "v1", surface: "followup", handoff_policy: "cancel",
+          trigger_config: { kind: "silence", params: { threshold_minutes: 10, reentry_pause_minutes: 1440, reentry_pause_basis: "ultimo_envio" } },
+        },
+      ],
+    ]);
+    const [pointer] = await createSupabaseSilenceSweepDb(client).loadActiveSilencePointers();
+    expect(pointer).toMatchObject({ reentry_pause_minutes: 1440, reentry_pause_basis: "ultimo_envio" });
+  });
+});
