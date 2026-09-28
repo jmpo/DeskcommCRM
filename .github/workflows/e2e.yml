@@ -1110,6 +1110,7 @@ jobs:
         qa-l12-inbox.spec.ts
         etapa-pela-conversa.spec.ts
         pausa-de-reentrada.spec.ts
+        mapas-em-provedores.spec.ts
         filtro-por-marcador-pela-tela.spec.ts
         funil-arquivado-volta-pela-tela.spec.ts
         qa-l12-funil.spec.ts
