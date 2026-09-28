@@ -6,7 +6,7 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  *   PUT    — grava ou troca a chave (cifrada). Admin.
  *   DELETE — remove a chave: o pino volta a chegar só com o link. Admin.
  *
- * Com a chave, o pino de localização do WhatsApp ganha rua, bairro e cidade
+ * Com a chave, o pino de localização do WhatsApp ganha rua, cidade e região
  * aproximados (`lib/mapas/`). O botão "Testar" mora em `./testar`.
  */
 import { randomUUID } from "node:crypto";

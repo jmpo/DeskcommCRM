@@ -8,13 +8,13 @@ import { describe, expect, it } from "vitest";
 import { LocationCard } from "./LocationCard";
 
 describe("LocationCard", () => {
-  it("com endereço aproximado: rua, bairro e cidade, marcados (aprox.)", () => {
+  it("com endereço aproximado: rua, cidade e departamento, marcados (aprox.)", () => {
     render(
       <LocationCard
-        localizacao={{ latitude: -25.35, longitude: -57.44, aproximado: { rua: "Boqueron", numero: "402", bairro: "Santo Domingo", cidade: "Capiatá", regiao: "Central" } }}
+        localizacao={{ latitude: -25.35, longitude: -57.44, aproximado: { rua: "Boqueron", cidade: "Capiatá", regiao: "Central" } }}
       />,
     );
-    expect(screen.getByTestId("pino-detalhe").textContent).toBe("Boqueron 402, Santo Domingo, Capiatá, Central (aprox.)");
+    expect(screen.getByTestId("pino-detalhe").textContent).toBe("Boqueron, Capiatá, Central (aprox.)");
   });
 
   it("o nome que o cliente escolheu no WhatsApp vem antes do aproximado — é exato", () => {

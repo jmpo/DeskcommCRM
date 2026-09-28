@@ -7,7 +7,7 @@
  * e não sabia em que cidade o cliente estava: perguntava a cidade de novo, e
  * não conseguia conferir a cobertura de entrega.
  *
- * Com uma chave da Geocoding API, as coordenadas viram rua, bairro, cidade e
+ * Com uma chave da Geocoding API, as coordenadas viram rua, cidade e
  * departamento/estado. É APROXIMADO — a própria documentação do Google diz que
  * a geocodificação reversa "não é uma ciência exata" e devolve o endereço mais
  * próximo dentro de uma tolerância (medido: um ponto na divisa de Fernando de
@@ -15,13 +15,23 @@
  * confirma com o cliente em vez de afirmar.
  *
  * Nada aqui lança: sem resposta, o pino segue como era antes (só o link).
+ *
+ * ─── O que se mostra, e por quê (medido em 28/09/2026) ─────────────────────
+ *
+ * Os 8 pinos de clientes que confirmaram pedido, comparados com o endereço que
+ * ficou anotado no pedido: o DISTRITO (`administrative_area_level_2`) acertou
+ * 8/8 e o departamento 8/8; a "localidade" (`locality`) errou na zona rural
+ * (Atyrá virou "Tucangua Cordillera", a compañía); o BAIRRO bateu 1/8 — o
+ * bairro do Google não é o que o cliente chama de bairro —; e o número da casa
+ * é interpolado (655 contra 882; num caso, "casi"). Por isso a cidade é o
+ * distrito, e bairro e número não saem: um dado errado dito com confiança é
+ * pior que nenhum. A rua fica (3 de 5 bateram, e ajuda quem entrega).
  */
 
 /** O que o Google disse sobre o ponto. Todos opcionais: o Google devolve o que tem. */
 export interface EnderecoAproximado {
   rua?: string;
-  numero?: string;
-  bairro?: string;
+  /** O distrito/município — medido mais confiável que a "localidade" do Google. */
   cidade?: string;
   /** Departamento (Paraguai), estado (Brasil) — `administrative_area_level_1`. */
   regiao?: string;
@@ -66,7 +76,7 @@ function componentes(resultado: unknown): Componente[] {
 /**
  * O primeiro nome encontrado para cada tipo, varrendo os resultados em ordem.
  * O primeiro resultado é o mais preciso, mas às vezes é um estabelecimento sem
- * bairro — os seguintes (a rua, o bairro, a cidade) completam o que faltou.
+ * rua ou sem distrito — os seguintes completam o que faltou.
  */
 function primeiroPorTipo(resultados: unknown[]): Map<string, string> {
   const achados = new Map<string, string>();
@@ -101,31 +111,38 @@ export function lerRespostaDoGoogle(corpo: unknown): ResultadoDaGeocodificacao {
 
   const resultados = Array.isArray(r.results) ? r.results : [];
   const tipo = primeiroPorTipo(resultados);
-  const cidade = tipo.get("locality") ?? tipo.get("administrative_area_level_2");
+  // O distrito antes da localidade: na zona rural a localidade é a compañía.
+  const cidade = tipo.get("administrative_area_level_2") ?? tipo.get("locality");
+  const rua = tipo.get("route");
+  const regiao = semSufixoDeDepartamento(tipo.get("administrative_area_level_1"));
   const endereco: EnderecoAproximado = {
-    ...(tipo.get("route") ? { rua: tipo.get("route") } : {}),
-    ...(tipo.get("route") && tipo.get("street_number") ? { numero: tipo.get("street_number") } : {}),
-    ...(() => {
-      const bairro = tipo.get("neighborhood") ?? tipo.get("sublocality_level_1") ?? tipo.get("sublocality");
-      return bairro ? { bairro } : {};
-    })(),
+    // "Unnamed Road" é o Google dizendo que a rua não tem nome — não é nome de rua.
+    ...(rua && !/^unnamed\b/i.test(rua) ? { rua } : {}),
     ...(cidade ? { cidade } : {}),
-    ...(tipo.get("administrative_area_level_1") ? { regiao: tipo.get("administrative_area_level_1") } : {}),
+    ...(regiao ? { regiao } : {}),
   };
   if (Object.keys(endereco).length === 0) return { ok: false, motivo: "sem_resultado" };
   return { ok: true, endereco };
 }
 
 /**
- * "Boquerón 402, Santo Domingo, Capiatá, Central". A região sai quando repete a
+ * O Google às vezes devolve o departamento em inglês mesmo com `language=es`
+ * (medido: "Central Department" num pino de Capiatá, "Central" no vizinho).
+ */
+function semSufixoDeDepartamento(nome: string | undefined): string | undefined {
+  const limpo = nome?.replace(/\s+Department$/i, "").replace(/^Department of\s+/i, "").trim();
+  return limpo || undefined;
+}
+
+/**
+ * "Boqueron, Capiatá, Central". A região sai quando repete a
  * cidade (Asunción é capital e departamento ao mesmo tempo). Sem rótulo de
  * idioma ("bairro", "barrio"): o texto vai para o agente e para a prévia da
  * conversa em qualquer idioma, e os nomes próprios se explicam sozinhos.
  */
 export function textoDoEnderecoAproximado(e: EnderecoAproximado): string {
-  const rua = e.rua ? [e.rua, e.numero].filter(Boolean).join(" ") : null;
   const regiao = e.regiao && e.regiao !== e.cidade ? e.regiao : null;
-  return [rua, e.bairro, e.cidade, regiao].filter((p): p is string => Boolean(p)).join(", ");
+  return [e.rua, e.cidade, regiao].filter((p): p is string => Boolean(p)).join(", ");
 }
 
 /** O idioma dos nomes que o Google devolve, a partir de `organizations.locale`. */

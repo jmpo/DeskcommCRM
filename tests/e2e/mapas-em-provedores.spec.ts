@@ -3,7 +3,7 @@
  *
  * Pedido de uma loja (28/09/2026): o pino de localização chegava só com
  * coordenadas e o agente não sabia a cidade. Com a chave da Geocoding API, o
- * pino ganha rua, bairro e cidade aproximados. Esta spec dirige o que o admin
+ * pino ganha rua e cidade aproximadas. Esta spec dirige o que o admin
  * faz: cola a chave, grava, vê só os 4 últimos caracteres, testa, e remove —
  * e confere no banco que a chave ficou CIFRADA e que nunca voltou ao browser.
  *

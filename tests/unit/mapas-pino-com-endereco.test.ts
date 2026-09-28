@@ -7,9 +7,10 @@
  * Google abaixo são recortes das REAIS, pedidas em 28/09 para pontos públicos.
  *
  * O que este arquivo prende:
- * - a leitura da resposta (o primeiro resultado é às vezes um estabelecimento
- *   sem bairro; os seguintes completam), e os erros que pedem ações diferentes
- *   de quem configura (API não habilitada × chave recusada);
+ * - a leitura da resposta: a cidade é o DISTRITO, sem bairro nem número —
+ *   medido contra 8 pedidos confirmados (distrito 8/8, bairro 1/8, número
+ *   interpolado) —, e os erros que pedem ações diferentes de quem configura
+ *   (API não habilitada × chave recusada);
  * - o corpo do pino — o que o agente lê — com "(aprox.)", e IDÊNTICO ao de
  *   antes quando não há endereço;
  * - o recebimento do pino: sem chave, nenhuma chamada ao Google; com chave, o
@@ -79,19 +80,52 @@ const ASUNCION = {
 };
 
 describe("a resposta do Google vira endereço aproximado", () => {
-  it("rua com número, bairro, cidade e departamento", () => {
+  it("rua, cidade e departamento — sem bairro nem número", () => {
     const r = lerRespostaDoGoogle(CAPIATA);
-    expect(r).toEqual({
-      ok: true,
-      endereco: { rua: "Boqueron", numero: "402", bairro: "Santo Domingo", cidade: "Capiatá", regiao: "Central" },
-    });
-    expect(r.ok && textoDoEnderecoAproximado(r.endereco)).toBe("Boqueron 402, Santo Domingo, Capiatá, Central");
+    expect(r).toEqual({ ok: true, endereco: { rua: "Boqueron", cidade: "Capiatá", regiao: "Central" } });
+    expect(r.ok && textoDoEnderecoAproximado(r.endereco)).toBe("Boqueron, Capiatá, Central");
   });
 
-  it("⭐ o bairro que falta no primeiro resultado vem do seguinte — e o departamento igual à cidade não se repete", () => {
+  it("o departamento igual à cidade não se repete, e sem distrito vale a localidade", () => {
     const r = lerRespostaDoGoogle(ASUNCION);
-    expect(r.ok && r.endereco.bairro).toBe("Itá Enramada");
-    expect(r.ok && textoDoEnderecoAproximado(r.endereco)).toBe("Ytororó 1155, Itá Enramada, Asunción");
+    expect(r.ok && textoDoEnderecoAproximado(r.endereco)).toBe("Ytororó, Asunción");
+  });
+
+  it("⭐ zona rural: a cidade é o DISTRITO, não a compañía que o Google chama de localidade", () => {
+    // Pedido confirmado em Atyrá (28/09/2026): locality "Tucangua Cordillera",
+    // administrative_area_level_2 "Atyrá" — e o cliente escreveu Atyrá.
+    const r = lerRespostaDoGoogle({
+      status: "OK",
+      results: [
+        {
+          address_components: [
+            comp("Ruta Tobati - Atyra", "route"),
+            comp("San Vicente", "neighborhood", "political"),
+            comp("Tucangua Cordillera", "locality", "political"),
+            comp("Atyrá", "administrative_area_level_2", "political"),
+            comp("Cordillera", "administrative_area_level_1", "political"),
+          ],
+        },
+      ],
+    });
+    expect(r.ok && textoDoEnderecoAproximado(r.endereco)).toBe("Ruta Tobati - Atyra, Atyrá, Cordillera");
+  });
+
+  it("\"Unnamed Road\" não é rua, e \"Central Department\" é Central", () => {
+    // Os dois medidos em pinos reais de 28/09 (Ypané e Capiatá).
+    const r = lerRespostaDoGoogle({
+      status: "OK",
+      results: [
+        {
+          address_components: [
+            comp("Unnamed Road", "route"),
+            comp("Ypané", "administrative_area_level_2", "political"),
+            comp("Central Department", "administrative_area_level_1", "political"),
+          ],
+        },
+      ],
+    });
+    expect(r).toEqual({ ok: true, endereco: { cidade: "Ypané", regiao: "Central" } });
   });
 
   it("⭐ API não habilitada e chave recusada são motivos DIFERENTES — pedem ações diferentes", () => {
@@ -149,8 +183,8 @@ describe("a chamada ao Google", () => {
 
 describe("o corpo do pino — o que o agente lê", () => {
   it("⭐ com endereço aproximado: marcado (aprox.), antes do link", () => {
-    const loc = { latitude: -25.3551, longitude: -57.4455, aproximado: { rua: "Boqueron", numero: "402", cidade: "Capiatá", regiao: "Central" } };
-    expect(corpoDaLocalizacao(loc)).toBe("📍 Boqueron 402, Capiatá, Central (aprox.) — https://maps.google.com/?q=-25.3551,-57.4455");
+    const loc = { latitude: -25.3551, longitude: -57.4455, aproximado: { rua: "Boqueron", cidade: "Capiatá", regiao: "Central" } };
+    expect(corpoDaLocalizacao(loc)).toBe("📍 Boqueron, Capiatá, Central (aprox.) — https://maps.google.com/?q=-25.3551,-57.4455");
   });
 
   it("controle: sem endereço aproximado, o corpo é o mesmo de antes", () => {
@@ -212,12 +246,12 @@ function redeFalsa(google: () => Response) {
 describe("o pino que chega pelo canal", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("⭐ com a chave de Mapas: o pino entra com rua, bairro e cidade", async () => {
+  it("⭐ com a chave de Mapas: o pino entra com rua, cidade e departamento", async () => {
     vi.mocked(resolveZernioCreds).mockResolvedValue({ accountId: "acc_1", apiKey: "k", baseUrl: "https://z.test/api", source: "session" });
     const f = redeFalsa(() => new Response(JSON.stringify(CAPIATA), { status: 200 }));
     const msg = await completarLocalizacao(adminFalso({ temChave: true }) as never, ORG, PINO);
-    expect(msg.location?.aproximado).toMatchObject({ cidade: "Capiatá", bairro: "Santo Domingo" });
-    expect(corpoDaLocalizacao(msg.location!)).toContain("Boqueron 402, Santo Domingo, Capiatá, Central (aprox.)");
+    expect(msg.location?.aproximado).toEqual({ rua: "Boqueron", cidade: "Capiatá", regiao: "Central" });
+    expect(corpoDaLocalizacao(msg.location!)).toContain("Boqueron, Capiatá, Central (aprox.)");
     const google = f.mock.calls.find(([u]) => String(u).includes("maps.googleapis.com"));
     expect(new URL(String(google![0])).searchParams.get("language")).toBe("es");
   });

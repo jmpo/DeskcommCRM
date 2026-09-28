@@ -2381,7 +2381,7 @@ export const DICIONARIO: Traducoes = {
   "Mapas (Google)": { es: "Mapas (Google)" },
   "Chave gravada": { es: "Clave guardada" },
   "Sem chave": { es: "Sin clave" },
-  "Quando o cliente manda a localização pelo WhatsApp, o sistema consulta o Google e o agente lê a rua, o bairro e a cidade aproximados — em vez de só as coordenadas. Sem chave, nada muda.": { es: "Cuando el cliente manda su ubicación por WhatsApp, el sistema consulta a Google y el agente lee la calle, el barrio y la ciudad aproximados, en vez de solo las coordenadas. Sin clave, nada cambia." },
+  "Quando o cliente manda a localização pelo WhatsApp, o sistema consulta o Google e o agente lê a rua e a cidade aproximadas — em vez de só as coordenadas. Sem chave, nada muda.": { es: "Cuando el cliente manda su ubicación por WhatsApp, el sistema consulta a Google y el agente lee la calle y la ciudad aproximadas, en vez de solo las coordenadas. Sin clave, nada cambia." },
   "Não consegui ler a configuração de mapas.": { es: "No pude leer la configuración de mapas." },
   "Trocar a chave da Geocoding API": { es: "Cambiar la clave de la Geocoding API" },
   "Chave da Geocoding API": { es: "Clave de la Geocoding API" },

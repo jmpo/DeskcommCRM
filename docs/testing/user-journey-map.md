@@ -515,7 +515,7 @@ Spec: `tests/e2e/pausa-de-reentrada.spec.ts`.
 | J35.6 | Pausa de 24 h contada do último envio (a opção só aparece com pausa > 0) | o banco guarda `reentry_pause_basis: "ultimo_envio"`; o botão diz «no máximo 1× a cada 24 h»; desligar tira a chave; na varredura, quem encerrou há 25 h e escreveu há 20 min entra (pela base padrão, fica na pausa) | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-03-base-do-ultimo-envio.png`; invariante no mesmo arquivo de J35.4 |
 
 
-## J36 — O pino de localização chega com rua, bairro e cidade aproximados `[P1]` (2026-09-28)
+## J36 — O pino de localização chega com a rua e a cidade aproximadas `[P1]` (2026-09-28)
 
 Contexto: medido numa loja, 10 de 10 pinos do mês chegaram só com coordenadas —
 o agente lia um link e perguntava a cidade de novo. Com a chave da Geocoding API
@@ -532,6 +532,7 @@ Spec: `tests/e2e/mapas-em-provedores.spec.ts`.
 | J36.3 | Remover a chave | a linha sai do banco e o cartão volta a «Sem chave» | **PASS pela tela** |
 | J36.4 | Pino recebido com chave / sem chave / Google fora | corpo com «… (aprox.)» / corpo idêntico ao de antes e nenhuma chamada ao Google / corpo de antes | **PASS (unit)** — `tests/unit/mapas-pino-com-endereco.test.ts` |
 | J36.5 | A tabela não é servida pelo PostgREST | `anon`/`authenticated` sem privilégio, `permission denied`, RLS ligada sem policy | **PASS (invariante)** — `tests/invariants/credencial-de-mapas-e-server-side.test.ts` |
+| J36.6 | O que o Google diz × o endereço anotado em 8 pedidos confirmados (28/09/2026) | distrito 8/8, departamento 8/8, localidade 7/8 (Atyrá rural virou a compañía), rua 3/5, bairro 1/8, número interpolado → a cidade é o DISTRITO; bairro e número não saem | **MEDIDO em produção** (`pedilo-config/cfg/55-pines-vs-pedido.ts`); regra em `tests/unit/mapas-pino-com-endereco.test.ts` |
 
 ---
 

@@ -22,14 +22,14 @@ export interface Localizacao {
   /** Endereço escrito, quando o WhatsApp o anexou ao pino. */
   endereco?: string | null;
   /**
-   * Rua, bairro, cidade e região que o Google deu para as coordenadas, quando a
+   * Rua, cidade e região que o Google deu para as coordenadas, quando a
    * organização cadastrou a chave de Mapas (`lib/mapas/credencial.ts`).
    * APROXIMADO por natureza: quem lê confirma com o cliente.
    */
   aproximado?: EnderecoAproximado | null;
 }
 
-const CAMPOS_DO_APROXIMADO = ["rua", "numero", "bairro", "cidade", "regiao"] as const;
+const CAMPOS_DO_APROXIMADO = ["rua", "cidade", "regiao"] as const;
 
 function lerAproximado(bruto: unknown): EnderecoAproximado | null {
   if (!bruto || typeof bruto !== "object") return null;
