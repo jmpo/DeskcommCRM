@@ -107,6 +107,7 @@ function silenceSweepDb(): SilenceSweepDb {
             segments?: string[];
             reentry_pause_minutes?: number;
             max_silence_minutes?: number;
+            reentry_pause_basis?: "ultima_mensagem" | "ultimo_envio";
           };
         };
         handoff_policy: "pause" | "cancel" | "allow";
@@ -127,6 +128,9 @@ function silenceSweepDb(): SilenceSweepDb {
           reentry_pause_minutes: row.trigger_config.params!.reentry_pause_minutes ?? 0,
           ...(row.trigger_config.params!.max_silence_minutes
             ? { max_silence_minutes: row.trigger_config.params!.max_silence_minutes }
+            : {}),
+          ...(row.trigger_config.params!.reentry_pause_basis
+            ? { reentry_pause_basis: row.trigger_config.params!.reentry_pause_basis }
             : {}),
           handoff_policy: row.handoff_policy,
         });
@@ -344,6 +348,7 @@ async function seedSilenceFlow(
     reentryPauseMinutes?: number;
     handoffPolicy?: "pause" | "cancel" | "allow";
     maxSilenceMinutes?: number;
+    reentryPauseBasis?: "ultima_mensagem" | "ultimo_envio";
   },
 ): Promise<{ pointerId: string; versionId: string }> {
   const graph = {
@@ -368,6 +373,7 @@ async function seedSilenceFlow(
       segments: opts?.segments ?? [],
       ...(opts?.reentryPauseMinutes !== undefined ? { reentry_pause_minutes: opts.reentryPauseMinutes } : {}),
       ...(opts?.maxSilenceMinutes !== undefined ? { max_silence_minutes: opts.maxSilenceMinutes } : {}),
+      ...(opts?.reentryPauseBasis !== undefined ? { reentry_pause_basis: opts.reentryPauseBasis } : {}),
     },
   };
   const { rows: pointerRows } = await pool.query<{ id: string }>(
@@ -955,6 +961,54 @@ describe("runSilenceSweep — pausa de reentrada", () => {
     const contactId = await seedContact(org);
     await seedEncerrada(org, pointerId, versionId, contactId, 60 * 60); // encerrada há 60 h
     await seedConversation(org, contactId, 20 * 60); // mas escreveu de novo há 20 h
+
+    const summary = await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
+    expect(summary.skipped_reentry_pause).toBe(1);
+    expect(await countEnrollments(pointerId, contactId)).toBe(1);
+  });
+
+  it("⭐ pausa contada do último ENVIO: encerrada há 25 h e o cliente escreveu há 20 min — entra de novo", async () => {
+    // O toque curto "10 min depois de calar, no máximo 1× por dia": pela base da
+    // última mensagem, a pausa de 24 h nunca se cumpriria dentro do teto de 60 min.
+    const org = nextOrgId();
+    await seedOrg(org);
+    const { pointerId, versionId } = await seedSilenceFlow(org, {
+      thresholdMinutes: 10, maxSilenceMinutes: 60, reentryPauseMinutes: 24 * 60, reentryPauseBasis: "ultimo_envio",
+    });
+    const contactId = await seedContact(org);
+    await seedEncerrada(org, pointerId, versionId, contactId, 25 * 60);
+    await seedConversation(org, contactId, 20);
+
+    const summary = await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
+    expect(summary.skipped_reentry_pause).toBe(0);
+    expect(summary.enrolled).toBe(1);
+    expect(await countEnrollments(pointerId, contactId)).toBe(2);
+  });
+
+  it("controle da base: a mesma situação, contada da última mensagem, segue em pausa", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const { pointerId, versionId } = await seedSilenceFlow(org, {
+      thresholdMinutes: 10, maxSilenceMinutes: 60, reentryPauseMinutes: 24 * 60,
+    });
+    const contactId = await seedContact(org);
+    await seedEncerrada(org, pointerId, versionId, contactId, 25 * 60);
+    await seedConversation(org, contactId, 20);
+
+    const summary = await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
+    expect(summary.skipped_reentry_pause).toBe(1);
+    expect(await countEnrollments(pointerId, contactId)).toBe(1);
+  });
+
+  it("pausa contada do último envio: encerrada há 2 h, ainda não entra", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const { pointerId, versionId } = await seedSilenceFlow(org, {
+      thresholdMinutes: 10, maxSilenceMinutes: 60, reentryPauseMinutes: 24 * 60, reentryPauseBasis: "ultimo_envio",
+    });
+    const contactId = await seedContact(org);
+    await seedEncerrada(org, pointerId, versionId, contactId, 2 * 60);
+    await seedConversation(org, contactId, 20);
 
     const summary = await runSilenceSweep({ db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK });
     expect(summary.skipped_reentry_pause).toBe(1);

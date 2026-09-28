@@ -41,6 +41,23 @@
 /** Teto da pausa: 90 dias, o mesmo do gatilho "cliente voltou". */
 export const MAX_PAUSA_DE_REENTRADA_MINUTES = 90 * 24 * 60;
 
+/**
+ * De onde a pausa conta.
+ *
+ * - `ultima_mensagem` (padrão): do MAIS RECENTE entre o fim da inscrição e a
+ *   última mensagem do cliente — cada mensagem nova recomeça a contagem. É o que
+ *   o remarketing quer: quem respondeu e segue conversando não recebe a cadeia de
+ *   venda de novo.
+ * - `ultimo_envio`: só do fim da inscrição anterior. É o que um toque curto quer
+ *   (pedido de uma loja, 27/09/2026: "10 minutos depois de o cliente parar de
+ *   responder, uma vez por dia"): com o teto de silêncio de 60 min, a base
+ *   `ultima_mensagem` com pausa de 24 h NUNCA se cumpre — a pausa conta da
+ *   mensagem que acabou de chegar, e a janela fecha em 60 min —, e o toque saía
+ *   uma vez por contato para sempre.
+ */
+export const BASES_DA_PAUSA = ["ultima_mensagem", "ultimo_envio"] as const;
+export type BaseDaPausa = (typeof BASES_DA_PAUSA)[number];
+
 export interface FatosDaReentrada {
   /** Quando terminou a inscrição encerrada mais recente deste fluxo para o contato (ms). */
   encerradaEm: number;
@@ -53,14 +70,26 @@ export interface FatosDaReentrada {
  * pausa a respeitar (sem pausa configurada, ou o contato nunca encerrou uma
  * inscrição deste fluxo).
  */
-export function pausaDeReentradaAte(fatos: FatosDaReentrada | undefined, pausaMinutos: number): number | null {
+export function pausaDeReentradaAte(
+  fatos: FatosDaReentrada | undefined,
+  pausaMinutos: number,
+  base: BaseDaPausa = "ultima_mensagem",
+): number | null {
   if (!fatos || !(pausaMinutos > 0)) return null;
-  const referencia = Math.max(fatos.encerradaEm, fatos.ultimaMensagemEm ?? fatos.encerradaEm);
+  const referencia =
+    base === "ultimo_envio"
+      ? fatos.encerradaEm
+      : Math.max(fatos.encerradaEm, fatos.ultimaMensagemEm ?? fatos.encerradaEm);
   return referencia + pausaMinutos * 60_000;
 }
 
 /** O contato ainda está na pausa? Inclusivo no fim: exatamente na hora, já pode entrar. */
-export function emPausaDeReentrada(fatos: FatosDaReentrada | undefined, pausaMinutos: number, agora: Date): boolean {
-  const ate = pausaDeReentradaAte(fatos, pausaMinutos);
+export function emPausaDeReentrada(
+  fatos: FatosDaReentrada | undefined,
+  pausaMinutos: number,
+  agora: Date,
+  base: BaseDaPausa = "ultima_mensagem",
+): boolean {
+  const ate = pausaDeReentradaAte(fatos, pausaMinutos, base);
   return ate !== null && agora.getTime() < ate;
 }
