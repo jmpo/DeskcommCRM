@@ -12,6 +12,7 @@
  *   e código do Zod, nunca o texto do modelo), e o conteúdo corrigido vale;
  * - recusado duas vezes: sobe o mesmo erro de antes, e a fila re-tenta como sempre;
  * - falha do fornecedor não é recusa: sobe na hora, sem 2ª chamada;
+ * - a correção nomeia os campos que não existem e lista os certos, tirados do schema;
  * - o `.strict()` da declaração continua valendo — a correção não apaga campo.
  */
 import { readFileSync } from "node:fs";
@@ -21,11 +22,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CHECKPOINT_INSTRUCTION,
+  checkpointContentSchema,
   correcaoDoFechamento,
   fecharOTurno,
   FechamentoRecusado,
   parseCheckpointText,
 } from "@/lib/agent-engine/agent/abertura/checkpoint";
+import { declaracaoDoTurnoSchema } from "@/lib/agent-engine/agent/declaracao";
 
 const VALIDO = JSON.stringify({
   commitments: [],
@@ -77,7 +80,12 @@ describe("o fechamento do turno corrige antes de repetir o turno", () => {
     const [assistente, correcao] = m.chamadas[1]!;
     expect(assistente).toEqual({ role: "assistant", content: COM_CHAVE_A_MAIS });
     expect(correcao!.role).toBe("user");
-    expect(correcao!.content).toContain("declaracao: unrecognized_keys");
+    expect(correcao!.content).toContain("declaracao: unrecognized_keys (campos que não existem: observacoes)");
+    // E diz os nomes CERTOS — medido com GPT-5.6 Luna: o erro é traduzir "intencoes"
+    // para "intenciones"; a correção genérica corrigiu 1 de 5, esta 14 de 14.
+    expect(correcao!.content).toContain(
+      "dentro de declaracao: intencoes (cada item com o_que e evidencia), promessas (cada item com o_que e prazo) e nada_a_declarar",
+    );
     expect(r.corrigido).toBe(true);
     expect(r.resposta.callId).toBe("call-2");
     expect(r.content.declaracao).toEqual({ intencoes: [], promessas: [], nada_a_declarar: true });
@@ -85,6 +93,7 @@ describe("o fechamento do turno corrige antes de repetir o turno", () => {
     // O log diz O QUE falhou — nunca o texto do modelo (pode carregar PII da conversa).
     expect(log.warn).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(log.warn.mock.calls[0])).not.toContain("resumo");
+    expect(JSON.stringify(log.warn.mock.calls[0])).not.toContain("observacoes");
   });
 
   it("recusado duas vezes: sobe o mesmo erro de antes, e a fila re-tenta o turno como sempre", async () => {
@@ -110,9 +119,15 @@ describe("o fechamento do turno corrige antes de repetir o turno", () => {
     expect(r.content.next_action).toBe("entrar em [link]");
   });
 
+  it("os nomes da correção saem do schema: campo novo no contrato aparece na correção sem editar o texto", () => {
+    const texto = correcaoDoFechamento("x");
+    for (const campo of Object.keys(checkpointContentSchema.shape)) expect(texto).toContain(campo);
+    for (const campo of Object.keys(declaracaoDoTurnoSchema.shape)) expect(texto).toContain(campo);
+  });
+
   it("o .strict() continua valendo: o parse segue recusando campo a mais (a correção ensina, não apaga)", () => {
     expect(() => parseCheckpointText(COM_CHAVE_A_MAIS)).toThrow(FechamentoRecusado);
-    expect(correcaoDoFechamento("declaracao: unrecognized_keys")).toMatch(/sem nenhum campo a mais/);
+    expect(correcaoDoFechamento("declaracao: unrecognized_keys")).toMatch(/com estes nomes e nenhum outro/);
   });
 
   it("o turno fecha por aqui — e com a instrução de sempre como primeira pergunta", () => {
