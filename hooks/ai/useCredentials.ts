@@ -20,7 +20,12 @@ export interface CredentialRow {
    */
   provider: ProvedorComChave;
   label: string;
-  api_key_last4: string | null;
+  // `ai_provider_credentials.api_key_last4` é `text NOT NULL` no baseline: os
+  // quatro dígitos são gravados junto com a chave e nunca somem. Declarar
+  // `| null` aqui era o TypeScript mentindo sobre a coluna — e o mentiroso é o
+  // lado que não dá para o `tsc` conferir (o dado entra por `as unknown as`).
+  // Cobrado por `tests/invariants/tipo-de-coluna-x-typescript.test.ts`.
+  api_key_last4: string;
   validated_at: string | null;
   validation_error: string | null;
   models_available: string[] | null;

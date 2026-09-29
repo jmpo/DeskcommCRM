@@ -33,7 +33,9 @@
  * 3. COMPORTAMENTO, na tabela do escopo criada por último. Ela é escolhida pelo
  *    catálogo, nunca por nome: maior `pg_class.oid` entre as tabelas que a regra
  *    alcança, em que `authenticated` pode inserir, alterar e apagar, e que aceitam
- *    uma linha só com `organization_id` (nenhuma outra coluna NOT NULL sem default).
+ *    uma linha só com `organization_id` (nenhuma outra coluna NOT NULL sem default)
+ *    e que tem ao menos um caminho permissivo de insert que não exige papel
+ *    (`fn_role_at_least`).
  *    A sessão de suporte em modo somente leitura não insere, não altera e não apaga;
  *    a mesma sessão, o mesmo ator e a mesma tabela em modo completo fazem os três.
  *    A única variável entre os dois lados é o modo.
@@ -113,6 +115,19 @@ const TABELA_CRIADA_POR_ULTIMO = `
                       where a.attrelid = alvo.oid and a.attnum > 0 and not a.attisdropped
                         and a.attnotnull and not a.atthasdef and a.attidentity = '' and a.attgenerated = ''
                         and a.attname <> 'organization_id')
+     -- A precondição do caso de INSERT: a TRAVA tem de ser a única coisa que
+     -- pode recusar. Em support_readonly o ator é 'viewer' (fn_user_role_in_org);
+     -- numa tabela em que TODA policy PERMISSIVA de insert exige papel
+     -- (fn_role_at_least), a recusa viria do papel e o caso mediria a recusa
+     -- errada. Por isso a cobaia precisa de ao menos UM caminho permissivo de
+     -- insert sem papel (permissivas se somam por OR). As tabelas só com papel
+     -- seguem medidas pelo catálogo acima (as três travas presentes); só não
+     -- servem de cobaia aqui. (Achado com a 0448, a primeira tabela assim a ser
+     -- a última criada.)
+     and exists (select 1 from pg_policy p
+                  where p.polrelid = alvo.oid and p.polpermissive and p.polcmd in ('a', '*')
+                    and coalesce(pg_get_expr(p.polwithcheck, p.polrelid), pg_get_expr(p.polqual, p.polrelid), '')
+                        not like '%fn_role_at_least(%')
    order by alvo.oid desc
    limit 1;`;
 

@@ -642,6 +642,56 @@ describe("#1023 — a conexão removida fecha o próprio aviso", () => {
     );
   });
 
+  /**
+   * O ramo que o relato descreve: a conexão foi EXCLUÍDA de vez, não arquivada —
+   * canal sem histórico nem configuração dá `outcome: "delete"` e cai no
+   * `.delete()` da rota. É o único ramo em que a linha de saúde já nem existe
+   * mais (o `on delete cascade` levou junto), então o resquício que pode sobrar
+   * é SÓ o item da Central — e é ele que o fecho tem de alcançar, vindo DEPOIS
+   * da exclusão. Sem esta chamada neste ramo, o teste falha: a exclusão de uma
+   * conexão virgem deixaria o crítico aberto para sempre, que é o sintoma da
+   * issue.
+   */
+  it("⭐ canal EXCLUÍDO de vez com aviso aberto → nenhum aviso daquela conexão sobra", async () => {
+    authOk();
+    const db = makeDb({
+      rows: {
+        agent_inbox_items: [
+          avisoAberto(CANAL, "i1"),
+          avisoAberto("99999999-9999-4999-8999-999999999999", "i2"),
+        ],
+      },
+    });
+    wahaOk(db);
+    const { DELETE } = await import("./route");
+    const res = await DELETE(reqDelete(), ctx());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    // Hard delete de verdade: a linha some, ninguém ganha `archived_at`.
+    expect(body.data.archived).toBe(false);
+    expect(db.linhas("channel_sessions")).toEqual([]);
+    // O fecho roda DEPOIS da exclusão — é o que separa este ramo do arquivamento.
+    expect(db.eventos).toEqual([
+      "waha:logout",
+      "waha:delete",
+      "delete:channel_sessions",
+      "update:agent_inbox_items",
+    ]);
+    expect(
+      db.linhas("agent_inbox_items").filter((l) => l.ref_id === CANAL && l.status === "open"),
+    ).toEqual([]);
+    // O aviso de OUTRA conexão segue aberto: o fecho é por `ref_id`, nunca por org.
+    expect(db.linhas("agent_inbox_items").find((l) => l.id === "i2")?.status).toBe("open");
+    // A auditoria diz o que aconteceu, e não só que a exclusão saiu.
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "channel.deleted",
+        metadata: expect.objectContaining({ avisos_fechados: "resolvido" }),
+      }),
+    );
+  });
+
   it("⭐ canal VIRGEM (o caso comum) não escreve nada a mais", async () => {
     authOk();
     const db = makeDb();

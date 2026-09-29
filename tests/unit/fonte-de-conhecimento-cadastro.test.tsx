@@ -92,7 +92,10 @@ const CHAVE_OK: EstadoDaChave = {
   explicacao: "Usando a chave OpenAI cadastrada em Credenciais.",
   chave_em_uso: "Chave principal",
   avisos: [],
-  credenciais_openai: [],
+  provedor: "openai",
+  familia_sem_chave: null,
+  pode_trocar_para: null,
+  credenciais_embedding: [],
 };
 
 beforeEach(() => {
@@ -316,5 +319,124 @@ describe("ChaveDeConhecimento — o beco vira saída", () => {
     render(<ChaveDeConhecimento estado={CHAVE_OK} onChaveCadastrada={() => {}} />);
     expect(screen.getByTestId("conhecimento-chave-ok")).toBeInTheDocument();
     expect(screen.getByText(/Chave principal/)).toBeInTheDocument();
+  });
+
+  it("cadastrar chave OpenRouter pela tela envia o provedor correto", async () => {
+    const spy = dublarFetch();
+    render(
+      <ChaveDeConhecimento
+        estado={{ ...CHAVE_OK, pode_indexar: false, chave_em_uso: null }}
+        onChaveCadastrada={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("conhecimento-cadastrar-chave"));
+    fireEvent.click(screen.getByTestId("conhecimento-provedor-openrouter"));
+    expect(screen.getByTestId("conhecimento-chave-input")).toHaveAttribute("placeholder", "sk-or-…");
+    fireEvent.change(screen.getByTestId("conhecimento-chave-input"), {
+      target: { value: "chave-ficticia-openrouter" },
+    });
+    fireEvent.click(screen.getByTestId("conhecimento-chave-salvar"));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(corpoEnviado(spy)).toMatchObject({
+      provider: "openrouter",
+      label: "Chave da OpenRouter",
+      api_key: "chave-ficticia-openrouter",
+    });
+  });
+});
+
+// #1130 (@vgamkt): cada empresa escolhe OpenAI ou Google para a base. Trocar
+// REFAZ a base inteira, e a tela tem de dizer isso ANTES de trocar.
+describe("ChaveDeConhecimento — quem prepara a base", () => {
+  it("cadastrar chave do Google pela tela envia o provedor google", async () => {
+    const spy = dublarFetch();
+    render(
+      <ChaveDeConhecimento
+        estado={{ ...CHAVE_OK, pode_indexar: false, chave_em_uso: null, provedor: null }}
+        onChaveCadastrada={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("conhecimento-cadastrar-chave"));
+    fireEvent.click(screen.getByTestId("conhecimento-provedor-google"));
+    expect(screen.getByTestId("conhecimento-chave-input")).toHaveAttribute("placeholder", "AIza…");
+    fireEvent.change(screen.getByTestId("conhecimento-chave-input"), {
+      target: { value: "chave-ficticia-google" },
+    });
+    fireEvent.click(screen.getByTestId("conhecimento-chave-salvar"));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(corpoEnviado(spy)).toMatchObject({ provider: "google", label: "Chave do Google" });
+  });
+
+  it("o aviso de que a base é refeita vem ANTES: nada é enviado até confirmar", async () => {
+    const spy = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({ data: { provedor: "google", mudou: true, fila: { total: 2, emitidos: 2 } } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", spy);
+    const recarregar = vi.fn();
+    render(
+      <ChaveDeConhecimento
+        estado={{ ...CHAVE_OK, pode_trocar_para: "google" }}
+        onChaveCadastrada={recarregar}
+      />,
+    );
+
+    expect(screen.getByTestId("conhecimento-provedor")).toHaveTextContent("OpenAI");
+    fireEvent.click(screen.getByTestId("conhecimento-trocar-provedor"));
+
+    const dialogo = await screen.findByTestId("conhecimento-trocar-provedor-dialogo");
+    expect(dialogo).toHaveTextContent("refaz a base inteira");
+    expect(dialogo).toHaveTextContent("preparado de novo");
+    expect(spy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("conhecimento-trocar-provedor-confirmar"));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const [url, init] = spy.mock.calls[0]!;
+    expect(String(url)).toContain("/api/v1/ai/knowledge/provedor");
+    expect(init?.method).toBe("PUT");
+    expect(JSON.parse(String(init?.body))).toEqual({ provedor: "google" });
+    await waitFor(() => expect(recarregar).toHaveBeenCalled());
+  });
+
+  // Revisão do #1864: a chave da família da base sumiu. Outra chave cadastrada
+  // não assume calada — a tela diz qual família ficou sem chave e oferece a
+  // troca explícita, que refaz a base.
+  it("a chave da família da base sumiu: a tela diz qual, e a troca é explícita", () => {
+    render(
+      <ChaveDeConhecimento
+        estado={{
+          ...CHAVE_OK,
+          pode_indexar: false,
+          chave_em_uso: null,
+          provedor: "google",
+          familia_sem_chave: "google",
+          pode_trocar_para: "openai",
+        }}
+        onChaveCadastrada={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("conhecimento-sem-chave")).toHaveTextContent(
+      "A base é preparada pelo Google, e a chave do Google não está mais utilizável",
+    );
+    expect(screen.getByTestId("conhecimento-trocar-provedor")).toHaveTextContent(
+      "Trocar para a OpenAI",
+    );
+    fireEvent.click(screen.getByTestId("conhecimento-cadastrar-chave"));
+    expect(screen.getByTestId("conhecimento-provedor-google")).toBeChecked();
+  });
+
+  it("sem chave do Google, não oferece a troca — diz onde cadastrar", () => {
+    render(<ChaveDeConhecimento estado={CHAVE_OK} onChaveCadastrada={() => {}} />);
+    expect(screen.queryByTestId("conhecimento-trocar-provedor")).toBeNull();
+    expect(screen.getByTestId("conhecimento-provedor")).toHaveTextContent(
+      "Para usar o Google, cadastre a chave dele em",
+    );
   });
 });

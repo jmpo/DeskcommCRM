@@ -19,6 +19,7 @@ import { campanhaRespostaHandler } from "@/lib/campanhas/resposta.handler";
 import { followupGatilhoEtapaHandler } from "@/lib/followup/gatilho-etapa.handler";
 import { followupGatilhoLeadHandler } from "@/lib/followup/gatilho-lead.handler";
 import { followupGatilhoCasoHandler } from "@/lib/followup/gatilho-caso.handler";
+import { casoNaCentralHandler } from "@/lib/escalacao/caso-na-central.handler";
 import { mediaPersistHandler } from "@/workers/media-persist-worker.handler";
 import { mediaDeriveHandler } from "@/workers/media-derive-worker.handler";
 import { CONSUMIDORES_DOS_CANAIS } from "@/lib/channels/consumidores";
@@ -27,8 +28,8 @@ import { conversaoDeQualificacaoHandler } from "@/lib/conversoes/qualificacao.ha
 import { conversaoDeVendaHandler } from "@/lib/conversoes/envio.handler";
 import { conversaoDeEtapaHandler } from "@/lib/conversoes/etapa.handler";
 import { avisoDeEtapaHandler } from "@/lib/leads/aviso-de-etapa.handler";
-import { casoNaCentralHandler } from "@/lib/escalacao/caso-na-central.handler";
 import { avisoDeCasoAoSuporteHandler } from "@/lib/escalacao/aviso-ao-suporte.handler";
+import { avisoDePropostaNoWhatsAppHandler } from "@/lib/propostas/aviso-no-whatsapp.handler";
 import { registerHandler } from "@/lib/event-log/dispatcher";
 
 let _registered = false;
@@ -57,9 +58,12 @@ export function ensureHandlersRegistered(): void {
   // Escrita curta no banco (um item na Central), vizinha do gatilho de etapa
   // que consome o mesmo evento.
   registerHandler(avisoDeEtapaHandler);
-  registerHandler(casoNaCentralHandler);
   registerHandler(followupGatilhoLeadHandler);
   registerHandler(followupGatilhoCasoHandler);
+  // O caso aberto na Central, na hora — escrita curta no banco (um item), ao
+  // lado do outro consumidor de `ai.case_opened` que só escreve no banco, e
+  // longe do aviso ao suporte, que sai por rede de terceiro.
+  registerHandler(casoNaCentralHandler);
   registerHandler(followupGatilhoPresencaHandler);
   registerHandler(mediaPersistHandler);
   registerHandler(mediaDeriveHandler);
@@ -72,6 +76,9 @@ export function ensureHandlersRegistered(): void {
   // e cuja falha custa um follow-up perdido. Ele também é o único handler que
   // adia a si mesmo quando o dreno está rodando dentro de uma requisição.
   registerHandler(avisoDeCasoAoSuporteHandler);
+  // Mesmo critério do de cima: sai por rede de terceiro, depois de quem só
+  // escreve no banco. Consome o MESMO evento que a notificação do navegador.
+  registerHandler(avisoDePropostaNoWhatsAppHandler);
   // Por último: reportar a venda ao anúncio é o consumidor mais externo do
   // fechamento — depende de rede de terceiro e não pode atrasar quem escreve
   // no banco. Falha dele nunca segura os handlers acima.

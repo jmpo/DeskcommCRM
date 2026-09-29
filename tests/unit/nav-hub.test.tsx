@@ -144,6 +144,27 @@ describe("NavHub", () => {
     );
   });
 
+  it("a porta de Propostas no hub do CRM some com a capacidade desligada e volta ligada", () => {
+    render(
+      <NavHub group="crm" isPlatformAdmin={false} role="admin" title="CRM" subtitle="" modulosLigados={[]} capacidadesLigadas={[]} />,
+    );
+    expect(screen.queryByRole("link", { name: /Propostas/ })).toBeNull();
+    cleanup();
+
+    render(
+      <NavHub
+        group="crm"
+        isPlatformAdmin={false}
+        role="admin"
+        title="CRM"
+        subtitle=""
+        modulosLigados={[]}
+        capacidadesLigadas={["propostas"]}
+      />,
+    );
+    expect(screen.getByRole("link", { name: /Propostas/ })).toHaveAttribute("href", "/app/proposals");
+  });
+
   it("agrupa os cards sob a própria seção, não numa lista solta", () => {
     render(<NavHub modulosLigados={[]} group="ia" isPlatformAdmin role={null} title="Agente de IA" subtitle="" />);
     const ensinar = screen.getByRole("region", { name: "Ensinar o agente" });

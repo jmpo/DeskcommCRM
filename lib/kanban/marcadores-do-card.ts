@@ -64,3 +64,26 @@ export function cardTemMarcador(lead: Lead, marcador: string): boolean {
     (lead.conversation_tags ?? []).includes(marcador)
   );
 }
+
+/**
+ * O card tem TODAS estas etiquetas NA MESMA caixa? É o modo E do filtro (#1274).
+ *
+ * ─── Por que não basta o `every` sobre `cardTemMarcador` ────────────────────
+ *
+ * `cardTemMarcador` pergunta às três caixas em UNIÃO: "esta etiqueta está em
+ * alguma delas". Um `every` em cima disso aceita "vip na conversa E orçamento
+ * no negócio" — etiquetas juntas só na composição, nunca numa caixa. É
+ * justamente a mistura de caixas que a #1274 registra como DECISÃO DE PRODUTO
+ * pendente e que o servidor NÃO expressa: lá o E é `tags.cs.{a,b}` OU
+ * `tags_do_contato.cs.{a,b}` — as duas etiquetas dentro de UM literal, numa caixa
+ * só. Aceitar no funil e recusar no servidor faria o mesmo filtro devolver
+ * listas diferentes nas duas telas, sem erro em nenhuma.
+ *
+ * Com UMA etiqueta isto é sinônimo de `cardTemMarcador`, que é por que o filtro
+ * de uma etiqueta do funil não mudou de comportamento.
+ */
+export function cardTemTodasNaMesmaCaixa(lead: Lead, marcadores: readonly string[]): boolean {
+  if (marcadores.length === 0) return true;
+  const caixas = [lead.tags, lead.contact_tags ?? [], lead.conversation_tags ?? []];
+  return caixas.some((caixa) => marcadores.every((m) => caixa.includes(m)));
+}

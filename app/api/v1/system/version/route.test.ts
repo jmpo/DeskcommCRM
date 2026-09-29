@@ -309,6 +309,65 @@ describe("GET /api/v1/system/version", () => {
     expect(body.data.run.superseded).toBe(false);
   });
 
+  /**
+   * O ESTADO PERSISTIDO DA RODADA CHEGANDO À TELA — o coração do #1040.
+   *
+   * O kit grava disputa/retentativas/passada nas três colunas do run; quem
+   * conta isso para quem clicou é ESTA rota. Se ela devolvesse só
+   * sucesso/falha (o `status`), a tela continuaria contando uma história mais
+   * simples que a acontecida — o aviso morreria no `.update.log`, no disco da
+   * VPS, exatamente como o issue descreve.
+   */
+  it("⭐ devolve a rodada do banco do run — disputa, retentativas e passada", async () => {
+    versionRow.current_version = "1.0.0";
+    runRow = {
+      id: "55555555-5555-4555-8555-555555555555",
+      status: "success",
+      last_step: "app",
+      dispatched_at: new Date().toISOString(),
+      from_version: "1.0.0",
+      to_version: "1.1.0",
+      log_tail: "deadlock detected … 2ª passada fechou",
+      disputa_de_banco: true,
+      retentativas_do_banco: 1,
+      passada_do_banco: 2,
+    };
+    vi.mocked(loadAuthUser).mockResolvedValue(OWNER as never);
+    const { GET } = await import("../version/route");
+    const body = await (await GET(get())).json();
+
+    expect(body.data.run.status).toBe("success");
+    expect(body.data.run.rodada_do_banco).toEqual({
+      disputa: true,
+      retentativas: 1,
+      passada: 2,
+    });
+  });
+
+  it("coluna nula é 'não medido': a rota devolve null, não zero", async () => {
+    // Rodada que não passou pelo banco (atualização só de código) deixa as três
+    // colunas nulas. `null` é o que mantém a tela calada; `0` viraria a frase
+    // "não houve disputa" para uma disputa que ninguém mediu.
+    versionRow.current_version = "1.0.0";
+    runRow = {
+      id: "55555555-5555-4555-8555-555555555555",
+      status: "success",
+      last_step: "codigo",
+      dispatched_at: new Date().toISOString(),
+      from_version: "1.0.0",
+      to_version: "1.1.0",
+      log_tail: "",
+      disputa_de_banco: null,
+      retentativas_do_banco: null,
+      passada_do_banco: null,
+    };
+    vi.mocked(loadAuthUser).mockResolvedValue(OWNER as never);
+    const { GET } = await import("../version/route");
+    const body = await (await GET(get())).json();
+
+    expect(body.data.run.rodada_do_banco).toBeNull();
+  });
+
   it("depois de um rollback, quem não é dono também vê a versão que está no ar", async () => {
     versionRow.current_version = "1.1.0";
     runRow = {

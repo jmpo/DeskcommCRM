@@ -36,7 +36,8 @@
 
 import { embedText, SemChaveDeEmbeddingError } from "@/lib/ai/embed";
 import {
-  MODELO_DE_EMBEDDING,
+  FamiliaDaBaseIlegivelError,
+  modeloDeEmbedding,
   resolverChaveDeEmbedding,
   type ChaveDeEmbedding,
 } from "@/lib/ai/embeddings/chave";
@@ -383,7 +384,9 @@ export async function indexarFonte(
   // ─── Pulo incremental ──────────────────────────────────────────────────────
   // Se o conteúdo NÃO mudou, já está `success` e a versão ativa foi indexada com
   // o MESMO modelo de embedding, não há nada a fazer — e "Preparar tudo" deixa de
-  // reembedar o que não mudou. Trocar de modelo cai fora da condição e reindexa.
+  // reembedar o que não mudou. Trocar de modelo cai fora da condição e reindexa:
+  // é isto que faz a troca de provedor refazer a base inteira.
+  const modelo = modeloDeEmbedding(chave.provedor);
   const hashDoConteudo = computeContentHash(pedacos.map((p) => p.content).join("\n---\n"));
   if (
     fonte.content_hash === hashDoConteudo &&
@@ -396,7 +399,7 @@ export async function indexarFonte(
       .eq("id", fonte.active_kb_version_id)
       .eq("organization_id", fonte.organization_id)
       .maybeSingle();
-    if ((versaoAtiva as { embedding_model?: string } | null)?.embedding_model === MODELO_DE_EMBEDDING) {
+    if ((versaoAtiva as { embedding_model?: string } | null)?.embedding_model === modelo) {
       return { tipo: "pulado", motivo: "sem_mudanca" };
     }
   }
@@ -406,6 +409,7 @@ export async function indexarFonte(
     knowledgeSourceId: fonte.id,
     agentId: fonte.agent_id,
     sourceType: tipo,
+    embeddingModel: modelo,
   });
 
   console.warn(
@@ -594,14 +598,14 @@ export async function processRagIndexer(row: EventRow): Promise<HandlerResult> {
       await marcarFonte(row.organization_id, fonte.id, {
         last_index_status: "sem_credencial",
         last_index_error:
-          "Falta uma chave da OpenAI para indexar. Cadastre uma em IA › Credenciais " +
-          "(ou defina OPENAI_API_KEY na instalação) e este material entra sozinho.",
+          "Falta uma chave de embedding para indexar. Cadastre uma chave OpenAI ou OpenRouter " +
+          "em IA › Credenciais e este material entra sozinho.",
       });
       await avisarNaCentral(
         row.organization_id,
         fonte,
         `"${fonte.name}" ainda não entrou na base de conhecimento`,
-        "Falta uma chave da OpenAI para preparar o material. Cadastre uma em IA › Credenciais " +
+        "Falta uma chave de embedding para preparar o material. Cadastre uma em IA › Credenciais " +
           "e a indexação recomeça sozinha — nada do que você enviou foi perdido.",
       );
       // `retry` e não `skipped`: o drain conta `skipped` como sucesso e marca o
@@ -664,6 +668,11 @@ export async function processRagIndexer(row: EventRow): Promise<HandlerResult> {
     // o lote inteiro de eventos.
     if (err instanceof SemChaveDeEmbeddingError) {
       return { consumer_key: consumerKey, status: "retry", detail: "sem_chave_de_embedding" };
+    }
+    // Sem saber a família, indexar com qualquer chave pode ativar uma versão da
+    // OUTRA família. Nada é indexado; o evento volta quando o banco responder.
+    if (err instanceof FamiliaDaBaseIlegivelError) {
+      return { consumer_key: consumerKey, status: "retry", detail: "familia_da_base_ilegivel" };
     }
     const detalhe = err instanceof Error ? err.message : String(err);
     console.error("[rag-indexer] erro não tratado:", detalhe);

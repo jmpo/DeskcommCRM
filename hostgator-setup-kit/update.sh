@@ -364,6 +364,35 @@ if [ -f supabase/baseline.sql ]; then
   # cima de decisão deliberada, e falso positivo derruba a confiança no aviso
   # inteiro. Vale a ÚLTIMA operação de cada regra no arquivo: quem termina
   # criada é esperada; quem termina apagada, não.
+  #
+  # ── E A COMPARAÇÃO RODA EM ORDEM DE BYTES, SEMPRE ─────────────────────────
+  #
+  # ⛔ `sort` e `comm` precisam concordar na ordenação. No GNU coreutils os dois
+  # seguem o mesmo locale e concordam (medido: Ubuntu 20.04–25.10, Debian 12,
+  # AlmaLinux 8/9 dão 0 em C, C.UTF-8, en_US e pt_BR). No Ubuntu 26.04, que troca
+  # o coreutils pelo uutils (Rust, 0.8.0), o `sort` ordena pelo locale e o `comm`
+  # compara BYTES: sob en_US/pt_BR.UTF-8, `orgs_select` cai entre `org_guardrail_*`
+  # e `org_voice_calls_*`, o `comm` perde o passo — "comm: file 2 is not in
+  # sorted order" na stderr — e o que devolve depois é lixo.
+  #
+  # MEDIDO numa instalação real, 2026-09-28: com as 114 regras TODAS no banco, a
+  # comparação acusou 2 faltando (`org_voice_calls_admin_write` e
+  # `org_voice_calls_select`). O alarme falso faz o script tentar recriar as
+  # duas, o banco responde "already exists", a conferência seguinte tropeça no
+  # mesmo erro de ordenação — e a atualização PARA, deixando o aviso de
+  # manutenção de pé. O CRM passou 8 horas em 503 com o banco íntegro, e a tela
+  # mandava o dono procurar regra que nunca faltou.
+  #
+  # A cura é forçar o locale da comparação para `C`, que é ordem de bytes: aí o
+  # `sort` produz exatamente o que o `comm` espera, em qualquer ambiente.
+  #
+  # ⚠️ `LC_COLLATE=C` NÃO basta, e a diferença custa uma sessão de depuração:
+  # o POSIX dá precedência a `LC_ALL` sobre `LC_COLLATE`, então basta alguém
+  # exportar `LC_ALL=…UTF-8` — systemd, um `docker exec`, o terminal de quem
+  # roda o update à mão — para o pin virar enfeite e o defeito voltar inteiro.
+  # MEDIDO, com as 114 regras reais: `LC_ALL=C` devolve 0 em qualquer condição;
+  # `LC_COLLATE=C` devolve 0 com `LC_ALL` vazio e 2 com `LC_ALL` preenchido.
+  # `LC_ALL=C` vale só para os comandos abaixo — não alcança as mensagens.
   esperadas="$(awk '
     match($0, /drop policy if exists "?[a-zA-Z0-9_]+"? on public\.[a-zA-Z0-9_]+/) {
       linha = substr($0, RSTART, RLENGTH); acao = "drop"
@@ -376,13 +405,52 @@ if [ -f supabase/baseline.sql ]; then
       estado[linha] = acao; acao = ""
     }
     END { for (k in estado) if (estado[k] == "create") print k }
-  ' supabase/baseline.sql | sort -u)"
+  ' supabase/baseline.sql | LC_ALL=C sort -u)"
+
+  # ── E SÓ SE COBRE QUEM TEM A RELAÇÃO NO BANCO ──────────────────────────────
+  #
+  # MEDIDO na issue #1897: as 8 regras de honorários moram DENTRO do corpo de
+  # public.fn_honorarios_provisionar() (supabase/baseline.sql:36801, primeira
+  # policy em :36896), e essa função só executa quando um administrador chama
+  # fn_modulo_instalar('honorarios', …) — criar a função não cria tabela nenhuma,
+  # como a própria migration 0480 / ADR-0002 avisa. Num VPS SEM o módulo,
+  # honorarios_contratos e honorarios_parcelas não existem: o awk de cima enxerga
+  # o `create policy` no TEXTO do arquivo, a recriação responde
+  # `relation does not exist`, a segunda conferência acusa as MESMAS 8 e o script
+  # sai em 1 com o CRM parado — era a atualização inteira de toda instalação sem
+  # o módulo de honorários (a tela mostrava as 8 e mais nada).
+  #
+  # A régua passa a cobrir só policy cuja RELAÇÃO já existe em `public`. É mais
+  # genérico do que caçar `$f$`/`$$` no texto: cobre os próximos módulos da
+  # ADR-0002, venham eles por corpo de função, por migration ou por qualquer
+  # outra forma de escrever o baseline. E NÃO afrouxa nada: policy de tabela que
+  # EXISTE continua sendo cobrada, que é o caso para o qual o aviso existe — a
+  # regra que some do banco com a tabela de pé continua derrubando a atualização.
+  #
+  # ⚠️ Se a consulta vier VAZIA (banco fora do ar, URL trocada), NÃO se filtra.
+  # Sem a lista de relações, filtrar derrubaria `esperadas` inteira e o ✓ sairia
+  # com "0 declaradas" — o aviso viraria mudo exatamente quando ninguém consegue
+  # ler o banco. Vale o comportamento antigo, que é barulhento: tudo é cobrado e
+  # a conferência para. Surdo nunca.
+  tabelas="$(pg_container -i postgres:17-alpine psql "$(url_do_schema)" -t -A -c \
+    "select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace
+       where n.nspname='public';" 2>/dev/null | LC_ALL=C sort -u)"
+
+  if [ -n "$tabelas" ]; then
+    # `esperadas` é `regra|tabela`; o filtro olha só a tabela. A saída do awk
+    # segue a ordem do SEGUNDO arquivo (o `esperadas` já ordenado), e o
+    # segundo `sort` reforça o MESMO pino de antes (LC_ALL=C): o `comm` logo
+    # abaixo lê em `LC_ALL=C` e não perdoa entrada fora de ordem.
+    esperadas="$(awk 'NR == FNR { existe[$0] = 1; next }
+      { split($0, par, "[|]"); if (existe[par[2]]) print }' \
+      <(printf '%s\n' "$tabelas") <(printf '%s\n' "$esperadas") | LC_ALL=C sort -u)"
+  fi
 
   existentes="$(pg_container -i postgres:17-alpine psql "$(url_do_schema)" -t -A -F'|' -c \
     "select p.polname, c.relname from pg_policy p join pg_class c on c.oid=p.polrelid
-       join pg_namespace n on n.oid=c.relnamespace where n.nspname='public';" 2>/dev/null | sort -u)"
+       join pg_namespace n on n.oid=c.relnamespace where n.nspname='public';" 2>/dev/null | LC_ALL=C sort -u)"
 
-  faltando="$(comm -23 <(printf '%s\n' "$esperadas") <(printf '%s\n' "$existentes") || true)"
+  faltando="$(LC_ALL=C comm -23 <(printf '%s\n' "$esperadas") <(printf '%s\n' "$existentes") || true)"
 
   if [ -n "$faltando" ]; then
     # ── RECRIAR AS QUE FALTAM, NUNCA REAPLICAR O ARQUIVO ─────────────────────
@@ -436,8 +504,10 @@ if [ -f supabase/baseline.sql ]; then
 
     existentes="$(pg_container -i postgres:17-alpine psql "$(url_do_schema)" -t -A -F'|' -c \
       "select p.polname, c.relname from pg_policy p join pg_class c on c.oid=p.polrelid
-         join pg_namespace n on n.oid=c.relnamespace where n.nspname='public';" 2>/dev/null | sort -u)"
-    faltando="$(comm -23 <(printf '%s\n' "$esperadas") <(printf '%s\n' "$existentes") || true)"
+         join pg_namespace n on n.oid=c.relnamespace where n.nspname='public';" 2>/dev/null | LC_ALL=C sort -u)"
+    # Mesma ordenação da primeira conferência, e pelo mesmo motivo: `LC_ALL=C`
+    # é o que faz `sort` e `comm` concordarem. Ver o bloco acima.
+    faltando="$(LC_ALL=C comm -23 <(printf '%s\n' "$esperadas") <(printf '%s\n' "$existentes") || true)"
   fi
 
   if [ -n "$faltando" ]; then

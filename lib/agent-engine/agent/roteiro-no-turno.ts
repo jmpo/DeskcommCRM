@@ -145,7 +145,11 @@ export async function prepararRoteiroDoTurno(
     if (estado === null) {
       const porGatilho =
         t.flowPointerDoRoteador === null
-          ? await escolherFluxoPeloGatilho(deps.pool, { organizationId: t.organizationId, texto })
+          ? await escolherFluxoPeloGatilho(deps.pool, {
+              organizationId: t.organizationId,
+              contactId: t.contactId,
+              texto,
+            })
           : null;
       const alvo = t.flowPointerDoRoteador ?? porGatilho?.id ?? null;
       if (alvo !== null) {

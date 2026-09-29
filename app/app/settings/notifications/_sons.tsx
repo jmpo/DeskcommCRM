@@ -1,7 +1,11 @@
 "use client";
 /**
- * Os sons dos avisos da Central — venda confirmada e pedido de pessoa.
+ * Os sons dos avisos da Central — a etapa que avisa e o pedido de pessoa.
  * Ver `lib/notifications/sons-da-org.ts` e `app/api/v1/settings/sons`.
+ *
+ * Todo membro ouve e vê qual som está valendo; trocar e voltar ao do sistema é
+ * de `manager` para cima (a mesma régua da rota). Quem não pode trocar não vê
+ * o botão — um botão que devolve 403 é uma promessa falsa.
  */
 import * as React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,25 +14,32 @@ import { toast } from "sonner";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useAuth } from "@/hooks/auth/AuthProvider";
 import { useT } from "@/hooks/i18n/useT";
 import { apiClient } from "@/lib/api/client";
+import { ROLE_RANK } from "@/lib/auth/types";
 import { playSound } from "@/lib/notifications/sounds";
 import { SOM_PADRAO, TIPOS_DE_SOM, type TipoDeSom } from "@/lib/notifications/sons-da-org";
 
 const ROTULO: Record<TipoDeSom, { titulo: string; quando: string }> = {
   venda: {
-    titulo: "Venda confirmada",
-    quando: "Quando um negócio entra numa etapa que avisa na Central (por exemplo, pedido confirmado).",
+    titulo: "Etapa que avisa",
+    quando:
+      "Quando um negócio entra numa etapa marcada para avisar na Central (por exemplo, o pedido confirmado).",
   },
   pessoa: {
     titulo: "Precisa de uma pessoa",
-    quando: "Quando o assistente passa a conversa para alguém da equipe.",
+    quando: "Quando o assistente passa a conversa para alguém da equipe, ou fica sem saldo no provedor de IA.",
   },
 };
 
 export function SonsDosAvisos() {
   const t = useT();
   const qc = useQueryClient();
+  const { user, activeOrg } = useAuth();
+  const podeTrocar =
+    (user.is_platform_admin && !user.support) ||
+    (activeOrg !== null && ROLE_RANK[activeOrg.role] >= ROLE_RANK.manager);
   const [enviando, setEnviando] = React.useState<TipoDeSom | null>(null);
   const { data: urls } = useQuery({
     queryKey: ["settings-sons"],
@@ -84,28 +95,31 @@ export function SonsDosAvisos() {
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium">{t(ROTULO[tipo].titulo)}</p>
               <p className="text-xs text-muted-foreground">{t(ROTULO[tipo].quando)}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground" data-testid={`som-${tipo}-estado`}>
                 {urls?.[tipo] ? t("Som personalizado") : t("Som do sistema")}
               </p>
             </div>
             <Button variant="ghost" size="sm" onClick={() => ouvir(tipo)}>
               {t("Ouvir")}
             </Button>
-            <label className="cursor-pointer rounded-md border px-3 py-1.5 text-sm">
-              {enviando === tipo ? t("Enviando…") : t("Trocar som")}
-              <input
-                type="file"
-                accept="audio/mpeg,audio/ogg,audio/wav,.mp3,.ogg,.wav"
-                className="hidden"
-                disabled={enviando !== null}
-                onChange={(e) => {
-                  const arquivo = e.target.files?.[0];
-                  e.target.value = "";
-                  if (arquivo) void enviar(tipo, arquivo);
-                }}
-              />
-            </label>
-            {urls?.[tipo] ? (
+            {podeTrocar ? (
+              <label className="cursor-pointer rounded-md border px-3 py-1.5 text-sm">
+                {enviando === tipo ? t("Enviando…") : t("Trocar som")}
+                <input
+                  type="file"
+                  accept="audio/mpeg,audio/ogg,audio/wav,.mp3,.ogg,.wav"
+                  className="sr-only"
+                  data-testid={`som-${tipo}-arquivo`}
+                  disabled={enviando !== null}
+                  onChange={(e) => {
+                    const arquivo = e.target.files?.[0];
+                    e.target.value = "";
+                    if (arquivo) void enviar(tipo, arquivo);
+                  }}
+                />
+              </label>
+            ) : null}
+            {podeTrocar && urls?.[tipo] ? (
               <Button variant="ghost" size="sm" onClick={() => void remover(tipo)}>
                 {t("Usar o do sistema")}
               </Button>

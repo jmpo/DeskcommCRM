@@ -53,6 +53,7 @@ import {
 } from "@/lib/plataformas-de-anuncio/types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lerAtribuicao } from "./leitura-da-atribuicao";
+import { lerVendaPeloCanal } from "./venda-pelo-canal";
 import { ehEventoDeEtapa } from "./regras-google";
 import { lerRegistro, registraEnvio } from "./registro-de-envio";
 
@@ -258,50 +259,70 @@ export async function reportarConversao(
     return ok("skipped", "sem_valor");
   }
 
-  // ─── O CANAL PRIMEIRO ─────────────────────────────────────────────────────
-  //
-  // Quando a conversa do cliente passa por um canal intermediado que já tem a
-  // ponte com o conjunto de dados da Meta (configurada na tela do provedor), o
-  // evento vai por ele: é o canal quem guardou o vínculo com o clique, e o CRM
-  // não precisa de token nem de dataset próprios. Por isso vem ANTES de exigir a
-  // credencial da Meta: quem usa o canal não a tem. Só um caminho por evento —
-  // mandar pelos dois contaria a mesma compra duas vezes se os ids de
-  // deduplicação não casassem do outro lado.
-  if (
-    plataforma === "meta_ads" &&
-    (EVENTO === "Purchase" || ehEventoDeEtapaDaMeta(EVENTO)) &&
-    !registro?.remote_request_id
-  ) {
-    let canal;
-    try {
-      canal = await canalQueReportaConversao(admin, row.organization_id, lead.contact_id);
-    } catch (err) {
-      return {
-        consumer_key: CONSUMER_KEY,
-        status: "retry",
-        retry_at: new Date(Date.now() + ESPERA_PADRAO_MS).toISOString(),
-        detail: `leitura do canal falhou: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-    if (canal) {
-      const pelo = await canal.reportar({
-        event: EVENTO,
-        eventId: `${lead.id}:${EVENTO}`,
-        occurredAt: new Date(lead.closed_at ?? row.created_at ?? Date.now()),
-        phone: telefone,
-        valueCents: lead.value_cents,
-        currency: lead.currency ?? "BRL",
-      });
-      return desfecho(doCanal(pelo), false);
-    }
-  }
-
   const credencial = await lerCredencial(admin, row.organization_id, plataforma, {
     exigirAcaoDeVenda: !qualificacao,
   });
   if (!credencial.ok) {
     if (credencial.motivo === "leitura_indisponivel")
       throw new Error("Leitura da conexão indisponível.");
+
+    // ─── SEM CONEXÃO DIRETA: O CANAL DA CONVERSA ────────────────────────────
+    //
+    // Quando a conversa do cliente passa por um canal intermediado que já tem
+    // a ponte com o conjunto de dados da Meta (configurada na tela do
+    // provedor), é o canal quem guardou o vínculo com o clique — e a venda pode
+    // ir por ele, sem token nem dataset no CRM. Até aqui essa venda virava a
+    // pendência `sem_conexao`, que ninguém resolvia porque não havia o que
+    // preencher do lado do CRM.
+    //
+    // Só quando NÃO há conexão direta. Quem já configurou a Meta direta segue
+    // exatamente como antes — inclusive com ela desligada ou incompleta, que é
+    // decisão de quem opera e que o canal não atropela. Um caminho por venda:
+    // mandar pelos dois contaria a mesma compra duas vezes se os ids de
+    // deduplicação não casassem do outro lado.
+    //
+    // Protocolo pendente (`remote_request_id`) é do transporte direto, e só ele
+    // sabe consultá-lo: fica fora. O `value_cents` não nulo da venda já está
+    // garantido pelo `sem_valor` acima; a checagem só estreita o tipo.
+    //
+    // Fork: os eventos de ETAPA da Meta (`InitiateCheckout`… — ver
+    // `etapa.handler.ts`) saem pelo mesmo caminho, e podem ir sem valor.
+    if (
+      credencial.motivo === "sem_conexao" &&
+      plataforma === "meta_ads" &&
+      (EVENTO === "Purchase" || ehEventoDeEtapaDaMeta(EVENTO)) &&
+      !registro?.remote_request_id &&
+      (EVENTO !== "Purchase" || lead.value_cents !== null)
+    ) {
+      // A chave vem ANTES de tudo (doc 76): desligada — o padrão —, nem as
+      // conversas são lidas, e nada sai para o provedor.
+      let canal = null;
+      try {
+        if (await lerVendaPeloCanal(admin, row.organization_id))
+          canal = await canalQueReportaConversao(admin, row.organization_id, lead.contact_id);
+      } catch (err) {
+        // Instabilidade na leitura não pode virar a pendência `sem_conexao`
+        // de uma venda que tem caminho: espera e tenta de novo.
+        return {
+          consumer_key: CONSUMER_KEY,
+          status: "retry",
+          retry_at: new Date(Date.now() + ESPERA_PADRAO_MS).toISOString(),
+          detail: `leitura do canal falhou: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+      if (canal) {
+        const pelo = await canal.reportar({
+          event: EVENTO,
+          eventId: `${lead.id}:${EVENTO}`,
+          occurredAt: new Date(lead.closed_at ?? row.created_at ?? Date.now()),
+          phone: telefone,
+          valueCents: lead.value_cents,
+          currency: lead.currency ?? "BRL",
+        });
+        return desfecho(doCanal(pelo), false);
+      }
+    }
+
     await registra("skipped", semValor ? "sem_valor" : credencial.motivo);
     return ok("skipped", semValor ? "sem_valor" : credencial.motivo);
   }
@@ -360,7 +381,14 @@ export async function reportarConversao(
 
   return desfecho(resultado, Boolean(credencial.credencial.testEventCode));
 
-  async function desfecho(resultado: ResultadoDeEnvio, modoDeTeste: boolean): Promise<HandlerResult> {
+  /**
+   * O desfecho de UM envio, venha ele do transporte direto ou do canal — o
+   * mesmo livro-razão e a mesma espera, para as duas vias não divergirem.
+   */
+  async function desfecho(
+    resultado: ResultadoDeEnvio,
+    modoDeTeste: boolean,
+  ): Promise<HandlerResult> {
     if (resultado.tipo === "processando") {
       const solicitadoEm =
         registro?.remote_request_id === resultado.protocolo
@@ -427,7 +455,8 @@ export async function reportarConversao(
 /** O desfecho do canal, no vocabulário do transporte — um só caminho de registro. */
 function doCanal(r: ChannelConversionResult): ResultadoDeEnvio {
   if (r.outcome === "ok") return { tipo: "ok", detalhe: r.detail };
-  if (r.outcome === "retry") return { tipo: "transitorio", detalhe: r.detail, tentarEmMs: r.retryInMs };
+  if (r.outcome === "retry")
+    return { tipo: "transitorio", detalhe: r.detail, tentarEmMs: r.retryInMs };
   return { tipo: "permanente", detalhe: r.detail };
 }
 

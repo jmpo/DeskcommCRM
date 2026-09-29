@@ -46,6 +46,7 @@ import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { urlDoSupabaseNoServidor } from "@/lib/supabase/url-do-servidor";
 
 /** O que o GoTrue conta de si no endpoint público de settings. */
 export type ConfigPublicaDoGoTrue = {
@@ -66,7 +67,11 @@ export async function lerConfigPublicaDoGoTrue(): Promise<ConfigPublicaDoGoTrue 
     // Sem a barra final: `https://x/` + `/auth/v1/settings` vira `//auth`, o
     // gateway responde 404, e o `null` mandaria o convite para o caminho que o
     // GoTrue fechado recusa.
-    const base = env.NEXT_PUBLIC_SUPABASE_URL.replace(/\/+$/, "");
+    // #1082: pelo mesmo resolvedor dos clients — vazia, vale a pública.
+    const base = urlDoSupabaseNoServidor(
+      env.SUPABASE_SERVER_URL,
+      env.NEXT_PUBLIC_SUPABASE_URL,
+    ).replace(/\/+$/, "");
     const resposta = await fetch(`${base}/auth/v1/settings`, {
       headers: { apikey: env.NEXT_PUBLIC_SUPABASE_ANON_KEY },
       cache: "no-store",

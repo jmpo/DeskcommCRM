@@ -1,4 +1,5 @@
 import type { ModuloOpcional } from "@/lib/instalacao/modulos";
+import type { CapacidadeDaOrganizacao } from "@/lib/organizacao/capacidades";
 import type { InterfaceSettings } from "@/lib/navigation/interface";
 import Link from "next/link";
 
@@ -21,6 +22,8 @@ interface NavHubProps {
    * módulo desligado — o clique dava 404 (revisão do #1573, B1).
    */
   modulosLigados: readonly ModuloOpcional[];
+  /** Capacidades que a organização ligou. Ausente = o hub não filtra por capacidade. */
+  capacidadesLigadas?: readonly CapacidadeDaOrganizacao[];
   group: NavGroupId;
   isPlatformAdmin: boolean;
   role: Role | null;
@@ -77,11 +80,12 @@ export function NavHub({
   subtitle,
   interfaceSettings,
   modulosLigados,
+  capacidadesLigadas,
   locale = IDIOMA_PADRAO,
   extensionGuides = [],
   extensionsUnavailable = false,
 }: NavHubProps) {
-  const secoes = hubSections(group, isPlatformAdmin, role, interfaceSettings, modulosLigados);
+  const secoes = hubSections(group, isPlatformAdmin, role, interfaceSettings, modulosLigados, capacidadesLigadas);
 
   return (
     <div className="flex h-full flex-col gap-8 p-6">

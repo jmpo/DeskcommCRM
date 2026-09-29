@@ -6,6 +6,64 @@ import { useT } from "@/hooks/i18n/useT";
 import { Note as NoteIcon, Trash } from "@/lib/ui/icons";
 import type { Note } from "@/lib/types/messaging";
 
+import { AudioPlayer } from "@/components/inbox/media/AudioPlayer";
+import { DocumentCard } from "@/components/inbox/media/DocumentCard";
+import { ImageMedia } from "@/components/inbox/media/ImageMedia";
+import { VideoMedia } from "@/components/inbox/media/VideoMedia";
+import { kindFromMime } from "@/lib/messaging/media/upload-validation";
+
+/**
+ * O anexo da nota interna (#1863, F3).
+ *
+ * A URL é a da ROTA DA NOTA, não a de mensagem: `/notes/{id}/media` devolve um
+ * 302 para signed URL de 60 s no bucket `internal-media`. Um anexo de nota não
+ * tem `messages.id`, e servir pela rota de mensagem seria servir pelo caminho
+ * que leva ao cliente.
+ *
+ * O tipo não vem do banco: `conversation_notes` guarda só o mime GRAVADO, e
+ * `kindFromMime` é o MESMO corte que decidiu se o upload era aceito — o que
+ * renderiza é necessariamente o que passou pela validação. Mime que a função não
+ * conhece cai em documento, o fallback que sempre dá para baixar o arquivo.
+ */
+export function NoteMedia({ note }: { note: Note }) {
+  const t = useT();
+  if (!note.media_storage_path) return null; // nota só de texto
+  const src = `/api/v1/conversations/${note.conversation_id}/notes/${note.id}/media`;
+  switch (kindFromMime(note.media_mime ?? "") ?? "document") {
+    case "image":
+      return (
+        <div className="mt-1.5">
+          <ImageMedia messageId={note.id} src={src} alt={t("Imagem da nota interna")} />
+        </div>
+      );
+    case "video":
+      return (
+        <div className="mt-1.5">
+          <VideoMedia messageId={note.id} src={src} />
+        </div>
+      );
+    case "audio":
+      return (
+        <div className="mt-1.5">
+          <AudioPlayer messageId={note.id} src={src} isOutbound={false} />
+        </div>
+      );
+    default:
+      return (
+        <div className="mt-1.5">
+          <DocumentCard
+            messageId={note.id}
+            src={src}
+            mime={note.media_mime}
+            sizeBytes={note.media_size_bytes}
+            storagePath={note.media_storage_path}
+            isOutbound={false}
+          />
+        </div>
+      );
+  }
+}
+
 interface Props {
   note: Note;
   onDelete?: () => void;
@@ -38,7 +96,11 @@ export function NoteCard({ note, onDelete }: Props) {
             </button>
           )}
         </div>
-        <p className="mt-1 whitespace-pre-wrap wrap-anywhere leading-snug">{note.body}</p>
+        <NoteMedia note={note} />
+        {/* Nota só de anexo (imagem colada sem legenda) chega com `body` vazio:
+            renderizar o `<p>` assim mesmo deixaria um parágrafo fantasma de
+            altura nula entre o arquivo e a hora. */}
+        {note.body && <p className="mt-1 whitespace-pre-wrap wrap-anywhere leading-snug">{note.body}</p>}
         <div className="mt-1 text-right text-[10px] opacity-70">{time}</div>
       </div>
     </div>

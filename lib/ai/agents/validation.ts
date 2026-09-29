@@ -163,6 +163,7 @@ const versionShapeSchema = z
       .max(20)
       .default(["falar com humano", "atendente", "pessoa real"]),
     handoff_tool_enabled: z.boolean().default(true),
+    proposal_ai_draft_enabled: z.boolean().default(true),
     cases_enabled: z.boolean().default(false),
     // Onda 4 — quebra a resposta em bolhas curtas (splitIntoBubbles) espaçadas
     // pelo pacing anti-ban. Defaults espelham a migration 0059.
@@ -234,6 +235,7 @@ export const versionPatchSchema = versionShapeSchema
     history_token_window: versionShapeSchema.shape.history_token_window.removeDefault(),
     handoff_keywords: versionShapeSchema.shape.handoff_keywords.removeDefault(),
     handoff_tool_enabled: versionShapeSchema.shape.handoff_tool_enabled.removeDefault(),
+    proposal_ai_draft_enabled: versionShapeSchema.shape.proposal_ai_draft_enabled.removeDefault(),
     cases_enabled: versionShapeSchema.shape.cases_enabled.removeDefault(),
     split_messages: versionShapeSchema.shape.split_messages.removeDefault(),
     split_max_chars: versionShapeSchema.shape.split_max_chars.removeDefault(),

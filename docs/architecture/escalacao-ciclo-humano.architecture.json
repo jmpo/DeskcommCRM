@@ -344,7 +344,7 @@
       "col": 3,
       "type": "lib",
       "label": "lib/ai/handoff/aviso-ao-lead.ts",
-      "sublabel": "o mesmo texto pelo sendMessageHandler (mundo supabase-js)"
+      "sublabel": "o mesmo texto pelo sendMessageHandler (mundo supabase-js) — só se a IA falou na conversa (ou a passagem veio do MCP externo), um por 24 h sem contar aviso failed"
     },
     {
       "id": "orquestrador",
@@ -393,6 +393,14 @@
       "type": "lib",
       "label": "lib/escalacao/aviso-ao-suporte.ts",
       "sublabel": "consome ai.case_opened/closed — nunca devolve error, nunca dorme"
+    },
+    {
+      "id": "casoNaCentral",
+      "lane": "motor",
+      "col": 5,
+      "type": "lib",
+      "label": "lib/escalacao/caso-na-central.handler.ts",
+      "sublabel": "o caso que espera uma pessoa entra no sino na abertura; sai quando fecha"
     },
     {
       "id": "avisoSuporteTexto",
@@ -1363,6 +1371,24 @@
       "from": "jevObservacoes",
       "to": "jevRota",
       "label": "concordância por tarefa, 30 dias, contada no banco — o laço de retorno da manipulação"
+    },
+    {
+      "id": "e121",
+      "from": "casos",
+      "to": "casoNaCentral",
+      "label": "ai.case_opened / ai.case_closed pelo event_log (o mesmo trigger da 0148)"
+    },
+    {
+      "id": "e122",
+      "from": "casoNaCentral",
+      "to": "central",
+      "label": "abre kind='other' → agent_case com texto genérico; resolve quando o caso fecha"
+    },
+    {
+      "id": "e123",
+      "from": "central",
+      "to": "chamados",
+      "label": "o botão do aviso abre /app/ai/cases?caso=<id> — a pessoa responde o caso"
     }
   ],
   "cards": [

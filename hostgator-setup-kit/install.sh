@@ -1214,15 +1214,15 @@ case "$AI_PROVIDER" in
 esac
 
 # A chave da OpenAI é pedida À PARTE quando ela NÃO é o provedor de conversa,
-# porque dois pontos do sistema dependem dela mesmo assim: ouvir áudio (o
-# Whisper é da OpenAI) e indexar a base de conhecimento. Sem esta linha, quem
+# porque ouvir áudio ainda depende dela (o Whisper é da OpenAI). A base de
+# conhecimento também aceita a chave OpenRouter, com o mesmo modelo fixo. Sem esta linha, quem
 # escolhe OpenRouter instala achando que está completo e descobre semanas depois
 # que o agente nunca ouviu um áudio — que é exatamente o defeito já visto em
 # produção, com a chave certa no .env e indo para o endpoint errado.
 if [ "$AI_PROVIDER" = "openai" ]; then
   CAMPO_OPENAI_EXTRA=""
 else
-  CAMPO_OPENAI_EXTRA="OPENAI_API_KEY|Chave da OpenAI — só para ouvir áudios e usar a base de conhecimento (Enter pula: dá para cadastrar depois pela tela, em IA › Credenciais)||v_openai|secret|opcional"
+  CAMPO_OPENAI_EXTRA="OPENAI_API_KEY|Chave da OpenAI — para ouvir áudios; a base de conhecimento aceita OpenRouter (Enter pula: dá para cadastrar depois pela tela, em IA › Credenciais)||v_openai|secret|opcional"
 fi
 
 # ── A versão que esta instalação vai rodar ───────────────────────────────────

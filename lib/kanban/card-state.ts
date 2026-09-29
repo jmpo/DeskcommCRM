@@ -74,7 +74,7 @@ export function buildCardInput(
     | "value_cents"
     | "currency"
     | "tags"
-    | "last_activity_at"
+    | "stage_changed_at"
     | "created_at"
     | "owner_kind"
     | "owner_user_id"
@@ -95,11 +95,19 @@ export function buildCardInput(
     now?: Date;
   },
 ): CardInput {
-  const reference = lead.last_activity_at ?? lead.created_at;
+  const reference = lead.stage_changed_at ?? lead.created_at;
   const now = opts.now ?? new Date();
-  // ponytail: "tempo no estágio" é medido pela última ATIVIDADE, não pela
-  // entrada no estágio — crm_leads não tem stage_entered_at. Vira exato quando
-  // a Wave 3 registrar a mudança de estágio como atividade.
+  // "tempo no estágio" é medido pela ENTRADA no estágio, e a coluna que sabe
+  // disso é `crm_leads.stage_changed_at` (carimbada por trigger na 0071). O
+  // conserto anterior usava `last_activity_at` com um "ponytail" de que a Wave 3
+  // tornaria aquilo exato — mas a Wave 3 nunca veio, e a promessa não se
+  // comprou: atividade é tempo SEM RESPOSTA, não tempo na etapa. Qualquer nota
+  // escrita na conversa zerava o rodapé de um negócio parado há semanas, e o
+  // número mentia justamente para quem mais olhava o card.
+  //
+  // O `created_at` fica de reserva para o lead sem carimbo (dado legado): é a
+  // única data honesta que existe nesse caso — inventar entrada no estágio a
+  // partir da última mensagem seria o mesmo defeito com o sinal trocado.
   const hoursInStage = reference
     ? Math.max(0, (now.getTime() - new Date(reference).getTime()) / 3_600_000)
     : null;

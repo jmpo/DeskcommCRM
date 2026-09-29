@@ -78,6 +78,53 @@ const PEDE_PARA_SAIR = [
   "nao entre mais em contato por aqui",
   "me tira da lista de transmissão",
   "me remove da lista de contatos",
+  // MESMA CLASSE, outro verbo: "sair da lista" é o irmão de "me tira da
+  // lista" e no #1806 estava sem o freio — só o segundo pedia lista de ENVIO.
+  "quero sair da lista de transmissão",
+  "sair da lista de contatos",
+  "quero sair dessa lista de mensagens",
+  // a imperativa de terceira pessoa segue bloqueando quando NÃO há sujeito:
+  // é a frase que os controles negativos abaixo precisam proteger.
+  "não me liga mais",
+  "por favor não me liga mais",
+  // ─── A isenção por sujeito alcançava pedido que NÃO é ambíguo (#1825) ─────
+  //
+  // Medido pelo mantenedor com a função real: com o lookahead lendo a
+  // constante de verbos INTEIRA e com `[,;:]*` entre o sintagma e "não me",
+  // as frases abaixo davam `ehPedidoDeOptOut = false` E `ehOptOutProvavel =
+  // false` — nem bloqueavam nem escalavam para humano. Na main, todas
+  // bloqueavam.
+  //
+  // vírgula depois do sintagma marca VOCATIVO: em português o sujeito não se
+  // separa do verbo por vírgula, e quem vem ali é com quem se fala, não a
+  // pessoa descrita — "minha filha, não me liga mais" é a filha pedindo.
+  "minha filha, não me liga mais",
+  "meu filho, não me liga mais",
+  "meu querido, não me manda mais nada",
+  // tratamento de 2ª pessoa com verbo de 3ª: casa como sujeito de 3ª pessoa
+  // e não é — é ordem dada a quem se está escrevendo.
+  "o senhor não me mande mais mensagem",
+  "a senhora não me manda mais mensagem",
+  "o sr não me mande mais mensagem",
+  "a sra não me manda mais mensagem",
+  // imperativa SEM duplo sentido, com sujeito: `contate` nunca é 3ª pessoa do
+  // indicativo, então não há o que separar — a isenção não alcança aqui.
+  "meu filho não me contate mais",
+  // o sujeito precisa ABRIR a mensagem ou a oração (#1825): sem pontuação, o
+  // normal no WhatsApp, o fim da oração anterior ("o numero", "o plano") era
+  // lido como sujeito e o pedido nem bloqueava nem escalava. Na main, todas
+  // bloqueavam.
+  "vou bloquear o numero não me liga mais",
+  "já cancelei o plano não me manda mais mensagem",
+  "não tenho interesse nesse produto não me manda mais",
+  "odeio esse spam não me manda mais",
+  "vou denunciar essa empresa não me manda mais nada",
+  // `tu` é 2ª pessoa, a mesma classe de "o senhor": não abre sujeito de 3ª.
+  "tu não me liga mais",
+  // determinante SOZINHO não é sujeito (#1825): o "meu" interjeição, sem
+  // vírgula, abria sujeito com zero palavras e isentava o pedido.
+  "meu não me liga mais",
+  "Meu não me manda mais nada",
 ];
 
 /** Frases do dia a dia que usam a palavra e NÃO são pedido de descadastro. */
@@ -165,6 +212,27 @@ const NAO_PEDE_PARA_SAIR = [
   "me tira da lista de espera",
   "me tira da lista de presentes",
   "me remove da lista de desejos",
+  // #1806 (1): "sair da lista" não tinha o freio que "me tira da lista"
+  // ganhou no #1805. "lista de espera" é paciente querendo ser chamado e a
+  // frase gravava `is_blocked` — o MESMO defeito, com outro verbo.
+  "quero sair da lista de espera",
+  "quero sair dessa lista de presentes",
+  "sair da lista de desejos",
+  "quero sair da lista de espera, pode ser?",
+  // #1806 (2): `liga` é imperativo informal E 3ª pessoa do indicativo. Sem
+  // sujeito explícito a ordem bloqueia (acima); COM sujeito é relato de quem
+  // está falando, não pedido de descadastro. Os casos abaixo são controles
+  // negativos do mesmo freio. O controle COM vírgula saiu daqui no #1825: a
+  // vírgula marca vocativo, não sujeito, e a frase passou a bloquear — está
+  // em `PEDE_PARA_SAIR`.
+  "meu filho não me liga mais",
+  "ele não me liga mais",
+  "ela não me manda mais nada",
+  "a doutora não me chama mais",
+  "a minha equipe não me liga mais",
+  "meu antigo chefe não me liga mais",
+  // o sujeito abre a oração depois da saudação: segue sendo relato (#1825).
+  "oi, meu filho não me liga mais",
   // "entrar em contato" com outro destinatário ou outro canal, e a reclamação
   "nao entre em contato com meu marido, fale comigo",
   "nao entrem em contato por email, so whatsapp",

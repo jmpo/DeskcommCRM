@@ -59,8 +59,8 @@ export default async function PublicLayout({ children }: { children: React.React
                 <img> em vez de next/image pelo mesmo motivo da barra lateral: a URL
                 é de quem hospeda e o `next/image` exige allowlist de domínios
                 fechada em BUILD — a imagem pré-buildada do self-host recusaria o
-                domínio do operador. Altura fixa e largura livre para não distorcer
-                arte de proporção desconhecida.
+                domínio do operador. Altura máxima de 80 px e largura máxima de 192 px, sem distorcer
+                arte de proporção desconhecida nem ampliar arquivos pequenos.
 
                 O `alt` é o nome DESTA resolução (`marca.nome`), e não o de
                 `branding()`: é a legenda da imagem que está ali, e nomeá-la com a
@@ -86,8 +86,8 @@ export default async function PublicLayout({ children }: { children: React.React
                     alt={marca.nome}
                     className={
                       marca.logoDarkUrl
-                        ? "h-10 w-auto max-w-[12rem] object-contain dark:hidden"
-                        : "h-10 w-auto max-w-[12rem] object-contain"
+                        ? "h-auto max-h-20 w-auto max-w-[12rem] object-contain dark:hidden"
+                        : "h-auto max-h-20 w-auto max-w-[12rem] object-contain"
                     }
                   />
                 ) : (
@@ -99,7 +99,7 @@ export default async function PublicLayout({ children }: { children: React.React
                     data-testid="logo-escuro-da-fachada"
                     src={marca.logoDarkUrl}
                     alt={marca.nome}
-                    className="hidden h-10 w-auto max-w-[12rem] object-contain dark:block"
+                    className="hidden h-auto max-h-20 w-auto max-w-[12rem] object-contain dark:block"
                   />
                 ) : null}
               </div>

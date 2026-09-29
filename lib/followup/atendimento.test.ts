@@ -3,7 +3,10 @@ import type pg from "pg";
 
 import type { FlowEdge, FlowGraph, FlowNode } from "./graph-schema";
 import {
+  escolherFluxoPeloGatilho,
   finalizarFluxoDeAtendimento,
+  iniciarFluxoDeAtendimento,
+  podeComecarParaOContato,
   mapearChecklist,
   melhorFluxoPorGatilho,
   montarResumoDoRoteiro,
@@ -522,3 +525,159 @@ describe("pergunta que não foi feita (revisão adversarial do PR 2)", () => {
   });
 });
 
+
+// #1130 (@vgamkt), decisão do doc 69 (b): cada roteiro escolhe se recomeça para
+// quem já o concluiu; o padrão é NÃO. Antes, repetir a palavra-gatilho reabria
+// um cadastro já respondido.
+describe("roteiro já concluído: recomeça só se o roteiro permitir", () => {
+  const grafoCom = (settings?: Record<string, unknown>) =>
+    ({
+      ...grafo(
+        [trigger("t"), collect("c1", "cidade"), end("e")],
+        [aresta("t", "c1"), aresta("c1", "e")],
+      ),
+      ...(settings ? { settings: { max_tentativas_pergunta: 3, ...settings } } : {}),
+    }) as FlowGraph;
+
+  it("regra pura: padrão não recomeça; `pode_recomecar` libera; quem nunca concluiu sempre começa", () => {
+    expect(podeComecarParaOContato(undefined, false)).toBe(true);
+    expect(podeComecarParaOContato(undefined, true)).toBe(false);
+    expect(podeComecarParaOContato({ max_tentativas_pergunta: 3 }, true)).toBe(false);
+    expect(podeComecarParaOContato({ max_tentativas_pergunta: 3, pode_recomecar: true }, true)).toBe(true);
+  });
+
+  function bancoDoGatilho(linhas: Array<{ id: string; nome: string; graph: FlowGraph; ja_concluiu: boolean }>) {
+    const chamadas: Array<{ sql: string; params: unknown[] }> = [];
+    const pool = {
+      query: async (sql: string, params: unknown[] = []) => {
+        chamadas.push({ sql, params });
+        return { rows: linhas, rowCount: linhas.length };
+      },
+    } as unknown as pg.Pool;
+    return { pool, chamadas };
+  }
+
+  it("gatilho: o roteiro concluído sai da disputa e a palavra vai para o outro", async () => {
+    const { pool, chamadas } = bancoDoGatilho([
+      { id: "cadastro", nome: "Cadastro", graph: { ...grafoCom(), settings: { max_tentativas_pergunta: 3, gatilhos: ["quero"] } } as FlowGraph, ja_concluiu: true },
+      { id: "agenda", nome: "Agenda", graph: { ...grafoCom(), settings: { max_tentativas_pergunta: 3, gatilhos: ["quero"] } } as FlowGraph, ja_concluiu: false },
+    ]);
+    const r = await escolherFluxoPeloGatilho(pool, { organizationId: ORG, contactId: "ct-1", texto: "quero" });
+    expect(r?.id).toBe("agenda");
+    // O "já concluiu" é do CONTATO desta mensagem, na organização dela.
+    expect(chamadas[0]!.params).toEqual([ORG, "ct-1"]);
+    expect(chamadas[0]!.sql).toMatch(/e\.contact_id = \$2/);
+    expect(chamadas[0]!.sql).toMatch(/e\.status = 'completed'/);
+    // ...e do MESMO roteiro: sem isto, concluir QUALQUER roteiro tiraria todos da disputa.
+    expect(chamadas[0]!.sql).toMatch(/e\.pointer_id = p\.id/);
+  });
+
+  it("gatilho: com `pode_recomecar`, o roteiro concluído volta a ganhar a palavra", async () => {
+    const { pool } = bancoDoGatilho([
+      { id: "agenda", nome: "Agenda", graph: { ...grafoCom(), settings: { max_tentativas_pergunta: 3, gatilhos: ["agendar"], pode_recomecar: true } } as FlowGraph, ja_concluiu: true },
+    ]);
+    const r = await escolherFluxoPeloGatilho(pool, { organizationId: ORG, contactId: "ct-1", texto: "quero agendar" });
+    expect(r?.id).toBe("agenda");
+  });
+
+  function bancoDoInicio(linha: { graph: FlowGraph; ja_concluiu: boolean }) {
+    const sqls: string[] = [];
+    const params: unknown[][] = [];
+    const pool = {
+      query: async (sql: string, p: unknown[] = []) => {
+        sqls.push(sql);
+        params.push(p);
+        if (/select p\.active_version_id, v\.graph/.test(sql)) {
+          return { rows: [{ active_version_id: "ver-1", ...linha }], rowCount: 1 };
+        }
+        if (/insert into followup_enrollments/.test(sql)) return { rows: [{ id: "enr-1" }], rowCount: 1 };
+        return { rows: [], rowCount: 1 };
+      },
+    } as unknown as pg.Pool;
+    return { pool, sqls, params };
+  }
+
+  for (const origem of ["gatilho", "roteador", "encadeamento"] as const) {
+    it(`início por ${origem}: contato que já concluiu NÃO recomeça no padrão`, async () => {
+      const { pool, sqls, params } = bancoDoInicio({ graph: grafoCom(), ja_concluiu: true });
+      const r = await iniciarFluxoDeAtendimento(pool, {
+        organizationId: ORG,
+        contactId: "ct-1",
+        flowPointerId: "ptr-1",
+        origem,
+      });
+      expect(r).toBeNull();
+      expect(sqls.some((s) => /insert into followup_enrollments/.test(s))).toBe(false);
+      expect(params[0]).toEqual([ORG, "ptr-1", "ct-1"]);
+      expect(sqls[0]).toMatch(/e\.pointer_id = p\.id/);
+    });
+  }
+
+  it("início: com `pode_recomecar`, recomeça", async () => {
+    const { pool } = bancoDoInicio({ graph: grafoCom({ pode_recomecar: true }), ja_concluiu: true });
+    const r = await iniciarFluxoDeAtendimento(pool, {
+      organizationId: ORG,
+      contactId: "ct-1",
+      flowPointerId: "ptr-1",
+      origem: "gatilho",
+    });
+    expect(r).toBe("enr-1");
+  });
+
+  it("início: quem nunca concluiu começa, no padrão", async () => {
+    const { pool } = bancoDoInicio({ graph: grafoCom(), ja_concluiu: false });
+    const r = await iniciarFluxoDeAtendimento(pool, {
+      organizationId: ORG,
+      contactId: "ct-1",
+      flowPointerId: "ptr-1",
+      origem: "gatilho",
+    });
+    expect(r).toBe("enr-1");
+  });
+
+  // Revisão da 2ª rodada: apagar `e.pointer_id = p.id` do `jaConcluiuSql` deixava
+  // a suíte verde. O dublê abaixo guarda a tabela de enrollments e calcula o
+  // `ja_concluiu` aplicando SÓ os predicados que o SQL escreve — sem o do
+  // roteiro, o A recém-concluído conta como "B já concluído" e B é recusado.
+  it("encadeamento A→B: B começa com A concluído (B sem `pode_recomecar`)", async () => {
+    const enrollments = [{ id: "enr-A", pointer_id: "ptr-A", contact_id: "ct", status: "coletando" }];
+    const grafoB = grafo([trigger("tB"), collect("cB", "outro"), end("eB")], [aresta("tB", "cB"), aresta("cB", "eB")]);
+    const sqls: string[] = [];
+    const query = async (sql: string, v: unknown[] = []) => {
+      sqls.push(sql);
+      if (/update followup_enrollments/.test(sql)) {
+        for (const e of enrollments) if (e.id === v[1] && e.status === "coletando") e.status = "completed";
+        return { rows: [], rowCount: 1 };
+      }
+      if (/select p\.active_version_id, v\.graph/.test(sql)) {
+        const [, pointer, contato] = v;
+        const ja_concluiu = enrollments.some(
+          (e) =>
+            (!/e\.pointer_id = p\.id/.test(sql) || e.pointer_id === pointer) &&
+            (!/e\.contact_id = \$3/.test(sql) || e.contact_id === contato) &&
+            (!/e\.status = 'completed'/.test(sql) || e.status === "completed"),
+        );
+        return { rows: [{ active_version_id: "ver-B", graph: grafoB, ja_concluiu }], rowCount: 1 };
+      }
+      if (/insert into followup_enrollments/.test(sql)) return { rows: [{ id: "enr-B" }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    };
+    const fimParaB = no({
+      id: "e",
+      type: "end",
+      config: {
+        outcome: "converted",
+        ao_finalizar: { tipo: "proximo_fluxo", fluxo: "ptr-B" },
+      } as Extract<FlowNode, { type: "end" }>["config"],
+    });
+    const r = await finalizarFluxoDeAtendimento({ query } as unknown as pg.Pool, {
+      organizationId: ORG,
+      estado: estadoCom(lista([trigger("t"), collect("c1", "cidade"), fimParaB], [aresta("t", "c1"), aresta("c1", "e")]), {
+        cidade: "Campinas",
+      }),
+    });
+    expect(enrollments[0]!.status).toBe("completed");
+    expect(r.proximoEnrollmentId).toBe("enr-B");
+    expect(sqls.some((s) => /insert into followup_enrollments/.test(s))).toBe(true);
+  });
+});

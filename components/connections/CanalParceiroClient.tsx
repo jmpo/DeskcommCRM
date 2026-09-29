@@ -221,6 +221,7 @@ export function CanalParceiroClient() {
           </div>
           <ParaColar rotulo={t("URL do webhook")} valor={recemConectado.webhook_url} />
           <ParaColar rotulo={t("Segredo (assinatura)")} valor={recemConectado.webhook_secret} />
+          <p className="text-xs text-muted-foreground">{t("Na inscrição do webhook no provedor, preencha o filtro de contas (accountIds) com a Conta deste número: assim só chegam aqui os eventos dele.")}</p>
           {recemConectado.quality_rating && (
             <p className="text-xs text-muted-foreground">
               {t("Qualidade do número segundo a plataforma:")} {recemConectado.quality_rating}
@@ -240,6 +241,7 @@ export function CanalParceiroClient() {
             </p>
           </div>
           <ParaColar rotulo={t("URL do webhook")} valor={estado.webhook_url} />
+          <p className="text-xs text-muted-foreground">{t("Na inscrição do webhook no provedor, preencha o filtro de contas (accountIds) com a Conta deste número: assim só chegam aqui os eventos dele.")}</p>
         </Card>
       )}
 

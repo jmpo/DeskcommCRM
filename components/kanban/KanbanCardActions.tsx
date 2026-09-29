@@ -25,6 +25,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { DotsThree, PencilSimple, Users } from "@/lib/ui/icons";
 import { useWinLead, useEditLead } from "@/hooks/kanban/useUpdateLead";
 import { useBulkAction } from "@/hooks/kanban/useBulkAction";
+import { usePropostaEnviadaDoLead } from "@/hooks/kanban/usePropostaEnviadaDoLead";
 import { useAssignableMembers } from "@/hooks/inbox/useAssignableMembers";
 import { useAssignableAgents } from "@/hooks/kanban/useAssignableAgents";
 import { usePermission } from "@/hooks/auth/AuthProvider";
@@ -49,6 +50,9 @@ export function KanbanCardActions({ lead, pipelineId }: KanbanCardActionsProps) 
   // Excluir um card é a mesma ação da barra de seleção, com um id só: mesma
   // rota, mesmo gate de papel, mesmo evento e auditoria.
   const bulk = useBulkAction(pipelineId);
+  // D10: só consulta quando o diálogo de excluir abre — não é gasto em toda
+  // renderização do card.
+  const { data: propostaEnviada } = usePropostaEnviadaDoLead(lead.id, deleteOpen);
   // spec 13 §4: escrita no funil é agent+ — viewer não reatribui (a rota
   // PATCH também recusa; aqui é só não oferecer o que seria negado).
   const canAssign = usePermission("pipeline.move_card");
@@ -223,6 +227,13 @@ export function KanbanCardActions({ lead, pipelineId }: KanbanCardActionsProps) 
             <AlertDialogDescription>
               {t(
                 "O card sai do funil com o histórico de atividades. O contato e as conversas continuam. Esta ação não pode ser desfeita.",
+              )}
+              {propostaEnviada && (
+                <>
+                  {" "}
+                  {t("O negócio some; a proposta")} {String(propostaEnviada.numero).padStart(4, "0")}/
+                  {propostaEnviada.ano} {t("continua em Propostas")}.
+                </>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>

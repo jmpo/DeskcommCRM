@@ -90,11 +90,15 @@ describe("a ponte traduz o contato do turno para o negócio aberto", () => {
     expect(vi.mocked(updateLeadHandler).mock.calls[0]![2]).toBe(NEGOCIO);
   });
 
-  it("id de negócio de verdade passa intacto, sem consulta por contato", async () => {
+  // Passa intacto — mas agora COM a consulta por contato: é ela que confere que o
+  // negócio é DESTE contato (`negocioDaEscritaDoTurno`). Sem ela, um id real de
+  // outro cliente, no mesmo funil, chegava ao handler e gravava na ficha errada.
+  // Ver `tests/unit/escrita-do-agente-mira-o-negocio-do-contato.test.ts`.
+  it("id de negócio DESTE contato passa intacto, conferido pelo contato", async () => {
     const b = banco([negocio(NEGOCIO)]);
     await executar(b.supabase, CONTATO, NEGOCIO);
     expect(vi.mocked(updateLeadHandler).mock.calls[0]![2]).toBe(NEGOCIO);
-    expect(b.consultas).not.toContain("crm_leads:contato");
+    expect(b.consultas).toContain("crm_leads:contato");
   });
 
   it("sem contato do turno (chamada de fora do motor), nada é traduzido", async () => {

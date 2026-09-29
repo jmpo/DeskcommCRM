@@ -23,6 +23,7 @@ function fakeConfig(agentId: string): PublishedAgentConfig {
     historyTokenWindow: 4000,
     handoffKeywords: [],
     handoffToolEnabled: false,
+    proposalAiDraftEnabled: true,
     splitMessages: false,
     splitMaxChars: 900,
     multimodalInput: false,

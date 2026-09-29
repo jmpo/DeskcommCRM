@@ -1,6 +1,6 @@
 /**
  * O PINO GANHA RUA, BAIRRO E CIDADE APROXIMADOS — quando a organização tem a
- * chave de Mapas (migration 0444).
+ * chave de Mapas (migration 0493).
  *
  * Medido numa loja (28/09/2026): 10 de 10 pinos do mês chegaram só com
  * coordenadas, e o agente lia um link sem saber a cidade. As respostas do

@@ -36,6 +36,9 @@ vi.mock("@/lib/auth/server", () => ({
 }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
+// A chave de embedding não é o assunto deste arquivo, e o admin dublado aqui só
+// sabe inserir. Antes o resolvedor engolia o TypeError da leitura dublada.
+vi.mock("@/lib/ai/embeddings/chave", () => ({ temChaveDeEmbedding: vi.fn(async () => false) }));
 
 const ORG_ID = "22222222-2222-4222-8222-222222222222";
 const AGENT_ID = "11111111-1111-4111-8111-111111111111";

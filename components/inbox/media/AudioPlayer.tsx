@@ -20,10 +20,12 @@ function fmt(seconds: number): string {
 interface Props {
   messageId: string;
   isOutbound: boolean;
+  /** Fonte alternativa para mídia de NOTA interna (#1863, F3) — ver ImageMedia. */
+  src?: string;
 }
 
 /** Player de voz estilo WhatsApp: play/pause, progresso seekável, tempo, 1x/1.5x/2x. */
-export function AudioPlayer({ messageId, isOutbound }: Props) {
+export function AudioPlayer({ messageId, isOutbound, src }: Props) {
   const t = useT();
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -83,7 +85,7 @@ export function AudioPlayer({ messageId, isOutbound }: Props) {
 
   return (
     <div className="flex w-60 items-center gap-2 py-1">
-      <audio ref={audioRef} src={mediaSrc(messageId)} preload="metadata" />
+      <audio ref={audioRef} src={src ?? mediaSrc(messageId)} preload="metadata" />
       <button
         type="button"
         aria-label={playing ? t("Pausar áudio") : t("Reproduzir áudio")}

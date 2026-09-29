@@ -1,5 +1,7 @@
 # Contributing — DeskcommCRM
 
+🇧🇷 Português · [🇺🇸 English](CONTRIBUTING.en.md)
+
 ## Antes de começar
 
 0. Abra o repositório no seu assistente de código (Claude Code, Codex, Cursor, OpenCode ou

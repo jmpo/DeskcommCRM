@@ -44,6 +44,7 @@ describe("varredura de silêncio", () => {
       loadContatosComRetornoVivo: async () => comRetorno,
       loadEncerramentosDoFluxo: async () => new Map(),
       loadContatosComPessoaNoComando: async () => new Set<string>(),
+      loadContactIdsEmCooldown: async () => new Set<string>(),
       loadTriggerNode: async () => ({ id: "inicio", pedeAgente: false }),
       insertEnrollment: insert,
     };

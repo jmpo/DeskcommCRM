@@ -69,6 +69,25 @@ const schema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: requiredAlways("NEXT_PUBLIC_SUPABASE_URL").url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: requiredAlways("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
   SUPABASE_SERVICE_ROLE_KEY: requiredAlways("SUPABASE_SERVICE_ROLE_KEY"),
+  /**
+   * Endereço do Supabase PARA O SERVIDOR, e só para ele (issue #1082).
+   *
+   * Numa instalação com o Supabase na mesma rede (Kong/self-host, `http://kong:8000`),
+   * o caminho curto existe e não precisa sair para a internet — mas colocá-lo na
+   * `NEXT_PUBLIC_*` o publicaria para o navegador. Esta variável é a bifurcação:
+   * preenchida, o servidor fala com o endereço interno; vazia, vale a pública, e
+   * é o que toda instalação existente já faz.
+   *
+   * `z.string()` cru, NUNCA `.url()` e NUNCA `required()`, pelo motivo escrito ao
+   * lado de `APP_ACCENT_HEX` e `SIGNUP_MODE` mais abaixo: `lib/env.ts` lança na
+   * IMPORTAÇÃO do módulo, que no Next é a primeira requisição, e o healthcheck do
+   * contêiner é probe TCP — um `.url()` aqui transformaria um `.env` com espaço
+   * sobrando no derrubador do produto inteiro, com o Docker mostrando `healthy` e
+   * 100% das requisições em 500. Quem interpreta (recusa o que não é endereço,
+   * tira barra final e avisa) é `urlDoSupabaseNoServidor`, em
+   * `lib/supabase/url-do-servidor.ts`.
+   */
+  SUPABASE_SERVER_URL: z.string().optional().default(""),
 
   // Cron / interno
   INTERNAL_SECRET: required("INTERNAL_SECRET"),

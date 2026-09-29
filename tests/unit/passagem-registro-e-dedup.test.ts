@@ -31,6 +31,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { performHumanHandoff } from "@/lib/agent-engine/agent/human-handoff";
 import { montarBriefingDaPassagem } from "@/lib/escalacao/briefing-da-passagem";
+import { avisarLeadDoCrm } from "@/lib/ai/handoff/aviso-ao-lead";
 
 // ── O motor do CRM. Ele fala supabase-js, então o dublê é outro — e é por isso
 //    que os dois motores precisam estar no MESMO arquivo: o defeito que esta
@@ -355,6 +356,12 @@ describe("o motor do CRM grava a passagem", () => {
     expect(linha?.linha.origem).toBe("sentimento");
     expect(linha?.linha.motivo_codigo).toBe("low_sentiment");
     expect(linha?.linha.cliente_avisado).toBe(true);
+    // A origem chega ao aviso: é ela que libera a guarda "a IA falou" quando a
+    // passagem vem de um agente externo via MCP (falas gravadas como `system`).
+    expect(vi.mocked(avisarLeadDoCrm)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ origem: "sentimento" }),
+    );
   });
 
   it("o aviso deste motor também aponta para a CONVERSA", async () => {

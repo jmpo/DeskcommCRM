@@ -77,12 +77,21 @@ export type InboxKind =
   // não distingue "tocou e ninguém pegou" de "o operador recusou", e para quem
   // lê a Central os dois pedem a mesma coisa: alguém precisa ligar de volta.
   | 'voice_call_missed'
+  | 'proposal_expired_notice'
+  | 'proposal_acceptance_rate_drop'
+  | 'proposal_promised_not_created'
   // (migration 0312) O fluxo de follow-up PUBLICADO que nunca vai disparar:
   // gatilho automático só enrolla se um agente publicado arma o ponteiro, e sem
   // esse vínculo os produtores saem por `pointers_armados = 0` em silêncio —
   // `active` na tela, morto no motor. Quem abre e quem FECHA é o mesmo cron
   // (`followup-sem-agente`): o aviso some sozinho quando o vínculo aparece.
   | 'followup_sem_agente'
+  // Proposta presa em `enviando` há mais de 5min — o cron `proposta-travada`
+  // a devolveu a rascunho sozinho, sem reenviar nada.
+  | 'proposta_travada'
+  // A proposta rascunhada pela IA precisa de revisão de uma pessoa — a Central
+  // acompanha até resolver.
+  | 'proposta_pronta_para_revisao'
   | 'other';
 
 export interface InboxItemRow {
@@ -147,13 +156,19 @@ export type InboxDedupe = 'kind' | 'kind_e_ref' | 'kind_e_titulo' | 'kind_ref_e_
  * isso é deliberado: há kinds que QUEREM uma linha por evento (`job_dead` é um
  * registro de ocorrência, não um estado).
  *
- * `where not exists` e não `on conflict`: um índice único exigiria incluir
- * `status`, que é MUTÁVEL, e isso quebraria reabrir um item resolvido. A corrida
- * de dois inserts simultâneos é a mesma que as três irmãs já aceitam — no pior
- * caso nascem dois avisos idênticos, que é exatamente o estado de hoje.
+ * `where not exists` e não `on conflict`: os QUATRO modos têm chaves diferentes,
+ * e é esta escrita que os descreve — `on conflict` precisaria de um alvo por
+ * modo. Mas `where not exists` sozinho não fecha a corrida de dois inserts
+ * simultâneos: os dois leem "não existe" antes de qualquer escrita e os dois
+ * inserem (issue #880). Quem fecha a corrida é o BANCO: o índice único parcial
+ * `agent_inbox_event_dead_aberto_unico` (migration 0491) recusa a segunda linha
+ * com `23505`, capturado abaixo — a condição deixa de morar só na consulta.
+ * Escopo dele é `event_dead`, o único dedupe por kind desta tabela; os outros
+ * três modos querem várias linhas abertas com o mesmo título e não têm índice.
  *
- * Devolve `null` quando o dedup barrou. Não lança: "já havia um aviso aberto" é
- * desfecho normal, não erro.
+ * Devolve `null` quando o dedup barrou — a consulta que não achou nada ou o
+ * banco que recusou a segunda escrita são o MESMO desfecho. Não lança: "já
+ * havia um aviso aberto" é desfecho normal, não erro.
  */
 export async function insertInboxItem(
   db: Pick<pg.Pool, "query">,
@@ -183,25 +198,49 @@ export async function insertInboxItem(
 
   // `is not distinct from` e não `=`: organização nula (avisos de plataforma) e
   // ref nula precisam casar com nula, e `null = null` é null, não true.
-  const { rows } = await db.query<InboxItemRow>(
-    `insert into agent_inbox_items (organization_id, kind, severity, title, body, ref_kind, ref_id)
-     select $1, $2, $3, $4, $5, $6, $7
-      where not exists (
-        select 1 from agent_inbox_items
-         where organization_id is not distinct from $1
-           and kind = $2
-           and status = 'open'
-           and ($8 = false or (ref_kind is not distinct from $6 and ref_id is not distinct from $7))
-           and ($9 = false or title = $4)
-      )
-     returning *`,
-    [
-      ...valores,
-      dedupe === 'kind_e_ref' || dedupe === 'kind_ref_e_titulo',
-      dedupe === 'kind_e_titulo' || dedupe === 'kind_ref_e_titulo',
-    ],
+  try {
+    const { rows } = await db.query<InboxItemRow>(
+      `insert into agent_inbox_items (organization_id, kind, severity, title, body, ref_kind, ref_id)
+       select $1, $2, $3, $4, $5, $6, $7
+        where not exists (
+          select 1 from agent_inbox_items
+           where organization_id is not distinct from $1
+             and kind = $2
+             and status = 'open'
+             and ($8 = false or (ref_kind is not distinct from $6 and ref_id is not distinct from $7))
+             and ($9 = false or title = $4)
+        )
+       returning *`,
+      [
+        ...valores,
+        dedupe === 'kind_e_ref' || dedupe === 'kind_ref_e_titulo',
+        dedupe === 'kind_e_titulo' || dedupe === 'kind_ref_e_titulo',
+      ],
+    );
+    return rows[0] ?? null;
+  } catch (err) {
+    // `23505` — o BANCO recusou a segunda linha, e é ele quem fecha a corrida
+    // (migration 0491). O `where not exists` acima vale para os quatro modos, mas
+    // sozinho não separa dois inserts simultâneos: ambos leem "não existe" antes
+    // de qualquer escrita (issue #880). Quem chega segundo recebe `23505` do
+    // índice único parcial — e "o aviso já estava aberto" é o mesmo desfecho de
+    // ter achado a linha na consulta, não um erro.
+    if (ehColisaoDeChaveUnica(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * `unique_violation` do Postgres. É o código, e não a mensagem: o texto muda
+ * com o locale e com o nome do índice, o código não.
+ */
+function ehColisaoDeChaveUnica(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code?: unknown }).code === '23505'
   );
-  return rows[0] ?? null;
 }
 
 export async function listOpenInboxItems(db: pg.Pool, tenantId: string): Promise<InboxItemRow[]> {

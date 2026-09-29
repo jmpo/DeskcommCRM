@@ -20,7 +20,7 @@
  */
 
 import { embedText } from "@/lib/ai/embed";
-import { resolverChaveDeEmbedding } from "@/lib/ai/embeddings/chave";
+import { modeloDeEmbedding, resolverChaveDeEmbedding } from "@/lib/ai/embeddings/chave";
 import { anonymize, detectResidualPii, padroesDePii } from "@/lib/ai/anonymize";
 import { perfilDaOrganizacao } from "@/lib/legal/perfil-do-pais";
 import { chunkText, computeContentHash } from "@/lib/ai/rag/chunker";
@@ -183,6 +183,7 @@ export async function ingestConversationsBatch(
       knowledgeSourceId: sourceId,
       agentId,
       sourceType: "conversas",
+      embeddingModel: modeloDeEmbedding(chave.provedor),
     });
     versionId = v.versionId;
   } catch (err) {

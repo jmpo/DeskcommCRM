@@ -124,6 +124,25 @@ describe("listConversationsHandler — filtro por marcador", () => {
     expect(termosDoOr(or!).map((t) => t.elemento)).toEqual([marcador, marcador]);
   });
 
+  it("VÁRIAS etiquetas: o E e o OU saem em OPERADORES diferentes (#1274)", async () => {
+    // A lista é lida pelo schema; aqui o handler é chamado direto, e a régua tem
+    // de fazer a parte dela. E e OU com as MESMAS etiquetas não podem produzir o
+    // mesmo `or=` — se produzissem, o filtro de duas etiquetas existiria e o
+    // E/OU não, que é a feature pela metade.
+    const e = orsDe(await rodar({ tag: ["vip", "orcamento"] }));
+    const ou = orsDe(await rodar({ tag: ["vip", "orcamento"], modo: "ou" }));
+    expect(e).toHaveLength(1);
+    expect(ou).toHaveLength(1);
+    expect(e[0]).toContain("tags.cs.");
+    expect(ou[0]).toContain("tags.ov.");
+    expect(e[0]).not.toBe(ou[0]);
+    // As DUAS caixas continuam em OU nos dois modos (a régua da 0323).
+    for (const or of [e[0]!, ou[0]!]) {
+      expect(or).toContain("tags.");
+      expect(or).toContain("tags_do_contato.");
+    }
+  });
+
   it("sem marcador no filtro, nenhum `or` de marcador", async () => {
     expect(orsDe(await rodar({}))).toEqual([]);
   });

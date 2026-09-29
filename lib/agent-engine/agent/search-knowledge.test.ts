@@ -263,3 +263,36 @@ describe('citationsFromHits', () => {
     expect((c.snippet ?? '').length).toBeLessThanOrEqual(240);
   });
 });
+
+// #1130 (@vgamkt): a base pode ser preparada pelo Google. A busca compara só com
+// trechos do MESMO modelo que calculou a pergunta — senão, depois de trocar o
+// provedor, vetores de mapas diferentes seriam comparados e a nota mentiria.
+describe('searchKnowledge — o modelo da pergunta decide com quais trechos comparar', () => {
+  it('materiais: o modelo que embedou a pergunta vai à RPC como filtro', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [hit] });
+    const embed = vi.fn().mockResolvedValue({
+      embedding: [0.1, 0.2], promptTokens: 3, model: 'google/gemini-embedding-001',
+    });
+    await searchKnowledge(
+      { query } as unknown as pg.Pool,
+      { organizationId: 'org1', knowledgeSourceIds: ['s1'], query: 'frete', topK: 5, threshold: 0.72 },
+      { embed },
+    );
+    expect(query.mock.calls[0]?.[1]?.[5]).toBe('google/gemini-embedding-001');
+  });
+
+  it('legado (kbVersionId, só vetores OpenAI) com pergunta do Google: não consulta e não inventa trecho', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [hit] });
+    const embed = vi.fn().mockResolvedValue({
+      embedding: [0.1, 0.2], promptTokens: 3, model: 'google/gemini-embedding-001',
+    });
+    const out = await searchKnowledge(
+      { query } as unknown as pg.Pool,
+      { organizationId: 'org1', kbVersionId: 'kb1', query: 'frete', topK: 5, threshold: 0.72 },
+      { embed },
+    );
+    expect(out).toEqual({ ok: true, results: [] });
+    const sqls = query.mock.calls.map((c) => String(c[0]));
+    expect(sqls.some((s) => s.includes('retrieve_top_k_chunks'))).toBe(false);
+  });
+});

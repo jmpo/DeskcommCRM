@@ -925,27 +925,54 @@ export async function finalizarFluxoDeAtendimento(
 }
 
 /**
+ * Um roteiro que este contato JÁ concluiu só começa de novo se o próprio
+ * roteiro permitir (`settings.pode_recomecar`, padrão não). Contribuição de
+ * @vgamkt (#1130); a escolha por roteiro é a decisão do doc 69.
+ */
+export function podeComecarParaOContato(
+  settings: FlowGraph["settings"],
+  jaConcluiu: boolean,
+): boolean {
+  return !jaConcluiu || settings?.pode_recomecar === true;
+}
+
+/** `exists` do enrollment CONCLUÍDO do roteiro `p` para o contato no parâmetro dado. */
+const jaConcluiuSql = (parametroDoContato: string) => `exists (
+         select 1 from followup_enrollments e
+          where e.organization_id = p.organization_id
+            and e.pointer_id = p.id
+            and e.contact_id = ${parametroDoContato}
+            and e.status = 'completed'
+       ) as ja_concluiu`;
+
+/**
  * ENTRADA POR GATILHO (motor): entre os roteiros ativos, qual LIGA pela
  * mensagem do cliente (palavra-gatilho). Independe do modelo e do roteador.
+ *
+ * O roteiro que o contato já concluiu e não pode recomeçar sai da disputa AQUI,
+ * e não só no `iniciarFluxoDeAtendimento`: se ele ficasse, ganharia a palavra e
+ * não começaria — e outro roteiro com a mesma palavra nunca teria a vez.
  */
 export async function escolherFluxoPeloGatilho(
   db: BancoDoRoteiro,
-  args: { organizationId: string; texto: string | null },
+  args: { organizationId: string; contactId: string; texto: string | null },
 ): Promise<{ id: string; nome: string } | null> {
   if (!args.texto) return null;
-  const { rows } = await db.query<{ id: string; nome: string; graph: unknown }>(
-    `select p.id, p.name as nome, v.graph
+  const { rows } = await db.query<{ id: string; nome: string; graph: unknown; ja_concluiu: boolean }>(
+    `select p.id, p.name as nome, v.graph,
+       ${jaConcluiuSql("$2")}
        from followup_flow_pointers p
        join followup_flow_versions v on v.id = p.active_version_id and v.organization_id = p.organization_id
       where p.organization_id = $1
         and p.surface = 'atendimento'
         and p.status = 'active'`,
-    [args.organizationId],
+    [args.organizationId, args.contactId],
   );
   const fluxos: FluxoComGatilhos[] = [];
   for (const row of rows) {
     const parsed = flowGraphSchema.safeParse(row.graph);
     if (!parsed.success) continue;
+    if (!podeComecarParaOContato(parsed.data.settings, row.ja_concluiu === true)) continue;
     const gatilhos = parsed.data.settings?.gatilhos ?? [];
     if (gatilhos.length > 0) fluxos.push({ id: row.id, nome: row.nome, gatilhos });
   }
@@ -956,8 +983,10 @@ export async function escolherFluxoPeloGatilho(
 /**
  * Começa um roteiro para o contato. Devolve o id do enrollment, ou `null`
  * quando não é para começar: roteiro de outra organização, inativo, sem versão,
- * grafo que o motor não percorre, ou o contato já tem um roteiro 'coletando'
- * (índice `idx_followup_enrollments_um_roteiro_coletando` — 23505 não é erro).
+ * grafo que o motor não percorre, o contato já tem um roteiro 'coletando'
+ * (índice `idx_followup_enrollments_um_roteiro_coletando` — 23505 não é erro),
+ * ou o contato já concluiu este roteiro e ele não pode recomeçar. Esta é a
+ * guarda de TODAS as entradas (gatilho, roteador, encadeamento).
  */
 export async function iniciarFluxoDeAtendimento(
   db: BancoDoRoteiro,
@@ -969,21 +998,27 @@ export async function iniciarFluxoDeAtendimento(
     origem: "gatilho" | "roteador" | "encadeamento";
   },
 ): Promise<string | null> {
-  const { rows } = await db.query<{ active_version_id: string | null; graph: unknown }>(
-    `select p.active_version_id, v.graph
+  const { rows } = await db.query<{
+    active_version_id: string | null;
+    graph: unknown;
+    ja_concluiu: boolean;
+  }>(
+    `select p.active_version_id, v.graph,
+       ${jaConcluiuSql("$3")}
        from followup_flow_pointers p
        join followup_flow_versions v on v.id = p.active_version_id and v.organization_id = p.organization_id
       where p.organization_id = $1
         and p.id = $2
         and p.status = 'active'
         and p.surface = 'atendimento'`,
-    [args.organizationId, args.flowPointerId],
+    [args.organizationId, args.flowPointerId, args.contactId],
   );
   const row = rows[0];
   if (!row || row.active_version_id === null) return null;
 
   const parsed = flowGraphSchema.safeParse(row.graph);
   if (!parsed.success) return null;
+  if (!podeComecarParaOContato(parsed.data.settings, row.ja_concluiu === true)) return null;
   const checklist = mapearChecklist(parsed.data);
   if (!checklist.ok) return null;
   const inicio = parsed.data.nodes.find((n) => n.type === "trigger")?.id;

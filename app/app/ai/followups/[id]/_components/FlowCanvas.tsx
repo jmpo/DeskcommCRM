@@ -60,6 +60,7 @@ import { RepeatNode } from "./nodes/RepeatNode";
 import { ActionNode } from "./nodes/ActionNode";
 import { EndNode } from "./nodes/EndNode";
 import { CollectNode } from "./nodes/CollectNode";
+import { InternalTaskNode } from "./nodes/InternalTaskNode";
 import { SkillNode } from "./nodes/SkillNode";
 
 const EMPTY_GRAPH: FlowGraph = { nodes: [], edges: [] };
@@ -75,6 +76,11 @@ const nodeTypes: NodeTypes = {
   match_reply: MatchReplyNode,
   repeat: RepeatNode,
   action: ActionNode,
+  // `internal_task` estava na paleta, no schema, no publish e no motor — e não
+  // aqui (#1540): o React Flow caía no fallback da caixa desconhecida, sem
+  // rótulo e sem formulário. Completar o nó é esta linha mais o formulário do
+  // painel (`forms/InternalTaskForm`).
+  internal_task: InternalTaskNode,
   end: EndNode,
   collect: CollectNode,
   skill: SkillNode,

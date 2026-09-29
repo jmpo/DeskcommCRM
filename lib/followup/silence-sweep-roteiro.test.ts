@@ -83,6 +83,7 @@ describe("runSilenceSweep", () => {
       loadEncerramentosDoFluxo: async () => new Map(),
       loadContatosComPessoaNoComando: async () => new Set<string>(),
       loadTriggerNode: async () => ({ id: "t", pedeAgente: false }),
+      loadContactIdsEmCooldown: async () => new Set(),
       insertEnrollment: insert,
     };
     const resumo = await runSilenceSweep({

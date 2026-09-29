@@ -16,6 +16,8 @@ A cor é **derivada**, não aplicada crua: de um hex saem onze tons nos dois tem
 
 **O logo também.** Na mesma tela você **sobe o arquivo** — PNG ou JPG, até 512 KB. Ele vai para o storage da sua própria instalação e passa a valer na hora, sem reiniciar nada e sem você hospedar imagem em lugar nenhum. Altura fixa e largura livre, para não distorcer arte de proporção qualquer; sem logo, o nome aparece como texto.
 
+**E o ícone do aplicativo e do navegador.** Logo abaixo do logo, esse campo recebe uma imagem quadrada — PNG ou JPG, até 512 KB, de preferência 512×512 ou maior. A mesma imagem aparece na aba de todas as telas, inclusive o login, e no aplicativo instalado. O manifest anuncia PNGs de 192×192 e 512×512, renderizados no servidor a partir do arquivo limitado no Storage; nenhum endereço arbitrário é buscado. Sem arquivo válido, mantém o símbolo do produto ou a inicial sobre a cor da marca. Remover o arquivo volta a esse desenho. O ícone é da instalação, não de cada organização; trocar de organização não renomeia o aplicativo. Navegadores podem demorar para atualizar um app já instalado; remover o aplicativo e instalá-lo novamente permite conferir a nova marca.
+
 O arquivo é aceito **pelos bytes, não pela extensão**. Renomear um `.svg` para `.png` não engana: o sistema lê o conteúdo, recusa e diz por quê. Isso não é preciosismo — SVG é XML e pode carregar script, que executaria se alguém abrisse a imagem direto pelo endereço dela, num bucket que é público por necessidade.
 
 Quem preferir hospedar por conta própria continua podendo, pelo `.env`:

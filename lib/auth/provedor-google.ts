@@ -29,6 +29,7 @@
  * que é exatamente o que ele era antes desta leitura existir — sem regressão.
  */
 import { env } from "@/lib/env";
+import { urlDoSupabaseNoServidor } from "@/lib/supabase/url-do-servidor";
 
 /** `ligado`/`desligado` = lido nas settings; `desconhecido` = não deu para ler. */
 export type EstadoDoProvedorGoogle = "ligado" | "desligado" | "desconhecido";
@@ -43,7 +44,11 @@ const PRAZO_MS = 4_000;
 export async function estadoDoProvedorGoogle(): Promise<EstadoDoProvedorGoogle> {
   let resposta: Response;
   try {
-    const base = env.NEXT_PUBLIC_SUPABASE_URL.replace(/\/+$/, "");
+    // #1082: pelo mesmo resolvedor dos clients — vazia, vale a pública.
+    const base = urlDoSupabaseNoServidor(
+      env.SUPABASE_SERVER_URL,
+      env.NEXT_PUBLIC_SUPABASE_URL,
+    ).replace(/\/+$/, "");
     resposta = await fetch(`${base}/auth/v1/settings`, {
       headers: { apikey: env.NEXT_PUBLIC_SUPABASE_ANON_KEY },
       cache: "no-store",

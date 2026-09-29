@@ -28,6 +28,8 @@ import type {
   ContactListQueryParams,
 } from "@/lib/schemas";
 import { contactListQuerySchema } from "@/lib/schemas";
+import { arrayDeUmValorParaOr } from "@/lib/inbox/marcador-da-conversa";
+import { buscaValeConsulta, normalizarTermoDeBusca } from "@/lib/inbox/termo-de-busca";
 
 type SB = SupabaseClient;
 
@@ -93,6 +95,30 @@ export async function listContactsHandler(
   raw: ContactListQueryParams,
 ): Promise<ListContactsResult> {
   const q: ContactListQuery = contactListQuerySchema.parse(raw);
+
+  // ─── O PISO DA BUSCA (#1835) ───────────────────────────────────────────────
+  //
+  // `?search=a` montava `name.ilike.%a%` e devolvia a LISTA INTEIRA — e lista
+  // inteira sob busca não é resposta, é ruído que PARECE resposta. É a MESMA
+  // medição que criou `PISO_DA_BUSCA` no inbox, aqui pela porta que hoje não a
+  // tinha (a de conversas recusa no schema Zod; a de contatos deixava passar).
+  //
+  // A régua é consultada DENTRO do handler, e não no schema, de propósito: a
+  // tela de contatos manda o termo como foi digitado (`useContactList` não tem
+  // guarda de piso), então um `422` acenderia `showApiError` a cada letra
+  // digitada; e o MCP (`crm_search_contacts`) chama este handler direto e
+  // receberia um `ZodError` no meio da ferramenta. O efeito pedido é o mesmo
+  // dos dois lados: abaixo do piso a busca NÃO VAI AO BANCO, e quem digita vê
+  // a lista vazia até completar os dois caracteres.
+  //
+  // O piso mede o MESMO termo que vai ao filtro: sem os parênteses (ver o
+  // bloco do `.or()` abaixo). Medir o cru deixava `"()"` consultar `%%` e
+  // `"(a"` consultar `%a%` — a lista inteira de volta pela porta do parêntese.
+  const termoDeTexto = q.search ? q.search.replace(/[()]/g, " ") : undefined;
+  if (termoDeTexto !== undefined && !buscaValeConsulta(termoDeTexto)) {
+    return { contacts: [], cursor: null, has_more: false };
+  }
+
   const sortCol = q.order_by;
   const asc = q.order_dir === "asc";
 
@@ -100,6 +126,12 @@ export async function listContactsHandler(
     .from("contacts")
     .select(SELECT_COLS)
     .eq("organization_id", ctx.organization_id)
+    // O placeholder de GRUPO (`kind='whatsapp_group'`) não é uma pessoa da
+    // base: é o registro técnico que a conversa do grupo pendura para caber no
+    // mesmo esquema de `contacts`. Listar junto misturaria grupo com cliente
+    // numa lista que existe para achar CLIENTE — mesmo raciocínio da lápide de
+    // fusão logo abaixo.
+    .eq("kind", "person")
     // A LÁPIDE DE FUSÃO NÃO É UM CONTATO VIVO.
     //
     // `is_merged_into` marca o cadastro que foi absorvido por outro. Ele não é
@@ -122,11 +154,23 @@ export async function listContactsHandler(
     .order("id", { ascending: asc })
     .limit(q.limit + 1);
 
-  if (q.search) {
-    // ⚠️ `%` e `_` são curingas do LIKE, e `,`/`(`/`)` são delimitadores do DSL
-    // do `.or()` — um nome com vírgula ("Silva, Maria") injetaria uma condição
-    // extra na string do filtro. Mesmo escape de conversations/_handler.ts.
-    const s = q.search.trim().replace(/[%_]/g, (m) => `\\${m}`).replace(/[,()]/g, " ");
+  if (q.search && termoDeTexto !== undefined) {
+    // ─── Duas normalizações, em ordem, com responsabilidades diferentes ─────
+    // É a MESMA composição da busca de conversas
+    // (`conversations/_handler.ts:297`, `termoSeguroParaOr(normalizarTermoDeBusca(...))`):
+    //
+    //   normalizarTermoDeBusca → como a PESSOA digitou: espaço duplo, vírgula e
+    //                            ponto e vírgula colapsam num curinga só, então
+    //                            "Paulo  Lima" e "Paulo Jr" achem o "Paulo Lima Jr"
+    //                            e "Silva, Maria" não exige mais adjacência
+    //   saneamento de `%`/`_`  → gramática do LIKE: curinga digitado é literal
+    //
+    // Os PARÊNTESES saem ANTES da régua: são delimitador do DSL do `.or()` do
+    // PostgREST (um "(" sem fechar derrubaria o filtro inteiro com HTTP 400) e
+    // a normalização não os conhece — tirá-los depois deixaria `Paulo* Jr` com
+    // espaço solto, que não casa nada. Mesmo escape de sempre, mesmo defeito de
+    // sempre: um nome com vírgula injetaria condição extra no `.or()`.
+    const s = normalizarTermoDeBusca(termoDeTexto).replace(/[%_]/g, (m) => `\\${m}`);
     const digits = q.search.replace(/\D/g, "");
     const orParts = [
       `name.ilike.%${s}%`,
@@ -169,7 +213,22 @@ export async function listContactsHandler(
     }
     query = query.or(orParts.join(","));
   }
-  if (q.tag) query = query.contains("tags", [q.tag]);
+  // ⚠️ E/OU (#1274). E e OU viraram DOIS textos, e o que os separa e o
+  // operador — a mesma régua do Inbox (`lib/inbox/marcador-da-conversa.ts`), com
+  // a diferença de que aqui existe UMA caixa só (`contacts.tags`).
+  //
+  // - E: `tags=cs.{a,b}` — `contains` com a LISTA, que o builder já sabe escrever.
+  //   Uma etiqueta só continua `tags=cs.{a}`, byte a byte o que era antes.
+  // - OU: um `or=` com um `ov` por etiqueta. ⚠️ NÃO é `overlaps` repetido: o
+  //   builder escreve `tags=ov.…` no MESMO parametro cada vez, e parâmetro
+  //   repetido no PostgREST é E — que é o modo oposto com o nome de OU.
+  if (q.tag && q.tag.length > 1 && q.modo === "ou") {
+    query = query.or(
+      q.tag.map((marcador) => `tags.ov.${arrayDeUmValorParaOr(marcador)}`).join(","),
+    );
+  } else if (q.tag) {
+    query = query.contains("tags", q.tag);
+  }
   if (q.source) query = query.eq("source", q.source);
   // `yes` responde "quem pediu para não ser incomodado"; `no` é a lista de quem
   // ainda dá para contactar — que é a pergunta de quem vai montar campanha.
@@ -763,7 +822,7 @@ export async function deleteContactHandler(
   //
   // Só CONTA: quem recusa continua sendo o banco, com o 23503 do RESTRICT. A
   // contagem existe para saber disso antes de apagar o histórico, e é por isso
-  // que ela vem antes do primeiro DELETE — depois não há mais como desfazer.
+  // que ela vem antes da chamada que apaga — depois não há mais como desfazer.
   const vinculos: string[] = [];
   for (const vinculo of VINCULOS_RESTRICT_NAO_APAGADOS) {
     const { count, error } = await supabase
@@ -804,42 +863,34 @@ export async function deleteContactHandler(
     );
   }
 
-  // `apagados` é preenchido passo a passo de propósito: se um DELETE do meio
-  // falhar, a linha de auditoria do erro precisa dizer exatamente até onde o
-  // histórico foi, senão o incidente vira arqueologia.
-  const apagados: string[] = [];
-  let deleted: { id: string } | null = null;
+  // UMA função, UMA transação (issue #1862).
+  //
+  // Antes eram três DELETE separados: `messages`, depois `conversations`, depois
+  // `contacts`. Quando a última chamada era recusada (o gatilho de follow-up
+  // devolvia 42501 em quem tem `auth.uid()`), as duas primeiras já estavam
+  // gravadas — a ficha ficava na base SEM histórico, e a auditoria do erro saía
+  // com `apagados: ["messages","conversations"]` como rastro do estrago.
+  //
+  // Agora a rota chama `fn_apagar_contato_com_historico` (migration 0488), que
+  // apaga as três na ordem certa do RESTRICT dentro de uma transação só: ou sai
+  // tudo, ou não sai nada. É `security invoker` — a RLS de quem chama continua
+  // valendo, e o filtro de `organization_id` é do banco (argumento + where), não
+  // do chamador. Nenhum service role entra aqui.
+  let apagou = false;
   try {
-    // Mensagens e conversas RESTRICT no contato: apagar primeiro, senão o
-    // DELETE da ficha falha para qualquer lead que já falou no canal.
-    const { error: msgErr } = await supabase
-      .from("messages")
-      .delete()
-      .eq("contact_id", contactId)
-      .eq("organization_id", ctx.organization_id);
-    throwOnDbError(msgErr, ctx.requestId, ctx.idioma);
-    apagados.push("messages");
-
-    const { error: convErr } = await supabase
-      .from("conversations")
-      .delete()
-      .eq("contact_id", contactId)
-      .eq("organization_id", ctx.organization_id);
-    throwOnDbError(convErr, ctx.requestId, ctx.idioma);
-    apagados.push("conversations");
-
-    const { data, error: delErr } = await supabase
-      .from("contacts")
-      .delete()
-      .eq("id", contactId)
-      .eq("organization_id", ctx.organization_id)
-      .select("id")
-      .maybeSingle();
-    throwOnDbError(delErr, ctx.requestId, ctx.idioma);
-    deleted = data;
+    const { data, error: rpcErr } = await supabase.rpc("fn_apagar_contato_com_historico", {
+      p_contact_id: contactId,
+      p_organization_id: ctx.organization_id,
+    });
+    throwOnDbError(rpcErr, ctx.requestId, ctx.idioma);
+    apagou = data === true;
   } catch (err) {
     // `audit()` é best-effort por doutrina (engole a própria falha e reporta),
     // então registrar aqui não pode trocar o desfecho do erro real.
+    //
+    // `apagados` fica VAZIO de propósito: numa transação só não existe "chegou
+    // até a metade". Ou a ficha saiu com o histórico (aqui seria outro desfecho),
+    // ou a transação desfez tudo — e é isso que a linha de auditoria diz.
     await audit({
       action: "contact.delete_blocked",
       actorUserId: a.actorUserId,
@@ -847,12 +898,14 @@ export async function deleteContactHandler(
       resourceType: "contact",
       resourceId: contactId,
       requestId: ctx.requestId,
-      metadata: { ...a.metadataActor, motivo: "falha_ao_apagar", vinculos: [], apagados },
+      metadata: { ...a.metadataActor, motivo: "falha_ao_apagar", vinculos: [], apagados: [] },
     });
     throw err;
   }
 
-  if (!deleted) {
+  if (!apagou) {
+    // A ficha existia na pré-checagem e sumiu antes da chamada (outra sessão a
+    // apagou, ou a RLS não a deixou ver): o mesmo 404 de sempre.
     throw new ApiError(
       404,
       "not_found",
@@ -885,5 +938,5 @@ export async function deleteContactHandler(
     metadata: a.metadataActor,
   });
 
-  return { id: deleted.id as string };
+  return { id: contactId };
 }

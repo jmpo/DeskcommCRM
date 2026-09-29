@@ -71,13 +71,13 @@ export function useKnowledgeSources(opts?: { initialData?: SourceRow[] }) {
  * ## Por que isto tem `refetchInterval`
  *
  * A validação da chave com o provedor acontece EM SEGUNDO PLANO — `guardarCredencial`
- * responde assim que cifra e grava, e só depois confirma com a OpenAI. Entre os
+ * responde assim que cifra e grava, e só depois confirma com o provedor. Entre os
  * dois momentos a chave existe e ainda não é utilizável, então a tela continua
  * dizendo "falta uma chave" para quem acabou de colá-la. Medido na prova de
  * tela: a credencial estava no banco e validada, e a tela seguia mostrando o
  * aviso — só um F5 mudava.
  *
- * O intervalo é ligado APENAS nesse estado transitório: existe credencial OpenAI
+ * O intervalo é ligado APENAS nesse estado transitório: existe credencial de embedding
  * e ela ainda não serve. Fora dele o polling seria custo sem informação.
  */
 export function useEstadoDaChave(initial?: EstadoDaChave) {
@@ -90,7 +90,7 @@ export function useEstadoDaChave(initial?: EstadoDaChave) {
     refetchInterval: (query) => {
       const d = query.state.data;
       if (!d) return false;
-      const esperandoValidacao = !d.pode_indexar && d.credenciais_openai.length > 0;
+      const esperandoValidacao = !d.pode_indexar && d.credenciais_embedding.length > 0;
       return esperandoValidacao ? 2_000 : false;
     },
     ...(initial ? { initialData: initial } : {}),

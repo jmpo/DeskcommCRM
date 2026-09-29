@@ -306,7 +306,7 @@ Toda tela tem porta na navegação — o CI reprova tela que existe mas em que s
 | **WhatsApp** | WAHA Plus (engine NOWEB) + Meta Cloud API | QR pra começar rápido; canal oficial pra escala |
 | **Filas** | `event_log` table + workers (cron) | Trigger de banco nunca faz HTTP |
 | **Rate limit** | Upstash Redis (sliding window) | Serverless, free tier suficiente |
-| **AI** | Vercel AI SDK v7 — OpenRouter, Anthropic, OpenAI e Google | Instalador pergunta qual; troca depois pela tela |
+| **AI** | Vercel AI SDK v7 — OpenRouter, Requesty, Anthropic, OpenAI e Google | Instalador pergunta qual; troca depois pela tela |
 | **Validação** | Zod | Input externo, env, payloads |
 | **Observability** | Sentry (scrub em erro, transação, span e breadcrumb) | Telemetria opt-in no install |
 | **Hospedagem** | VPS com Docker (HostGator/SP na parceria) | App + WhatsApp + workers na sua máquina |
@@ -365,7 +365,7 @@ DeskcommCRM/
 │   ├── app/                # Rotas autenticadas: inbox, radar, kanban, contacts,
 │   │                       #   connections, ai/*, integrations, metrics, lgpd,
 │   │                       #   audit, team, settings
-│   └── api/v1/             # API REST canônica (196 route handlers)
+│   └── api/v1/             # API REST canônica
 ├── components/             # React (ui/, inbox/, kanban/, shell/, ...)
 ├── lib/                    # supabase/, waha/, channels/, ai/, agent-engine/,
 │                           #   api/, routing/, navigation/, env.ts

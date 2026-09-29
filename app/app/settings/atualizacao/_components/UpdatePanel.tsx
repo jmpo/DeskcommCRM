@@ -164,6 +164,11 @@ export function UpdatePanel() {
   // retentativas custou e em qual passada fechou. Sem registro na rodada isto é
   // `null`, e a tela fica calada em vez de afirmar zero.
   const contaDoBanco = textoDaRodadaDoBanco(data.run?.rodada_do_banco);
+  // O ponteiro para o `.update.log` vem junto do resumo, mas só quando a
+  // rodada REGISTROU disputa — é aí que existe passada por passada para ler.
+  // Rodada medida e limpa fica com o resumo só: endereço de log que ninguém
+  // precisa abrir é linha a mais para ignorar, e quem ignora uma ignora a próxima.
+  const detalheNoLog = data.run?.rodada_do_banco?.disputa === true;
 
   if (data.just_updated) {
     const pedida = semV(data.run?.to_version);
@@ -182,6 +187,18 @@ export function UpdatePanel() {
         </p>
         {contaDoBanco ? (
           <p className="mt-3 text-sm text-muted-foreground">{t(contaDoBanco)}</p>
+        ) : null}
+        {/* O resumo é a ponta; quem quer ver passada por passada precisa saber
+            ONDE. Esse endereço até aqui só existia no log do servidor — quem
+            apertou o botão não tinha como chegar lá sem SSH. Só quando HÁ o que
+            procurar lá (disputa registrada): ponteiro em rodada limpa é ruído, e
+            quem para de ler o ruído para de ler o aviso. */}
+        {detalheNoLog ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            {t(
+              "O detalhe de cada passada está no arquivo .update.log, na pasta do projeto no servidor.",
+            )}
+          </p>
         ) : null}
       </Layout>
     );
@@ -211,6 +228,13 @@ export function UpdatePanel() {
         </p>
         {contaDoBanco ? (
           <p className="mt-3 text-sm text-muted-foreground">{t(contaDoBanco)}</p>
+        ) : null}
+        {detalheNoLog ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            {t(
+              "O detalhe de cada passada está no arquivo .update.log, na pasta do projeto no servidor.",
+            )}
+          </p>
         ) : null}
         <DetalhesTecnicos texto={data.run.log_tail} />
         <Saida

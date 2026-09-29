@@ -192,7 +192,7 @@ describe("o aviso vai ao celular", () => {
     } as unknown as SupabaseClient;
     expect(await pushDoAvisoDaCentral(admin, "org-1", "aviso-1")).toEqual({
       title: "La IA se quedó sin saldo en el proveedor",
-      body: "Recargá el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva.",
+      body: "Recarga el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva.",
       tag: "aviso:aviso-1",
       href: "/app/ai/credentials",
     });

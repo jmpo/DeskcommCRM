@@ -41,6 +41,7 @@ describe("varredura de silêncio com teto", () => {
       ],
       loadSilentContactIds,
       loadContatosComRetornoVivo: async () => new Set<string>(),
+      loadContactIdsEmCooldown: async () => new Set<string>(),
       loadEncerramentosDoFluxo: async () => new Map(),
       loadContatosComPessoaNoComando: async () => new Set<string>(),
       loadTriggerNode: async () => ({ id: "inicio", pedeAgente: false }),

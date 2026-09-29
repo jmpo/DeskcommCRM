@@ -1,7 +1,7 @@
 "use client";
 /**
- * Toca o som da organização quando um aviso NOVO entra na Central: a venda
- * confirmada e o pedido de pessoa (ver `lib/notifications/sons-da-org.ts`).
+ * Toca o som da organização quando um aviso NOVO entra na Central: a etapa
+ * que avisa e o pedido de pessoa (ver `lib/notifications/sons-da-org.ts`).
  *
  * Roda na campainha do topo, que já lê a Central — nenhuma consulta a mais além
  * das URLs dos sons, renovadas antes de a assinatura (1 h) vencer.

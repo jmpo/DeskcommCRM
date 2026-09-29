@@ -397,7 +397,13 @@ Provado por sabotagem em `evidence/handoff-avisa-antes/sabotagem-ordem-invertida
 
 Guardas: `tests/invariants/handoff-avisa-o-lead.test.ts` (turno real contra
 Postgres do baseline), `tests/unit/handoff-avisa-o-lead.test.ts` (varredura AST
-dos dois motores) e `tests/unit/aviso-ao-lead.test.ts` (o texto).
+dos dois motores), `tests/unit/aviso-ao-lead.test.ts` (o texto) e
+`tests/unit/aviso-so-quando-a-ia-falou.test.ts` (as duas guardas do lado do CRM:
+sem fala prévia da IA na conversa o aviso não sai — numa instalação real, o
+sentimento disparou a passagem numa organização sem agente publicado e o cliente
+recebeu "já acionei o time" do nada; a exceção é a passagem pedida por agente
+externo via MCP, cujas falas são gravadas como `system` —, e no máximo um aviso
+por conversa a cada 24 h, contado no banco, sem contar aviso `failed`).
 
 ---
 
@@ -493,7 +499,7 @@ diálogo e é asserida na spec.
 
 ---
 
-## J35 — O fluxo de silêncio espera antes de recomeçar para quem já passou por ele `[P1]` (2026-09-27)
+## J37 — O fluxo de silêncio espera antes de recomeçar para quem já passou por ele `[P1]` (2026-09-27)
 
 Contexto do código: num fluxo de silêncio com `cancel_on_reply`, cada resposta do
 cliente cancelava a inscrição e a varredura seguinte o inscrevia de novo, do
@@ -507,33 +513,33 @@ Spec: `tests/e2e/pausa-de-reentrada.spec.ts`.
 
 | # | Caso | Expectativa | Resultado |
 |---|------|-------------|-----------|
-| J35.1 | Pôr 48 h no campo «Pausa antes de recomeçar (horas)» e salvar | o banco guarda `reentry_pause_minutes: 2880`; o botão diz «pausa de 48 h» | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-01-campo-preenchido.png`, `evidence/triagem-16set-l12/pausa-02-rotulo-com-pausa.png` |
-| J35.2 | Editar OUTRO campo do gatilho | a pausa sobrevive | **PASS pela tela** |
-| J35.3 | Zerar a pausa | a chave sai do gatilho (comportamento de antes) | **PASS pela tela** |
-| J35.4 | Quem encerrou uma inscrição há menos que a pausa / quem nunca passou / conversa com pessoa no comando | pula / entra / pula (salvo `handoff_policy='allow'`) | **PASS (invariante)** — `tests/invariants/followup-silence-sweep.test.ts` |
-| J35.5 | Teto do silêncio: 5 com mínimo 10 é recusado; 60 é gravado e o botão mostra «10–60 min»; na varredura, quem está calado há 20 min entra e há 3 h fica de fora | tela + invariante | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/silencio-01-teto-de-60.png`; invariante no mesmo arquivo de J35.4 |
-| J35.6 | Pausa de 24 h contada do último envio (a opção só aparece com pausa > 0) | o banco guarda `reentry_pause_basis: "ultimo_envio"`; o botão diz «no máximo 1× a cada 24 h»; desligar tira a chave; na varredura, quem encerrou há 25 h e escreveu há 20 min entra (pela base padrão, fica na pausa) | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-03-base-do-ultimo-envio.png`; invariante no mesmo arquivo de J35.4 |
+| J37.1 | Pôr 48 h no campo «Pausa antes de recomeçar (horas)» e salvar | o banco guarda `reentry_pause_minutes: 2880`; o botão diz «pausa de 48 h» | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-01-campo-preenchido.png`, `evidence/triagem-16set-l12/pausa-02-rotulo-com-pausa.png` |
+| J37.2 | Editar OUTRO campo do gatilho | a pausa sobrevive | **PASS pela tela** |
+| J37.3 | Zerar a pausa | a chave sai do gatilho (comportamento de antes) | **PASS pela tela** |
+| J37.4 | Quem encerrou uma inscrição há menos que a pausa / quem nunca passou / conversa com pessoa no comando | pula / entra / pula (salvo `handoff_policy='allow'`) | **PASS (invariante)** — `tests/invariants/followup-silence-sweep.test.ts` |
+| J37.5 | Teto do silêncio: 5 com mínimo 10 é recusado; 60 é gravado e o botão mostra «10–60 min»; na varredura, quem está calado há 20 min entra e há 3 h fica de fora | tela + invariante | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/silencio-01-teto-de-60.png`; invariante no mesmo arquivo de J35.4 |
+| J37.6 | Pausa de 24 h contada do último envio (a opção só aparece com pausa > 0) | o banco guarda `reentry_pause_basis: "ultimo_envio"`; o botão diz «no máximo 1× a cada 24 h»; desligar tira a chave; na varredura, quem encerrou há 25 h e escreveu há 20 min entra (pela base padrão, fica na pausa) | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-03-base-do-ultimo-envio.png`; invariante no mesmo arquivo de J35.4 |
 
 
-## J36 — O pino de localização chega com a rua e a cidade aproximadas `[P1]` (2026-09-28)
+## J38 — O pino de localização chega com a rua e a cidade aproximadas `[P1]` (2026-09-28)
 
 Contexto: medido numa loja, 10 de 10 pinos do mês chegaram só com coordenadas —
 o agente lia um link e perguntava a cidade de novo. Com a chave da Geocoding API
 (Configurações › Provedores, cartão «Mapas»; tabela `map_provider_credentials`,
-migration 0444; regra em `lib/mapas/`), o pino ganha o endereço aproximado no
+migration 0493; regra em `lib/mapas/`), o pino ganha o endereço aproximado no
 corpo (o que o agente lê) e no cartão do pino da conversa.
 
 Spec: `tests/e2e/mapas-em-provedores.spec.ts`.
 
 | # | Caso | Expectativa | Resultado |
 |---|------|-------------|-----------|
-| J36.1 | Admin cola a chave e grava | o banco guarda a chave CIFRADA e os 4 últimos; a tela mostra «Chave gravada ···XXXX», limpa o campo, e a chave não aparece no HTML | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-01-chave-colada.png` |
-| J36.2 | «Testar» com chave recusada pelo Google | a tela explica a recusa (API não habilitada × chave recusada são mensagens diferentes), nunca «Funcionou» | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-02-teste-explica-a-recusa.png` |
-| J36.3 | Remover a chave | a linha sai do banco e o cartão volta a «Sem chave» | **PASS pela tela** |
-| J36.4 | Pino recebido com chave / sem chave / Google fora | corpo com «… (aprox.)» / corpo idêntico ao de antes e nenhuma chamada ao Google / corpo de antes | **PASS (unit)** — `tests/unit/mapas-pino-com-endereco.test.ts` |
-| J36.5 | A tabela não é servida pelo PostgREST | `anon`/`authenticated` sem privilégio, `permission denied`, RLS ligada sem policy | **PASS (invariante)** — `tests/invariants/credencial-de-mapas-e-server-side.test.ts` |
-| J36.6 | O que o Google diz × o endereço anotado em 8 pedidos confirmados (28/09/2026) | distrito 8/8, departamento 8/8, localidade 7/8 (Atyrá rural virou a compañía), rua 3/5, bairro 1/8, número interpolado → a cidade é o DISTRITO; bairro e número não saem | **MEDIDO em produção** (`pedilo-config/cfg/55-pines-vs-pedido.ts`); regra em `tests/unit/mapas-pino-com-endereco.test.ts` |
-| J36.7 | A API do canal não responde a tempo na ingestão do pino (medido 29/09/2026: timeout duas vezes) | a mensagem entra com o marcador e pede nova busca; 1 min depois, e a cada 2 min até 15, busca de novo e grava tipo `location` + link (+ endereço aproximado com chave); nunca rebaixa um pino que já tem coordenadas; desiste sem virar incidente | **PASS (unit)** — `tests/unit/pino-reintento.test.ts`, `tests/unit/channel-ingest-zernio.test.ts` |
+| J38.1 | Admin cola a chave e grava | o banco guarda a chave CIFRADA e os 4 últimos; a tela mostra «Chave gravada ···XXXX», limpa o campo, e a chave não aparece no HTML | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-01-chave-colada.png` |
+| J38.2 | «Testar» com chave recusada pelo Google | a tela explica a recusa (API não habilitada × chave recusada são mensagens diferentes), nunca «Funcionou» | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-02-teste-explica-a-recusa.png` |
+| J38.3 | Remover a chave | a linha sai do banco e o cartão volta a «Sem chave» | **PASS pela tela** |
+| J38.4 | Pino recebido com chave / sem chave / Google fora | corpo com «… (aprox.)» / corpo idêntico ao de antes e nenhuma chamada ao Google / corpo de antes | **PASS (unit)** — `tests/unit/mapas-pino-com-endereco.test.ts` |
+| J38.5 | A tabela não é servida pelo PostgREST | `anon`/`authenticated` sem privilégio, `permission denied`, RLS ligada sem policy | **PASS (invariante)** — `tests/invariants/credencial-de-mapas-e-server-side.test.ts` |
+| J38.6 | O que o Google diz × o endereço anotado em 8 pedidos confirmados (28/09/2026) | distrito 8/8, departamento 8/8, localidade 7/8 (Atyrá rural virou a compañía), rua 3/5, bairro 1/8, número interpolado → a cidade é o DISTRITO; bairro e número não saem | **MEDIDO em produção** (`pedilo-config/cfg/55-pines-vs-pedido.ts`); regra em `tests/unit/mapas-pino-com-endereco.test.ts` |
+| J38.7 | A API do canal não responde a tempo na ingestão do pino (medido 29/09/2026: timeout duas vezes) | a mensagem entra com o marcador e pede nova busca; 1 min depois, e a cada 2 min até 15, busca de novo e grava tipo `location` + link (+ endereço aproximado com chave); nunca rebaixa um pino que já tem coordenadas; desiste sem virar incidente | **PASS (unit)** — `tests/unit/pino-reintento.test.ts`, `tests/unit/channel-ingest-zernio.test.ts` |
 
 ---
 
@@ -1290,6 +1296,39 @@ espaço e acento, que era o gatilho do defeito #6.
 | 16 | `lib/audit/index.ts` | Falha de audit só fazia `console.error` — foi o que manteve #15 invisível | doutrina exige alerta no Sentry |
 | 17 | crons de follow-up/snooze | **95% do audit log** era batida de cron vazia (1.175 de 1.236 linhas em ~9h paradas) numa tabela append-only com retenção de 5 anos | contagem por `action` |
 
+## J35 — Achar onde se liga cada recurso opcional `[P1]` (2026-09-28)
+
+**Origem:** pedido do mantenedor (doc 73; desenho no doc 80) — "até agora não
+entendi onde ficam os lugares para ativar/desativar". Os módulos se ligavam numa
+tela chamada "Comportamento", as chaves da empresa em pelo menos nove telas, e
+os recursos que dependem do servidor em tela nenhuma.
+
+| Caso | Spec | Estado |
+|---|---|---|
+| Admin da empresa chega a Configurações › Recursos opcionais pelo hub, vê a lista e o **Ajustar** de "A conversa fica com quem atendeu" o leva a Distribuição de atendimento | `tests/e2e/recursos-opcionais.spec.ts` | CI (PARTE_2) |
+| Dono do servidor acha **Recursos opcionais** no menu do Admin; a tela tem Módulos, Comportamento e Depende do servidor (só leitura, "configurado"/"não configurado") | idem | CI (PARTE_2) |
+| Módulo/porta novo fora da lista reprova | `tests/unit/recursos-opcionais-catalogo.test.ts` | unit |
+
+**Não coberto pela tela:** gerente vendo a lista sem os botões de telas de admin
+(regra no `page.tsx`, sem spec); telefonia por SIP é "não dá para ver daqui" —
+ela vive nos contêineres, fora do alcance do app.
+
+## J36 — Perguntar ao acervo sem sair da conversa `[P1]` (2026-09-28)
+
+**Origem:** #1869 (F1+F2), contribuição de @webtecnica no #1877. O atendente
+consulta o material da empresa pela caixa "Acervo" no painel da conversa, com a
+mesma busca que a IA usa; a pergunta vira linha em `knowledge_searches` com
+`author_kind='human'`, e a Evolução a mostra num gráfico próprio.
+
+| Caso | Spec | Estado |
+|---|---|---|
+| Atendente abre a conversa, pergunta na caixa "Acervo" e recebe o diagnóstico (acervo vazio, ou 409 de chave ausente), nunca o erro genérico | `tests/e2e/busca-na-conversa.spec.ts` | CI (PARTE_3) |
+| 429 por pessoa/organização, pergunta > 1000 caracteres, agentId não-uuid, 409 sem chave | `app/api/v1/ai/knowledge/busca/route.test.ts` | unit |
+| Busca da equipe fora das lacunas do agente e numa série própria | `lib/ai/evolution/aggregate.test.ts` | unit |
+
+**Não coberto:** a busca com material indexado e chave de embedding real (nenhum
+e2e do CI tem chave); o gráfico "Consultas da equipe ao acervo" em tela.
+
 ## Jornadas exercitadas (instalação final, virgem)
 
 | Jornada | Resultado |
@@ -1746,6 +1785,24 @@ grupo IA já usava.
 grampeado no `clientHeight`, então "excesso 0" e "sobra 200px" dão o MESMO número.
 Quem quiser saber quanta folga restou tem de medir o `bottom` do último filho
 contra a caixa de conteúdo da `<nav>` — foi assim que os 19px saíram.
+
+## Os contadores do menu: Casos e a Fila (2026-09-27)
+
+Origem: numa loja que vende pelo WhatsApp, a IA abriu um caso e passou duas
+conversas para a equipe numa manhã, e o dono só soube abrindo cada tela e
+procurando. «Casos» sobe para o menu da IA com o número de casos em
+`awaiting_human`, e «Inbox» ganha o número da aba Fila. Para o menu seguir
+cabendo em 1280×900 — a folga medida acima é de 19px, menos de uma linha —,
+«Roteadores» sai do menu no mesmo passo e fica no hub «Ver tudo em IA».
+
+| caso | prioridade | estado |
+|---|---|---|
+| O número de Casos é o da lista de Casos (itens «Aguardando você»), sobe com um caso novo e desce quando ele fecha | `[P1]` | **PASS** (2026-09-27), `tests/e2e/contadores-do-menu.spec.ts` — semeia o próprio caso. Medido: 1 → 2 com o caso, de volta a 1 ao fechar. Evidência: `evidence/contadores-no-menu/01-casos-com-contador.png`, `evidence/contadores-no-menu/02-casos-depois-de-fechar.png` e `evidence/contadores-no-menu/medidas-casos.json` |
+| O número de Inbox é o da aba Fila e desce quando a conversa sai dela | `[P1]` | **PASS** (2026-09-27), mesma spec: 3 na aba e no menu, 2 depois. Evidência: `evidence/contadores-no-menu/03-inbox-com-contador-da-fila.png`, `evidence/contadores-no-menu/04-inbox-depois-de-sair-da-fila.png` e `evidence/contadores-no-menu/medidas-fila.json` |
+| Zero não desenha nada | `[P1]` | `tests/unit/contador-de-casos.test.tsx` e `tests/unit/contador-da-fila.test.tsx`; na spec, quando a organização fica sem pendência |
+| O selo mora dentro do item e não quebra a linha | `[P1]` | **PASS**, medido por `getBoundingClientRect` na spec: selo contido no item, altura do item **28px** = a do vizinho sem selo |
+| O menu continua cabendo em 900px com Casos no lugar de Roteadores | `[P1]` | **PASS**, `tests/e2e/navegacao.spec.ts` (o caso da dobra); a folga medida pela spec nova segue **19px**, sem rolar |
+| Roteadores continua tendo porta (DoD 14) | `[P1]` | `tests/unit/navegacao-completude.test.ts` e o hub «Ver tudo em IA» |
 
 ## O inbox em tempo real — o defeito que veio de fora (2026-08-24)
 
@@ -3047,6 +3104,45 @@ Port do #1130 (@vgamkt), PR 3 de 4. Spec: `tests/e2e/fluxo-de-atendimento.spec.t
 | J33.4 | Três mensagens pelo webhook do WAHA; a ficha mostra o roteiro «Concluído» com CPF e modelo (caixa medida por `boundingBox` e estilo computado) |
 
 **NÃO coberto por esta spec:** o turno do agente roda com o worker e o modelo de verdade — no CI não há nenhum dos dois, e a spec chama as mesmas funções do motor (`prepararRoteiroDoTurno`, `garantirPerguntaDoRoteiro`) com o validador devolvendo `indefinido`. A pergunta enviada ao cliente pelo WhatsApp e a leitura pelo validador de modelo ficam para a prova do PR 4.
+
+## Avisos que pedem gente — a etapa que avisa na Central `[P1]` (2026-09-27)
+
+Migration 0440. Spec: `tests/e2e/etapa-avisa-na-central.spec.ts` (job e2e, parte 2). Organização, administrador, funil e negócio criados pela service role no Supabase local; o movimento do card pela rota do quadro com a sessão do usuário; o dreno do `event_log` chamado pela rota do cron.
+
+| Caso | Esperado |
+|---|---|
+| AV.1 | Em Configurações › Funis, cada etapa mostra «Avisar a equipe na Central quando um negócio entrar aqui», desligada |
+| AV.2 | Ligar a chave numa etapa grava só ela: recarregar a tela mostra a mesma coisa, e a etapa vizinha segue desligada |
+| AV.3 | O negócio que entra na etapa marcada abre na Central «Negócio entrou em «<etapa>»», sem o nome do cliente |
+| AV.4 | O negócio que entra numa etapa SEM a marca não abre aviso |
+| AV.5 | «Abrir negócio» leva ao negócio dentro do funil (`/app/pipelines/<funil>?lead=<id>`) |
+
+**NÃO coberto por esta spec:** o movimento pelo assistente de IA (o mesmo evento `lead.stage_changed`, emitido por `agent-stage-sync.ts`) e o arrasto do card com o mouse — os dois têm spec própria e chegam ao mesmo handler.
+
+Evidência: `evidence/etapa-avisa-na-central/01-chave-ligada-na-etapa.png` (a chave ligada na etapa), `evidence/etapa-avisa-na-central/02-aviso-na-central.png` (o aviso na Central, sem o nome do cliente) e `evidence/etapa-avisa-na-central/03-abrir-negocio.png` (o negócio aberto pelo botão).
+
+### Os sons dos avisos `[P1]` (2026-09-27)
+
+Migration 0441. Spec: `tests/e2e/sons-dos-avisos.spec.ts` (job e2e, parte 1). O som é medido trocando, antes de a página carregar, `HTMLMediaElement.prototype.play` e `AudioContext.prototype.createOscillator` por versões que anotam a chamada — a decisão de tocar, qual som e quando são do produto.
+
+| Caso | Esperado |
+|---|---|
+| AV.6 | A gestora vê «Sons dos avisos» em Configurações › Notificações, com «Etapa que avisa» e «Precisa de uma pessoa» no som do sistema |
+| AV.7 | Um arquivo de texto com nome `.mp3` é recusado («O som precisa ser MP3, OGG ou WAV.») e nada muda no banco |
+| AV.8 | Um WAV entra: a tela diz «Som personalizado», o caminho fica em `settings.sons_de_aviso` sob a pasta da organização e o arquivo está no bucket `org-sounds` |
+| AV.9 | «Usar o do sistema» tira a chave e apaga o arquivo |
+| AV.10 | A visualizadora vê o som que vale e o botão «Ouvir», mas não vê «Trocar som» nem «Usar o do sistema» |
+| AV.11 | Com o site aberto, o aviso antigo não toca; a passagem NOVA toca o arquivo da organização (URL assinada); a etapa que avisa NOVA, sem arquivo, toca o bipe do produto |
+
+**NÃO coberto por esta spec:** o som saindo de um alto-falante de verdade, e o navegador que recusa áudio antes de a pessoa interagir (o hook cai no bipe e, se nem isso, o aviso segue visível).
+
+Evidência: `evidence/sons-dos-avisos/01-som-personalizado.png` (a gestora com o som escolhido para «Precisa de uma pessoa») e `evidence/sons-dos-avisos/02-visualizadora.png` (a visualizadora, sem o botão de trocar).
+
+### O push dos avisos no celular `[P1]` (2026-09-27)
+
+Migration 0442. **Sem spec de tela, e é declarado:** o que muda é o que chega a um celular com o CRM fechado, e o CI não tem aparelho nem serviço de push de navegador. A regra (quais avisos, texto no idioma da organização, sem dado do cliente, destino da Central) está em `tests/unit/push-dos-avisos.test.ts`; o anúncio do aviso no barramento, contra Postgres, em `tests/invariants/aviso-da-central-no-barramento.test.ts`.
+
+**NÃO coberto:** a notificação aparecendo num celular de verdade (Android/iPhone), com o par VAPID configurado.
 
 ### Continuação de conversões: links nomeados (27/09/2026)
 

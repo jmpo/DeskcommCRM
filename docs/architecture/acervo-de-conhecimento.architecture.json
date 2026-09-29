@@ -59,6 +59,14 @@
       "sublabel": "o que o agente APRENDEU, não só quantos trechos"
     },
     {
+      "id": "provedor",
+      "lane": "borda",
+      "col": 1,
+      "type": "api",
+      "label": "PUT /ai/knowledge/provedor",
+      "sublabel": "OpenAI ou Google prepara a base (#1130, @vgamkt) — trocar refaz a base no mesmo pedido"
+    },
+    {
       "id": "criar",
       "lane": "borda",
       "col": 2,
@@ -104,7 +112,7 @@
       "col": 4,
       "type": "lib",
       "label": "resolverChaveDeEmbedding",
-      "sublabel": "binding do ponto → credencial da org → gateway → chave da instalação"
+      "sublabel": "só os degraus da FAMÍLIA da base (escolha gravada ou modelo indexado): binding → credencial da org → gateway → chave da instalação | Google"
     },
     {
       "id": "extrair",
@@ -205,7 +213,10 @@
     { "id": "e23", "from": "busca", "to": "resposta", "label": "os trechos entram no turno" },
     { "id": "e24", "from": "resposta", "to": "telemetria", "label": "registra acertos e melhor nota" },
     { "id": "e25", "from": "chunks", "to": "trechos", "label": "a pessoa audita o que ele leu" },
-    { "id": "e26", "from": "fonte", "to": "escolha", "label": "o acervo alimenta o seletor" }
+    { "id": "e26", "from": "fonte", "to": "escolha", "label": "o acervo alimenta o seletor" },
+    { "id": "e27", "from": "chave", "to": "provedor", "label": "troca OpenAI ↔ Google, avisando ANTES que refaz a base" },
+    { "id": "e28", "from": "provedor", "to": "chaveResolver", "label": "grava a família em settings.base_de_conhecimento; vale para indexar e consultar" },
+    { "id": "e29", "from": "provedor", "to": "evento", "label": "refaz a base: knowledge_source.updated por fonte" }
   ],
   "cards": [
     {

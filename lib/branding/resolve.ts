@@ -373,6 +373,12 @@ export type LinhaDaInstalacao = {
    */
   readonly logo_path?: string | null;
   readonly logo_dark_path?: string | null;
+  /**
+   * O ícone da aba subido pela tela (migration 0443). Não entra na camada de
+   * marca: só o `<head>` o usa, lendo a linha crua em `app/layout.tsx`. Sem
+   * arquivo, a aba segue com o ícone desenhado por `app/icon.tsx`.
+   */
+  readonly favicon_path?: string | null;
   readonly accent_hex?: string | null;
 };
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useForm, type Resolver } from "react-hook-form";
+import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTransition, useState } from "react";
 
@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signUp } from "@/app/actions/auth/signUp";
+import { Eye, EyeSlash } from "@/lib/ui/icons";
+import { PasswordStrength } from "@/components/auth/PasswordStrength";
 
 /**
  * Convite em curso: a conta está sendo criada para ACEITAR um convite, não para
@@ -36,10 +38,13 @@ export function SignupForm({ convite }: { convite?: ConviteDoSignup }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [contaExistente, setContaExistente] = useState(false);
   const [sentTo, setSentTo] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
 
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<SignupInput & { full_name: string }>({
     // O formulário tem UM tipo e DOIS contratos, e agora os dois contratos têm
@@ -60,6 +65,7 @@ export function SignupForm({ convite }: { convite?: ConviteDoSignup }) {
       password_confirm: "",
     },
   });
+  const password = useWatch({ control, name: "password" });
 
   const onSubmit = (values: SignupInput & { full_name: string }) => {
     setServerError(null);
@@ -95,9 +101,7 @@ export function SignupForm({ convite }: { convite?: ConviteDoSignup }) {
          * de tentativas — e não uma segunda porta de provisionamento.
          */
         if (res.sessao_ativa) {
-          router.replace(
-            convite ? `/team/accept-invite/${convite.token}` : "/get-started",
-          );
+          router.replace(convite ? `/team/accept-invite/${convite.token}` : "/get-started");
           return;
         }
         setSentTo(values.email);
@@ -145,10 +149,7 @@ export function SignupForm({ convite }: { convite?: ConviteDoSignup }) {
 
   if (sentTo) {
     return (
-      <div
-        className="space-y-2 rounded-md border bg-muted/40 px-4 py-6 text-center"
-        role="status"
-      >
+      <div className="space-y-2 rounded-md border bg-muted/40 px-4 py-6 text-center" role="status">
         <p className="text-sm font-medium">{t("Confirme seu e-mail")}</p>
         <p className="text-sm text-muted-foreground">
           {t("Enviamos um link de confirmação para")} <strong>{sentTo}</strong>.{" "}
@@ -167,36 +168,36 @@ export function SignupForm({ convite }: { convite?: ConviteDoSignup }) {
         nomeia (medido no diálogo de transferir conversa, em produção).
       */}
       {convite && (
-      <div className="space-y-1.5">
-        <Label htmlFor="full_name">{t("Seu nome")}</Label>
-        <Input
-          id="full_name"
-          type="text"
-          autoComplete="name"
-          autoFocus
-          aria-invalid={errors.full_name ? true : undefined}
-          {...register("full_name")}
-        />
-        {errors.full_name && (
-          <p className="text-xs text-destructive">{t(errors.full_name.message ?? "")}</p>
-        )}
-      </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="full_name">{t("Seu nome")}</Label>
+          <Input
+            id="full_name"
+            type="text"
+            autoComplete="name"
+            autoFocus
+            aria-invalid={errors.full_name ? true : undefined}
+            {...register("full_name")}
+          />
+          {errors.full_name && (
+            <p className="text-xs text-destructive">{t(errors.full_name.message ?? "")}</p>
+          )}
+        </div>
       )}
       {!convite && (
-      <div className="space-y-1.5">
-        <Label htmlFor="org_name">{t("Nome da empresa")}</Label>
-        <Input
-          id="org_name"
-          type="text"
-          autoComplete="organization"
-          autoFocus
-          aria-invalid={errors.org_name ? true : undefined}
-          {...register("org_name")}
-        />
-        {errors.org_name && (
-          <p className="text-xs text-destructive">{t(errors.org_name.message ?? "")}</p>
-        )}
-      </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="org_name">{t("Nome da empresa")}</Label>
+          <Input
+            id="org_name"
+            type="text"
+            autoComplete="organization"
+            autoFocus
+            aria-invalid={errors.org_name ? true : undefined}
+            {...register("org_name")}
+          />
+          {errors.org_name && (
+            <p className="text-xs text-destructive">{t(errors.org_name.message ?? "")}</p>
+          )}
+        </div>
       )}
       <div className="space-y-1.5">
         <Label htmlFor="email">Email</Label>
@@ -216,26 +217,62 @@ export function SignupForm({ convite }: { convite?: ConviteDoSignup }) {
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="password">{t("Senha")}</Label>
-        <Input
-          id="password"
-          type="password"
-          autoComplete="new-password"
-          aria-invalid={errors.password ? true : undefined}
-          {...register("password")}
-        />
+        <div className="relative">
+          <Input
+            id="password"
+            type={showPassword ? "text" : "password"}
+            autoComplete="new-password"
+            className="pr-12"
+            aria-invalid={errors.password ? true : undefined}
+            {...register("password")}
+          />
+          <button
+            type="button"
+            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:outline-hidden focus-visible:ring-inset"
+            aria-pressed={showPassword}
+            onClick={() => setShowPassword((visible) => !visible)}
+          >
+            {/* Nome em sr-only, não aria-label: getByLabel(/senha/i) casa aria-label e acharia o botão junto do campo. */}
+            <span className="sr-only">{t(showPassword ? "Ocultar senha" : "Mostrar senha")}</span>
+            {showPassword ? <EyeSlash size={20} aria-hidden /> : <Eye size={20} aria-hidden />}
+          </button>
+        </div>
         {errors.password && (
           <p className="text-xs text-destructive">{t(errors.password.message ?? "")}</p>
         )}
+        <PasswordStrength password={password} />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="password_confirm">{t("Confirmar senha")}</Label>
-        <Input
-          id="password_confirm"
-          type="password"
-          autoComplete="new-password"
-          aria-invalid={errors.password_confirm ? true : undefined}
-          {...register("password_confirm")}
-        />
+        <div className="relative">
+          <Input
+            id="password_confirm"
+            type={showPasswordConfirm ? "text" : "password"}
+            autoComplete="new-password"
+            className="pr-12"
+            aria-invalid={errors.password_confirm ? true : undefined}
+            {...register("password_confirm")}
+          />
+          <button
+            type="button"
+            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:outline-hidden focus-visible:ring-inset"
+            aria-pressed={showPasswordConfirm}
+            onClick={() => setShowPasswordConfirm((visible) => !visible)}
+          >
+            <span className="sr-only">
+              {t(
+                showPasswordConfirm
+                  ? "Ocultar confirmação da senha"
+                  : "Mostrar confirmação da senha",
+              )}
+            </span>
+            {showPasswordConfirm ? (
+              <EyeSlash size={20} aria-hidden />
+            ) : (
+              <Eye size={20} aria-hidden />
+            )}
+          </button>
+        </div>
         {errors.password_confirm && (
           <p className="text-xs text-destructive">{t(errors.password_confirm.message ?? "")}</p>
         )}

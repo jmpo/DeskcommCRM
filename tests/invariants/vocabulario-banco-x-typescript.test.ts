@@ -337,6 +337,15 @@ const PARES: Array<{
     simbolo: "CASE_CHAT_AUTHOR_KINDS",
   },
   {
+    tabela: "knowledge_searches",
+    coluna: "author_kind",
+    // lib/ai/knowledge/busca.ts → KNOWLEDGE_SEARCH_AUTHOR_KINDS (tupla `as const`).
+    // Nasce com a migration 0484 (#1877): a rota da caixa "Acervo" grava
+    // `'human'` e a Evolução separa as séries por esta coluna.
+    arquivo: "lib/ai/knowledge/busca.ts",
+    simbolo: "KNOWLEDGE_SEARCH_AUTHOR_KINDS",
+  },
+  {
     tabela: "passagens_de_atendimento",
     coluna: "motor",
     // lib/escalacao/passagem.ts → MOTORES_DA_PASSAGEM (tupla `as const`, como

@@ -18,7 +18,7 @@
 import type pg from 'pg';
 
 import { embedText } from '@/lib/ai/embed';
-import { MODELO_DE_EMBEDDING } from '@/lib/ai/embeddings/chave';
+import { MODELO_DE_EMBEDDING_DO_GOOGLE } from '@/lib/ai/embeddings/chave';
 import type { Citation } from '@/lib/ai/citations/types';
 import type { Logger } from '../obs/logger';
 
@@ -73,7 +73,7 @@ export async function searchKnowledge(
   }
 
   try {
-    const { embedding } = await embed(args.query, {
+    const { embedding, model } = await embed(args.query, {
       organizationId: args.organizationId,
       ponto: 'embedding_consultar',
     });
@@ -92,9 +92,14 @@ export async function searchKnowledge(
       ? await pool.query<KnowledgeHit>(
           `select chunk_id, knowledge_source_id, source_name, content, similarity, metadata
            from fn_buscar_trechos_das_fontes($1, $2::uuid[], $3::vector, $4, $5, $6)`,
-          [args.organizationId, fontes, vec, args.topK, PISO_SIMILARIDADE, MODELO_DE_EMBEDDING],
+          [args.organizationId, fontes, vec, args.topK, PISO_SIMILARIDADE, model],
         )
-      : await pool.query<KnowledgeHit>(
+      : model === MODELO_DE_EMBEDDING_DO_GOOGLE
+        ? // O legado (`retrieve_top_k_chunks`) não filtra por modelo, e toda versão
+          // legada foi calculada com a OpenAI: comparar uma pergunta do Google
+          // com ela devolveria trechos errados com nota alta. Nada é melhor.
+          { rows: [] as KnowledgeHit[] }
+        : await pool.query<KnowledgeHit>(
           `select chunk_id, knowledge_source_id, content, similarity, metadata
            from retrieve_top_k_chunks($1, $2, $3::vector, $4, $5)`,
           [args.organizationId, args.kbVersionId, vec, args.topK, PISO_SIMILARIDADE],

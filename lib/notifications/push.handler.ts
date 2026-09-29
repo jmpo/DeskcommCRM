@@ -70,11 +70,37 @@ async function handleInbound(row: EventRow): Promise<HandlerResult> {
   return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "ok", detail: `sent:${sent}` };
 }
 
+/**
+ * `message.group_received` — MESMO payload de `message.received` (a
+ * conversa é a do GRUPO ligado, o "contato" é o placeholder de
+ * `kind='whatsapp_group'`), mas nunca a cópia do 1:1: não busca nome/avatar de
+ * contato (a IA não serve grupos, e a Task 8 não abre exceção só para a
+ * notificação), não cria nem roteia nada — só avisa o atendente que o grupo
+ * está falando. Título fixo, igual em toda organização.
+ */
+async function handleGroupInbound(row: EventRow): Promise<HandlerResult> {
+  const conversationId =
+    (typeof row.payload.conversation_id === "string" ? row.payload.conversation_id : null) ?? null;
+  const previewRaw = row.payload.body_preview;
+  const preview = typeof previewRaw === "string" && previewRaw.trim() ? previewRaw : "Nova mensagem";
+  const type = typeof row.payload.type === "string" ? row.payload.type : "text";
+  const body = type === "text" ? preview : "Mídia";
+
+  const payload: PushPayload = {
+    title: "Nova mensagem no grupo",
+    body: truncar(body),
+    tag: conversationId ? `msg:${conversationId}` : "msg",
+    href: conversationId ? `/app/inbox?id=${conversationId}` : "/app/inbox",
+  };
+  const { sent } = await enviarPushDaOrg(row.organization_id, payload);
+  return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "ok", detail: `sent:${sent}` };
+}
+
+/** Os avisos da Central que pedem gente — ver `./push-dos-avisos.ts`. */
 async function handleAvisoQuePedeGente(row: EventRow): Promise<HandlerResult> {
-  const admin = createAdminClient();
   const id = typeof row.payload.item_id === "string" ? row.payload.item_id : row.entity_id;
   if (!id) return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "sem_alvo" };
-  const payload = await pushDoAvisoDaCentral(admin, row.organization_id, id);
+  const payload = await pushDoAvisoDaCentral(createAdminClient(), row.organization_id, id);
   if (payload === null) {
     return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "aviso_fora_do_celular" };
   }
@@ -146,11 +172,12 @@ export const webPushInboundHandler: EventHandler = {
   key: WEB_PUSH_INBOUND_KEY,
   events: [
     "message.received",
+    "message.group_received",
     "lead.assigned",
     "lead.won",
     "lead.lost",
     "user.mentioned",
-    // Os avisos que pedem gente — ver `./push-dos-avisos.ts`.
+    // Os avisos que pedem gente (migration 0442) — ver `./push-dos-avisos.ts`.
     "central.aviso_criado",
   ],
   async handle(row): Promise<HandlerResult> {
@@ -158,6 +185,7 @@ export const webPushInboundHandler: EventHandler = {
       return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "vapid_ausente" };
     }
     if (row.event_type === "message.received") return handleInbound(row);
+    if (row.event_type === "message.group_received") return handleGroupInbound(row);
     if (row.event_type === "central.aviso_criado") return handleAvisoQuePedeGente(row);
 
     // O texto sai no idioma da ORGANIZAÇÃO: ninguém está logado quando o push sai.

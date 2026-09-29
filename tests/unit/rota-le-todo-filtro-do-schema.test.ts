@@ -62,8 +62,17 @@ describe("a rota lê todo filtro que o schema aceita", () => {
     // `limit` e `cursor` também entram: eles são filtros do mesmo objeto e a
     // rotura seria igual (uma página de tamanho errado é tão silenciosa quanto
     // uma lista sem filtro).
+    //
+    // ⚠️ `getAll` conta como ler (#1274). O filtro de etiqueta passou a aceitar
+    // VÁRIAS etiquetas, e a repetição na URL (`?tag=vip&tag=orçamento`) só é
+    // visível pelo `getAll` — um `get` ali leria a primeira e descartaria as
+    // outras, que é a mesma rotura silenciosa que este arquivo existe para pegar.
+    // A RECUSA continua valendo (o caso de baixo), porque `getAll` é a MESMA
+    // leitura: some a linha inteira e o teste reprova.
     expect(
-      new RegExp(`${chave}:\\s*url\\.searchParams\\.get\\(\\s*["']${chave}["']`).test(src) ||
+      new RegExp(
+        `${chave}:\\s*url\\.searchParams\\.get(All)?\\(\\s*["']${chave}["']`,
+      ).test(src) ||
         new RegExp(`${chave}:\\s*url\\.searchParams\\.get\\(["']${chave}["']\\)\\s*===`).test(src),
       `${ROTA} não lê "${chave}" da URL — o schema aceita, o browser manda, e a rota descarta em silêncio`,
     ).toBe(true);
@@ -77,8 +86,19 @@ describe("a rota lê todo filtro que o schema aceita", () => {
       "",
     );
     expect(
-      new RegExp(`comando:\\s*url\\.searchParams\\.get\\(\\s*["']comando["']`).test(sabotado),
+      new RegExp(`comando:\\s*url\\.searchParams\\.get(All)?\\(\\s*["']comando["']`).test(sabotado),
       "a sabotagem não removeu a linha — o regex do teste não casa com o código real",
     ).toBe(false);
+  });
+
+  it("o filtro de etiqueta é lido com `getAll` — `get` perderia a segunda etiqueta", () => {
+    // Caso próprio do `tag`, e não genérico: o `get` COMPILARIA e o typecheck
+    // passaria, porque o schema aceita as duas formas. O defeito só apareceria em
+    // produção, com `?tag=vip&tag=orçamento` listando por `vip` sozinho.
+    const src = fonteDaRota();
+    expect(
+      new RegExp(`tag:\\s*url\\.searchParams\\.getAll\\(\\s*["']tag["']`).test(src),
+      `${ROTA} lê "tag" com get — com ?tag=vip&tag=orçamento a segunda etiqueta é descartada em silêncio`,
+    ).toBe(true);
   });
 });

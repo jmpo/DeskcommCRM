@@ -15,6 +15,7 @@ import {
   buracosDeEspanhol,
   varrerChavesDeI18n,
 } from "./helpers/chave-dinamica";
+import { arquivosDeCodigo, caminhoRelativo } from "./helpers/varrer-codigo";
 
 /**
  * O ESPANHOL COBRE A TELA, E O PORTUGUÊS NÃO MUDA UM BYTE.
@@ -687,5 +688,522 @@ describe("dente da catraca: a fixture prova os dois lados", () => {
     expect(buracos).toHaveLength(1);
     expect(buracos[0]?.chave).toBe("Rótulo que a fixture vermelha deixou sem tradução");
     expect(buracos[0]?.locais).toEqual(locais);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * DADO DO OPERADOR — o CEGO C da #603, o que a issue chama de "o pior".
+ *
+ * Os blocos acima cobrem a CHAVE: se o texto está escrito no código, ele tem
+ * de ter espanhol. Este cobre o inverso, que é onde o defeito já aconteceu:
+ * nada impedia `t()` sobre o que o OPERADOR digitou. Foi o PR #600
+ * (`08257eed`): o nome que o operador deu a um tipo de atendimento passou
+ * pelo dicionário e a tela passou a mostrar "Seguimiento" para quem tinha
+ * escrito "Retorno".
+ *
+ * Dado de operador não é chave de dicionário: traduzi-lo MUDA o dado.
+ *
+ * ─── O que a regra pega ─────────────────────────────────────────────────────
+ *
+ *   t(<identificador que é parâmetro livre>)   → REPROVA
+ *   t("literal")                               → passa, é texto do código
+ *   t(TABELA[chave]) / t(CONSTANTE)            → passa, conjunto fechado
+ *   (texto) => t(texto), o wrapper passa-adireto → passa, com razão escrita
+ *
+ * Medido em `b6d1141e8` (28/09) com esta mesma regra: 343 identificadores que são
+ * parâmetro de função, 304 deles repasse puro (wrapper) e 39 sítio real. Os
+ * 39 estão congelados em DADO_DO_OPERADOR_CONGELADO abaixo, um a um, com a
+ * razão escrita — a issue proíbe allowlist sem motivo, e este arquivo tem um
+ * teste só para isso.
+ *
+ * ─── O que a regra NÃO pega — recorte declarado ──────────────────────────────
+ *
+ * `t(obj.campo)`, `t(err.message)`, template com interpolação e
+ * `TABELA[x] ?? x` também têm origem de runtime e seguem FORA desta fatia:
+ * são 835 sítios não resolvidos na mesma varredura (medição), e congelá-los
+ * aqui viraria uma lista grande demais para caber num PR sem afrouxar o
+ * gate. Ficam declarados como continuação desta mesma issue.
+ *
+ * Callback de iteração — `lista.map((x) => t(x))` — fica isento pelo
+ * passa-adireto, porque o corpo é chamada: 11 medidos na main `93713e10f`
+ * (ex.: CredentialCard.tsx:194, PainelDeProvedores.tsx:297). Continuação da #603.
+ * ══════════════════════════════════════════════════════════════════════════════ */
+
+/** Um `t(<identificador que é parâmetro>)`: o valor veio de quem chamou. */
+interface SitioDeDadoDeOperador {
+  /** Caminho relativo à raiz, em barra normal. */
+  readonly arquivo: string;
+  /** 1-based. */
+  readonly linha: number;
+  /** `arquivo:linha` — é assim que a mensagem de falha aponta o conserto. */
+  readonly local: string;
+  /** O nome do parâmetro como está escrito no código (`tipo`, `rotulo`). */
+  readonly expressao: string;
+  /** `t` ou `traduzir`; os dois são cobrados. */
+  readonly chamada: string;
+  /** De onde o parâmetro vem, para quem for conferir. */
+  readonly procedencia: string;
+}
+
+interface VarreduraDeDadoDeOperador {
+  readonly sitios: readonly SitioDeDadoDeOperador[];
+  /** Quantos arquivos foram de fato lidos — controle de não-vacuidade. */
+  readonly arquivosVarridos: number;
+}
+
+/** `as const`, `satisfies`, parênteses e `as Tipo` não mudam valor nem escopo. */
+function desembrulharNo(no: ts.Node): ts.Node {
+  let atual = no;
+  while (
+    ts.isAsExpression(atual) ||
+    ts.isSatisfiesExpression(atual) ||
+    ts.isParenthesizedExpression(atual) ||
+    ts.isTypeAssertionExpression(atual)
+  ) {
+    atual = atual.expression;
+  }
+  return atual;
+}
+
+/** O parâmetro está mesmo declarado aqui — identificador ou binding pattern? */
+function declaraParametro(fn: ts.SignatureDeclaration, nome: string): boolean {
+  return fn.parameters.some((p) => {
+    const alvo = desembrulharNo(p.name);
+    if (ts.isIdentifier(alvo)) return alvo.text === nome;
+    if (ts.isArrayBindingPattern(alvo) || ts.isObjectBindingPattern(alvo)) {
+      let achou = false;
+      const anda = (el: ts.Node): void => {
+        if (!ts.isBindingElement(el)) return;
+        const nomeDoEl = desembrulharNo(el.name);
+        if (ts.isIdentifier(nomeDoEl)) achou = achou || nomeDoEl.text === nome;
+        if (ts.isArrayBindingPattern(nomeDoEl) || ts.isObjectBindingPattern(nomeDoEl)) {
+          nomeDoEl.elements.forEach(anda);
+        }
+      };
+      alvo.elements.forEach(anda);
+      return achou;
+    }
+    return false;
+  });
+}
+
+/**
+ * PASSA-ADIRETO — a exceção da regra, e a razão dela.
+ *
+ * `const t = (texto) => traduzir(texto, idioma)` e os callbacks que só
+ * encaminham (`(texto) => traduzir(texto, locale)`) são a ENTRADA da
+ * tradução, não uma tela escolhendo o que mostrar: o parâmetro ali é a
+ * própria chave que `t()` recebe de quem chama, e quem chama é cobrado no
+ * ponto de chamada. São 304 dos 343 sítios medidos.
+ *
+ * O corte é o CORPO: se a função que declara o parâmetro devolve uma chamada
+ * de função, o valor só atravessa; se devolve JSX, a tela está escolhendo
+ * mostrar aquele valor — e aí é sítio real. Por isso o wrapper de `app/api/
+ * external-db/_falha.ts` (corpo em ternário) entra na lista congelada.
+ */
+function ehPassaAdireto(fn: ts.SignatureDeclaration): boolean {
+  const corpo = (fn as ts.SignatureDeclaration & { body?: ts.ConciseBody | ts.Block }).body;
+  if (!corpo) return false;
+  return ts.isCallExpression(desembrulharNo(corpo));
+}
+
+/** De onde o parâmetro vem, escrito para quem for consertar. */
+function procedenciaDoParametro(fn: ts.SignatureDeclaration, fonte: ts.SourceFile): string {
+  const linha = fonte.getLineAndCharacterOfPosition(fn.getStart()).line + 1;
+  const ligacao = fn.parent;
+  if (ligacao && ts.isVariableDeclaration(ligacao) && ts.isIdentifier(ligacao.name)) {
+    return `parâmetro de \`${ligacao.name.text}\` (linha ${linha})`;
+  }
+  if (fn.name && ts.isIdentifier(fn.name))
+    return `parâmetro de \`${fn.name.text}\` (linha ${linha})`;
+  return `parâmetro de uma função declarada na linha ${linha}`;
+}
+
+/** A função mais próxima que declara este identificador como parâmetro. */
+function funcaoQueDeclara(no: ts.Identifier): ts.SignatureDeclaration | null {
+  for (let p: ts.Node | undefined = no.parent; p; p = p.parent) {
+    if (ts.isFunctionLike(p) && declaraParametro(p, no.text)) return p;
+  }
+  return null;
+}
+
+/**
+ * Toda chamada `t(<parâmetro livre>)` nas raízes pedidas, menos o que é
+ * repasse puro. As raízes são caminhos RELATIVOS à raiz do repo, como em
+ * `arquivosDeCodigo`.
+ */
+function dadoDoOperador(raizes: readonly string[]): VarreduraDeDadoDeOperador {
+  const sitios: SitioDeDadoDeOperador[] = [];
+  let arquivosVarridos = 0;
+
+  for (const arquivo of arquivosDeCodigo(raizes)) {
+    const rel = caminhoRelativo(arquivo);
+    // O dicionário declara as chaves; a função que as traduz não as usa.
+    if (rel === "lib/i18n/dicionario.ts") continue;
+    const src = readFileSync(arquivo, "utf8");
+    if (!/\bt\(|\btraduzir\(/.test(src)) continue;
+    arquivosVarridos++;
+    const fonte = ts.createSourceFile(
+      arquivo,
+      src,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+
+    const visita = (no: ts.Node): void => {
+      if (ts.isCallExpression(no) && no.arguments.length > 0) {
+        const alvo = no.expression;
+        const chamada = ts.isIdentifier(alvo)
+          ? alvo.text
+          : ts.isPropertyAccessExpression(alvo)
+            ? alvo.name.text
+            : "";
+        if (chamada === "t" || chamada === "traduzir") {
+          const primeiro = no.arguments[0];
+          if (!primeiro) return;
+          const arg = desembrulharNo(primeiro);
+          if (ts.isIdentifier(arg)) {
+            const dono = funcaoQueDeclara(arg);
+            if (dono && !ehPassaAdireto(dono)) {
+              const linha = fonte.getLineAndCharacterOfPosition(arg.getStart()).line + 1;
+              sitios.push({
+                arquivo: rel,
+                linha,
+                local: `${rel}:${linha}`,
+                expressao: arg.text,
+                chamada,
+                procedencia: procedenciaDoParametro(dono, fonte),
+              });
+            }
+          }
+        }
+      }
+      ts.forEachChild(no, visita);
+    };
+    visita(fonte);
+  }
+  return { sitios, arquivosVarridos };
+}
+
+const COMO_CONSERTAR_DADO_DE_OPERADOR =
+  "Dado que o operador digitou não é chave de dicionário: traduzi-lo muda o dado na tela. " +
+  'Conserto: escreva o literal em cada ramo (condicao ? t("A") : t("B")) ou tire a chamada de t(). ' +
+  "É dívida de antes e não é do seu PR? Escreva a razão em DADO_DO_OPERADOR_CONGELADO, neste arquivo, " +
+  "com o par arquivo + expressão — a lista só encolhe. " +
+  "Confira com: pnpm test:unit tests/unit/i18n-espanhol-cobre-a-tela.test.ts";
+
+/**
+ * A dívida de HOJE, congelada — um par arquivo + expressão por linha, cobrindo
+ * os 39 sítios medidos na `main` de 28/09/2026.
+ *
+ * Casa por ARQUIVO + EXPRESSÃO, nunca por linha: rebase alheio que sobe três
+ * linhas não tem de pintar vermelho quem não mexeu em tradução. Como as
+ * outras listas desta casa, esta SÓ ENCOLHE — pagar o conserto (escrever o
+ * literal, ou tirar a chamada de `t()`) faz a entrada deixar de casar, e aí a
+ * catraca fica vermelha pedindo a remoção dela. Entrada nova precisa de
+ * medição nova e de razão escrita; razão nunca é "não deu tempo".
+ */
+const DADO_DO_OPERADOR_CONGELADO: { arquivo: string; expressao: string; motivo: string }[] = [
+  {
+    arquivo: "app/api/v1/external-db/_falha.ts",
+    expressao: "texto",
+    motivo:
+      "wrapper de tradução da rota de API: o corpo é um ternário (idioma ? traduzir(texto, idioma) : texto), " +
+      "então a regra de passa-adireto não o alcança; é repasse da própria função e app/api não renderiza tela",
+  },
+  {
+    arquivo: "app/app/ai/agents/[id]/_components/AgentForm.tsx",
+    expressao: "rotulo",
+    motivo:
+      "rótulo de papel do array as const iterado na linha 746: conjunto fechado declarado no próprio arquivo",
+  },
+  {
+    arquivo: "app/app/ai/agents/[id]/_components/RunTrace.tsx",
+    expressao: "emptyMessage",
+    motivo:
+      "prop emptyMessage do componente, com padrão literal em português na declaração (linha 56): " +
+      "texto de tela escolhido por quem monta a tela",
+  },
+  {
+    arquivo: "app/app/ai/cases/_components/CaseChatPanel.tsx",
+    expressao: "s",
+    motivo:
+      "sugestão de pergunta da constante SUGESTOES (linha 60): conjunto fechado, e o comentário no código " +
+      "explica por que esta chamada passa por t()",
+  },
+  {
+    arquivo: "app/app/ai/followups/[id]/_components/forms/ActionForm.tsx",
+    expressao: "rotulo",
+    motivo:
+      "rótulo de opção de MODOS_DA_ACAO, tabela fechada do módulo, iterada via opcoes() na linha 181",
+  },
+  {
+    arquivo: "app/app/ai/followups/[id]/_components/forms/ClassifyForm.tsx",
+    expressao: "rotulo",
+    motivo:
+      "rótulo de opção de ALVOS_DA_CLASSIFICACAO, tabela fechada do módulo, iterada via opcoes() na linha 125",
+  },
+  {
+    arquivo: "app/app/ai/followups/[id]/_components/forms/CollectForm.tsx",
+    expressao: "rotulo",
+    motivo:
+      "rótulo de opção de TIPOS_DE_CAMPO, tabela fechada do módulo, iterada via opcoes() na linha 127",
+  },
+  {
+    arquivo: "app/app/ai/followups/[id]/_components/forms/ConditionForm.tsx",
+    expressao: "rotulo",
+    motivo:
+      "rótulo de opção de COMBINADORES, tabela fechada do módulo, iterada via opcoes() nas linhas 212 e 297",
+  },
+  {
+    arquivo: "app/app/ai/followups/[id]/_components/forms/EndForm.tsx",
+    expressao: "rotulo",
+    motivo:
+      "rótulo de opção de RESULTADOS_DO_FIM, tabela fechada do módulo, iterada via opcoes() nas linhas 123 e 161",
+  },
+  {
+    arquivo: "app/app/ai/followups/[id]/_components/forms/WaitForm.tsx",
+    expressao: "rotulo",
+    motivo:
+      "rótulo de opção de MODOS_DE_ESPERA, tabela fechada do módulo, iterada via opcoes() na linha 79",
+  },
+  {
+    arquivo: "app/app/ai/providers/_components/PainelDeProvedores.tsx",
+    expressao: "a",
+    motivo:
+      "aviso que o servidor devolve em ponto.avisos (catálogo fechado do backend), iterado na linha 538: " +
+      "texto de produto, não frase do operador",
+  },
+  {
+    arquivo: "app/app/metrics/_components/PerdasPanel.tsx",
+    expressao: "titulo",
+    motivo: "prop titulo do bloco interno, preenchida com literal na chamada (linhas 108-109)",
+  },
+  {
+    arquivo: "app/app/metrics/_components/PerdasPanel.tsx",
+    expressao: "coluna",
+    motivo:
+      "prop coluna do bloco interno, também preenchida com literal na chamada (linhas 108-109)",
+  },
+  {
+    arquivo: "app/app/prospecting/_client.tsx",
+    expressao: "label",
+    motivo: "par do array as const literal declarado nas linhas 636-639",
+  },
+  {
+    arquivo: "app/app/settings/conversoes/_linksRastreaveis.tsx",
+    expressao: "h",
+    motivo:
+      "cabeçalho de tabela: o array já sai traduzido na linha 138 e o t(h) é a segunda passagem pelo " +
+      "dicionário sobre o mesmo valor",
+  },
+  {
+    arquivo: "app/app/settings/tenant/financeiro/_client.tsx",
+    expressao: "r",
+    motivo: "valor de Object.entries(TIPO_DE_CONTA), tabela fechada do módulo iterada na linha 115",
+  },
+  {
+    arquivo: "app/onboarding/done/_client.tsx",
+    expressao: "passo",
+    motivo:
+      "passo de p.comoFunciona, texto de produto do módulo de onboarding iterado na linha 128",
+  },
+  {
+    arquivo: "components/agenda/AgendaInterativa.tsx",
+    expressao: "razao",
+    motivo:
+      "razão do bloqueio de agenda (razaoDoBloco), a mesma família que lib/i18n/dicionario.ts já declara " +
+      "à mão desde o PR #773",
+  },
+  {
+    arquivo: "components/agenda/DetalheDoCompromisso.tsx",
+    expressao: "label",
+    motivo: "par do array as const dos status de decisão, declarado nas linhas 300-302",
+  },
+  {
+    arquivo: "components/agenda/estados.tsx",
+    expressao: "motivo",
+    motivo:
+      "prop motivo do estado de erro da agenda: mensagem vinda da camada de dados, exibida como texto de tela " +
+      "(linha 107)",
+  },
+  {
+    arquivo: "components/agenda/PainelDeMarcacao.tsx",
+    expressao: "tipo",
+    motivo:
+      "tipo do compromisso cadastrado pelo operador — é EXATAMENTE o defeito do #600 (08257eed, " +
+      '"Retorno" virando "Seguimiento"); o conserto por literal em cada ramo segue pendente',
+  },
+  {
+    arquivo: "components/ai/ChaveDeConhecimento.tsx",
+    expressao: "a",
+    motivo:
+      "aviso do servidor de catálogo fechado, como o próprio código declara nas linhas 127-130",
+  },
+  {
+    arquivo: "components/branding/CampoDeLogo.tsx",
+    expressao: "origemDoHerdado",
+    motivo:
+      "prop origemDoHerdado da peça (linha 100): texto de descrição vindo de quem monta a tela",
+  },
+  {
+    arquivo: "components/branding/CampoDeLogo.tsx",
+    expressao: "rotulo",
+    motivo: "rótulo do par de aparências que já sai traduzido na construção (linhas 419-420)",
+  },
+  {
+    arquivo: "components/connections/CanalVozClient.tsx",
+    expressao: "fallback",
+    motivo:
+      "parâmetro fallback da função auxiliar errMsg (linha 37), texto de erro repassado por quem a chama",
+  },
+  {
+    arquivo: "components/connections/ConnectionsClient.tsx",
+    expressao: "fallback",
+    motivo:
+      "parâmetro fallback da função auxiliar errMsg (linha 67), texto de erro repassado por quem a chama",
+  },
+  {
+    arquivo: "components/empty/EmptyState.tsx",
+    expressao: "headline",
+    motivo:
+      "prop headline do componente de estado vazio: texto de tela escolhido por quem monta a tela",
+  },
+  {
+    arquivo: "components/empty/EmptyState.tsx",
+    expressao: "subcopy",
+    motivo: "prop subcopy do componente de estado vazio: mesmo caso do headline (linha 43)",
+  },
+  {
+    arquivo: "components/extensions/ExtensionsManager.tsx",
+    expressao: "message",
+    motivo:
+      "parâmetro message do callback invalidateContext (linha 146), frase de erro repassada por quem o chama",
+  },
+  {
+    arquivo: "components/inbox/CRMSidePanel.tsx",
+    expressao: "vazio",
+    motivo: "prop vazio do estado sem lista (linha 283): texto de tela passado pelo componente pai",
+  },
+  {
+    arquivo: "components/inbox/media/MediaUnavailable.tsx",
+    expressao: "kind",
+    motivo:
+      "prop kind: identificador técnico de mídia exibido no sr-only (linha 18) — valor de wire, não frase",
+  },
+  {
+    arquivo: "components/kanban/ContatoDoNegocio.tsx",
+    expressao: "rotulo",
+    motivo: "par de TIPOS_DE_LINK, tabela fechada do módulo, iterada na linha 181",
+  },
+  {
+    arquivo: "components/shell/NavHub.tsx",
+    expressao: "title",
+    motivo: "prop title do hub (linha 27), vinda do registro de portais do produto",
+  },
+  {
+    arquivo: "components/shell/NavHub.tsx",
+    expressao: "subtitle",
+    motivo: "prop subtitle do hub (linha 28), mesma origem do title",
+  },
+  {
+    arquivo: "components/shell/NavHub.tsx",
+    expressao: "section",
+    motivo: "seção devolvida por hubSections (linha 84): conjunto fechado do registro de navegação",
+  },
+];
+
+function ehDadoCongelado(sitio: SitioDeDadoDeOperador): boolean {
+  return DADO_DO_OPERADOR_CONGELADO.some(
+    (e) => e.arquivo === sitio.arquivo && e.expressao === sitio.expressao,
+  );
+}
+
+describe("dado do operador: t() não traduz o que o operador digitou", () => {
+  /** Uma varredura só para o describe inteiro: relê centenas de arquivos. */
+  const varredura = dadoDoOperador(AREAS_DE_PRODUTO);
+
+  it("a varredura enxerga — os verdes abaixo não são vacuidade", () => {
+    expect(
+      varredura.arquivosVarridos,
+      "nenhum arquivo varrido: o caminho das áreas mudou?",
+    ).toBeGreaterThan(300);
+    // O dente da regra é provado pela fixture VERMELHA e pelo "só encolhe" — não ancorar na dívida que a lista manda pagar.
+  });
+
+  it("nenhuma chamada t() recebe parâmetro livre fora da dívida congelada", () => {
+    const foraDaLista = varredura.sitios
+      .filter((s) => !ehDadoCongelado(s))
+      .map((s) => `${s.local} ${s.chamada}(${s.expressao}) ← ${s.procedencia}`);
+    expect(
+      foraDaLista,
+      `${foraDaLista.length} chamada(s) t() sobre dado que o operador digitou: dado de usuário não é chave ` +
+        `de dicionário. ${COMO_CONSERTAR_DADO_DE_OPERADOR}`,
+    ).toEqual([]);
+  });
+
+  it("a dívida congelada só encolhe: entrada que deixou de casar é vermelho", () => {
+    const pagas = DADO_DO_OPERADOR_CONGELADO.filter(
+      (e) => !varredura.sitios.some((s) => s.arquivo === e.arquivo && s.expressao === e.expressao),
+    ).map((e) => `${e.arquivo} → t(${e.expressao}) (razão declarada: ${e.motivo})`);
+    expect(
+      pagas,
+      `${pagas.length} entrada(s) de DADO_DO_OPERADOR_CONGELADO não casam mais com sítio nenhum: o literal ` +
+        "foi escrito, ou a chamada saiu de t(), ou o parâmetro mudou de nome. Remova a entrada deste " +
+        "arquivo — a lista só encolhe.",
+    ).toEqual([]);
+  });
+
+  it("toda entrada tem razão escrita — lista sem motivo é fraude de gate", () => {
+    const semRazao = DADO_DO_OPERADOR_CONGELADO.filter((e) => e.motivo.trim().length < 20).map(
+      (e) => `${e.arquivo} → t(${e.expressao})`,
+    );
+    expect(
+      semRazao,
+      "entrada de allowlist sem razão escrita: a issue #603 proíbe allowlist sem motivo",
+    ).toEqual([]);
+    expect(
+      DADO_DO_OPERADOR_CONGELADO.length,
+      "a lista nasceu com 35 entradas (39 sítios) e só pode encolher: entrada nova exige medição nova",
+    ).toBeLessThanOrEqual(35);
+  });
+
+  /** A linha do `t(...)` na fixture, lida do arquivo — para não mentir sobre o local. */
+  const linhaDoT = (caso: string, chamada: string): number => {
+    const linhas = readFileSync(join(RAIZ, RAIZ_DAS_FIXTURES, caso, "painel.tsx"), "utf8").split(
+      "\n",
+    );
+    const achou = linhas.findIndex((l) => l.includes(chamada));
+    expect(achou, `a fixture ${caso} perdeu a chamada ${chamada}`).toBeGreaterThan(-1);
+    return achou + 1;
+  };
+
+  it("fixture VERMELHA reprova o t() sobre o que o operador digitou, com arquivo:linha", () => {
+    const sitio = dadoDoOperador([`${RAIZ_DAS_FIXTURES}/dado-do-operador-vermelha`]);
+    expect(
+      sitio.sitios.map((s) => `${s.local} ${s.chamada}(${s.expressao})`),
+      "o guardião deixou de reprovar t(tipo) sobre parâmetro livre: o cego C voltou",
+    ).toEqual([
+      `${RAIZ_DAS_FIXTURES}/dado-do-operador-vermelha/painel.tsx:${linhaDoT(
+        "dado-do-operador-vermelha",
+        "t(tipo)",
+      )} t(tipo)`,
+    ]);
+  });
+
+  it("fixture VERDE passa: literal, tabela de módulo e wrapper passa-adireto", () => {
+    const sitio = dadoDoOperador([`${RAIZ_DAS_FIXTURES}/dado-do-operador-verde`]);
+    expect(sitio.arquivosVarridos, "a fixture verde não foi lida: o caminho mudou?").toBe(1);
+    expect(
+      sitio.sitios.map((s) => `${s.local} ${s.chamada}(${s.expressao})`),
+      "a fixture verde reprovou um desenho legítimo: falso positivo em catraca nova custa a confiança dela",
+    ).toEqual([]);
+  });
+
+  it("a mensagem de falha diz o conserto e o comando de conferência", () => {
+    expect(COMO_CONSERTAR_DADO_DE_OPERADOR).toContain("literal");
+    expect(COMO_CONSERTAR_DADO_DE_OPERADOR).toContain("DADO_DO_OPERADOR_CONGELADO");
+    expect(COMO_CONSERTAR_DADO_DE_OPERADOR).toContain("pnpm test:unit");
   });
 });

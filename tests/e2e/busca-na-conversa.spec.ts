@@ -214,7 +214,9 @@ test.describe("busca dentro da conversa", () => {
     });
     console.info(`busca-na-conversa · fileiras da barra de ações: ${JSON.stringify(barra)}`);
     // soft: o resto da jornada roda e é medido mesmo se a lupa quebrar a barra.
-    expect.soft(barra.comLupa, "a lupa fez a barra de ações ganhar uma fileira em 1280px").toBe(barra.semLupa);
+    expect
+      .soft(barra.comLupa, "a lupa fez a barra de ações ganhar uma fileira em 1280px")
+      .toBe(barra.semLupa);
 
     await lupa.click();
     const campo = page.getByRole("searchbox", { name: "Buscar nas mensagens carregadas" });
@@ -224,7 +226,9 @@ test.describe("busca dentro da conversa", () => {
 
     // ── digitar o termo: contador e marca
     await campo.fill(TERMO);
-    const contador = page.getByRole("status").filter({ hasText: "Resultados nas mensagens carregadas" });
+    const contador = page
+      .getByRole("status")
+      .filter({ hasText: "Resultados nas mensagens carregadas" });
     await expect(contador).toHaveText(/Resultados nas mensagens carregadas:\s*2$/);
     await expect(page.locator('[data-search-match="true"]')).toHaveCount(2);
 
@@ -245,7 +249,9 @@ test.describe("busca dentro da conversa", () => {
       expect(m.anel, `sem anel em "${m.texto}" — box-shadow: ${m.boxShadow}`).toBeNull();
     }
     // Uma enviada e uma recebida entre as marcadas: o anel nas duas cores de bolha.
-    expect(new Set(comTermo.map((m) => m.fundo)).size, "anel sobre os dois fundos de bolha").toBe(2);
+    expect(new Set(comTermo.map((m) => m.fundo)).size, "anel sobre os dois fundos de bolha").toBe(
+      2,
+    );
 
     fs.mkdirSync(EVIDENCE, { recursive: true });
     await page.screenshot({ path: path.join(EVIDENCE, "1-duas-bolhas-marcadas.png") });
@@ -283,5 +289,65 @@ test.describe("busca dentro da conversa", () => {
     // Abrir a busca em B começa vazia: o termo de A não veio junto.
     await lupaB.click();
     await expect(campo).toHaveValue("");
+  });
+});
+
+// ── Perguntar ao acervo pelo painel da conversa (#1877) ──────────────────────
+//
+// O estado provado é o de quem acabou de instalar: sem material publicado, a
+// caixa tem de dizer que o acervo está VAZIO — não "a base não sabe", e nunca o
+// erro genérico. O banco do CI é compartilhado e outras specs criam fontes na
+// mesma organização, então o ramo é escolhido pela contagem MEDIDA no momento,
+// e o log diz qual rodou. Com fonte ativa e sem chave de embedding (o CI não
+// tem), o esperado é o 409 que manda cadastrar a chave. A busca com material
+// indexado e chave real NÃO é medida aqui.
+test.describe("perguntar ao acervo no painel da conversa", () => {
+  test.describe.configure({ timeout: 180_000 });
+
+  test("a caixa responde com o diagnóstico do acervo, nunca com o erro genérico", async ({
+    page,
+  }) => {
+    const [conversaA] = conversas as [string];
+    await login(page);
+    await page.goto(`/app/inbox?id=${conversaA}&filter=all`);
+    await expect(bolhas(page)).toHaveCount(MENSAGENS_A.length, { timeout: 30_000 });
+
+    const caixa = page.getByTestId("inbox-acervo");
+    await caixa.scrollIntoViewIfNeeded();
+    await expect(caixa).toBeVisible();
+
+    const { count, error } = await db
+      .from("ai_knowledge_sources")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", orgId)
+      .eq("is_active", true);
+    if (error) throw new Error(`fontes ativas: ${error.message}`);
+    console.info(`busca-na-conversa · acervo: fontes ativas na organização = ${count}`);
+
+    await page.getByTestId("acervo-pergunta").fill("qual o prazo de entrega?");
+    await page.getByTestId("acervo-buscar").click();
+
+    if (count === 0) {
+      await expect(page.getByTestId("acervo-motivo")).toHaveText(
+        "Este acervo ainda não tem material publicado.",
+        {
+          timeout: 30_000,
+        },
+      );
+    } else {
+      await expect(
+        page
+          .getByTestId("acervo-erro")
+          .or(page.getByTestId("acervo-motivo"))
+          .or(page.getByTestId("acervo-trechos"))
+          .first(),
+      ).toBeVisible({ timeout: 30_000 });
+      await expect(
+        page.getByTestId("acervo-erro").filter({ hasText: "Não consegui consultar o acervo." }),
+      ).toHaveCount(0);
+    }
+
+    fs.mkdirSync(EVIDENCE, { recursive: true });
+    await caixa.screenshot({ path: path.join(EVIDENCE, "3-acervo-na-conversa.png") });
   });
 });

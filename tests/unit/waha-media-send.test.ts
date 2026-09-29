@@ -46,4 +46,15 @@ describe("isMediaPathOwnedBy", () => {
   it("confusão de prefixo (org-1x/...) → false", () => {
     expect(isMediaPathOwnedBy(`${orgId}x/${conversationId}/foo.jpg`, orgId, conversationId)).toBe(false);
   });
+
+  it("recusa caminho que sai da pasta da conversa por `..`, `.`, segmento vazio ou barra invertida", () => {
+    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/../conv-2/foo.jpg`, orgId, conversationId)).toBe(false);
+    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/../../org-2/conv-9/foo.jpg`, orgId, conversationId)).toBe(false);
+    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/./foo.jpg`, orgId, conversationId)).toBe(false);
+    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}//foo.jpg`, orgId, conversationId)).toBe(false);
+    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/..\\org-2\\foo.jpg`, orgId, conversationId)).toBe(false);
+    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/`, orgId, conversationId)).toBe(false);
+    // Controle: subpasta e nome com ponto continuam valendo.
+    expect(isMediaPathOwnedBy(`${orgId}/${conversationId}/2026/foto..final.jpg`, orgId, conversationId)).toBe(true);
+  });
 });

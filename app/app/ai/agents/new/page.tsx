@@ -52,7 +52,7 @@ export default async function NewAgentPage() {
     listSelectableChannels(supabase, activeOrg.orgId),
   ]);
 
-  const credentials = (credentialsRes.data ?? []) as unknown as CredentialRow[];
+  const credentials = (credentialsRes.data ?? []) as CredentialRow[];
   const llmDaOrg = (
     orgRes.data?.settings as { llm?: { provider?: string } } | null
   )?.llm;

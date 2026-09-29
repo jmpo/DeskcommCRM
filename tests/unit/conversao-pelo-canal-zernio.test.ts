@@ -137,6 +137,9 @@ function fakeAdmin(t: { sessao: unknown; metaConfigurada?: boolean }) {
           source_metadata: { ad_platform: "meta_ads", ad_source_id: "CTWA_X" },
         },
         channel_sessions: t.sessao,
+        // A chave "Enviar vendas pelo canal da conversa" (upstream, doc 76):
+        // ligada, como Pedilo opera desde a sincronização de 29/09.
+        organizations: { settings: { conversions: { report_via_channel: true } } },
         ad_platform_connections: t.metaConfigurada
           ? { dataset_id: "1", access_token_encrypted: "\\xde", test_event_code: null, enabled: true }
           : null,
@@ -197,7 +200,10 @@ describe("o handler escolhe UM caminho", () => {
     expect(gravados.at(-1)).toMatchObject({ status: "sent", platform: "meta_ads" });
   });
 
-  it("mesmo com a Meta direta configurada, a venda sai UMA vez — pelo canal", async () => {
+  // Desde a sincronização de 29/09 vale a regra da upstream: o canal é o caminho
+  // de quem NÃO tem a conexão direta. Com a Meta direta ligada, a venda segue por
+  // ela — e continua saindo UMA vez só.
+  it("com a Meta direta configurada, a venda sai UMA vez — pela conexão direta, e o canal não é chamado", async () => {
     vi.mocked(createAdminClient).mockReturnValue(
       fakeAdmin({ sessao: { provider: "zernio", zernio_account_id: "ACC" }, metaConfigurada: true }) as never,
     );
@@ -206,7 +212,8 @@ describe("o handler escolhe UM caminho", () => {
     await conversaoDeVendaHandler.handle(evento);
 
     expect(f).toHaveBeenCalledOnce();
-    expect(String(f.mock.calls[0]![0])).not.toContain("graph.facebook.com");
+    expect(String(f.mock.calls[0]![0])).toContain("graph.facebook.com");
+    expect(String(f.mock.calls[0]![0])).not.toContain("/v1/whatsapp/conversions");
   });
 
   it("canal sem a capacidade (ou arquivado): segue o caminho da Meta direta", async () => {

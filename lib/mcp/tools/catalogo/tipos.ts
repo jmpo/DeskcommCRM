@@ -6,6 +6,7 @@
  * no mesmo hunk. Client-safe: zero import de zod, supabase ou next/headers.
  */
 import type { ModuloOpcional } from "@/lib/instalacao/modulos";
+import type { CapacidadeDaOrganizacao } from "@/lib/organizacao/capacidades";
 
 import type { McpToolCategory } from "../../types";
 import type { ToolBundle, ToolRisk } from "../pacotes";
@@ -49,6 +50,14 @@ export interface McpToolCatalogEntry {
    * `deModuloDesligado` em `./index.ts`.
    */
   modulo?: ModuloOpcional;
+  /**
+   * Capacidade que a ORGANIZACAO liga para si (`lib/organizacao/capacidades.ts`).
+   * Desligada, a ferramenta nao e oferecida a ninguem daquela organizacao —
+   * nem ao agente, nem ao cliente MCP externo, nem a tela que escolhe
+   * capacidades — e o handler recusa por conta propria. Ver
+   * `deCapacidadeDesligada` em `./index.ts`.
+   */
+  capacidade?: CapacidadeDaOrganizacao;
 }
 
 /**

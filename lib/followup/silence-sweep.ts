@@ -27,9 +27,53 @@ import { StaleServiceBoundaryError, parseServiceBoundary, assertCurrentServiceBo
  * contato já vivo em QUALQUER fluxo da org barra novo enrollment (1 follow-up
  * vivo por lead), 23505 vira skip silencioso (`insertEnrollment` devolve
  * `inserted:false`), nunca erro. Um contato que COMPLETOU ou foi cancelado
- * pode ser re-enrollado na varredura seguinte se continuar silencioso — a
- * menos que o fluxo declare `reentry_pause_minutes`: aí quem já encerrou uma
- * inscrição deste fluxo espera a pausa (`pausa-de-reentrada.ts`).
+ * pode ser re-enrollado na varredura seguinte se continuar silencioso — e É
+ * ISSO QUE O COOLDOWN ABAIXO LIMITA.
+ *
+ * ─── Cooldown pós-conclusão (issue reportada em produção, 2026-09-25) ───────
+ *
+ * Esta linha dizia "aceitável no MVP, sem cooldown table" — e o "aceitável"
+ * presumia que o intervalo entre tentativas seguiria sendo, na pior das
+ * hipóteses, próximo do `threshold_minutes` configurado. Não é: o cron roda a
+ * CADA MINUTO (`docker/scheduler/entrypoint.sh`), e como o contato que nunca
+ * responde permanece "silencioso" para sempre (nada atualiza
+ * `last_inbound_at`), a varredura seguinte reinscreve assim que o enrollment
+ * anterior sai de `active`/`waiting_reply` — não depois de outro
+ * `threshold_minutes`. Medido numa instalação real: um pointer "Triagem
+ * parada" com `threshold_minutes: 120` reinscreveu o MESMO contato 32 vezes
+ * em ~9 horas, a cada ~3 minutos (o tempo de vida de um enrollment de um nó
+ * só), não a cada 2 horas — risco de banimento por spam no WhatsApp.
+ *
+ * O conserto reusa o MESMO `cutoffIso` já calculado para "está silencioso":
+ * um contato só é elegível de novo se NENHUM enrollment TERMINADO deste
+ * pointer para ele tiver sido concluído depois desse corte — ou seja, precisa
+ * ter passado o `threshold_minutes` inteiro desde que a ÚLTIMA tentativa
+ * (completed, cancelled ou dead) TERMINOU, não desde que ela começou.
+ *
+ * ⚠️ Duas armadilhas que a primeira versão deste conserto tinha (achadas em
+ * revisão, antes de qualquer instalação real ver o defeito):
+ *
+ *  1. Ancorar em `started_at` em vez do fim da tentativa. Um nó `wait` do
+ *     grafo aceita de 5 minutos a 90 dias (`graph-schema.ts`) — um fluxo cujo
+ *     tempo total de execução passa do `threshold_minutes` do pointer já teria
+ *     `started_at` fora da janela no momento em que finalmente termina, e a
+ *     PRÓXIMA varredura (≤1min depois) reinscreveria na hora — reproduzindo o
+ *     defeito original para qualquer fluxo mais lento que o de hoje. A âncora
+ *     certa é `updated_at` de um enrollment TERMINAL (o mesmo commit que grava
+ *     `completed_at` sempre regrava `updated_at` junto — `engine.ts` linhas
+ *     301-302 e 576 — então não precisa de `coalesce`).
+ *  2. Não excluir os status VIVOS (`active`, `waiting_reply`, `paused_handoff`,
+ *     `paused_manual` — o mesmo conjunto do índice único
+ *     `idx_followup_enrollments_one_live`) da consulta de cooldown. Um
+ *     enrollment ainda em andamento SEMPRE bateria no filtro (acabou de
+ *     começar), e passaria a contar como `skipped_cooldown` em vez do
+ *     `skipped_existing` que o índice único já garante via 23505 — trocando o
+ *     que cada contador mede sem nenhuma mudança de comportamento real.
+ *
+ * ─── Pausa de reentrada e pessoa no comando (fork, 2026-09-26) ────────────
+ *
+ * Além do cooldown, o fluxo pode declarar `reentry_pause_minutes`: aí quem já
+ * encerrou uma inscrição deste fluxo espera a pausa (`pausa-de-reentrada.ts`).
  *
  * Conversa com PESSOA NO COMANDO (assumida por alguém da equipe, contato em
  * `force_human`, IA silenciada): não é inscrita, salvo fluxo com
@@ -68,6 +112,14 @@ import {
 } from "./agent-followup-gate";
 import { emPausaDeReentrada, type BaseDaPausa, type FatosDaReentrada } from "./pausa-de-reentrada";
 import { contatosComRetornoVivo } from "./retorno-segura-o-fluxo";
+
+/**
+ * Status que ocupam a vaga do índice único `idx_followup_enrollments_one_live`
+ * — mesma lista usada em `gatilho-retorno.ts`, `gatilho-caso.ts` e
+ * `ceder-turno-ao-retorno.ts` (não há constante exportada compartilhada; cada
+ * consumidor já repete a própria cópia).
+ */
+const STATUS_VIVOS = ["active", "waiting_reply", "paused_handoff", "paused_manual"] as const;
 
 export interface SilencePointer {
   id: string;
@@ -112,6 +164,22 @@ export interface SilenceSweepDb {
   loadContatosComPessoaNoComando(orgId: string, contactIds: string[]): Promise<Set<string>>;
   /** Nó `trigger` do grafo pinado + se o fluxo pede agente; `null` se version/nó não existir. */
   loadTriggerNode(orgId: string, versionId: string): Promise<NoDeGatilho | null>;
+  /**
+   * Dentre `contactIds`, quais têm um enrollment TERMINAL (completed,
+   * cancelled ou dead) deste pointer CONCLUÍDO depois de `cutoffIso` — ainda
+   * em cooldown, não podem ser reinscritos agora. Enrollment VIVO
+   * (active/waiting_reply/paused_handoff/paused_manual) fica de fora de
+   * propósito: esse caso já é barrado pelo índice único
+   * `idx_followup_enrollments_one_live` via `insertEnrollment` → 23505 →
+   * `skipped_existing`; incluí-lo aqui trocaria o que os dois contadores
+   * medem sem mudar nenhum comportamento real.
+   */
+  loadContactIdsEmCooldown(
+    orgId: string,
+    pointerId: string,
+    contactIds: string[],
+    cutoffIso: string,
+  ): Promise<Set<string>>;
   /** Insere o enrollment nascendo no nó trigger; `inserted:false` = 23505 (já vivo nesse pointer) → skip. */
   insertEnrollment(input: {
     organization_id: string;
@@ -129,6 +197,8 @@ export interface SilenceSweepSummary {
   pointers_gated_out: number;
   enrolled: number;
   skipped_existing: number;
+  /** Elegível por silêncio, mas com tentativa deste pointer iniciada há menos de `threshold_minutes` — ver o cooldown no cabeçalho do arquivo. */
+  skipped_cooldown: number;
   /** Silenciosos que ficaram de fora porque já têm um retorno agendado. */
   skipped_pending_return: number;
   /** Silenciosos que já passaram pelo fluxo e ainda estão na pausa de reentrada. */
@@ -156,6 +226,7 @@ export async function runSilenceSweep(deps: SilenceSweepDeps): Promise<SilenceSw
     pointers_gated_out: 0,
     enrolled: 0,
     skipped_existing: 0,
+    skipped_cooldown: 0,
     skipped_pending_return: 0,
     skipped_reentry_pause: 0,
     skipped_human_owned: 0,
@@ -204,16 +275,23 @@ export async function runSilenceSweep(deps: SilenceSweepDeps): Promise<SilenceSw
           ? new Date(clock().getTime() - pointer.max_silence_minutes * 60_000).toISOString()
           : undefined;
       const contactIds = await db.loadSilentContactIds(pointer.organization_id, cutoffIso, pointer.segments, desdeIso);
+      if (contactIds.length === 0) continue;
+
+      const emCooldown = await db.loadContactIdsEmCooldown(
+        pointer.organization_id,
+        pointer.id,
+        contactIds,
+        cutoffIso,
+      );
       const nextEvalAt = clock().toISOString();
-      const comRetorno =
-        contactIds.length > 0 ? await db.loadContatosComRetornoVivo(pointer.organization_id) : new Set<string>();
+      const comRetorno = await db.loadContatosComRetornoVivo(pointer.organization_id);
       const pausaMinutos = pointer.reentry_pause_minutes ?? 0;
       const encerramentos =
-        contactIds.length > 0 && pausaMinutos > 0
+        pausaMinutos > 0
           ? await db.loadEncerramentosDoFluxo(pointer.organization_id, pointer.id, contactIds)
           : new Map<string, FatosDaReentrada>();
       const comPessoa =
-        contactIds.length > 0 && pointer.handoff_policy !== "allow"
+        pointer.handoff_policy !== "allow"
           ? await db.loadContatosComPessoaNoComando(pointer.organization_id, contactIds)
           : new Set<string>();
 
@@ -224,6 +302,10 @@ export async function runSilenceSweep(deps: SilenceSweepDeps): Promise<SilenceSw
         }
         if (comPessoa.has(contactId)) {
           summary.skipped_human_owned++;
+          continue;
+        }
+        if (emCooldown.has(contactId)) {
+          summary.skipped_cooldown++;
           continue;
         }
         if (emPausaDeReentrada(encerramentos.get(contactId), pausaMinutos, clock(), pointer.reentry_pause_basis)) {
@@ -470,6 +552,20 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
       if (error) throw new Error(error.message);
       if (!data) return null;
       return noDeGatilhoDoGrafo(flowGraphSchema.parse(data.graph));
+    },
+
+    async loadContactIdsEmCooldown(orgId, pointerId, contactIds, cutoffIso) {
+      if (contactIds.length === 0) return new Set();
+      const { data, error } = await admin
+        .from("followup_enrollments")
+        .select("contact_id")
+        .eq("organization_id", orgId)
+        .eq("pointer_id", pointerId)
+        .in("contact_id", contactIds)
+        .not("status", "in", `(${STATUS_VIVOS.join(",")})`)
+        .gte("updated_at", cutoffIso);
+      if (error) throw new Error(error.message);
+      return new Set((data ?? []).map((row: { contact_id: string }) => row.contact_id));
     },
 
     async insertEnrollment(input) {

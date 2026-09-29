@@ -19,7 +19,7 @@
 [![CI](https://github.com/melgarafael/DeskcommCRM/actions/workflows/ci.yml/badge.svg)](https://github.com/melgarafael/DeskcommCRM/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[**⚡ Install**](#-install-on-your-vps-the-main-path) · [**🔄 Update**](#-updating) · [**🧭 Vision**](VISION.md) · [**🏗️ Architecture**](ARCHITECTURE.md) · [**🤝 Contributing**](CONTRIBUTING.md) · [**🗺️ Roadmap**](#%EF%B8%8F-roadmap)
+[**⚡ Install**](#-install-on-your-vps-the-main-path) · [**🔄 Update**](#-updating) · [**🧭 Vision**](VISION.md) · [**🏗️ Architecture**](ARCHITECTURE.md) · [**🤝 Contributing**](CONTRIBUTING.en.md) · [**🗺️ Roadmap**](#%EF%B8%8F-roadmap)
 
 </div>
 
@@ -130,9 +130,33 @@ onboarding, scan the QR code with your WhatsApp number.
 
 ### 🤖 Rather have an AI install it for you?
 
-Drop the `hostgator-setup-kit/` folder into **Claude Code** running inside the VPS and say
-*"install DeskcommCRM for me"*. It reads the kit's [`CLAUDE.md`](hostgator-setup-kit/CLAUDE.md)
-— which carries the step-by-step and the already-mapped pitfalls — and walks you through it.
+The repository ships **assistant guides** that load on their own in Claude Code, Codex, Cursor,
+OpenCode or Antigravity: install, set up a client per niche, analyze metrics, tune the agent
+prompt and contribute. To have them in **any folder** — including before cloning, on your own
+machine — run once:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/scripts/instalar-guias.sh | bash
+```
+
+Then open a new session of your assistant and say *"I want to install the CRM on my VPS"*: asking
+for the subject in Portuguese triggers the right guide in any of the five. To call a guide by name,
+each one has its own way — `/deskcomm-instalar` in Claude Code, Cursor and Antigravity;
+`$deskcomm-instalar` in Codex; in OpenCode, ask for it by name, in natural language.
+
+The guides do **not** update themselves: running the same command again brings the new version. To
+undo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/scripts/instalar-guias.sh | bash -s -- --remover
+```
+
+With the repository already cloned, the guides come inside it (`.agents/skills/`) and none of that
+is needed. If you ran the command anyway, know that in Claude Code the installed guide wins over
+the one in the clone — and stays on the version of the day you ran it, until you run it again (or
+undo). The old way still works too: drop just the `hostgator-setup-kit/` folder into the **Claude
+Code** chat inside the VPS — it reads the kit's [`CLAUDE.md`](hostgator-setup-kit/CLAUDE.md) and
+walks you through everything, in Portuguese.
 
 ---
 
@@ -263,7 +287,7 @@ Every screen has a door in the navigation — CI fails a screen that exists but 
 | **WhatsApp** | WAHA Plus (NOWEB engine) + Meta Cloud API | QR to start fast; official channel to scale |
 | **Queues** | `event_log` table + workers (cron) | A database trigger never makes HTTP calls |
 | **Rate limit** | Upstash Redis (sliding window) | Serverless, free tier is enough |
-| **AI** | Vercel AI SDK v7 — OpenRouter, Anthropic, OpenAI and Google | The installer asks which; switch later from the screen |
+| **AI** | Vercel AI SDK v7 — OpenRouter, Requesty, Anthropic, OpenAI and Google | The installer asks which; switch later from the screen |
 | **Validation** | Zod | External input, env, payloads |
 | **Observability** | Sentry (scrubbed in errors, transactions, spans and breadcrumbs) | Opt-in telemetry at install time |
 | **Hosting** | Any VPS with Docker (HostGator/SP in the partnership) | App + WhatsApp + workers on your own box |
@@ -301,6 +325,30 @@ pnpm dev
 App: <http://localhost:3000> · Health check: <http://localhost:3000/api/v1/health>
 
 [`docs/SETUP.md`](docs/SETUP.md) is the complete tutorial for **every integration** (Supabase, WAHA, AI providers, Upstash, Sentry, Resend, Nuvemshop) — ~60–90 min from zero to a running app. *(Docs are in Brazilian Portuguese; translations welcome!)*
+
+---
+
+## 📁 Structure
+
+```
+DeskcommCRM/
+├── app/                    # Next.js App Router
+│   ├── (admin)/            # super-admin routes (impersonate, tenants)
+│   ├── (public)/           # Login, recovery
+│   ├── app/                # Authenticated routes: inbox, radar, kanban, contacts,
+│   │                       #   connections, ai/*, integrations, metrics, lgpd,
+│   │                       #   audit, team, settings
+│   └── api/v1/             # Canonical REST API
+├── components/             # React (ui/, inbox/, kanban/, shell/, ...)
+├── lib/                    # supabase/, waha/, channels/, ai/, agent-engine/,
+│                           #   api/, routing/, navigation/, env.ts
+├── workers/                # event_log consumers (AI, RAG, LGPD, media, routines)
+├── supabase/migrations/    # Versioned SQL (+ baseline.sql for self-host)
+├── tests/{e2e,unit,invariants,shell}/
+├── scripts/                # seeds, qa-waves, maintenance
+├── docs/                   # PRDs, specs, runbooks, SETUP.md, ATUALIZANDO.md
+└── hostgator-setup-kit/    # self-host install and update
+```
 
 ---
 
@@ -368,7 +416,7 @@ Among the invariants is the **RLS isolation test**: it creates 2 organizations, 
 This project is open source for the community. Every contribution is welcome — from doc typo fixes to new features.
 
 1. Read [`CLAUDE.md`](CLAUDE.md) (~5 min) — non-negotiable conventions (multi-tenancy, RLS, audit, privacy).
-2. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) — branch flow, commits.
+2. Read [`CONTRIBUTING.en.md`](CONTRIBUTING.en.md) — branch flow, commits.
 3. Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 **Short flow:**

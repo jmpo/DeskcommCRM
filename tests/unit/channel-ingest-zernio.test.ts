@@ -313,6 +313,39 @@ describe("o pino do WhatsApp — o webhook não traz as coordenadas", () => {
     expect(ins).toMatchObject({ type: "text", body: "📍 mi casa es la de rejas" });
   });
 
+  it("lugar com nome ('📍 Praça…'): também busca, e grava nome, endereço e link", async () => {
+    // Caso real (24/09/2026): o cliente escolheu uma praça no mapa; o webhook
+    // trouxe só "📍 Praça da Matriz", e a API trouxe coordenadas, nome e endereço.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      listagem([
+        {
+          id: "wamid.PRACA",
+          message: "📍 Praça da Matriz",
+          metadata: { location: { latitude: -23.55, longitude: -46.63, name: "Praça da Matriz", address: "Centro, São Paulo, SP" } },
+        },
+      ]),
+    );
+    await ingestZernioInbound(admin, {
+      ...ENTRADA,
+      payload: evento({ text: "📍 Praça da Matriz", platformMessageId: "wamid.PRACA" }),
+    });
+    const ins = ops.find((o) => o.tabela === "messages" && o.op === "insert")?.payload as Record<string, unknown>;
+    expect(ins.type).toBe("location");
+    expect(ins.body).toBe("📍 Praça da Matriz — Centro, São Paulo, SP — https://maps.google.com/?q=-23.55,-46.63");
+  });
+
+  it("texto que só COMEÇA com o alfinete e não é pino na API segue como texto", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      listagem([{ id: "wamid.TXT", message: "📍 minha casa é a do portão azul", metadata: {} }]),
+    );
+    await ingestZernioInbound(admin, {
+      ...ENTRADA,
+      payload: evento({ text: "📍 minha casa é a do portão azul", platformMessageId: "wamid.TXT" }),
+    });
+    const ins = ops.find((o) => o.tabela === "messages" && o.op === "insert")?.payload as Record<string, unknown>;
+    expect(ins).toMatchObject({ type: "text", body: "📍 minha casa é a do portão azul" });
+  });
+
   it("API fora do ar: a mensagem entra como antes, com o marcador — nunca se perde", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNRESET"));
     const r = await ingestZernioInbound(admin, { ...ENTRADA, payload: pino() });
@@ -441,7 +474,7 @@ describe("clique em anúncio", () => {
       payload: {
         ...evento(),
         metadata: {
-          referral: { ctwa_clid: "ARAkZ_sintetico", source_id: "1202", source_type: "ad", headline: "DELIVERY GRATIS" },
+          referral: { ctwa_clid: "ARAkZ_sintetico", source_id: "1202", source_type: "ad", headline: "FRETE GRÁTIS" },
         },
       },
     });
@@ -450,7 +483,7 @@ describe("clique em anúncio", () => {
     expect(estampa?.payload).toMatchObject({
       p_org: "org-1",
       p_platform: "meta_ads",
-      p_metadata: { ad_source_id: "ARAkZ_sintetico", ad_id: "1202", ad_title: "DELIVERY GRATIS" },
+      p_metadata: { ad_source_id: "ARAkZ_sintetico", ad_id: "1202", ad_title: "FRETE GRÁTIS" },
     });
   });
 });

@@ -71,9 +71,11 @@ describe("o que a escrita grava é o que o filtro procura (#1224)", () => {
     const criado = contactCreateSchema.parse({ tags: ["VIP"] });
     const filtro = contactListQuerySchema.parse({ tag: "VIP" });
 
-    // A comparação do handler é `contains("tags", [q.tag])`: é esta igualdade que
-    // faz o contato marcado como "VIP" aparecer em `?tag=vip`.
-    expect(criado.tags).toEqual([filtro.tag]);
+    // A comparação do handler é `contains("tags", q.tag)`: é esta igualdade que
+    // faz o contato marcado como "VIP" aparecer em `?tag=vip`. O filtro virou
+    // LISTA com #1274 (para aceitar várias etiquetas), e o que tem de casar
+    // agora é a lista contra a lista — daí o `[...filtro.tag]`.
+    expect(criado.tags).toEqual([...(filtro.tag ?? [])]);
   });
 });
 
