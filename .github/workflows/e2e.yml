@@ -184,7 +184,7 @@ jobs:
       # uma rodada por parte.
       fail-fast: false
       matrix:
-        parte: [1, 2, 3, 4, 5, 6]
+        parte: [1, 2, 3, 4, 5, 6, 7]
     # ─────────────────────────────────────────────────────────────────────────
     # A COBERTURA DEIXA DE SER PROSA DIGITADA À MÃO.
     #
@@ -1116,14 +1116,17 @@ jobs:
         etapa-pela-conversa.spec.ts
         pausa-de-reentrada.spec.ts
         mapas-em-provedores.spec.ts
-        filtro-por-marcador-pela-tela.spec.ts
         funil-arquivado-volta-pela-tela.spec.ts
         qa-l12-funil.spec.ts
         i18n-espanhol-na-tela.spec.ts
         marca-logo.spec.ts
         suporte-temporario.spec.ts
 
-      SPECS_PARTE_6: >-
+      # ─── PARTE 7 — a "parte 6" que o fork criou em 2026-09-19 ───
+      # Na sincronização de 29/09 a upstream também criou uma PARTE_6 (acima
+      # estão as specs dela, abaixo as do fork): chave repetida em YAML faz a
+      # última apagar a primeira, e as specs do fork deixariam de rodar.
+      SPECS_PARTE_7: >-
         followup-builder.spec.ts
         followup-journey.spec.ts
         followup-dossie.spec.ts
@@ -1923,6 +1926,7 @@ jobs:
             4) LISTA="$SPECS_PARTE_4" ;;
             5) LISTA="$SPECS_PARTE_5" ;;
             6) LISTA="$SPECS_PARTE_6" ;;
+            7) LISTA="$SPECS_PARTE_7" ;;
             *) echo "::error::parte ${{ matrix.parte }} sem lista"; exit 1 ;;
           esac
           # Falha alto se a variável vier vazia: sem isto, um typo no nome faria
@@ -2214,7 +2218,7 @@ jobs:
                       dentro { exit }
                     ' .github/workflows/e2e.yml | grep -oE "[a-z0-9-]+\.spec\.ts" | sort -u; }
           NO_DISCO=$(ls tests/e2e/*.spec.ts | wc -l | tr -d " ")
-          RODOU=$( { bloco SPECS_PARTE_1; bloco SPECS_PARTE_2; bloco SPECS_PARTE_3; bloco SPECS_PARTE_4; bloco SPECS_PARTE_5; bloco SPECS_PARTE_6; } | sort -u | wc -l | tr -d " ")
+          RODOU=$( { bloco SPECS_PARTE_1; bloco SPECS_PARTE_2; bloco SPECS_PARTE_3; bloco SPECS_PARTE_4; bloco SPECS_PARTE_5; bloco SPECS_PARTE_6; bloco SPECS_PARTE_7; } | sort -u | wc -l | tr -d " ")
           FORA_LISTA=$(bloco FORA_DO_CI)
           FORA=$(echo "$FORA_LISTA" | grep -c . || true)
           # E o recorte passa a ter CONTROLE, não só um piso.

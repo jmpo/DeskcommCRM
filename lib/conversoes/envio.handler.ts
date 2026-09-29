@@ -259,44 +259,6 @@ export async function reportarConversao(
     return ok("skipped", "sem_valor");
   }
 
-  // ─── O CANAL PRIMEIRO ─────────────────────────────────────────────────────
-  //
-  // Quando a conversa do cliente passa por um canal intermediado que já tem a
-  // ponte com o conjunto de dados da Meta (configurada na tela do provedor), o
-  // evento vai por ele: é o canal quem guardou o vínculo com o clique, e o CRM
-  // não precisa de token nem de dataset próprios. Por isso vem ANTES de exigir a
-  // credencial da Meta: quem usa o canal não a tem. Só um caminho por evento —
-  // mandar pelos dois contaria a mesma compra duas vezes se os ids de
-  // deduplicação não casassem do outro lado.
-  if (
-    plataforma === "meta_ads" &&
-    (EVENTO === "Purchase" || ehEventoDeEtapaDaMeta(EVENTO)) &&
-    !registro?.remote_request_id
-  ) {
-    let canal;
-    try {
-      canal = await canalQueReportaConversao(admin, row.organization_id, lead.contact_id);
-    } catch (err) {
-      return {
-        consumer_key: CONSUMER_KEY,
-        status: "retry",
-        retry_at: new Date(Date.now() + ESPERA_PADRAO_MS).toISOString(),
-        detail: `leitura do canal falhou: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-    if (canal) {
-      const pelo = await canal.reportar({
-        event: EVENTO,
-        eventId: `${lead.id}:${EVENTO}`,
-        occurredAt: new Date(lead.closed_at ?? row.created_at ?? Date.now()),
-        phone: telefone,
-        valueCents: lead.value_cents,
-        currency: lead.currency ?? "BRL",
-      });
-      return desfecho(doCanal(pelo), false);
-    }
-  }
-
   const credencial = await lerCredencial(admin, row.organization_id, plataforma, {
     exigirAcaoDeVenda: !qualificacao,
   });
@@ -320,14 +282,17 @@ export async function reportarConversao(
     // deduplicação não casassem do outro lado.
     //
     // Protocolo pendente (`remote_request_id`) é do transporte direto, e só ele
-    // sabe consultá-lo: fica fora. O `value_cents` não nulo já está garantido
-    // pelo `sem_valor` acima; a checagem só estreita o tipo.
+    // sabe consultá-lo: fica fora. O `value_cents` não nulo da venda já está
+    // garantido pelo `sem_valor` acima; a checagem só estreita o tipo.
+    //
+    // Fork: os eventos de ETAPA da Meta (`InitiateCheckout`… — ver
+    // `etapa.handler.ts`) saem pelo mesmo caminho, e podem ir sem valor.
     if (
       credencial.motivo === "sem_conexao" &&
       plataforma === "meta_ads" &&
-      EVENTO === "Purchase" &&
+      (EVENTO === "Purchase" || ehEventoDeEtapaDaMeta(EVENTO)) &&
       !registro?.remote_request_id &&
-      lead.value_cents !== null
+      (EVENTO !== "Purchase" || lead.value_cents !== null)
     ) {
       // A chave vem ANTES de tudo (doc 76): desligada — o padrão —, nem as
       // conversas são lidas, e nada sai para o provedor.

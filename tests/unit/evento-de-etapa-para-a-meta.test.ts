@@ -34,6 +34,9 @@ function fakeAdmin(t: { evento: string | null; valor?: number | null; jaEnviado?
           source_metadata: t.anuncio === false ? {} : { ad_platform: "meta_ads", ad_source_id: "CTWA_X" },
         },
         channel_sessions: { provider: "zernio", zernio_account_id: "ACC" },
+        // A chave "Enviar vendas pelo canal da conversa" (upstream, doc 76) LIGADA:
+        // é como a organização que usa o canal intermediado opera.
+        organizations: { settings: { conversions: { report_via_channel: true } } },
         ad_conversion_dispatches: t.jaEnviado ? { status: "sent" } : null,
       };
       const q = {

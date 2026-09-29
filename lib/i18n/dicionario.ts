@@ -2461,6 +2461,12 @@ export const DICIONARIO: Traducoes = {
   "Silêncio máximo, em minutos (opcional)": { es: "Silencio máximo, en minutos (opcional)" },
   "Da última mensagem do cliente": { es: "Desde el último mensaje del cliente" },
   "Do último envio deste fluxo": { es: "Desde el último envío de este flujo" },
+  // Restauradas depois da sincronização de 29/09 (a deduplicação apagou as duas cópias).
+  "Abra a conversa para responder o cliente.": { es: "Abre la conversación para responder al cliente." },
+  "Escolha o aviso e o arquivo de som.": { es: "Elige el aviso y el archivo de sonido." },
+  "Recarregue o saldo na conta do provedor: as respostas saem sozinhas quando ele voltar.": {
+    es: "Recarga el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva.",
+  },
   // Cartão "Mapas" em Provedores (0493) e a API dele.
   "Mapas (Google)": { es: "Mapas (Google)" },
   "Chave gravada": { es: "Clave guardada" },

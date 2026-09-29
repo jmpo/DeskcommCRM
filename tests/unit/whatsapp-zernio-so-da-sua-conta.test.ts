@@ -47,8 +47,10 @@ describe("o WhatsApp do provedor só aceita evento da SUA conta", () => {
     expect(await inboundPayloadBelongsToSession(banco(MIA), entrada({ event: "account.disconnected" }))).toBe(true);
   });
 
-  it("sessão ainda sem conta configurada não tem com o que comparar — passa", async () => {
-    expect(await inboundPayloadBelongsToSession(banco(null), entrada({ account: { id: OUTRA } }))).toBe(true);
+  it("sessão sem conta RECUSA — \"não sei de quem é a sessão\" não vira \"aceito de qualquer conta\" (revisão da upstream)", async () => {
+    // Hoje a constraint `channel_sessions_provider_ref_check` exige a conta nesta
+    // sessão, então o ramo não executa; por isso ele pode ser o fechado.
+    expect(await inboundPayloadBelongsToSession(banco(null), entrada({ account: { id: OUTRA } }))).toBe(false);
   });
 
   it("corpo que não é JSON não derruba a guarda", () => {

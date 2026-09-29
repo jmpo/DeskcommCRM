@@ -61,7 +61,9 @@ describe("aviso da Central → celular", () => {
     expect(webPushInboundHandler.events).toContain("central.aviso_criado");
   });
 
-  it("etapa que avisa: o texto do aviso, sem o nome do cliente, abrindo o negócio no funil", async () => {
+  // Fork: a etapa que avisa vai ao celular como VENDA — o valor no título e a
+  // soma do dia no corpo (`push-de-venda.ts`) —, e continua sem o nome do cliente.
+  it("etapa que avisa: push de venda (fork), sem o nome do cliente, abrindo o negócio no funil", async () => {
     vi.mocked(createAdminClient).mockReturnValue(banco({
       agent_inbox_items: {
         id: "i1", kind: "other", ref_kind: "lead", ref_id: "l1",
@@ -74,9 +76,9 @@ describe("aviso da Central → celular", () => {
     const r = await webPushInboundHandler.handle(evento("central.aviso_criado", { item_id: "i1" }));
     expect(r.status).toBe("ok");
     const payload = vi.mocked(enviarPushDaOrg).mock.calls[0]![1];
-    expect(payload).toEqual({
-      title: "Negocio entró en «Pedido confirmado»",
-      body: "Abre el negocio para dar el siguiente paso. Este aviso se pidió en la configuración de la etapa.",
+    expect(payload).toMatchObject({
+      title: "🎉 ¡Nueva venta!",
+      body: "Pedido confirmado",
       tag: "aviso:i1",
       href: "/app/pipelines/p1?lead=l1",
     });

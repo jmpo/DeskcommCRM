@@ -227,8 +227,8 @@ describe("o celular vê a marca da instalação", () => {
     const manifesto = fs.readFileSync(path.join(RAIZ, "app/manifest.ts"), "utf8");
     expect(manifesto).toMatch(/export const dynamic\s*=\s*"force-dynamic"/);
     expect(manifesto).toMatch(/marcaDaSaida\(null\)/);
-    expect(manifesto).toContain('"/icone/192"');
-    expect(manifesto).toContain('"/icone/512"');
+    expect(manifesto).toContain('/app-icon/192');
+    expect(manifesto).toContain('/app-icon/512');
   });
 
   it("os ícones do app são gerados em runtime e alcançáveis sem sessão", () => {
