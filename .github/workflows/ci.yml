@@ -584,6 +584,10 @@ jobs:
         # consultas/hora por IP — o executor próprio é um IP só.
         env:
           GH_TOKEN: ${{ github.token }}
+          # Fork (jmpo): este repositório não publica release — os releases e as
+          # tags que a conferência do kit lê moram na upstream.
+          GH_REPO: melgarafael/DeskcommCRM
+          CONFERENCIA_KIT_REMOTO: https://github.com/melgarafael/DeskcommCRM.git
         run: pnpm test:db
 
       # O `update.sh` do cliente roda sobre um banco COM DADOS, e nenhum gate
