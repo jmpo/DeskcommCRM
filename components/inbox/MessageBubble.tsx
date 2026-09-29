@@ -394,7 +394,7 @@ export function MessageBubble({
             {porModelo && (
               <div
                 data-testid="selo-do-modelo"
-                className="mb-1 inline-flex max-w-full items-center gap-1 rounded bg-current/10 px-1.5 py-0.5 text-[10px] font-medium"
+                className="mb-1 inline-flex max-w-full items-center gap-1 rounded-sm bg-current/10 px-1.5 py-0.5 text-[10px] font-medium"
               >
                 <FileText size={11} weight="bold" aria-hidden />
                 <span className="truncate">
