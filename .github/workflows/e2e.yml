@@ -1140,6 +1140,7 @@ jobs:
         buffer-ssr-caixa-orfa.spec.ts
         contadores-do-menu.spec.ts
         honorarios-instalar-e-pagar.spec.ts
+        inbox-mensagem-por-modelo.spec.ts
 
       # ─── PARTE 6 — nasceu em 2026-09-28, e o orçamento de 24 min a pediu ───
       #

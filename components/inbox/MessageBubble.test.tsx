@@ -378,3 +378,43 @@ describe("MessageBubble — remetente de grupo", () => {
     expect(screen.queryByText("Maria · +5521999990000")).toBeNull();
   });
 });
+
+/**
+ * MENSAGEM QUE SAIU POR MODELO: o balão diz qual modelo e mostra as opções que
+ * o cliente recebeu. Antes, só o corpo aparecia — quem lia a conversa não sabia
+ * que tinha saído por modelo, e a resposta do cliente ("Quiero cambiar algo")
+ * ficava solta, sem a pergunta que a originou.
+ */
+describe("mensagem enviada por modelo", () => {
+  it("⭐ mostra o selo com o nome do modelo e os botões, na ordem", () => {
+    render(
+      <MessageBubble
+        message={msg({
+          type: "template",
+          template_name: "entrega_programada_pedilo",
+          body: "¡Hola! Tu pedido sale hoy.",
+          metadata: { template_buttons: ["Sí, confirmo", "Quiero cambiar algo"] },
+        })}
+      />,
+    );
+    expect(screen.getByTestId("selo-do-modelo").textContent).toBe("Modelo do WhatsApp · entrega_programada_pedilo");
+    const opcoes = screen.getByRole("list", { name: "Opções enviadas ao cliente" });
+    expect(Array.from(opcoes.querySelectorAll("li")).map((li) => li.textContent)).toEqual([
+      "Sí, confirmo",
+      "Quiero cambiar algo",
+    ]);
+    expect(screen.getByText("¡Hola! Tu pedido sale hoy.")).toBeTruthy();
+  });
+
+  it("modelo sem botões gravados (envio antigo): o selo aparece, a lista não", () => {
+    render(<MessageBubble message={msg({ type: "template", template_name: "recordatorio", metadata: {} })} />);
+    expect(screen.getByTestId("selo-do-modelo")).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Opções enviadas ao cliente" })).toBeNull();
+  });
+
+  it("texto comum não ganha selo nem opções — mesmo com botões no metadata", () => {
+    render(<MessageBubble message={msg({ metadata: { template_buttons: ["X"] } })} />);
+    expect(screen.queryByTestId("selo-do-modelo")).toBeNull();
+    expect(screen.queryByRole("list", { name: "Opções enviadas ao cliente" })).toBeNull();
+  });
+});

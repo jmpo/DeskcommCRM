@@ -120,6 +120,13 @@ export interface Message {
   /** A mensagem que esta responde (citação). `null` = envio solto. */
   reply_to_message_id: string | null;
   created_at: string;
+  /**
+   * O modelo aprovado pelo qual a mensagem saiu (`type = 'template'`). Opcionais:
+   * ausentes na resposta da imagem anterior. O balão os usa para dizer que a
+   * mensagem foi por modelo; os botões moram em `metadata.template_buttons`.
+   */
+  template_name?: string | null;
+  template_language?: string | null;
 }
 
 /** Nota interna de conversa (Onda 5.2) — nunca vai ao cliente, tabela separada de messages. */

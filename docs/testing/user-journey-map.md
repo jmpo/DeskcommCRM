@@ -541,6 +541,24 @@ Spec: `tests/e2e/mapas-em-provedores.spec.ts`.
 | J38.6 | O que o Google diz × o endereço anotado em 8 pedidos confirmados (28/09/2026) | distrito 8/8, departamento 8/8, localidade 7/8 (Atyrá rural virou a compañía), rua 3/5, bairro 1/8, número interpolado → a cidade é o DISTRITO; bairro e número não saem | **MEDIDO em produção** (`pedilo-config/cfg/55-pines-vs-pedido.ts`); regra em `tests/unit/mapas-pino-com-endereco.test.ts` |
 | J38.7 | A API do canal não responde a tempo na ingestão do pino (medido 29/09/2026: timeout duas vezes) | a mensagem entra com o marcador e pede nova busca; 1 min depois, e a cada 2 min até 15, busca de novo e grava tipo `location` + link (+ endereço aproximado com chave); nunca rebaixa um pino que já tem coordenadas; desiste sem virar incidente | **PASS (unit)** — `tests/unit/pino-reintento.test.ts`, `tests/unit/channel-ingest-zernio.test.ts` |
 
+## J39 — A mensagem que saiu por modelo diz qual e mostra as opções `[P1]` (2026-09-29)
+
+Contexto: com a janela de 24 h fechada, só sai modelo aprovado. A conversa
+mostrava o corpo como um texto qualquer — quem lia não sabia que tinha saído por
+modelo nem quais botões o cliente recebeu, e a resposta dele («Quiero cambiar
+algo») ficava solta. O envio passa a gravar os textos dos botões, lidos do
+espelho da definição, em `messages.metadata.template_buttons`
+(`app/api/v1/messages/_handler.ts`, `lib/messaging/botoes-do-modelo.ts`), e a
+rota de mensagens passa a devolver `template_name`/`template_language`.
+
+Spec: `tests/e2e/inbox-mensagem-por-modelo.spec.ts`.
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J39.1 | Abrir uma conversa com uma mensagem por modelo e uma de texto | o balão do modelo tem o selo «Modelo do WhatsApp · <nome>» e a lista «Opções enviadas ao cliente» com os botões na ordem; o de texto, nenhum dos dois; as opções cabem no balão (`boundingBox`) | **PASS pela tela** — Evidência: `evidence/inbox-mensagem-por-modelo/01-modelo-com-selo-e-opcoes.png` |
+| J39.2 | Enviar modelo com botões / sem espelho / texto comum com botões forjados no `metadata` | grava os botões da definição, na ordem / não grava nada e envia / não grava nada (o `metadata` de entrada não fala pelos botões) | **PASS (unit)** — `tests/unit/messages-handler-canal-intermediado.test.ts` |
+| J39.3 | Mensagem por modelo enviada antes desta versão (sem botões gravados) | só o selo, sem lista | **PASS (unit)** — `components/inbox/MessageBubble.test.tsx` |
+
 ---
 
 ## J9 — Ver o que o follow-up já fez, e intervir sem matá-lo `[P1]`
