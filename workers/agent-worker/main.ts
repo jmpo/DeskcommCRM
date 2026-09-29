@@ -99,6 +99,7 @@ import { runHealthLoop } from "@/lib/agent-engine/health/circuit";
 import { runFlywheelLoop } from "@/lib/agent-engine/flywheel/live";
 import { llmEdgeConfigFromEnv } from "@/lib/agent-engine/edge/llm/run-model-call";
 import { loadEnv, type Env } from "@/lib/agent-engine/env";
+import { urlDoSupabaseNoServidor } from "@/lib/supabase/url-do-servidor";
 import { createLogger, type Logger } from "@/lib/agent-engine/obs/logger";
 import {
   evaluateCacheHitAlert,
@@ -694,7 +695,7 @@ export async function main(): Promise<void> {
   const handlers = new Map<JobKind, JobHandler>();
   const turnDeps: FollowupTurnDeps = {
     crmCfg: crmEdgeConfigFromEnv({
-      SUPABASE_URL: env.NEXT_PUBLIC_SUPABASE_URL,
+      SUPABASE_URL: urlDoSupabaseNoServidor(env.SUPABASE_SERVER_URL, env.NEXT_PUBLIC_SUPABASE_URL),
       SUPABASE_SERVICE_ROLE_KEY: env.SUPABASE_SERVICE_ROLE_KEY,
     }),
     llmCfg: llmEdgeConfigFromEnv(env),

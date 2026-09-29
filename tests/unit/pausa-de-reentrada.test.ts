@@ -99,6 +99,7 @@ describe("varredura de silêncio", () => {
       ],
       loadSilentContactIds: async () => ["respondeu-agora", "nunca-passou", "encerrou-ha-tempo"],
       loadContatosComRetornoVivo: async () => new Set<string>(),
+      loadContactIdsEmCooldown: async () => new Set<string>(),
       loadEncerramentosDoFluxo,
       loadContatosComPessoaNoComando,
       loadTriggerNode: async () => ({ id: "inicio", pedeAgente: false }),
@@ -320,6 +321,7 @@ describe("base da pausa: a partir do último ENVIO do fluxo", () => {
       ],
       loadSilentContactIds: async () => ["ontem", "hoje"],
       loadContatosComRetornoVivo: async () => new Set<string>(),
+      loadContactIdsEmCooldown: async () => new Set<string>(),
       loadEncerramentosDoFluxo: async () =>
         new Map<string, FatosDaReentrada>([
           ["ontem", { encerradaEm: AGORA.getTime() - 25 * H, ultimaMensagemEm: AGORA.getTime() - H / 3 }],

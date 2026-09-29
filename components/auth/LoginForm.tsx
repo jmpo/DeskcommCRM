@@ -11,12 +11,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signInWithPassword } from "@/app/actions/auth/signInWithPassword";
+import { Eye, EyeSlash } from "@/lib/ui/icons";
 
 export function LoginForm({ next }: { next?: string }) {
   const t = useT();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
@@ -75,13 +77,26 @@ export function LoginForm({ next }: { next?: string }) {
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="password">{t("Senha")}</Label>
-        <Input
-          id="password"
-          type="password"
-          autoComplete="current-password"
-          aria-invalid={errors.password ? true : undefined}
-          {...register("password")}
-        />
+        <div className="relative">
+          <Input
+            id="password"
+            type={showPassword ? "text" : "password"}
+            autoComplete="current-password"
+            className="pr-12"
+            aria-invalid={errors.password ? true : undefined}
+            {...register("password")}
+          />
+          <button
+            type="button"
+            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:outline-hidden focus-visible:ring-inset"
+            aria-pressed={showPassword}
+            onClick={() => setShowPassword((visible) => !visible)}
+          >
+            {/* Nome em sr-only, não aria-label: getByLabel(/senha/i) casa aria-label e acharia o botão junto do campo. */}
+            <span className="sr-only">{t(showPassword ? "Ocultar senha" : "Mostrar senha")}</span>
+            {showPassword ? <EyeSlash size={20} aria-hidden /> : <Eye size={20} aria-hidden />}
+          </button>
+        </div>
         {errors.password && (
           <p className="text-xs text-destructive">{t(errors.password.message ?? "")}</p>
         )}

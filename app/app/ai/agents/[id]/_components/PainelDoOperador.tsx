@@ -24,6 +24,7 @@ import { useOperatorMetrics } from "@/hooks/ai/useOperatorMetrics";
 
 import { ModelPicker } from "./ModelPicker";
 import { ToolPicker } from "./ToolPicker";
+import { FORA_DO_OPERADOR } from "@/lib/agent-engine/agent/entrega-de-capacidade";
 import type { Provider } from "@/hooks/ai/useCredentials";
 
 interface Props {
@@ -217,8 +218,14 @@ export function PainelDoOperador(props: Props) {
                 value={props.toolIds}
                 onChange={props.onToolIdsChange}
                 disabled={desabilitado}
+                ocultar={FORA_DO_OPERADOR}
               />
             </div>
+            <p data-testid="operador-sem-proposta" className="text-xs text-muted-foreground">
+              {t(
+                "Criar rascunho de proposta fica só com o assistente que conversa: ele segue o seu roteiro e sabe quando o cliente já explicou o que quer.",
+              )}
+            </p>
             {props.toolIds.length === 0 ? (
               // Estado legítimo, mas que precisa ser explicado: sem isto o
               // usuário liga o papel, não escolhe nada, e conclui que quebrou.

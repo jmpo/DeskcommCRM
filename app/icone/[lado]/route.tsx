@@ -3,7 +3,7 @@ import { ImageResponse } from "next/og";
 import { marcaEhADoProduto } from "@/lib/branding";
 import { CORES_DA_MARCA, SIMBOLO } from "@/lib/branding/desenho";
 import { letraDoIcone } from "@/lib/branding/icone";
-import { encaixe, logoDoBucketParaIcone } from "@/lib/branding/icone-do-app";
+import { encaixe, logoDoBucketParaIcone } from "@/lib/branding/icone-do-logo";
 import { marcaDaSaida, NEUTROS_DE_SAIDA } from "@/lib/branding/saida";
 
 /**
@@ -18,7 +18,7 @@ import { marcaDaSaida, NEUTROS_DE_SAIDA } from "@/lib/branding/saida";
  * O favicon da aba continua em `app/icon.tsx` (64 px, inicial): numa aba de
  * 16 px, um logo não se lê. Aqui é onde o logo cabe — e o que decide COMO ele
  * entra (recorte do símbolo, cor do fundo) está em
- * `lib/branding/icone-do-app.ts`.
+ * `lib/branding/icone-do-logo.ts`.
  *
  * `force-dynamic` pela mesma razão de `app/icon.tsx`: sem ela o build congela o
  * ícone de quem buildou dentro da imagem, que é uma só para todas as marcas.

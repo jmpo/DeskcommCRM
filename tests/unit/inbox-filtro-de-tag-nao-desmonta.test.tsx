@@ -52,6 +52,24 @@ vi.mock("@/hooks/inbox/useConversationCounts", () => ({
 const VALUE: InboxFiltersValue = { tab: "unassigned", search: "", onlyUnread: false };
 const GATILHO = "Filtrar por tag";
 
+/**
+ * ⚠️ O GATILHO DEIXOU DE SER UM `Select` (#1274) — e com ele mudou o PAPEL que a
+ * tela de reading usa.
+ *
+ * O `Select` do Radix é `role="combobox"` e as opções dele são `role="option"`.
+ * O `DropdownMenu` é `role="menu"` com `role="menuitemcheckbox"`, porque é
+ * multi-seleção: o item MARCA e NÃO fecha, que é o defeito que o `Select`
+ * tinha (a segunda escolha exigiria reabrir o menu).
+ *
+ * O que este arquivo continua vigando é o defeito, não o elemento: com o menu
+ * ABERTO, uma oscilação do vocabulário não pode DESMONTAR o gatilho. Por isso
+ * a busca é por NOME ACESSÍVEL (`Filtrar por tag`), que o botão continua tendo
+ * — o rótulo não mudou, e mudar o rótulo quebraria quem procura o controle
+ * (e a tradução no dicionário).
+ */
+const gatilho = (comMenuAberto = false) =>
+  screen.queryByRole("button", { name: GATILHO, ...(comMenuAberto ? { hidden: true } : {}) });
+
 beforeEach(() => {
   // Radix Select em jsdom: o gatilho usa captura de ponteiro e o conteúdo rola
   // até o item — nenhum dos dois existe aqui.
@@ -72,9 +90,9 @@ async function abreOMenu() {
   // vermelho que não ensina nada.
   const user = userEvent.setup({ delay: null });
   const tela = render(<InboxFilters value={VALUE} onChange={() => {}} />);
-  await user.click(screen.getByRole("combobox", { name: GATILHO }));
-  expect(screen.getByRole("option", { name: "vip" })).toBeInTheDocument();
-  expect(screen.getByRole("option", { name: "retorno" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: GATILHO }));
+  expect(screen.getByRole("menuitemcheckbox", { name: /vip/ })).toBeInTheDocument();
+  expect(screen.getByRole("menuitemcheckbox", { name: /retorno/ })).toBeInTheDocument();
   return tela;
 }
 
@@ -89,8 +107,11 @@ describe("o menu de etiqueta aberto sobrevive à oscilação do vocabulário", (
     // Com o menu aberto o Radix marca o resto da árvore com `aria-hidden`, e é
     // por `hidden: true` que o gatilho é alcançável — o que se afirma aqui é que
     // ele não DESMONTOU, não que esteja exposto à leitura de tela.
-    expect(screen.queryByRole("combobox", { name: GATILHO, hidden: true })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "vip" })).toBeInTheDocument();
+    // Com o menu aberto o Radix marca o resto da árvore com `aria-hidden`, e é
+    // por isso que se procura o gatilho com `hidden: true`: o que se afirma aqui
+    // é que ele não DESMONTOU, e não que esteja exposto à leitura de tela.
+    expect(gatilho(true)).toBeInTheDocument();
+    expect(screen.getByRole("menuitemcheckbox", { name: /vip/ })).toBeInTheDocument();
   });
 
   it("vocabulário voltando VAZIO por um render não derruba o menu", async () => {
@@ -103,8 +124,11 @@ describe("o menu de etiqueta aberto sobrevive à oscilação do vocabulário", (
     // Com o menu aberto o Radix marca o resto da árvore com `aria-hidden`, e é
     // por `hidden: true` que o gatilho é alcançável — o que se afirma aqui é que
     // ele não DESMONTOU, não que esteja exposto à leitura de tela.
-    expect(screen.queryByRole("combobox", { name: GATILHO, hidden: true })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "vip" })).toBeInTheDocument();
+    // Com o menu aberto o Radix marca o resto da árvore com `aria-hidden`, e é
+    // por isso que se procura o gatilho com `hidden: true`: o que se afirma aqui
+    // é que ele não DESMONTOU, e não que esteja exposto à leitura de tela.
+    expect(gatilho(true)).toBeInTheDocument();
+    expect(screen.getByRole("menuitemcheckbox", { name: /vip/ })).toBeInTheDocument();
   });
 });
 
@@ -113,20 +137,62 @@ describe("não-regressão: o que a condicional protegia", () => {
     tagsRef.current = [];
     tagsDoContatoRef.current = [];
     render(<InboxFilters value={VALUE} onChange={() => {}} />);
-    expect(screen.queryByRole("combobox", { name: GATILHO })).not.toBeInTheDocument();
+    expect(gatilho()).not.toBeInTheDocument();
   });
 
   it("vocabulário em voo, sem nada conhecido ainda, também não desenha o seletor", () => {
     tagsRef.current = undefined;
     tagsDoContatoRef.current = undefined;
     render(<InboxFilters value={VALUE} onChange={() => {}} />);
-    expect(screen.queryByRole("combobox", { name: GATILHO })).not.toBeInTheDocument();
+    expect(gatilho()).not.toBeInTheDocument();
   });
 
   it("filtro órfão mantém a válvula: o seletor aparece com a etiqueta que sumiu do vocabulário", () => {
     tagsRef.current = ["retorno"];
     tagsDoContatoRef.current = [];
     render(<InboxFilters value={{ ...VALUE, tag: "apagada" }} onChange={() => {}} />);
-    expect(screen.getByRole("combobox", { name: GATILHO })).toBeInTheDocument();
+    expect(gatilho()).toBeInTheDocument();
+  });
+
+  it("filtro órfão de DUAS etiquetas também mantém a válvula (#1274)", () => {
+    // Com VÁRIAS etiquetas, "está no vocabulário" deixa de ser uma pergunta de
+    // sim/não: basta UMA das escolhidas ter sumido para o operador precisar da
+    // válvula. Sem este caso, uma combinação com uma etiqueta apagada ficaria sem
+    // forma de ser desfeita — o pior dos dois: filtro ativo sem como tirá-lo.
+    tagsRef.current = ["retorno"];
+    tagsDoContatoRef.current = [];
+    render(
+      <InboxFilters value={{ ...VALUE, tag: ["retorno", "apagada"] }} onChange={() => {}} />,
+    );
+    expect(gatilho()).toBeInTheDocument();
+  });
+});
+
+describe("o modo E/OU marca só o modo ativo (#1274)", () => {
+  // O ✓ manual usava a MESMA condição (`tagMode === "ou"`) nos dois itens: com OU
+  // os dois apareciam marcados, com E nenhum. O rádio marca um só e expõe
+  // `aria-checked`, que é o que este caso mede.
+  async function abreComDuas(tagMode?: "ou") {
+    const user = userEvent.setup({ delay: null });
+    render(
+      <InboxFilters value={{ ...VALUE, tag: ["vip", "retorno"], tagMode }} onChange={() => {}} />,
+    );
+    await user.click(screen.getByRole("button", { name: GATILHO }));
+    return {
+      e: screen.getByRole("menuitemradio", { name: "Todas (E)" }),
+      ou: screen.getByRole("menuitemradio", { name: "Qualquer uma (OU)" }),
+    };
+  }
+
+  it("com OU ativo, só o OU está marcado", async () => {
+    const { e, ou } = await abreComDuas("ou");
+    expect(ou).toHaveAttribute("aria-checked", "true");
+    expect(e).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("sem modo (E, o padrão), só o E está marcado", async () => {
+    const { e, ou } = await abreComDuas();
+    expect(e).toHaveAttribute("aria-checked", "true");
+    expect(ou).toHaveAttribute("aria-checked", "false");
   });
 });

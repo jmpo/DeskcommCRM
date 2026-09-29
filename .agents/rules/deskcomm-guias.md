@@ -8,8 +8,8 @@ casar, carregue o guia antes de agir — a pessoa pode não saber que ele existe
 
 - instalar, subir, atualizar, consertar a instalação numa VPS, domínio, Supabase, WhatsApp
   que não conecta → `deskcomm-instalar`
-- configurar o CRM para um cliente ou nicho (clínica, imobiliária, serviços, curso, loja):
-  agentes, roteadores, follow-ups, base de conhecimento → `deskcomm-cliente-novo`
+- configurar o CRM para um cliente ou nicho (clínica, imobiliária, serviços, curso, loja,
+  escritório de advocacia): agentes, roteadores, follow-ups, base de conhecimento → `deskcomm-cliente-novo`
 - desempenho, conversão, custo de IA, funil, relatório, "o agente está vendendo?" → `deskcomm-metricas`
 - o agente responde errado, passa tudo para humano, não usa a agenda, melhorar o prompt → `deskcomm-prompt`
 - contribuir, corrigir um bug, abrir ou atualizar um PR, migration, conflito com a main → `deskcomm-contribuir`

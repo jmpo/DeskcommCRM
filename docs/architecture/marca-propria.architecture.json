@@ -102,7 +102,9 @@
     { "id": "enrollmfa", "lane": "saida", "col": 7, "type": "api", "label": "app/actions/auth/enrollMfa.ts", "sublabel": "issuer (o campo que o celular grava), não friendlyName — medido contra GoTrue v2.188.1" },
     { "id": "resend", "lane": "saida", "col": 7, "type": "service", "label": "lib/email/resend.ts", "sublabel": "nome de exibição = marca; endereço = do OPERADOR (domínio verificado). Vazio = not_configured" },
     { "id": "lgpdworker", "lane": "saida", "col": 6, "type": "service", "label": "workers/lgpd-export-worker.ts + export-collector", "sublabel": "monta o ExportPayload; roda pelo scheduler (event-log-drain), nunca no contêiner worker" },
-    { "id": "pdf", "lane": "saida", "col": 7, "type": "service", "label": "lib/lgpd/pdf-renderer.tsx", "sublabel": "DESLIGADO da marca de propósito — ver o card vermelho" }
+    { "id": "pdf", "lane": "saida", "col": 7, "type": "service", "label": "lib/lgpd/pdf-renderer.tsx", "sublabel": "DESLIGADO da marca de propósito — ver o card vermelho" },
+    {"id": "iconeapp", "lane": "saida", "col": 9, "type": "service", "label": "/app-icon/192 e /app-icon/512", "sublabel": "arquivo platform/favicon_path limitado; falha retorna desenho e log"},
+    {"id": "manifestapp", "lane": "saida", "col": 10, "type": "frontend", "label": "manifest → aplicativo instalado", "sublabel": "marca pública da instalação; 192/512 PNG; leitura em runtime"}
   ],
   "edges": [
     { "id": "e1", "from": "installsh", "to": "env", "label": "grava a marca no .env — e o arquivo é escrito com truncamento: chave que o script não grava some no update seguinte" },
@@ -169,9 +171,8 @@
     { "id": "e62", "from": "rotalogo", "to": "auditlog", "label": "reusa platform_branding.updated / org.branding_updated — código de ação novo não responderia pergunta nova" },
     { "id": "e63", "from": "layout", "to": "marcacliente", "label": "a MESMA marcaResolvida() do título e do CSS desce por prop, no payload do RSC — mesma rota de user/activeOrg" },
     { "id": "e64", "from": "marcacliente", "to": "interface", "label": "useMarcaDaInstalacao(): SSR e hidratação leem o mesmo objeto, então o logo do revendedor não troca de elemento no meio do caminho" },
-    { "id": "e65", "from": "saida", "to": "iconeapp", "label": "nome e logo da instalação. Só busca o logo do bucket brand-logos (caminho de forma fixa), nunca logo_url colada" },
-    { "id": "e66", "from": "bucketlogos", "to": "iconeapp", "label": "PNG decodificado sem dependência (lib/branding/png.ts): cor do fundo + recorte do símbolo" },
-    { "id": "e67", "from": "iconeapp", "to": "celular", "label": "manifesto lido em runtime — congelado no build, o iPhone instalava com o nome padrão do produto (medido em produção)" }
+    {"id": "e-icon-app-a", "from": "platformbranding", "to": "iconeapp", "label": "favicon_path validado; Storage da instalação; fallback limitado"},
+    {"id": "e-icon-app-b", "from": "iconeapp", "to": "manifestapp", "label": "PNG 192/512 públicos, sem cookie de organização"}
   ],
   "cards": [
     {

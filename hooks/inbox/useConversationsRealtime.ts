@@ -5,6 +5,10 @@ import { useRealtimeChannel } from "@/hooks/realtime/useRealtimeChannel";
 import { useRefetchDeSeguranca } from "@/hooks/realtime/useRefetchDeSeguranca";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
+import {
+  type ModoDeEtiqueta,
+  marcadoresEscolhidos,
+} from "@/lib/inbox/marcador-da-conversa";
 import type { Conversation } from "@/lib/types/messaging";
 import type { ComandoDoBanco } from "@/lib/inbox/comando-da-conversa";
 
@@ -93,7 +97,19 @@ export interface ConversationsFilters {
    */
   unread?: boolean;
   channel_session_id?: string;
-  tag?: string;
+  /**
+   * A etiqueta, ou VÁRIAS (#1274).
+   *
+   * `string` continua aceito porque é o que o resto da tela (e qualquer chamada
+   * antiga) produz. A lista sai na URL por `append`, nunca por `set` — com
+   * `set`, a segunda etiqueta substituiria a primeira e a tela mostraria duas
+   * escolhas filtrando por uma.
+   */
+  tag?: string | readonly string[];
+  /** E ou OU entre as etiquetas escolhidas (#1274). `e` é o padrão. */
+  tagMode?: ModoDeEtiqueta;
+  /** A aba "Grupos" do inbox (Task 10). Ausente = sem filtro, mostra tudo. */
+  is_group?: boolean;
 }
 
 interface ListResponse {
@@ -130,7 +146,16 @@ export function useConversationsRealtime(
       if (filters.search) qs.set("search", filters.search);
       if (filters.unread) qs.set("unread", "true");
       if (filters.channel_session_id) qs.set("channel_session_id", filters.channel_session_id);
-      if (filters.tag) qs.set("tag", filters.tag);
+      // `append`, e não `set` (#1274): o filtro aceita várias etiquetas e cada
+      // uma viaja como um `tag` repetido — que é o que a rota lê com `getAll`.
+      for (const marcador of marcadoresEscolhidos(
+        typeof filters.tag === "string" ? [filters.tag] : (filters.tag ?? []),
+      ))
+        qs.append("tag", marcador);
+      // O `modo` só sai quando é `ou`: `e` é o padrão e não precisa viajar, e um
+      // `&modo=e` colado num link de hoje mudaria a URL sem mudar o sentido.
+      if (filters.tagMode === "ou") qs.set("modo", "ou");
+      if (filters.is_group !== undefined) qs.set("is_group", filters.is_group ? "true" : "false");
       if (pageParam) qs.set("cursor", pageParam);
       qs.set("limit", "50");
       try {

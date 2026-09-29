@@ -7,6 +7,10 @@
  */
 import { z } from "zod";
 import { COMANDOS_DO_BANCO, type ComandoDoBanco } from "@/lib/inbox/comando-da-conversa";
+import {
+  MAXIMO_DE_ETIQUETAS_NO_FILTRO,
+  MODOS_DE_ETIQUETA,
+} from "@/lib/inbox/marcador-da-conversa";
 import { PISO_DA_BUSCA, buscaValeConsulta } from "@/lib/inbox/termo-de-busca";
 
 /**
@@ -325,7 +329,51 @@ export const listConversationsQuerySchema = z.object({
   exclude_finished: z.boolean().optional(),
   assigned_to: z.union([z.string().uuid(), z.literal("me"), z.literal("unassigned")]).optional(),
   channel_session_id: z.string().uuid().optional(),
-  tag: conversationTagSchema.optional(),
+  /**
+   * O MARCADOR, e agora VÁRIOS (#1274).
+   *
+   * Aceita `string` OU `string[]`, e a repetição na URL (`?tag=vip&tag=orçamento`)
+   * é lida por `getAll`. Aceitar as DUAS formas é o que mantém o `?tag=vip`
+   * singular funcionando byte a byte: `get` devolve string e `getAll` devolve
+   * array de um, e os dois precisam passar pelo MESMO schema — se este só
+   * aceitasse array, toda chamada antiga de API quebraria com 422.
+   *
+   * A lista é normalizada (trim/lowercase) item a item, pela MESMA razão de
+   * `conversationTagSchema` normalizar: o `?tag=VIP` tem de achar o que foi
+   * gravado como `vip` (issue #1224). Teto de 20, o mesmo da escrita.
+   */
+  tag: z
+    .union([conversationTagSchema, z.array(conversationTagSchema).max(MAXIMO_DE_ETIQUETAS_NO_FILTRO)])
+    .optional()
+    .transform((v) => {
+      if (v === undefined) return undefined;
+      const lista = Array.isArray(v) ? v : [v];
+      // Lista VAZIA vira `undefined`, e não `[]`. O `getAll` devolve `[]` numa
+      // URL sem o parâmetro, e `[]` dentro de um `cs` é um filtro que NÃO CASA
+      // NADA: a tela responderia "nenhuma conversa" com o filtro desligado, sem
+      // erro nenhum. `undefined` é o que "sem filtro" significa.
+      return lista.length > 0 ? lista : undefined;
+    }),
+  /**
+   * E ou OU entre as etiquetas escolhidas (#1274). `e` é o padrão, e é o que
+   * uma etiqueta só já significava — logo, o parâmetro só importa havendo duas.
+   *
+   * `z.enum` RECUSA o valor fora dos dois, e a recusa vira 422. Aqui a escolha é
+   * deliberada — o inverso do `status`/`comando`, que transformam lista vazia em
+   * `undefined`: `?modo=xou` é quase sempre alguém copiando o nome do parâmetro
+   * errado, e responder 422 ensina o integrador a corrigir. Na TELA quem chama
+   * é `modoDeEtiqueta`, que devolve `undefined` e cai no `e` — uma tela não pode
+   * quebrar por um parâmetro inventado.
+   */
+  modo: z.enum(MODOS_DE_ETIQUETA).optional(),
+  /**
+   * A aba "Grupos" do inbox (Task 10). `"true"`/`"false"` como STRING — vem de
+   * `searchParams`, que só conhece texto — e não `z.coerce.boolean()`, que
+   * transformaria QUALQUER string não-vazia (inclusive `"false"`) em `true`.
+   * Ausente = sem filtro, a lista mostra tudo, como hoje; presente decide o
+   * `.eq("is_group", …)` no handler.
+   */
+  is_group: z.enum(["true", "false"]).optional(),
   /**
    * Só as que têm mensagem não lida para o dono.
    *

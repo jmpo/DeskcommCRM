@@ -176,9 +176,9 @@ export async function GET(req: NextRequest): Promise<Response> {
       "created_at, outcome, intent_name",
       "created_at",
     ),
-    ler<{ created_at: string; hits: number; top_score: number | null; threshold: number }>(
+    ler<{ created_at: string; hits: number; top_score: number | null; threshold: number; author_kind: string }>(
       "knowledge_searches",
-      "created_at, hits, top_score, threshold",
+      "created_at, hits, top_score, threshold, author_kind",
       "created_at",
     ),
     ler<{ created_at: string; to_stage: string }>("lead_state_transitions", "created_at, to_stage", "created_at"),

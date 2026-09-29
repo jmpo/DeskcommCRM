@@ -67,22 +67,16 @@ function listaDoWorkflow(yml: string, chave: string): string[] {
 }
 
 const yml = readFileSync(WORKFLOW, "utf8");
-const parte1 = listaDoWorkflow(yml, "SPECS_PARTE_1");
-const parte2 = listaDoWorkflow(yml, "SPECS_PARTE_2");
-const parte3 = listaDoWorkflow(yml, "SPECS_PARTE_3");
+// As partes são DESCOBERTAS no workflow, não enumeradas aqui: a lista à mão
+// envelheceu a cada parte nova (a 5 ficou fora da checagem de fantasmas).
+const chavesDasPartes = [...yml.matchAll(/^ {6}(SPECS_PARTE_\d+):/gm)].map((m) => m[1]!);
+const partes = new Map(chavesDasPartes.map((k) => [k, listaDoWorkflow(yml, k)]));
+const todasAsPartes = [...partes.values()].flat();
 // PARTE_4 — a parte que depende de serviço externo (WAHA + Redis + dublês de
 // Resend/Nuvemshop, issue #179). Listada aqui como as outras: sem isto, a spec
 // que roda SÓ ali apareceria como "sem lista" e o gate acusaria o contrário do
 // que aconteceu.
-const parte4 = listaDoWorkflow(yml, "SPECS_PARTE_4");
-// PARTE_5 — a quarta parte COMUM (a 4 é a da instalação fresca). Nasceu em
-// 19/09 porque três partes comuns já não cabiam no teto: dois cortes por
-// relógio no mesmo dia, ambos sem caso vermelho.
-const parte5 = listaDoWorkflow(yml, "SPECS_PARTE_5");
-// PARTE_6 — nasceu neste fork em 19/09: a partição da upstream é calibrada
-// para o executor próprio dela, e em `ubuntu-latest` a antiga parte 5 foi
-// cortada pelo relógio aos 1359s sem nenhum caso vermelho.
-const parte6 = listaDoWorkflow(yml, "SPECS_PARTE_6");
+const parte4 = partes.get("SPECS_PARTE_4") ?? [];
 const foraDoCi = listaDoWorkflow(yml, "FORA_DO_CI");
 const noDisco = readdirSync(DIR_SPECS)
   .filter((f) => f.endsWith(".spec.ts"))
@@ -96,12 +90,10 @@ describe("cobertura do e2e no CI", () => {
     expect(noDisco.length, "nenhuma spec no disco — o diretório mudou de lugar?").toBeGreaterThan(
       30,
     );
-    expect(parte1.length, "SPECS_PARTE_1 não foi lida do workflow").toBeGreaterThan(10);
-    expect(parte2.length, "SPECS_PARTE_2 não foi lida do workflow").toBeGreaterThan(10);
-    expect(parte3.length, "SPECS_PARTE_3 não foi lida do workflow").toBeGreaterThan(10);
-    expect(parte4.length, "SPECS_PARTE_4 não foi lida do workflow").toBeGreaterThan(0);
-    expect(parte5.length, "SPECS_PARTE_5 não foi lida do workflow").toBeGreaterThan(0);
-    expect(parte6.length, "SPECS_PARTE_6 não foi lida do workflow").toBeGreaterThan(0);
+    expect(chavesDasPartes.length, "nenhuma SPECS_PARTE_N no workflow — o parser mudou?").toBeGreaterThan(1);
+    for (const [chave, lista] of partes)
+      expect(lista.length, `${chave} não foi lida do workflow`).toBeGreaterThan(0);
+    expect(todasAsPartes.length, "as listas vieram curtas demais — parser pela metade?").toBeGreaterThan(30);
     expect(foraDoCi.length, "FORA_DO_CI não foi lida do workflow").toBeGreaterThan(0);
   });
 
@@ -130,7 +122,7 @@ describe("cobertura do e2e no CI", () => {
       parte4.filter((f) => !PERMITIDAS.includes(f)),
       "spec que não é de instalação fresca entrou em SPECS_PARTE_4. O ambiente dela não " +
         "semeia credenciais nem fixtures, e qualquer dado criado ali quebra a premissa que a " +
-        "`vps-fresh-onboarding` prova. Ponha em SPECS_PARTE_1/2/3/5. Se a spec nova for MESMO " +
+        "`vps-fresh-onboarding` prova. Ponha numa SPECS_PARTE_N comum. Se a spec nova for MESMO " +
         "de instalação fresca, acrescente-a a PERMITIDAS aqui, com a razão escrita.\n",
     ).toEqual([]);
     // Controle positivo: a lista não pode estar vazia por engano de parser —
@@ -179,7 +171,7 @@ describe("cobertura do e2e no CI", () => {
       const m = re.exec(yml);
       return m === null ? [] : m[1]!.split(/\s+/).map((t) => t.trim()).filter(Boolean);
     };
-    for (const chave of ["SPECS_PARTE_1", "SPECS_PARTE_2", "SPECS_PARTE_3", "SPECS_PARTE_4", "SPECS_PARTE_5"]) {
+    for (const chave of chavesDasPartes) {
       const tokens = cru(chave);
       expect(tokens.length, `${chave} não foi lida do workflow`).toBeGreaterThan(0);
       const intrusos = tokens.filter((t) => !t.endsWith(".spec.ts"));
@@ -191,12 +183,12 @@ describe("cobertura do e2e no CI", () => {
   });
 
   it("toda spec do disco está em exatamente uma lista", () => {
-    const declaradas = [...parte1, ...parte2, ...parte3, ...parte4, ...parte5, ...parte6, ...foraDoCi];
+    const declaradas = [...todasAsPartes, ...foraDoCi];
     const semLista = noDisco.filter((f) => !declaradas.includes(f));
     expect(
       semLista,
       "Spec no disco que não roda no CI nem está declarada como fora. Ponha em " +
-        "SPECS_PARTE_1/2/3/5 (se rodar sem WAHA/Redis/Resend), em SPECS_PARTE_4 (com " +
+        "uma SPECS_PARTE_N comum (se rodar sem WAHA/Redis/Resend), em SPECS_PARTE_4 (com " +
         "os serviços do job) ou em FORA_DO_CI com o " +
         "motivo escrito. Cobertura parcial silenciosa se lê como cobertura total.\n",
     ).toEqual([]);
@@ -211,7 +203,7 @@ describe("cobertura do e2e no CI", () => {
     // O sentido inverso, e ele é pior: `playwright test naoexiste.spec.ts` não
     // acha nada e o job termina VERDE. Uma renomeação silenciosamente desliga a
     // cobertura daquele arquivo.
-    const fantasmas = [...parte1, ...parte2, ...parte3, ...parte4, ...foraDoCi].filter(
+    const fantasmas = [...todasAsPartes, ...foraDoCi].filter(
       (f) => !noDisco.includes(f),
     );
     expect(fantasmas, "lista do CI aponta para spec inexistente — renomeada ou apagada").toEqual(

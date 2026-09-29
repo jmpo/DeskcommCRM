@@ -161,9 +161,27 @@ violations=$(git -c core.quotepath=false diff --cached --name-status \
 # forma sozinho quando a adição que chega é ≥50% similar ao arquivo apagado.
 #
 # ⚠️ Falhar FECHADO é o lado seguro aqui (bloquear pede uma válvula declarada;
-# liberar perde o eval em silêncio). Por isso: sem MERGE_HEAD, merge de mais de
-# um lado (octopus), `merge-base` sem ancestral comum, `is-ancestor` saindo
-# não-zero ou a ref `origin/main` ausente → nenhuma exclusão.
+# liberar perde o eval em silêncio). Por isso: sem nenhum dos DOIS sinais do
+# outro lado, merge de mais de um lado (octopus), `merge-base` sem ancestral
+# comum, `is-ancestor` saindo não-zero ou a ref `origin/main` ausente →
+# nenhuma exclusão.
+#
+# ── OS DOIS SINAIS DO OUTRO LADO (o #374) ───────────────────────────────────
+#
+# O `MERGE_HEAD` é o sinal do caminho CONFLITUDO: o git o escreve quando o
+# merge para para o `git commit` do autor. O caminho LIMPO é outro — o git
+# chama `pre-merge-commit` e, ali, ainda NÃO escreveu o `MERGE_HEAD` (sonda de
+# causa no teste irmão, caso M3-PREMISSA). Sem sinal nenhum o guard falhava
+# FECHADO sobre o que a `main` trouxe: um `git merge origin/main` limpo que
+# tocasse `tests/invariants/**` saía recusado acusando quem mergeia (#374,
+# medido em 28/09/2026) — o falso positivo que a issue pede para fechar.
+#
+# O git entrega o outro lado NAQUELE caminho em `GITHEAD_<sha>=<nome>`, a
+# variável que a estratégia do merge recebe. Ela é o MESMO dado do `MERGE_HEAD`
+# (o commit do outro lado), por isso entra como segunda fonte e não como
+# condição nova: as SEIS acima seguem decidindo, byte a byte igual. Sem a
+# variável (outro git, hook chamado à mão) nada muda e o guard continua
+# fechado — degradação para o comportamento de antes, nunca para liberar.
 #
 # ⚠️ E isto é MUDANÇA DE COMPORTAMENTO declarada contra a versão anterior: sem
 # `origin/main` (fork, clone raso) o falso positivo do #1161 volta a ser
@@ -177,12 +195,32 @@ violations=$(git -c core.quotepath=false diff --cached --name-status \
 # fecha, mas fecha SEMPRE, inclusive no commit comum sem invariante nenhum.)
 arquivo_merge_head="$(git rev-parse --git-path MERGE_HEAD)"
 lados=0
+outro_lado=""
 if [ -f "$arquivo_merge_head" ]; then
   lados=$(grep -c . "$arquivo_merge_head" || true)
 fi
+if [ "$lados" = "1" ]; then
+  outro_lado=$(git rev-parse --quiet --verify MERGE_HEAD^0 2>/dev/null || true)
+fi
+
+# Segunda fonte do outro lado: o caminho do `pre-merge-commit` (merge limpo),
+# onde o `MERGE_HEAD` ainda não existe, entrega o commit alheio em
+# `GITHEAD_<sha>=<nome>`. Exatamente UM — mais de um é octopus, e aí não há
+# "outro lado" singular para medir; nenhum é o commit comum, sem merge algum.
+# O valor da variável é o NOME da ref, não o commit: quem entra na conta é a
+# chave. `sed -n` lê `env` inteiro, e o intervalo {40,} cobre sha1 e sha256.
+if [ -z "$outro_lado" ]; then
+  githeads=$(env | sed -n 's/^\(GITHEAD_[0-9a-fA-F]\{40,\}\)=.*/\1/p' || true)
+  n_lados=$(printf '%s' "$githeads" | grep -c . || true)
+  if [ "$n_lados" = "1" ]; then
+    outro_lado=$(git rev-parse --quiet --verify "${githeads#GITHEAD_}^0" 2>/dev/null || true)
+    if [ -n "$outro_lado" ]; then
+      lados=1
+    fi
+  fi
+fi
 
 if [ -n "$violations" ] && [ "$lados" = "1" ]; then
-  outro_lado=$(git rev-parse --quiet --verify MERGE_HEAD^0 2>/dev/null || true)
   base=$(git merge-base HEAD "$outro_lado" 2>/dev/null || true)
   # condição 2, na forma do irmão `validate-features.sh`: dentro de `if`, um
   # `is-ancestor` não-zero (inclusive `origin/main` inexistente) não mata o hook

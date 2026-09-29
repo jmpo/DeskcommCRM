@@ -49,7 +49,6 @@ const RAIZ = process.cwd();
 const DIVIDA_CONHECIDA: Record<string, string> = {
   channel_sessions: "assinada por hooks de canal; entrou antes deste gate",
   contacts: "assinada pela ficha do contato; entrou antes deste gate",
-  conversation_notes: "assinada por hooks/inbox/useConversationNotes.ts; entrou antes deste gate",
   crm_pipelines: "assinada pela tela de funis; entrou antes deste gate",
   system_update_runs: "assinada pela tela de atualização; entrou antes deste gate",
   system_version: "assinada pela tela de atualização; entrou antes deste gate",

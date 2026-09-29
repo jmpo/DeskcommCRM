@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,12 +20,16 @@ const uploadResult = {
 };
 const uploadMock = vi.fn(async () => uploadResult);
 const sendMock = vi.fn();
+const createNoteMock = vi.fn();
 
 vi.mock("@/hooks/inbox/useUploadMedia", () => ({
   useUploadMedia: () => ({ mutateAsync: uploadMock, isPending: false }),
 }));
 vi.mock("@/hooks/inbox/useSendMessage", () => ({
   useSendMessage: () => ({ mutate: sendMock, isPending: false }),
+}));
+vi.mock("@/hooks/inbox/useCreateNote", () => ({
+  useCreateNote: () => ({ mutate: createNoteMock, isPending: false }),
 }));
 
 import { Composer } from "@/components/inbox/Composer";
@@ -108,6 +112,7 @@ describe("Composer — colar imagem", () => {
   beforeEach(() => {
     uploadMock.mockClear();
     sendMock.mockClear();
+    createNoteMock.mockClear();
   });
 
   it("colar imagem abre o preview e enviar dispara upload + send", async () => {
@@ -135,13 +140,33 @@ describe("Composer — colar imagem", () => {
     expect(seguiu, "preventDefault aqui quebraria o Ctrl+V de texto").toBe(true);
   });
 
-  it("em 'Nota interna' colar imagem não vira anexo — nota é só texto", () => {
+  it("em 'Nota interna' colar imagem ABRIR preview e ir para useCreateNote — nunca para o cliente (#1863, F3)", async () => {
+    // A regra antiga era "nota é só texto" e este caso a provava. A F3 da #1863
+    // abriu a colagem para a nota; o que não mudou — e é o que este caso passa
+    // a guardar — é o Ctrl+V de texto e o DESTINO do arquivo.
     renderComposer();
     fireEvent.click(screen.getByRole("button", { name: /nota interna/i }));
     const seguiu = fireEvent.paste(campo(), { clipboardData: clipboard({ files: [png()] }) });
 
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(seguiu).toBe(true);
+    // Diferente do caso de texto (logo abaixo): a IMAGEM foi interceptada, e
+    // `preventDefault` aqui é o preview abrindo — é o Ctrl+V de TEXTO que não
+    // pode ser interceptado, e o caso "colar TEXTO não abre preview" continua
+    // guardando isso, nos DOIS modos.
+    expect(seguiu).toBe(false);
+    const dialog = await screen.findByRole("dialog");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^enviar$/i }));
+
+    await waitFor(() =>
+      expect(uploadMock).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-1", destino: "nota" })),
+    );
+    await waitFor(() =>
+      expect(createNoteMock).toHaveBeenCalledWith(
+        expect.objectContaining({ conversation_id: "conv-1", anexo: expect.objectContaining({ media_mime: "image/png" }) }),
+        expect.anything(),
+      ),
+    );
+    expect(sendMock).not.toHaveBeenCalled();
   });
 
   it("com anexo já em preview, colar não substitui em silêncio o que o operador escolheu", async () => {

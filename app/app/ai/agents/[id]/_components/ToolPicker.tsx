@@ -62,10 +62,22 @@ interface Props {
   value: string[];
   onChange: (ids: string[]) => void;
   disabled?: boolean;
+  /**
+   * Capacidades que ESTE papel não recebe no runtime, marcadas ou não (ex.:
+   * `FORA_DO_OPERADOR`). Somem do catálogo em vez de aparecerem marcáveis:
+   * uma caixa que se marca e não faz nada é promessa que a tela não cumpre.
+   * Id já salvo com um destes valores é ignorado aqui (e pelo runtime), e sai
+   * da versão na próxima vez que a lista for alterada.
+   */
+  ocultar?: readonly string[];
 }
 
 interface ApiResponse {
-  data: { tools: Array<Omit<McpToolMeta, "name">> };
+  data: {
+    tools: Array<Omit<McpToolMeta, "name">>;
+    /** Capacidades que a ORGANIZAÇÃO desligou (ex.: Propostas) — não são órfãs. */
+    desligadas_pela_organizacao?: string[];
+  };
 }
 
 const TODOS_OS_PACOTES: ReadonlyArray<ToolBundle> = PACOTES.map((p) => p.id);
@@ -169,8 +181,12 @@ function AvisoTeto({ texto }: { texto: string }) {
   );
 }
 
-export function ToolPicker({ value, onChange, disabled }: Props) {
+export function ToolPicker({ value: valorSalvo, onChange, disabled, ocultar }: Props) {
   const t = useT();
+  const value = React.useMemo(
+    () => (ocultar === undefined ? valorSalvo : valorSalvo.filter((id) => !ocultar.includes(id))),
+    [valorSalvo, ocultar],
+  );
   const [avancado, setAvancado] = React.useState(false);
   // `pacote` diz ONDE a recusa aconteceu. O aviso nascia só no topo do seletor,
   // e quem clicava num pacote lá embaixo (com a tela rolada) via o interruptor
@@ -185,12 +201,22 @@ export function ToolPicker({ value, onChange, disabled }: Props) {
     queryFn: async () => {
       const res = await apiClient.get<ApiResponse>("/api/v1/mcp/tools");
       // `name` é o mesmo `id` — a regra de seleção fala em `name`, o wire em `id`.
-      return res.data.tools.map((t) => ({ ...t, name: t.id })) as McpToolMeta[];
+      return {
+        tools: res.data.tools.map((t) => ({ ...t, name: t.id })) as McpToolMeta[],
+        desligadas: res.data.desligadas_pela_organizacao ?? [],
+      };
     },
     staleTime: 60_000,
   });
 
-  const catalogo = React.useMemo<McpToolMeta[]>(() => query.data ?? [], [query.data]);
+  const catalogo = React.useMemo<McpToolMeta[]>(
+    () => (query.data?.tools ?? []).filter((c) => !(ocultar ?? []).includes(c.name)),
+    [query.data, ocultar],
+  );
+  const desligadasPelaOrg = React.useMemo(
+    () => new Set(query.data?.desligadas ?? []),
+    [query.data],
+  );
   const porNome = React.useMemo(
     () => new Map(catalogo.map((c) => [c.name, c])),
     [catalogo],
@@ -200,7 +226,9 @@ export function ToolPicker({ value, onChange, disabled }: Props) {
   const cheio = vagas <= 0;
 
   /** Ids salvos que o servidor não oferece mais — some da tela seria mentir. */
-  const orfas = value.filter((id) => !porNome.has(id));
+  const orfas = value.filter((id) => !porNome.has(id) && !desligadasPelaOrg.has(id));
+  /** Ids salvos de capacidade que a organização desligou — voltam a valer ao ligar. */
+  const desligadasSalvas = value.filter((id) => desligadasPelaOrg.has(id));
 
   /**
    * `vagasExigidas` é o que DECIDE, e por padrão é o tamanho do resultado.
@@ -416,6 +444,17 @@ export function ToolPicker({ value, onChange, disabled }: Props) {
           </div>
         ) : null}
       </div>
+
+      {desligadasSalvas.length > 0 ? (
+        <p
+          data-testid="capacidades-desligadas-pela-organizacao"
+          className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground"
+        >
+          {t(
+            "Propostas está desligada nesta organização: o rascunho automático de proposta fica guardado e volta a valer quando alguém ligar em Configurações › Propostas.",
+          )}
+        </p>
+      ) : null}
 
       {orfas.length > 0 ? (
         <div

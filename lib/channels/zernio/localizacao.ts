@@ -28,7 +28,7 @@ import type { ZernioInboundMessage } from "./webhook";
 /**
  * O texto que o provedor põe no lugar do pino: `📍 Location` para a localização
  * atual, e `📍 <nome do lugar>` quando o cliente escolhe um lugar com nome no
- * mapa — medido em 24/09/2026: "📍 Plaza Paso de Oro" chegou sem coordenadas no
+ * mapa — medido em 24/09/2026: "📍 Praça da Matriz" chegou sem coordenadas no
  * webhook e COM elas (mais nome e endereço) na API. Enquanto só a primeira forma
  * era reconhecida, o lugar com nome entrava como texto e o link do mapa sumia.
  *

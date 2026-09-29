@@ -1,6 +1,6 @@
 /**
  * O cartão do pino mostra à equipe o endereço aproximado que o Google deu
- * (chave de Mapas, 0444) — e, sem ele, o mesmo "Localização compartilhada" de antes.
+ * (chave de Mapas, 0493) — e, sem ele, o mesmo "Localização compartilhada" de antes.
  */
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

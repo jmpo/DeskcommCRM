@@ -11,12 +11,30 @@ export interface UploadedMedia {
   kind: "image" | "video" | "audio" | "document";
 }
 
+/**
+ * Onde o arquivo VAI SUBIR — e é aqui que o caminho se decide, não no render.
+ *
+ * `mensagem` (padrão) é a rota de sempre: bucket `whatsapp-media`, o arquivo
+ * vira mensagem e vai para o cliente. `nota` é a rota nova
+ * `/notes/media`, bucket `internal-media` — o arquivo vira anexo de nota
+ * interna e NUNCA sai do nosso Storage. A bifurcação é uma escolha do caller
+ * (o composer, que sabe em que modo está) porque é a única decisão que não dá
+ * para derivar do arquivo: o mesmo PDF pode ser os dois.
+ */
+export type DestinoDoUpload = "mensagem" | "nota";
+
 export function useUploadMedia() {
   return useMutation({
-    mutationFn: async (args: { conversationId: string; file: File | Blob; filename?: string }) => {
+    mutationFn: async (args: {
+      conversationId: string;
+      file: File | Blob;
+      filename?: string;
+      destino?: DestinoDoUpload;
+    }) => {
       const form = new FormData();
       form.append("file", args.file, args.filename ?? (args.file instanceof File ? args.file.name : "audio"));
-      const res = await fetch(`/api/v1/conversations/${args.conversationId}/media`, {
+      const rota = args.destino === "nota" ? "notes/media" : "media";
+      const res = await fetch(`/api/v1/conversations/${args.conversationId}/${rota}`, {
         method: "POST",
         body: form,
       });

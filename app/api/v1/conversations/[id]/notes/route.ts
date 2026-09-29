@@ -13,13 +13,18 @@ import { audit } from "@/lib/audit";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { mencaoAtingeUsuario, tokensDeMencao } from "@/lib/notifications/mentions";
+import { isMediaPathOwnedBy } from "@/lib/messaging/media/upload-validation";
 import { createNoteSchema } from "@/lib/schemas/notes";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
-const COLS = "id, conversation_id, body, created_by_user_id, created_by_name, created_at";
+// As três colunas de anexo (migration 0483) entram nos DOIS caminhos: sem elas
+// no SELECT o card da nota devolveria `undefined` em vez de `null` e o renderer
+// ligaria o anexo com um path inexistente.
+const COLS =
+  "id, conversation_id, body, created_by_user_id, created_by_name, created_at, media_storage_path, media_mime, media_size_bytes";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -81,6 +86,19 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
     });
   }
 
+  // `anexo` é o trio que a rota de upload acabou de devolver. Ele NÃO é
+  // validado de novo aqui (mime/tamanho são da allowlist do upload, que já
+  // rodou com o arquivo na mão) — só a forma, pelo schema. `isMediaPathOwnedBy`
+  // é o corte de posse: um path fora de {org}/{conversa}/ não pode virar anexo
+  // de uma conversa que não é dele, nem que o cliente tenha agent.
+  const anexo = parsed.data.anexo;
+  if (anexo && !isMediaPathOwnedBy(anexo.storage_path, org.orgId, id)) {
+    return fail("validation_failed", t("Dados inválidos."), 422, {
+      requestId,
+      details: { anexo: ["anexo fora desta conversa."] },
+    });
+  }
+
   const { data, error } = await supabase
     .from("conversation_notes")
     .insert({
@@ -89,6 +107,13 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
       body: parsed.data.body,
       created_by_user_id: user.id,
       created_by_name: user.full_name ?? null,
+      ...(anexo
+        ? {
+            media_storage_path: anexo.storage_path,
+            media_mime: anexo.media_mime,
+            media_size_bytes: anexo.media_size_bytes,
+          }
+        : {}),
     })
     .select(COLS)
     .single();

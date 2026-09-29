@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "titulo": "Recursos opcionais — a área única",
+  "descricao": "Pedido do mantenedor (doc 73, desenho no doc 80): um lugar que mostra tudo o que se liga e desliga, se está ligado e onde se ajusta. Só leitura — quem grava continua sendo a tela de cada assunto. O laço de retorno é o teste: recurso novo com porta no menu que não esteja no catálogo reprova o CI.",
+  "lanes": [
+    {
+      "id": "fontes",
+      "label": "Fontes que já existiam"
+    },
+    {
+      "id": "nucleo",
+      "label": "lib/recursos-opcionais"
+    },
+    {
+      "id": "telas",
+      "label": "Telas"
+    },
+    {
+      "id": "guarda",
+      "label": "Laço de retorno"
+    }
+  ],
+  "mainPath": [
+    "modulos",
+    "catalogo",
+    "estado",
+    "telaEmpresa"
+  ],
+  "nodes": [
+    {
+      "id": "modulos",
+      "lane": "fontes",
+      "label": "MODULOS_OPCIONAIS",
+      "sublabel": "lib/instalacao/modulos.ts · o catálogo deriva daqui, sem lista paralela",
+      "type": "lib",
+      "dot": "blue"
+    },
+    {
+      "id": "navcatalogo",
+      "lane": "fontes",
+      "label": "NAV_CATALOG",
+      "sublabel": "lib/navigation/catalogo.ts · portas com modulo:/capacidade:",
+      "type": "lib",
+      "dot": "blue"
+    },
+    {
+      "id": "settings",
+      "lane": "fontes",
+      "label": "organizations.settings",
+      "sublabel": "lido pelos leitores de cada tela (roteamento, conversões, Jev, MFA…)",
+      "type": "table",
+      "dot": "sky"
+    },
+    {
+      "id": "detectores",
+      "lane": "fontes",
+      "label": "Detectores do servidor",
+      "sublabel": "emailConfigurado, googleEstaConfigurado, appDaMeta, vapidPronto… só booleano",
+      "type": "lib",
+      "dot": "blue"
+    },
+    {
+      "id": "catalogo",
+      "lane": "nucleo",
+      "label": "catalogo.ts",
+      "sublabel": "RECURSOS_OPCIONAIS + estadoDoRecurso (nunca lança)",
+      "type": "lib",
+      "dot": "violet"
+    },
+    {
+      "id": "estado",
+      "lane": "nucleo",
+      "label": "estado.ts",
+      "sublabel": "detectarServidor, fontesDaEmpresa · só servidor",
+      "type": "lib",
+      "dot": "violet"
+    },
+    {
+      "id": "telaAdmin",
+      "lane": "telas",
+      "label": "/admin/sistema",
+      "sublabel": "Recursos opcionais: Módulos, Comportamento, Depende do servidor",
+      "type": "ui",
+      "dot": "emerald"
+    },
+    {
+      "id": "telaEmpresa",
+      "lane": "telas",
+      "label": "/app/settings/recursos",
+      "sublabel": "Configurações › Sua empresa · manager+ · Ajustar leva à tela da chave",
+      "type": "ui",
+      "dot": "emerald"
+    },
+    {
+      "id": "teste",
+      "lane": "guarda",
+      "label": "recursos-opcionais-catalogo.test.ts",
+      "sublabel": "reprova módulo/porta fora do catálogo, link morto e texto sem espanhol",
+      "type": "test",
+      "dot": "amber"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "modulos",
+      "to": "catalogo",
+      "label": "um item por módulo"
+    },
+    {
+      "id": "e2",
+      "from": "navcatalogo",
+      "to": "catalogo",
+      "label": "porta onde a empresa usa o módulo"
+    },
+    {
+      "id": "e3",
+      "from": "settings",
+      "to": "estado",
+      "label": "lido pela sessão"
+    },
+    {
+      "id": "e4",
+      "from": "detectores",
+      "to": "estado",
+      "label": "configurado / não configurado"
+    },
+    {
+      "id": "e5",
+      "from": "estado",
+      "to": "catalogo",
+      "label": "FontesDeEstado"
+    },
+    {
+      "id": "e6",
+      "from": "catalogo",
+      "to": "telaAdmin",
+      "label": "Depende do servidor"
+    },
+    {
+      "id": "e7",
+      "from": "catalogo",
+      "to": "telaEmpresa",
+      "label": "lista da empresa"
+    },
+    {
+      "id": "e8",
+      "from": "navcatalogo",
+      "to": "telaEmpresa",
+      "label": "porta em Sua empresa"
+    },
+    {
+      "id": "e9",
+      "from": "teste",
+      "to": "catalogo",
+      "label": "reprova recurso fora da lista"
+    },
+    {
+      "id": "e10",
+      "from": "teste",
+      "to": "navcatalogo",
+      "label": "varre as portas condicionadas"
+    }
+  ]
+}

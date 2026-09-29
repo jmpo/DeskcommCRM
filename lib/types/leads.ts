@@ -90,6 +90,15 @@ export interface Lead {
   } | null;
   assigned_at: string | null;
   last_activity_at: string | null;
+  /**
+   * 0071: quando o lead ENTROU no estágio atual. Carimbado por trigger.
+   *
+   * É o relógio de "tempo no estágio" (`hoursInStage` do card do Kanban) e
+   * nada mais: `last_activity_at` é tempo SEM RESPOSTA, que é outra pergunta.
+   * Nullable porque a coluna é `timestamptz` sem `not null` — o backfill da 0071
+   * cobriu o que existia, mas lead escrito fora do trigger pode vir nulo.
+   */
+  stage_changed_at: string | null;
   expected_close_date: string | null;
   closed_at: string | null;
   source: string;

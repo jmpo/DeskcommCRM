@@ -18,15 +18,17 @@
 #       montagem perde em SILÊNCIO (a metade que dá sentido à asserção).
 #   M2  CONTROLE NEGATIVO: um merge que não encosta em arquivo congelado segue passando.
 #       É o que separa "barramento" de "bloqueio de todo merge".
-#   M3  O LADO QUE A ROTA NÃO DECIDE: no `pre-merge-commit` o git NÃO escreve MERGE_HEAD
-#       (sondado por hook-sonda, caso M3-PREMISSA), então a procedência que o #1161 usa para
-#       inocentar o que VEIO DA MAIN não é decidível aqui — a rota falha FECHADO e a saída é
-#       a válvula declarada, medida nas duas metades (sem válvula barra, com válvula passa).
+#   M3  O LADO QUE A ROTA DECIDE (o #374): no `pre-merge-commit` o git NÃO escreve MERGE_HEAD
+#       (sondado por hook-sonda, caso M3-PREMISSA), mas entrega o outro lado em
+#       `GITHEAD_<sha>=<ref>`. Com esse sinal a procedência do #1161 fica decidível também no
+#       caminho LIMPO, e o merge que só traz o invariante da main PASSA — era ele o falso
+#       positivo da #374. M3-SEM-SINAL é a metade que fecha: no MESMO estado, removendo só a
+#       variável, a rota volta a falhar FECHADO.
 #
-# Controle de vivacidade: M1 (o aborto) e M3-sem-válvula ficam VERMELHOS com o
-# `loop/hooks/pre-merge-commit` removido — é o que prova que este arquivo mede o hook e não
-# a si mesmo. M2 e M3-com-válvula continuam verdes: medem o outro lado (que o hook não barra
-# o que não deve e que há saída declarada).
+# Controle de vivacidade: M1 (o aborto) fica VERMELHO com o `loop/hooks/pre-merge-commit`
+# removido — é o que prova que este arquivo mede o hook e não a si mesmo. M3 fica VERMELHO
+# com o sinal `GITHEAD_*` tirado do guard (ele volta a recusar). M2 continua verde: mede o
+# outro lado, que o hook não barra.
 #
 # ⚠️ Nenhum número de casos escrito aqui, de propósito: contagem em prosa envelhece a cada
 # caso novo e ninguém a revisa. Quem precisa do número RODA o arquivo — o rodapé o imprime.
@@ -207,28 +209,68 @@ assert_exit "$(exit_de "$r")" 0 "M3-PREMISSA: a sonda deixa o merge seguir (mede
 assert_contains "$(cat "$SONDA_SAIDA" 2>/dev/null)" "MERGE_HEAD=AUSENTE" "M3-PREMISSA: no pre-merge-commit o git NÃO escreveu MERGE_HEAD"
 assert_contains "$(cat "$SONDA_SAIDA" 2>/dev/null)" "ORIG_HEAD=" "M3-PREMISSA: a sonda rodou mesmo (ORIG_HEAD presente)"
 
-# ── M3 · a main mexe no invariante e a branch NÃO: falha FECHADO, com saída declarada ─
-# O merge não enfraquece NADA (o invariante da branch é o da base), mas a rota não tem como
-# provar isso sem MERGE_HEAD. Recusar é o lado seguro (a doutrina do guard: bloquear pede
-# válvula declarada; liberar perde o eval em silêncio) — desde que a válvula EXISTA. As duas
-# metades correm em fixtures SEPARADOS: depois de uma recusa o índice fica encenado, e medir a
-# segunda metade sobre o estado da primeira mediria a bagunça, não a válvula.
+# ── M3 · a main mexe no invariante e a branch NÃO: o merge limpo PASSA (#374) ─────────
+# O merge não enfraquece NADA (o invariante da branch é o da base) — mas o git chama
+# `pre-merge-commit` ANTES de escrever o MERGE_HEAD (M3-PREMISSA), e sem aquela referência as
+# seis condições do guard não tinham por onde começar: a rota falhava FECHADO sobre o que a
+# main trouxe, acusando quem mergeia (#374). O mesmo git entrega o outro lado, NAQUELE
+# instante, em `GITHEAD_<sha>=<ref>` — com ele a procedência decide igual no caminho LIMPO.
+# As asserções medem o RESULTADO (merge feito com dois pais, invariante da main no HEAD), não
+# só o exit: sem guard nenhum o merge também sairia 0.
 m3a="$TMP/m3a"; armar "$m3a" "$principal" "$BASE"
 printf 'só trabalho meu\n' > "$m3a/meu-trabalho.txt"
 commitar "$m3a" "commit próprio, sem tocar no invariante"
 SHA_M3A=$(git -C "$m3a" rev-parse HEAD)
+assert_igual "$(git -C "$m3a" log --oneline "$BASE"..HEAD -- "$INV" | wc -l | tr -d ' ')" "0" "M3: a branch NÃO tocou o invariante (a premissa do caso)"
 r=$(merge_auto "$m3a" "" origin/main)
-assert_recusa "$(exit_de "$r")" "M3: a main muda o invariante e a branch não — a rota falha FECHADO"
-assert_contains "$(saida_de "$r")" "$INV" "M3: e a mensagem nomeia o invariante (não é recusa anônima)"
-assert_igual "$(git -C "$m3a" rev-parse HEAD)" "$SHA_M3A" "M3: e o HEAD ficou PARADO"
+assert_exit "$(exit_de "$r")" 0 "M3: o merge limpo que só traz o invariante da main PASSA (#374)"
+assert_igual "$(pais_de "$m3a")" "2" "M3: e o merge foi mesmo feito"
+assert_contains "$(git -C "$m3a" show "HEAD:$INV")" "MARCADOR-MAIN" "M3: e o invariante da main chegou ao HEAD"
 
+# ── M3-SEM-SINAL · o MESMO estado, sem o `GITHEAD_*`: a rota volta a falhar FECHADO ─────
+# Sem esta metade o M3 acima seria uma asserção sobre si mesmo (um guard apagado também
+# deixaria o merge passar). O fixture troca o `pre-merge-commit` por um que raspura só a
+# variável e despacha os guards como o git faria: o sinal é o que decide, e a doutrina de
+# falhar FECHADO quando não há sinal NÃO mudou.
+m3s="$TMP/m3s"; armar "$m3s" "$principal" "$BASE"
+printf 'só trabalho meu\n' > "$m3s/meu-trabalho.txt"
+commitar "$m3s" "commit próprio, sem tocar no invariante"
+cat > "$m3s/loop/hooks/pre-merge-commit" <<'RASPA'
+#!/usr/bin/env bash
+# raspura o sinal do outro lado e só então despacha os guards (é o git sem o GITHEAD_*)
+for nome in $(env | sed -n 's/^\(GITHEAD_[^=]*\)=.*/\1/p'); do unset "$nome"; done
+exec bash "$(git rev-parse --show-toplevel)/loop/hooks/pre-commit"
+RASPA
+chmod +x "$m3s/loop/hooks/pre-merge-commit"
+SHA_M3S=$(git -C "$m3s" rev-parse HEAD)
+r=$(merge_auto "$m3s" "" origin/main)
+assert_recusa "$(exit_de "$r")" "M3-SEM-SINAL: sem o sinal, a MESMA montagem volta a ser RECUSADA"
+assert_contains "$(saida_de "$r")" "$INV" "M3-SEM-SINAL: e a mensagem nomeia o invariante (não é recusa anônima)"
+assert_igual "$(git -C "$m3s" rev-parse HEAD)" "$SHA_M3S" "M3-SEM-SINAL: e o HEAD ficou PARADO (nada foi commitado)"
+
+# e a válvula declarada continua de pé — ela deixou de ser a ÚNICA saída deste caminho,
+# mas ninguém a retirou: quem está com pressa ou sem o sinal ainda tem por onde sair.
 m3b="$TMP/m3b"; armar "$m3b" "$principal" "$BASE"
 printf 'só trabalho meu\n' > "$m3b/meu-trabalho.txt"
 commitar "$m3b" "commit próprio, sem tocar no invariante"
 r=$(merge_auto "$m3b" "DESKCOMM_GOV_INVARIANTS_EDIT=1" origin/main)
-assert_exit "$(exit_de "$r")" 0 "M3: com a válvula declarada o MESMO merge passa (é saída, não beco)"
+assert_exit "$(exit_de "$r")" 0 "M3: com a válvula declarada o MESMO merge segue passando (a saída não foi retirada)"
 assert_igual "$(pais_de "$m3b")" "2" "M3: e o merge foi mesmo feito"
 assert_contains "$(git -C "$m3b" show "HEAD:$INV")" "MARCADOR-MAIN" "M3: e o invariante da main chegou ao HEAD"
+
+# ── M4 · o sinal é FORJÁVEL: um commit COMUM com `GITHEAD_*` não vira merge ───────────
+# `GITHEAD_<sha>` é variável de ambiente, e quem roda o commit a escreve. Um `git commit`
+# COMUM (sem merge) que edita o invariante à mão, com o sinal apontando para a ponta da main,
+# tem de ser recusado como qualquer edição: as condições 3 a 6 do guard prendem o resultado ao
+# conteúdo da main, e o sinal sozinho não inocenta nada.
+m4="$TMP/m4"; armar "$m4" "$principal" "$BASE"
+inv "$SLOT_BRANCH" "$SLOT_MAIN" 'it("MARCADOR-FORJADO", () => {});' > "$m4/$INV"
+git -C "$m4" add -A >/dev/null
+SHA_M4=$(git -C "$m4" rev-parse HEAD)
+r=$( cd "$m4" && env "GITHEAD_$PONTA_MAIN=origin/main" git commit -q -m "edição disfarçada" 2>&1 ); rc=$?
+assert_recusa "$rc" "M4: commit comum com GITHEAD_<ponta> forjado que edita o invariante é RECUSADO"
+assert_contains "$r" "$INV" "M4: e a mensagem nomeia o invariante"
+assert_igual "$(git -C "$m4" rev-parse HEAD)" "$SHA_M4" "M4: e o HEAD ficou PARADO (nada foi commitado)"
 
 printf '\nmerge-auto-commit-passa-pelos-guards: %s casos, %s falha(s)\n' "$casos" "$falhas"
 [ "$falhas" -eq 0 ] || exit 1

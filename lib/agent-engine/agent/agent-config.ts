@@ -33,6 +33,7 @@ export interface PublishedAgentConfig {
   historyTokenWindow: number;
   handoffKeywords: string[];
   handoffToolEnabled: boolean;
+  proposalAiDraftEnabled: boolean;
   splitMessages: boolean;
   splitMaxChars: number;
   /** input multimodal (imagem/áudio/pdf) habilitado no turno (Onda 3). */
@@ -108,6 +109,7 @@ interface Row {
   history_token_window: number;
   handoff_keywords: string[] | null;
   handoff_tool_enabled: boolean;
+  proposal_ai_draft_enabled: boolean;
   split_messages: boolean;
   split_max_chars: number;
   multimodal_input: boolean;
@@ -138,6 +140,7 @@ const SELECT_AGENT_CONFIG_COLUMNS = `a.operation_mode,a.paused_at,a.operation_re
             v.history_token_window,
             v.handoff_keywords,
             v.handoff_tool_enabled,
+            v.proposal_ai_draft_enabled,
             v.split_messages,
             v.split_max_chars,
             v.multimodal_input,
@@ -194,6 +197,7 @@ function mapAgentConfigRow(r: Row): PublishedAgentConfig {
       .map((k) => k.toLowerCase().trim())
       .filter((k) => k !== ''),
     handoffToolEnabled: r.handoff_tool_enabled,
+    proposalAiDraftEnabled: r.proposal_ai_draft_enabled,
     splitMessages: r.split_messages,
     splitMaxChars: r.split_max_chars,
     multimodalInput: r.multimodal_input,

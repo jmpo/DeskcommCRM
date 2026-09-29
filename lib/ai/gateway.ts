@@ -85,8 +85,9 @@ export function resolveLanguageModel(model: ModelId): LanguageModel | null {
 
 export function isEmbeddingProviderConfigured(): boolean {
   // Embeddings go through the gateway when `AI_GATEWAY_API_KEY` is set;
-  // otherwise the worker calls `openai/...` directly via OPENAI_API_KEY.
-  return Boolean(env.AI_GATEWAY_API_KEY) || Boolean(env.OPENAI_API_KEY);
+  // otherwise the worker uses an OpenAI or OpenRouter key from the installation.
+  // Tenant credentials are resolved by temChaveDeEmbedding(organizationId).
+  return Boolean(env.AI_GATEWAY_API_KEY || env.OPENAI_API_KEY || env.OPENROUTER_API_KEY);
 }
 
 /**

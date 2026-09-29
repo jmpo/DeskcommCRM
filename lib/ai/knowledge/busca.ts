@@ -16,7 +16,30 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { embedText } from "@/lib/ai/embed";
-import { MODELO_DE_EMBEDDING } from "@/lib/ai/embeddings/chave";
+
+/**
+ * Limiar do CAMINHO DO HUMANO — o mesmo que a ferramenta MCP `crm_search_knowledge`
+ * usa. Mora aqui, e não em `lib/mcp/tools/evolucao.ts`, por um motivo prático: a
+ * operação é única, e uma constante duplicada é o primeiro passo para a busca do
+ * operador e a da IA divergirem sobre o mesmo acervo.
+ *
+ * É o MESMO default do banco desde a migration 0097. Era 0.72 na ferramenta MCP,
+ * e o produto tinha TRÊS limiares para o mesmo acervo: 0.40 na RPC, 0.72 no turno
+ * do agente e 0.72 nesta capacidade. Duas pessoas perguntando a mesma coisa pelo
+ * mesmo material recebiam respostas diferentes conforme a porta por onde entraram.
+ *
+ * O turno do agente lê `ai_agents.config.rag_similarity_threshold`, cujo padrão
+ * também é 0,40 (`agent-config.ts`, `guardrails-schema.ts`). Quem pergunta na tela
+ * pode escopar por agente e herdar o limiar dele — é o caminho que devolve a MESMA
+ * resposta que a IA daria.
+ */
+export const LIMIAR_PADRAO_BUSCA = 0.4;
+
+/**
+ * Vocabulário de `knowledge_searches.author_kind` (CHECK da 0484, par vigiado em
+ * `tests/invariants/vocabulario-banco-x-typescript.test.ts`).
+ */
+export const KNOWLEDGE_SEARCH_AUTHOR_KINDS = ["human", "ai"] as const;
 
 export interface TrechoEncontrado {
   chunk_id: string;
@@ -67,7 +90,9 @@ export async function buscarConhecimento(
   }
 
   const embed = deps?.embed ?? embedText;
-  const { embedding } = await embed(p.pergunta, {
+  // `model` é o que calculou ESTA pergunta; a busca só compara com trechos do
+  // mesmo modelo — trocar de provedor não mistura vetores de mapas diferentes.
+  const { embedding, model } = await embed(p.pergunta, {
     organizationId: p.organizationId,
     ponto: "embedding_consultar",
   });
@@ -84,7 +109,7 @@ export async function buscarConhecimento(
     p_embedding: `[${embedding.join(",")}]`,
     p_k: p.topK,
     p_threshold: PISO,
-    p_embedding_model: MODELO_DE_EMBEDDING,
+    p_embedding_model: model,
   });
 
   if (error) {

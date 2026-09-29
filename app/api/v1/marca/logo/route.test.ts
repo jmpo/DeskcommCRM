@@ -72,6 +72,7 @@ function criarAdminEspiao(logoAnteriorDaOrganizacao: string | null = null) {
   const fromChamadas: string[] = [];
   const rpcChamadas: Array<{ nome: string; args: unknown }> = [];
   const removeChamadas: string[] = [];
+  const upsertChamadas: Array<Record<string, unknown>> = [];
 
   const client = {
     from: (tabela: string) => {
@@ -87,7 +88,10 @@ function criarAdminEspiao(logoAnteriorDaOrganizacao: string | null = null) {
         select: () => builder,
         eq: () => builder,
         maybeSingle: async () => ({ data: linha, error: null }),
-        upsert: async () => ({ error: null }),
+        upsert: async (valores: Record<string, unknown>) => {
+          upsertChamadas.push(valores);
+          return { error: null };
+        },
       };
       return builder;
     },
@@ -106,7 +110,7 @@ function criarAdminEspiao(logoAnteriorDaOrganizacao: string | null = null) {
     },
   };
 
-  return { client, fromChamadas, rpcChamadas, removeChamadas };
+  return { client, fromChamadas, rpcChamadas, removeChamadas, upsertChamadas };
 }
 
 function usuarioAdminDeOrganizacao(): AuthUser {
@@ -269,5 +273,93 @@ describe("escopo=instalacao — só o dono do servidor alcança, e a organizaç�
       "escopo=instalacao chamou .from() na tabela da ORGANIZAÇÃO",
     ).not.toContain("organizations");
     expect(espiao.rpcChamadas).toHaveLength(0);
+  });
+});
+
+/**
+ * O ÍCONE DA ABA (migration 0443) reusa esta rota com `peca=icone`. O que tem de
+ * valer: grava SÓ `favicon_path` (nunca o logo), e só na instalação — pedido com
+ * `escopo=organizacao` é recusado antes de qualquer ida ao banco ou ao storage.
+ */
+describe("peca=icone — o ícone da aba grava favicon_path, e só na instalação", () => {
+  it("dono do servidor sobe o ícone: grava favicon_path e não toca o logo", async () => {
+    vi.mocked(loadAuthUser).mockResolvedValue(usuarioDonoDoServidor());
+    const espiao = criarAdminEspiao();
+    vi.mocked(createAdminClient).mockReturnValue(espiao.client as never);
+
+    const form = new FormData();
+    form.set("escopo", "instalacao");
+    form.set("peca", "icone");
+    form.set("file", arquivoPng());
+
+    const { POST } = await import("./route");
+    const res = await POST(
+      new NextRequest("http://localhost/api/v1/marca/logo", { method: "POST", body: form }),
+    );
+
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(espiao.upsertChamadas).toHaveLength(1);
+    const gravado = espiao.upsertChamadas[0] ?? {};
+    expect(gravado.favicon_path).toMatch(/^platform\/[0-9a-f-]{36}\.png$/);
+    expect(gravado, "o ícone sobrescreveu o logo").not.toHaveProperty("logo_path");
+    expect(gravado).not.toHaveProperty("logo_dark_path");
+  });
+
+  it("DELETE do ícone zera favicon_path e não toca o logo", async () => {
+    vi.mocked(loadAuthUser).mockResolvedValue(usuarioDonoDoServidor());
+    const espiao = criarAdminEspiao();
+    vi.mocked(createAdminClient).mockReturnValue(espiao.client as never);
+
+    const { DELETE } = await import("./route");
+    const res = await DELETE(
+      new NextRequest("http://localhost/api/v1/marca/logo?escopo=instalacao&peca=icone", {
+        method: "DELETE",
+      }),
+    );
+
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(espiao.upsertChamadas).toEqual([
+      expect.objectContaining({ favicon_path: null }),
+    ]);
+    expect(espiao.upsertChamadas[0]).not.toHaveProperty("logo_path");
+  });
+
+  it("escopo=organizacao com peca=icone é recusado com 422, sem banco nem storage", async () => {
+    vi.mocked(loadAuthUser).mockResolvedValue(usuarioAdminDeOrganizacao());
+    const espiao = criarAdminEspiao();
+    vi.mocked(createAdminClient).mockReturnValue(espiao.client as never);
+
+    const form = new FormData();
+    form.set("escopo", "organizacao");
+    form.set("peca", "icone");
+    form.set("file", arquivoPng());
+
+    const { POST } = await import("./route");
+    const res = await POST(
+      new NextRequest("http://localhost/api/v1/marca/logo", { method: "POST", body: form }),
+    );
+
+    expect(res.status).toBe(422);
+    expect(espiao.fromChamadas).toHaveLength(0);
+    expect(espiao.rpcChamadas).toHaveLength(0);
+  });
+
+  it("peca desconhecida é recusada com 422", async () => {
+    vi.mocked(loadAuthUser).mockResolvedValue(usuarioDonoDoServidor());
+    const espiao = criarAdminEspiao();
+    vi.mocked(createAdminClient).mockReturnValue(espiao.client as never);
+
+    const form = new FormData();
+    form.set("escopo", "instalacao");
+    form.set("peca", "fundo");
+    form.set("file", arquivoPng());
+
+    const { POST } = await import("./route");
+    const res = await POST(
+      new NextRequest("http://localhost/api/v1/marca/logo", { method: "POST", body: form }),
+    );
+
+    expect(res.status).toBe(422);
+    expect(espiao.upsertChamadas).toHaveLength(0);
   });
 });

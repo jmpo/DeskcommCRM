@@ -77,6 +77,13 @@ export const crmListConversations: McpToolDefinition<typeof listInputShape> = {
         // é erro de tipo. A tool do MCP não expõe filtro por comando (quem
         // pergunta é a tela), então ela não filtra por ele.
         comando: undefined,
+        // `tag` e `modo` também saem `undefined` EXPLICITO, e pela MESMA razão do
+        // `comando`: o `.transform()` do schema de marcador (#1274) torna a chave
+        // de SAÍDA obrigatória-de-tipo (`string[] | undefined`), não opcional.
+        // A tool do MCP não expõe filtro por etiqueta (quem pergunta é a tela), e
+        // omitir a chave seria erro de tipo — não omissão silenciosa.
+        tag: undefined,
+        modo: undefined,
         limit: input.limit,
         cursor: input.cursor,
       },

@@ -263,6 +263,7 @@ export async function triggerHandoff(
             conversationId: input.conversationId,
             contactId,
             reason: input.reason,
+            origem: input.origem,
             serviceBoundary: input.serviceBoundary,
           });
 

@@ -180,6 +180,7 @@ interface FormState {
   history_token_window: number;
   handoff_keywords: string[];
   handoff_tool_enabled: boolean;
+  proposal_ai_draft_enabled: boolean;
   cases_enabled: boolean;
   split_messages: boolean;
   split_max_chars: number;
@@ -279,6 +280,7 @@ export function buildState(args: {
       "pessoa real",
     ],
     handoff_tool_enabled: version?.handoff_tool_enabled ?? true,
+    proposal_ai_draft_enabled: version?.proposal_ai_draft_enabled ?? true,
     cases_enabled: version?.cases_enabled ?? false,
     split_messages: version?.split_messages ?? false,
     split_max_chars: version?.split_max_chars ?? 600,
@@ -341,6 +343,7 @@ function toVersionPayload(s: FormState) {
     history_token_window: s.history_token_window,
     handoff_keywords: s.handoff_keywords,
     handoff_tool_enabled: s.handoff_tool_enabled,
+    proposal_ai_draft_enabled: s.proposal_ai_draft_enabled,
     cases_enabled: s.cases_enabled,
     split_messages: s.split_messages,
     split_max_chars: s.split_max_chars,
@@ -1233,6 +1236,22 @@ export function AgentForm(props: Props) {
                 "Diferente de passar a conversa: aqui o agente continua atendendo. Quando esbarra em algo que só uma pessoa resolve — aprovar um desconto, por exemplo — ele abre um pedido interno e retoma assim que for respondido.",
               )}
             </p>
+          </Card>
+
+          {/* Propostas comerciais */}
+          <Card className="space-y-3 p-4">
+            <h3 className="text-sm font-medium">{t("Propostas comerciais")}</h3>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="proposal_ai_draft_enabled"
+                checked={form.proposal_ai_draft_enabled}
+                onCheckedChange={(v) => patch({ proposal_ai_draft_enabled: v })}
+                disabled={disabled}
+              />
+              <Label htmlFor="proposal_ai_draft_enabled">
+                {t("Deixar o agente rascunhar uma proposta quando o cliente pedir orçamento")}
+              </Label>
+            </div>
           </Card>
 
           {/* Follow-up */}

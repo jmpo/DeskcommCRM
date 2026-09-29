@@ -44,7 +44,7 @@ export default async function CredentialsPage() {
     .eq("organization_id", activeOrg.orgId)
     .order("created_at", { ascending: false });
 
-  const credentials = (data ?? []) as unknown as CredentialRow[];
+  const credentials = (data ?? []) as CredentialRow[];
   const canWrite = ROLE_RANK[activeOrg.role] >= ROLE_RANK.admin;
 
   // Mesma regra do DELETE — e a mesma da FK `ON DELETE RESTRICT`: TODA versão

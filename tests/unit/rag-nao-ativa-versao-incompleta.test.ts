@@ -30,7 +30,10 @@ vi.mock("@/lib/ai/embed", () => ({
   embedText: vi.fn(),
   SemChaveDeEmbeddingError: class SemChaveDeEmbeddingError extends Error {},
 }));
-vi.mock("@/lib/ai/embeddings/chave", () => ({ resolverChaveDeEmbedding: vi.fn() }));
+vi.mock("@/lib/ai/embeddings/chave", () => ({
+  resolverChaveDeEmbedding: vi.fn(),
+  modeloDeEmbedding: () => "openai/text-embedding-3-small",
+}));
 vi.mock("@/lib/ai/rag/debounce", () => ({ acquireDebounce: vi.fn() }));
 // O documento puxa os extratores (pdf); o caminho exercitado aqui é o de FAQ.
 vi.mock("@/lib/ai/rag/ingest/documento", () => ({

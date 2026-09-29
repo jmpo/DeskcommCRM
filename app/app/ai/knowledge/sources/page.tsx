@@ -4,11 +4,7 @@ import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { ROLE_RANK } from "@/lib/auth/types";
 import { createClient } from "@/lib/supabase/server";
-import {
-  EXPLICACAO_DA_ORIGEM,
-  resolverChaveDeEmbedding,
-} from "@/lib/ai/embeddings/chave";
-import type { EstadoDaChave } from "@/components/ai/ChaveDeConhecimento";
+import { montarEstadoDaChave } from "@/lib/ai/embeddings/estado";
 import type { SourceRow } from "@/hooks/ai/useKnowledgeSources";
 import { AcervoClient, type AgenteQueUsa } from "./_client";
 
@@ -46,7 +42,7 @@ export default async function AcervoPage() {
 
   const supabase = await createClient();
 
-  const [{ data: sourcesRaw }, { data: agentesRaw }, chave, { data: credenciais }] =
+  const [{ data: sourcesRaw }, { data: agentesRaw }, estadoDaChave] =
     await Promise.all([
       supabase
         .from("ai_knowledge_sources")
@@ -61,13 +57,7 @@ export default async function AcervoPage() {
         .select("id, name, published_version_id, ai_agent_versions!inner(id, knowledge_source_ids)")
         .eq("organization_id", activeOrg.orgId)
         .is("archived_at", null),
-      resolverChaveDeEmbedding(activeOrg.orgId),
-      supabase
-        .from("ai_provider_credentials_safe")
-        .select("id, label, api_key_last4, validated_at, validation_error, is_active")
-        .eq("organization_id", activeOrg.orgId)
-        .eq("provider", "openai")
-        .order("created_at", { ascending: true }),
+      montarEstadoDaChave(supabase, activeOrg.orgId),
     ]);
 
   const initialSources = (sourcesRaw ?? []) as unknown as SourceRow[];
@@ -87,15 +77,6 @@ export default async function AcervoPage() {
       };
     })
     .filter((a) => a.materiais.length > 0);
-
-  const estadoDaChave: EstadoDaChave = {
-    pode_indexar: chave !== null,
-    origem: chave?.origem ?? null,
-    explicacao: chave ? EXPLICACAO_DA_ORIGEM[chave.origem] : null,
-    chave_em_uso: chave?.rotulo ?? null,
-    avisos: chave?.avisos ?? [],
-    credenciais_openai: (credenciais ?? []) as EstadoDaChave["credenciais_openai"],
-  };
 
   return (
     <div className="flex h-full flex-col gap-6 p-6">

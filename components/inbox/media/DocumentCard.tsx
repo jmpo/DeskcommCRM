@@ -11,15 +11,17 @@ interface Props {
   sizeBytes: number | null;
   storagePath: string | null;
   isOutbound: boolean;
+  /** Fonte alternativa para mídia de NOTA interna (#1863, F3) — ver ImageMedia. */
+  src?: string;
 }
 
 /** Card de documento: rótulo (PDF/MP4/…), tamanho e download. */
-export function DocumentCard({ messageId, mime, sizeBytes, storagePath, isOutbound }: Props) {
+export function DocumentCard({ messageId, mime, sizeBytes, storagePath, isOutbound, src }: Props) {
   const t = useT();
   const label = mediaFileLabel(mime, storagePath);
   return (
     <a
-      href={mediaSrc(messageId)}
+      href={src ?? mediaSrc(messageId)}
       target="_blank"
       rel="noreferrer"
       aria-label={`${t("Baixar")} ${label} (${formatBytes(sizeBytes)})`}

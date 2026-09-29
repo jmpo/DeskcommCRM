@@ -19,7 +19,12 @@ import type {
   ChaveDeOrcamentoDaInstalacao,
   ComportamentoDaInstalacao,
 } from "@/lib/instalacao/comportamento";
-import type { ModuloOpcional } from "@/lib/instalacao/modulos";
+import type { ModuloOpcional, MODULOS_OPCIONAIS_POR_FLAG } from "@/lib/instalacao/modulos";
+
+/** Só os módulos que esta tela liga/desliga — nunca "honorarios" (módulo de
+ * tabela, ADR-0002): `updateModuloDaInstalacao` não aceita esse valor, e o tipo
+ * aqui existe pra isso dar erro em build, não silenciosamente em runtime. */
+type ModuloPorFlag = (typeof MODULOS_OPCIONAIS_POR_FLAG)[number];
 
 /**
  * Cada interruptor salva na hora, sem botão de confirmar — mesmo desenho do
@@ -182,7 +187,7 @@ export function FormularioDeComportamento({ inicial }: { inicial: ComportamentoD
  * `.env`). Mesmo desenho do cartão de cima: salva no clique, volta no erro.
  */
 /** Cada módulo, como ele aparece aqui. O texto diz o que ligar ABRE, não só o nome. */
-const MODULOS_NA_TELA: ReadonlyArray<{ modulo: ModuloOpcional; id: string; rotulo: string; descricao: string }> = [
+const MODULOS_NA_TELA: ReadonlyArray<{ modulo: ModuloPorFlag; id: string; rotulo: string; descricao: string }> = [
   {
     modulo: "banco_externo",
     id: "modulo-banco-externo",
@@ -197,6 +202,20 @@ const MODULOS_NA_TELA: ReadonlyArray<{ modulo: ModuloOpcional; id: string; rotul
     descricao:
       "Ligado, cada empresa pode montar roteiros de perguntas que a IA conduz durante a conversa (nome, CPF, interesse…), e as respostas aparecem na ficha do cliente. Desligado, a tela, o menu e o roteiro no atendimento da IA somem.",
   },
+  {
+    modulo: "propostas",
+    id: "modulo-propostas",
+    rotulo: "Propostas comerciais",
+    descricao:
+      "Ligado, cada empresa pode ligar em Configurações › Propostas o módulo de proposta comercial: a IA levanta o que o cliente precisa, monta a proposta pelos modelos da empresa e o PDF sai pelo WhatsApp. Desligado, nenhuma empresa vê a tela, o menu nem as ferramentas do agente.",
+  },
+  {
+    modulo: "crm_b2b",
+    id: "modulo-crm-b2b",
+    rotulo: "Empresas e pessoas (venda para empresas)",
+    descricao:
+      "Ligado, cada empresa ganha no CRM o cadastro de Empresas (razão social e CNPJ, com os dados públicos preenchidos pela BrasilAPI), as Pessoas que decidem dentro delas, com vários telefones, e a importação de planilha CSV ou Excel. Consultar um CNPJ manda o número para a BrasilAPI. Desligado, as telas e o menu somem.",
+  },
 ];
 
 export function FormularioDeModulos({ ligados }: { ligados: readonly ModuloOpcional[] }) {
@@ -205,7 +224,7 @@ export function FormularioDeModulos({ ligados }: { ligados: readonly ModuloOpcio
   const [erro, setErro] = useState<string | null>(null);
   const [pendente, startTransition] = useTransition();
 
-  function trocar(modulo: ModuloOpcional, valor: boolean) {
+  function trocar(modulo: ModuloPorFlag, valor: boolean) {
     setErro(null);
     const alternar = (ligar: boolean) =>
       setEstado((atual) => {

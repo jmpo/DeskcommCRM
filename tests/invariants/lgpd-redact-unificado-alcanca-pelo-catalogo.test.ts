@@ -161,6 +161,11 @@ const DECISOES: Record<string, Decisao> = {
     caminho: "cascata",
     razao: "Venda redigida no mesmo molde do pedido: o que é da pessoa sai, o que é do negócio (valor, data) fica pela mesma obrigação fiscal.",
   },
+  crm_proposals: {
+    decidida: "redigir",
+    caminho: "cascata",
+    razao: "0477: destinatario_nome (nome impresso no PDF, D10/0466), briefing_json e resumo_comercial saem — número, valores, itens, datas e status ficam, mesmo molde de orders/crm_leads.",
+  },
   voice_calls: {
     decidida: "redigir",
     caminho: "cascata",
@@ -196,6 +201,11 @@ const DECISOES: Record<string, Decisao> = {
     caminho: "cascata",
     razao: "0379: a cauda do número sai, mas a linha é o 'não me mande mais' — apagá-la faria a pessoa voltar a receber campanha.",
   },
+  channel_session_groups: {
+    decidida: "redigir",
+    caminho: "cascata",
+    razao: "0482 (grupos na inbox, #1647): subject é o NOME do grupo e vira null; contact_id aponta para o placeholder do grupo (contacts.kind = 'whatsapp_group'), e número, conversa e liga/desliga ficam. O que o TITULAR escreveu em grupo é redigido pelo gatilho fn_redigir_conversas_ao_anonimizar, em messages.",
+  },
   // ── redigir pela virada de is_anonymized (gatilho) ────────────────────────
   ai_reply_drafts: {
     decidida: "redigir",
@@ -226,6 +236,11 @@ const DECISOES: Record<string, Decisao> = {
     decidida: "redigir",
     caminho: "gatilho",
     razao: "0391: resumo corrido, compromissos, objeções, próxima ação e declaração do turno são texto de modelo sobre a pessoa — redigidos pela virada, que é o caminho que os DOIS compartilham.",
+  },
+  import_rows: {
+    decidida: "redigir",
+    caminho: "gatilho",
+    razao: "0449 (metade B2B do #1621): raw_data/normalized_data são a linha da planilha como veio — nome, telefone, e-mail, cargo — e error citava o telefone; zerados na virada por fn_redigir_b2b_do_contato_anonimizado, que também redige a pessoa (people) e o vínculo (company_people). A linha fica: número, status e lote são a prova de que o lote rodou.",
   },
   webhook_lead_captures: {
     decidida: "redigir",

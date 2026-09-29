@@ -8,9 +8,12 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -20,6 +23,7 @@ import { PontoDaEtiqueta } from "@/components/tags/PontoDaEtiqueta";
 import { NewContactDialog } from "@/components/contacts/NewContactDialog";
 import { ImportContactsDialog } from "@/components/contacts/ImportContactsDialog";
 import { TAG_DE_CLIENTE } from "@/lib/contacts/cliente";
+import { type ModoDeEtiqueta } from "@/lib/inbox/marcador-da-conversa";
 import { useActiveOrg } from "@/hooks/auth/AuthProvider";
 import { MergeDialog } from "@/components/contacts/MergeDialog";
 import { EmptyContacts } from "@/components/empty";
@@ -49,7 +53,11 @@ export function ContactsListClient() {
   const clientesLigado = useActiveOrg()?.cliente_pela_agenda === true;
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [tag, setTag] = useState<string | undefined>(undefined);
+  // VÁRIAS etiquetas com E/OU (#1274). O estado é a LISTA, e uma etiqueta só é
+  // a lista de um — o que faz "nenhuma escolha" e "vip escolhida" passarem pelo
+  // mesmo caminho, e impede a segunda forma de nascer daqui.
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagMode, setTagMode] = useState<ModoDeEtiqueta | undefined>(undefined);
   const [source, setSource] = useState<string | undefined>(undefined);
   const [orderBy, setOrderBy] = useState<ContactOrderBy>("last_activity_at");
   const [orderDir, setOrderDir] = useState<"asc" | "desc">("desc");
@@ -64,8 +72,16 @@ export function ContactsListClient() {
   }, [searchInput]);
 
   const filters = useMemo(
-    () => ({ search, tag, source, order_by: orderBy, order_dir: orderDir, limit }),
-    [search, tag, source, orderBy, orderDir, limit],
+    () => ({
+      search,
+      tag: tags.length > 0 ? tags : undefined,
+      tagMode,
+      source,
+      order_by: orderBy,
+      order_dir: orderDir,
+      limit,
+    }),
+    [search, tags, tagMode, source, orderBy, orderDir, limit],
   );
   const q = useContactList(filters);
 
@@ -155,19 +171,67 @@ export function ContactsListClient() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" disabled={tagOptions.length === 0}>
-              {tag ? <PontoDaEtiqueta tag={tag} className="mr-2" /> : null}
-              {tag ? `${t("Tag")}: ${tag}` : `${t("Tag")}: ${t("todas")}`}
+              {tags[0] ? <PontoDaEtiqueta tag={tags[0]} className="mr-2" /> : null}
+              {/* Resumo, e não a lista inteira: o gatilho tem a largura do filtro de
+                  origem ao lado. Uma etiqueta mostra o nome; duas mostram a
+                  primeira e o resto em contagem. */}
+              {tags.length === 0
+                ? `${t("Tag")}: ${t("todas")}`
+                : tags.length === 1
+                  ? `${t("Tag")}: ${tags[0]}`
+                  : `${t("Tag")}: ${tags[0]} +${tags.length - 1}`}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             <DropdownMenuLabel>{t("Tag")}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setTag(undefined)}>{t("Todas")}</DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                setTags([]);
+                setTagMode(undefined);
+              }}
+            >
+              {t("Todas")}
+            </DropdownMenuItem>
+            {/* O E/OU so aparece com DUAS etiquetas: com uma so o parametro nao
+                muda o resultado, e um controle que nao muda nada e pior do que
+                nenhum. */}
+            {tags.length > 1 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuRadioGroup
+                  value={tagMode === "ou" ? "ou" : "e"}
+                  onValueChange={(modo) => setTagMode(modo === "ou" ? "ou" : undefined)}
+                >
+                  <DropdownMenuRadioItem value="e">{t("Todas (E)")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="ou">{t("Qualquer uma (OU)")}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </>
+            )}
+            <DropdownMenuSeparator />
+            {/* `DropdownMenuCheckboxItem` marca e NAO fecha o menu — e o
+                `onSelect` com `preventDefault` trava esse comportamento, porque
+                o item de checkbox fecha por padrao. Sem isso, escolher a segunda
+                etiqueta exigiria reabrir o menu. */}
             {tagOptions.map((tagOption) => (
-              <DropdownMenuItem key={tagOption} onClick={() => setTag(tagOption)}>
+              <DropdownMenuCheckboxItem
+                key={tagOption}
+                checked={tags.includes(tagOption)}
+                onCheckedChange={() => {
+                  const escolhida = tags.includes(tagOption);
+                  const proximas = escolhida
+                    ? tags.filter((et) => et !== tagOption)
+                    : [...tags, tagOption];
+                  setTags(proximas);
+                  // O modo so faz sentido com DUAS: com uma so ele nao muda o
+                  // resultado, e o `&modo=ou` na URL seria ruido.
+                  setTagMode(proximas.length > 1 ? tagMode : undefined);
+                }}
+                onSelect={(e) => e.preventDefault()}
+              >
                 <PontoDaEtiqueta tag={tagOption} className="mr-2" />
                 {tagOption}
-              </DropdownMenuItem>
+              </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -204,14 +268,15 @@ export function ContactsListClient() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {(search || tag || source) && (
+        {(search || tags.length > 0 || source) && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setSearchInput("");
               setSearch("");
-              setTag(undefined);
+              setTags([]);
+              setTagMode(undefined);
               setSource(undefined);
             }}
           >

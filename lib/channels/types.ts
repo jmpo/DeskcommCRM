@@ -90,6 +90,12 @@ export interface OutboundContact {
   vcard: string;
 }
 
+/** Um grupo em que o número está. Só canais com capacidade `groups` diferente de "none". */
+export interface ChannelGroup {
+  chatId: string;
+  subject: string | null;
+}
+
 /**
  * A organização em nome de quem a operação de canal acontece.
  *
@@ -161,14 +167,11 @@ export interface OutboundEnvelope extends ChannelTenantScope {
 }
 
 /**
- * O tradutor de formato de UM canal — e nada mais.
- *
- * Adapter NÃO decide se pode enviar: janela de 24h, cap diário, horário
- * comercial, retry e throttle são da cadeia `before_send`. Um `if` de negócio
- * aqui dentro é o defeito que `docs/doctrine/restricao-de-canal.md` existe para
- * evitar — quem quiser saber o que o canal permite pergunta a `capabilitiesOf`.
+ * Uma conversão no vocabulário neutro que o canal traduz — ver
+ * `ChannelAdapter.reportConversion`. Upstream conhece só a venda (`Purchase`);
+ * o fork manda também os eventos de ETAPA (`InitiateCheckout`, `LeadSubmitted`,
+ * `AddToCart`), que podem sair sem valor.
  */
-/** A venda, no vocabulário neutro que o canal traduz. */
 export interface ChannelConversionInput extends ChannelTenantScope {
   sessionRef: string;
   /** Id da conversa NO provedor — o vínculo mais forte com o clique do anúncio. */
@@ -184,11 +187,20 @@ export interface ChannelConversionInput extends ChannelTenantScope {
   currency: string;
 }
 
+/** O desfecho já classificado pelo canal, que é quem lê a resposta crua. */
 export type ChannelConversionResult =
   | { outcome: "ok"; detail?: string }
   | { outcome: "retry"; detail: string; retryInMs?: number }
   | { outcome: "rejected"; detail: string };
 
+/**
+ * O tradutor de formato de UM canal — e nada mais.
+ *
+ * Adapter NÃO decide se pode enviar: janela de 24h, cap diário, horário
+ * comercial, retry e throttle são da cadeia `before_send`. Um `if` de negócio
+ * aqui dentro é o defeito que `docs/doctrine/restricao-de-canal.md` existe para
+ * evitar — quem quiser saber o que o canal permite pergunta a `capabilitiesOf`.
+ */
 export interface ChannelAdapter {
   provider: ChannelProvider;
   /** null = não há endereço possível para este contato neste canal. */
@@ -302,12 +314,13 @@ export interface ChannelAdapter {
   /**
    * Reporta uma venda à plataforma de anúncios PELO CANAL, quando o canal
    * intermediado já tem a ponte configurada do lado dele (o conjunto de dados
-   * ligado ao número, na tela do provedor).
+   * da plataforma ligado ao número, na tela do provedor).
    *
-   * Existe porque, nesse arranjo, quem tem o vínculo com o anúncio é o canal:
-   * o CRM não precisa de token nem de dataset próprios para a venda chegar. Quem
-   * chama (`lib/conversoes/`) testa a presença do método em vez de perguntar
-   * QUAL provider é — o lint de canal proíbe o nome fora daqui.
+   * Existe porque, nesse arranjo, quem guarda o vínculo com o anúncio é o
+   * canal: o CRM não precisa de token nem de dataset próprios para a venda
+   * chegar. Quem chama (`lib/conversoes/`, via `conversao-pelo-canal.ts`) testa
+   * a presença do método em vez de perguntar QUAL provider é — o lint de canal
+   * proíbe o nome fora daqui.
    *
    * NUNCA lança: devolve o desfecho classificado. A diferença entre "tente de
    * novo" e "precisa de gente" é do canal, que é quem lê a resposta crua.
@@ -381,6 +394,12 @@ export interface ChannelAdapter {
    * quem chama testa a presença em vez de perguntar QUAL provider é.
    */
   checkHealth?(input: ChannelTenantScope & { sessionRef: string }): Promise<ChannelHealth>;
+
+  /** Grupos do número. Ausente = o canal não lista grupos. */
+  listGroups?(input: { sessionRef: string }): Promise<ChannelGroup[]>;
+
+  /** Liga/desliga o recebimento de grupos na sessão; `true` só com a troca confirmada. */
+  setGroupIntake?(input: { sessionRef: string; receive: boolean }): Promise<boolean>;
 
   /**
    * Envia uma DEFINIÇÃO APROVADA — o único caminho de volta quando a janela de

@@ -685,16 +685,28 @@ describe("presença e recuperação transacionais", () => {
       await c.query("select set_config('request.jwt.claims',$1,true)", [
         JSON.stringify({ sub: GOV_AGENT_A, role: "authenticated" }),
       ]);
-      await expect(
-        c.query(
-          "delete from followup_enrollment_events where enrollment_id=$1 and idempotency_key='t:2'",
-          [enr],
-        ),
-      ).rejects.toMatchObject({ code: "42501" });
+      // Desde a 0490 (#1915) a trilha não tem policy de DELETE para a sessão: a
+      // RLS esconde a linha antes do gatilho, e o DELETE apaga ZERO em vez de
+      // levantar 42501. A contagem explícita é a recusa — "não lançou" não é.
+      const apagou = await c.query(
+        "delete from followup_enrollment_events where enrollment_id=$1 and idempotency_key='t:2'",
+        [enr],
+      );
+      expect(apagou.rowCount).toBe(0);
     } finally {
       await c.query("rollback");
       c.release();
     }
+    // Controle: o evento que a sessão tentou apagar existia (senão o zero acima
+    // seria trivial) e segue lá.
+    expect(
+      (
+        await pool.query(
+          "select count(*)::int n from followup_enrollment_events where enrollment_id=$1 and idempotency_key='t:2'",
+          [enr],
+        )
+      ).rows[0].n,
+    ).toBe(1);
     // Retenção do evento não autoriza reconstituir a origem pela posição atual.
     await pool.query(
       "delete from followup_enrollment_events where enrollment_id=$1 and idempotency_key='t:4'",

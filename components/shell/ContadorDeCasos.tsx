@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
  * Quantos casos esperam uma PESSOA — o número ao lado de "Casos" no menu.
  *
  * Conta só `awaiting_human`: é o estado em que a IA parou de avançar naquele
- * assunto e está esperando a equipe ("Esperando tua resposta" na tela). Caso
+ * assunto e está esperando a equipe ("Aguardando você" na tela). Caso
  * esperando o cliente não pede nada de quem opera, e contá-lo ensinaria a
  * ignorar o número. Reusa a MESMA consulta da tela de Casos (a chave do React
  * Query é a mesma), então abrir a tela e olhar o menu não dobram a leitura.

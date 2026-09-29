@@ -226,6 +226,10 @@ describe("InboxFilters — seletor de número e o filtro órfão", () => {
     render(
       <InboxFilters value={{ ...VALUE, tag: "etiqueta-orfa" }} onChange={() => {}} />,
     );
+    // ⚠️ `getByLabelText` continua valendo (#1274): o seletor deixou de ser um
+    // `Select` (que era `role="combobox"`) e virou um botão de menu, mas o RÓTULO
+    // ACESSÍVEL é o mesmo — e é por ele que se procura o controle, e por ele que
+    // o dicionário de tradução o indexa.
     const seletor = screen.getByLabelText("Filtrar por tag");
     expect(seletor).toBeInTheDocument();
     expect(seletor).toHaveTextContent("etiqueta-orfa");

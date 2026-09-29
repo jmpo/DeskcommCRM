@@ -27,7 +27,7 @@ export function AlertsBell() {
 function VisibleAlertsBell() {
   const t = useT();
   const { data } = useAgentInbox("open");
-  // Som próprio da organização para venda confirmada e pedido de pessoa.
+  // O som da organização para a etapa que avisa e o pedido de pessoa.
   useSonsDaCentral(data?.items);
   const count = data?.open_count ?? 0;
 

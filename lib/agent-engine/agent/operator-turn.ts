@@ -51,6 +51,7 @@ import { insertInboxItem } from '../db/repository';
 import { buildMcpTurnTools } from '../edge/crm/mcp-tools';
 import { runModelCall } from '../edge/llm/run-model-call';
 import { avisarCapacidadesAusentes } from './inbound-turn';
+import { maoDoOperador } from './entrega-de-capacidade';
 import { criaRetornoDbPg } from '../../followup/retorno-pg';
 import { emitAgentActivityForContact } from '../../leads/agent-activity';
 import { copyDaPromessaSemDono } from '../../ai/agent-inbox-copy';
@@ -479,7 +480,8 @@ export function createOperatorTurnHandler(deps: InboundTurnDeps) {
     // registra a promessa em aberto. Chamar o modelo para descobrir que ele não
     // tem mão nenhuma seria gastar a chave do self-hoster para nada.
     let mcp: Awaited<ReturnType<typeof buildMcpTurnTools>> = null;
-    if (agentConfig.operatorToolIds.length > 0) {
+    const mao = maoDoOperador(agentConfig);
+    if (mao.toolIds.length > 0) {
       try {
         mcp = await buildMcpTurnTools(
           deps.crmCfg,
@@ -487,8 +489,9 @@ export function createOperatorTurnHandler(deps: InboundTurnDeps) {
           // A ponte lê `toolIds`; o papel guarda a lista dele em
           // `operatorToolIds`. A troca acontece AQUI, num ponto só, para que
           // nenhum caminho do Operador alcance a lista do Conversador por
-          // engano — que seria dar a ele a mão do outro.
-          { ...agentConfig, toolIds: agentConfig.operatorToolIds },
+          // engano — que seria dar a ele a mão do outro. E sem o que é
+          // `FORA_DO_OPERADOR` (a proposta nascia na primeira mensagem).
+          mao,
           log,
         );
       } catch (err) {

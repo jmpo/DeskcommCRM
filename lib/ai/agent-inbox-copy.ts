@@ -80,6 +80,9 @@ export const KIND_LABEL = {
   // conseguiu. O motivo cru do upstream (`user_ended`, `do_not_disturb`) nunca
   // chega à tela — vira frase de gente no corpo do aviso, escrito pelo worker.
   voice_call_missed: "Alguém ligou e ninguém atendeu",
+  proposal_expired_notice: "Uma proposta venceu sem decisão",
+  proposal_acceptance_rate_drop: "A taxa de aceite de propostas caiu",
+  proposal_promised_not_created: "Uma proposta prometida não foi criada",
   // Diz o que NÃO aconteceu do ponto de vista de quem opera — "não chegou ao
   // WhatsApp da equipe" —, e nunca "a entrega falhou": quem lê precisa entender
   // que o caso continua aberto e que ninguém foi avisado por fora do CRM. O
@@ -91,6 +94,8 @@ export const KIND_LABEL = {
   // devia estar recebendo mensagem e não recebe, e é isso que faz alguém abrir
   // o aviso. O passo que conserta fica no corpo.
   followup_sem_agente: "Um follow-up está publicado e não está disparando",
+  proposta_travada: "Uma proposta ficou presa em envio e voltou a rascunho",
+  proposta_pronta_para_revisao: "Uma proposta está pronta para revisão",
   other: "Aviso do assistente",
 } as const satisfies Record<InboxKind, string>;
 

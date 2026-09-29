@@ -225,7 +225,7 @@ const MARCA_CONGELADA: Record<string, EntradaDeMarca> = {
     categoria: "PROTOCOLO",
     motivo:
       "é a guarda do contrato acima: este teste é o que reprova quem renomear o header. Trocar a string aqui para 'limpar a marca' desarmaria a única proteção que o contrato tem",
-    marcas: ["x-deskcomm-event", "x-deskcomm-signature", "x-deskcomm-signature"],
+    marcas: ["x-deskcomm-event", "x-deskcomm-signature", "x-deskcomm-signature", "x-deskcomm-signature"],
   },
   "lib/mcp/server.ts": {
     categoria: "PROTOCOLO",
@@ -814,11 +814,17 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     motivo:
       "link de mapa que `lib/messaging/localizacao.ts` monta com as coordenadas do pino que o CLIENTE mandou pelo WhatsApp: é o que o atendente toca para ver o endereço de entrega e o que o agente lê. O código não chama o host; o celular abre o app de mapas. Trocar pelo domínio do revendedor não abriria mapa nenhum.",
   },
-  // ── geocodificação reversa do pino (0444): destino de chamada ──
+  // ── geocodificação reversa do pino (0493): destino de chamada ──
   "maps.googleapis.com": {
     categoria: "FORNECEDOR",
     motivo:
       "endpoint da Geocoding API do Google (`lib/mapas/geocodificacao.ts`), chamado com a chave da PRÓPRIA organização para transformar as coordenadas do pino em rua e cidade aproximadas. É o destino do request: trocar pelo domínio do revendedor faria a chamada não chegar a lugar nenhum. Sem chave cadastrada, o código não fala com ele.",
+  },
+  // ── empresas e pessoas (metade B2B do #1621): consulta de CNPJ ──
+  "brasilapi.com.br": {
+    categoria: "FORNECEDOR",
+    motivo:
+      "endpoint público da BrasilAPI (`lib/brasil-api/client.ts`) que devolve os dados cadastrais de um CNPJ. É o destino do request, só chamado com o módulo de empresas ligado e só para o CNPJ que alguém da organização cadastrou ou importou; trocar pelo domínio do revendedor faria a consulta não chegar a lugar nenhum.",
   },
   // ── prospecção (PR #963): destino de chamada do crawler ──
   "api.apify.com": {

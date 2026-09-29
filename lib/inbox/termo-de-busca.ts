@@ -1,11 +1,19 @@
 /**
- * As regras do termo que a pessoa digita na busca do Inbox.
+ * As regras do termo que a pessoa digita na busca — do Inbox e dos contatos.
  *
  * Este módulo é a ÚNICA régua: o schema Zod (`listConversationsQuerySchema`) e a
  * tela (`components/inbox/InboxLayout.tsx`) leem daqui. Repetir a regra de um dos
  * lados faz os dois divergirem no primeiro ajuste — e, como a rota recusa e o
  * `useConversationsRealtime` trata falha com `showApiError`, a divergência não
  * aparece como bug silencioso: aparece como erro na cara de quem está digitando.
+ *
+ * Desde a #1835 a listagem de CONTATOS lê as MESMAS duas funções
+ * (`app/api/v1/contacts/_handler.ts`). Ali a régua é aplicada DENTRO do handler,
+ * e não no schema: a tela de contatos manda o termo do jeito que foi digitado
+ * (`useContactList` não tem guarda de piso) e um `422` acenderia `showApiError`
+ * a cada letra digitada — enquanto o MCP (`crm_search_contacts`) chamaria o
+ * handler direto e receberia um `ZodError` no meio da ferramenta. O efeito que a
+ * issue pede é o mesmo dos dois lados: abaixo do piso a busca NÃO VAI AO BANCO.
  */
 
 /**

@@ -38,6 +38,7 @@ import { ARCHIVED_AT, queryTolerantToMissingArchived } from "@/lib/channels/arch
 import { conferirDefinicao } from "@/lib/channels/conferir-definicao";
 import { estadoDaJanela } from "@/lib/channels/janela";
 import { isMediaPathOwnedBy } from "@/lib/messaging/media/upload-validation";
+import { assertUrlDeMidiaSegura } from "@/lib/messaging/media/url-de-midia-externa";
 import {
   buildVcard,
   normalizePhoneForDisplay,
@@ -532,6 +533,22 @@ export async function sendMessageHandler(
     );
   }
 
+  // Só `media_url` (sem `media_storage_path`) é baixada pelo gateway: é esse o
+  // envio que precisa da guarda anti-SSRF, e antes de a linha existir.
+  if (input.media_url && !input.media_storage_path) {
+    try {
+      await assertUrlDeMidiaSegura(input.media_url);
+    } catch (erro) {
+      throw new ApiError(
+        422,
+        "unsafe_media_url",
+        { motivo: erro instanceof Error ? erro.message : "unsafe_url" },
+        ctx.requestId,
+        "media_url recusada: o endereço não pode ser baixado pelo servidor.",
+      );
+    }
+  }
+
   let outboundBody = input.body ?? null;
   let outboundMetadata: Record<string, unknown> = { ...(input.metadata ?? {}) };
 
@@ -954,6 +971,30 @@ export async function sendMessageHandler(
           // cópia guardada no envio, que poderia divergir da linha.
           replyToExternalId: citada?.external_id ?? null,
         }));
+      } else if (input.media_url) {
+        // A spec da proposta comercial já previa isto ("Enviar | sendFile com
+        // media_url") e nunca chegou a ser ligado: um envio só com `media_url`
+        // (sem `media_storage_path` — que é só para arquivo já dentro da
+        // PRÓPRIA conversa, ver `isMediaPathOwnedBy` acima) caía no `else` de
+        // texto puro, com corpo vazio — nenhum arquivo saía. A URL já passou
+        // pela guarda anti-SSRF antes de a linha existir
+        // (`assertUrlDeMidiaSegura`): ela chega também pela API pública e
+        // pelo MCP, e quem a baixa é o gateway, de dentro da rede do servidor.
+        await checkBoundary();
+        ({ externalId } = await adapter.send({
+          beforeSend: checkBoundary,
+          organizationId: ctx.organization_id,
+          sessionRef: resolveSessionRef(c.channel_sessions),
+          to: chatId,
+          providerConversationId: c.provider_conversation_id,
+          kind: input.type,
+          media: {
+            url: input.media_url,
+            mime: input.media_mime ?? "application/octet-stream",
+            caption: input.body ?? null,
+          },
+          replyToExternalId: citada?.external_id ?? null,
+        }));
       } else if (input.type === "contact") {
         const sc = outboundMetadata.shared_contact as
           { name: string; phone_number: string } | undefined;
@@ -1007,31 +1048,39 @@ export async function sendMessageHandler(
         message=await recordApprovedReplyReceiptSupabase(supabase,ctx.approvedReply,message.id,externalId,
           externalId?(adapter.echoExternalIds?.({externalId,recipient:chatId})??[externalId]):[]) as unknown as Message;
       } else {
-      await removerEcoDoProprioEnvio(
-        supabase,
-        ctx.organization_id,
-        c.id,
-        message.id,
-        externalId,
-        externalId
-          ? (adapter.echoExternalIds?.({ externalId, recipient: chatId }) ?? [externalId])
-          : [],
-      );
-      const { data: updated } = await supabase
-        .from("messages")
-        .update({
-          status: "sent",
-          external_id: externalId,
-          ack: 0,
-          // Colunas só do template — é o que responde custo e conformidade de
-          // janela depois, sem varrer jsonb.
-          ...(input.type === "template"
-            ? { template_name: input.template_name, template_language: input.template_language }
-            : {}),
-        })
-        .eq("id", message.id)
-        .select(MSG_COLS)
-        .maybeSingle();
+      const candidatosDoEco = externalId
+        ? (adapter.echoExternalIds?.({ externalId, recipient: chatId }) ?? [externalId])
+        : [];
+      const limparEco = () =>
+        removerEcoDoProprioEnvio(supabase, ctx.organization_id, c.id, message.id, externalId, candidatosDoEco);
+      const marcarEnviada = (comId: boolean) =>
+        supabase
+          .from("messages")
+          .update({
+            status: "sent",
+            ...(comId ? { external_id: externalId } : {}),
+            ack: 0,
+            // Colunas só do template — é o que responde custo e conformidade de
+            // janela depois, sem varrer jsonb.
+            ...(input.type === "template"
+              ? { template_name: input.template_name, template_language: input.template_language }
+              : {}),
+          })
+          .eq("id", message.id)
+          .select(MSG_COLS)
+          .maybeSingle();
+      await limparEco();
+      let { data: updated, error: erroAoMarcar } = await marcarEnviada(true);
+      // O eco que o webhook inseriu ENTRE a limpeza e este UPDATE já ocupa o id
+      // (o eco grava a mesma forma que o envio — #1855), e o unique recusa. É a
+      // mesma recusa que o watchdog trata em `markRedriveSent`: limpar de novo e
+      // carimbar outra vez; se ainda colidir, a mensagem SAIU e fica `sent` sem
+      // o id — nunca `queued`, que é pedir para ser reenviada.
+      if (erroAoMarcar?.code === "23505") {
+        await limparEco();
+        ({ data: updated, error: erroAoMarcar } = await marcarEnviada(true));
+        if (erroAoMarcar?.code === "23505") ({ data: updated } = await marcarEnviada(false));
+      }
       if (updated) message = updated as unknown as Message;
       }
     } catch (err) {

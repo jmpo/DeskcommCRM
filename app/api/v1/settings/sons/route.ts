@@ -1,9 +1,9 @@
 import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
- * /api/v1/settings/sons — os sons dos avisos da Central (venda confirmada e
+ * /api/v1/settings/sons — os sons dos avisos da Central (a etapa que avisa e o
  * pedido de pessoa), escolhidos pela organização. Ver `lib/notifications/sons-da-org.ts`.
  *
- *   GET    — URL assinada (1 h) de cada som, para a campanha tocar. Qualquer membro.
+ *   GET    — URL assinada (1 h) de cada som, para a campainha tocar. Qualquer membro.
  *   POST   — multipart `tipo` + `arquivo`. Manager ou acima. Substitui o anterior.
  *   DELETE — `?tipo=`. Manager ou acima. Volta ao bipe do produto.
  *
@@ -38,8 +38,23 @@ function ehTipo(v: unknown): v is TipoDeSom {
   return typeof v === "string" && (TIPOS_DE_SOM as readonly string[]).includes(v);
 }
 
-async function lerConfiguracao(orgId: string): Promise<{ settings: Record<string, unknown>; sons: Sons }> {
-  const { data } = await createAdminClient().from("organizations").select("settings").eq("id", orgId).maybeSingle();
+/**
+ * `null` quando a leitura FALHOU — e quem grava tem de parar aí. Tratar a falha
+ * como `settings` vazio faria o update seguinte regravar o jsonb inteiro só com
+ * `sons_de_aviso`, apagando toda a configuração da organização.
+ */
+async function lerConfiguracao(
+  orgId: string,
+): Promise<{ settings: Record<string, unknown>; sons: Sons } | null> {
+  const { data, error } = await createAdminClient()
+    .from("organizations")
+    .select("settings")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (error) {
+    logger.error("[settings/sons] leitura de organizations.settings falhou", { detail: error.message });
+    return null;
+  }
   const settings = ((data as { settings?: Record<string, unknown> } | null)?.settings ?? {}) as Record<string, unknown>;
   const bruto = settings.sons_de_aviso;
   const sons: Sons = {};
@@ -69,7 +84,8 @@ export async function GET(): Promise<Response> {
   const authz = await requireRole("viewer", { requestId, resource: "settings_sons" });
   if (!authz.ok) return authz.response;
 
-  const { sons } = await lerConfiguracao(authz.org.orgId);
+  // Leitura que falhou degrada para o bipe do produto: o aviso toca de qualquer jeito.
+  const sons = (await lerConfiguracao(authz.org.orgId))?.sons ?? {};
   const urls: Record<TipoDeSom, string | null> = { venda: null, pessoa: null };
   for (const tipo of TIPOS_DE_SOM) {
     const caminho = sons[tipo];
@@ -90,6 +106,14 @@ export async function POST(req: NextRequest): Promise<Response> {
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const orgId = authz.org.orgId;
 
+  // Recusa pelo Content-Length declarado ANTES de bufferizar o corpo (como as
+  // rotas de foto do catálogo e de mídia da conversa); o `arquivo.size` abaixo
+  // continua sendo o check autoritativo. A folga cobre o envelope multipart.
+  const declarado = Number(req.headers.get("content-length") ?? 0);
+  if (declarado > TAMANHO_MAXIMO_DO_SOM + 64 * 1024) {
+    return fail("payload_too_large", t("O som pode ter no máximo 1 MB."), 413, { requestId });
+  }
+
   const form = await req.formData().catch(() => null);
   const tipo = form?.get("tipo");
   const arquivo = form?.get("arquivo");
@@ -105,6 +129,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     return fail("unsupported_media_type", t("O som precisa ser MP3, OGG ou WAV."), 415, { requestId });
   }
 
+  // Lê a configuração ANTES de subir: falhar aqui não deixa arquivo órfão.
+  const atual = await lerConfiguracao(orgId);
+  if (!atual) return fail("internal_error", t("Erro ao salvar o som."), 500, { requestId });
+
   const caminho = `${orgId}/${tipo}-${randomUUID()}.${extensaoDoAudio(tipoReal)}`;
   const admin = createAdminClient();
   const { error: erroUp } = await admin.storage
@@ -115,7 +143,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return fail("internal_error", t("Erro ao subir o som."), 500, { requestId });
   }
 
-  const { settings, sons } = await lerConfiguracao(orgId);
+  const { settings, sons } = atual;
   const anterior = sons[tipo];
   if (!(await gravarSons(orgId, settings, { ...sons, [tipo]: caminho }))) {
     await admin.storage.from(BUCKET_DOS_SONS).remove([caminho]);
@@ -125,7 +153,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   // órfão pequeno, nunca um aviso sem som.
   if (anterior) await admin.storage.from(BUCKET_DOS_SONS).remove([anterior]);
 
-  await audit({
+  void audit({
     action: "settings.notification_sound_updated",
     actorUserId: authz.user.id,
     organizationId: orgId,
@@ -150,7 +178,9 @@ export async function DELETE(req: NextRequest): Promise<Response> {
   const tipo = new URL(req.url).searchParams.get("tipo");
   if (!ehTipo(tipo)) return fail("invalid_request", t("Aviso desconhecido."), 400, { requestId });
 
-  const { settings, sons } = await lerConfiguracao(orgId);
+  const atual = await lerConfiguracao(orgId);
+  if (!atual) return fail("internal_error", t("Erro ao salvar o som."), 500, { requestId });
+  const { settings, sons } = atual;
   const caminho = sons[tipo];
   const resto = { ...sons };
   delete resto[tipo];
@@ -159,7 +189,7 @@ export async function DELETE(req: NextRequest): Promise<Response> {
   }
   if (caminho) await createAdminClient().storage.from(BUCKET_DOS_SONS).remove([caminho]);
 
-  await audit({
+  void audit({
     action: "settings.notification_sound_removed",
     actorUserId: authz.user.id,
     organizationId: orgId,

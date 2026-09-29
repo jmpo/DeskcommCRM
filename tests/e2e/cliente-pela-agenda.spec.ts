@@ -226,7 +226,10 @@ test("ligar 'Clientes pela agenda' transforma quem tem horário marcado em clien
   await page.goto("/app/contacts");
   await expect(linhaDoContato(page).getByText("Cliente", { exact: true })).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: /^Tag:/ }).click();
-  await page.getByRole("menuitem", { name: "cliente", exact: true }).click();
+  // Checkbox (#1274): marca e NÃO fecha o menu; fecha-se para o gatilho sair
+  // do aria-hidden que o Radix põe no resto da página.
+  await page.getByRole("menuitemcheckbox", { name: "cliente", exact: true }).click();
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Tag: cliente" })).toBeVisible();
   await expect(linhaDoContato(page)).toBeVisible({ timeout: 30_000 });
   await evidencia(page, info, "5-contatos-filtro-cliente");

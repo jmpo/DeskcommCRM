@@ -69,8 +69,13 @@ function backoffAt(attempts: number): string {
  * mídia aberta já não o cala (`aviso-de-evento-morto.ts`, "as duas famílias").
  *
  * Fire-and-forget: falhar ao avisar não pode derrubar o dreno.
+ *
+ * Exportada (além de `drainEventLog`) porque é ELA que a corrida da issue #880
+ * atravessa: o cron `event-log-drain` e o drain-loop do worker chamam este
+ * dreno ao mesmo tempo, e os dois passam por aqui. O teste da corrida entra por
+ * esta função — `tests/unit/aviso-event-dead-concorrente-abre-uma-vez.test.ts`.
  */
-async function avisarEventoMorto(
+export async function avisarEventoMorto(
   admin: SupabaseClient,
   row: Pick<EventRow, "id" | "organization_id" | "event_type" | "attempts">,
   motivo: string,
@@ -108,6 +113,14 @@ async function avisarEventoMorto(
       body,
     });
     if (error) {
+      // `23505` é o outro dreno chegando primeiro: o índice único parcial
+      // `agent_inbox_event_dead_aberto_unico` (migration 0491) recusou a segunda
+      // linha, e recusar é o que este aviso PROMETE — um por organização e por
+      // família. Antes do índice os dois passavam pelo "não existe" e os dois
+      // inseriam (issue #880); agora quem chega segundo recebe `23505`, que é o
+      // mesmo desfecho de ter encontrado o aviso aberto na consulta de cima, e
+      // não uma falha do dreno.
+      if (error.code === "23505") return;
       logger.error("[event-log.drain] aviso de evento morto recusado", {
         event_id: row.id,
         error: error.message,

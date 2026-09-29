@@ -62,8 +62,29 @@ async function queryRecebidaCom(qs: string): Promise<Record<string, unknown>> {
 describe("GET /api/v1/conversations — o `tag` da query string chega ao handler", () => {
   beforeEach(() => listConversationsHandler.mockClear());
 
-  it("com `?tag=vip`, o handler recebe `tag: \"vip\"`", async () => {
-    expect((await queryRecebidaCom("?tag=vip")).tag).toBe("vip");
+  // ⚠️ O `tag` virou LISTA pela MESMAVia que o `status` já tinha virado (e pelo
+  // mesmo motivo: um filtro de vários valores viaja como repetição na URL). A
+  // compatibilidade NÃO está no TIPO que chega ao handler e sim no PREDICADO: o
+  // caso de uma etiqueta desvia para `aplicarMarcador`, que produz o `or=` de
+  // sempre, byte a byte. O que este arquivo mede é a LEITURA da URL — e a
+  // leitura de uma repetição só existe com `getAll`.
+  it("com `?tag=vip`, o handler recebe a lista `['vip']`", async () => {
+    expect((await queryRecebidaCom("?tag=vip")).tag).toEqual(["vip"]);
+  });
+
+  it("com `?tag=vip&tag=orçamento`, as DUAS chegam — a segunda não se perde", async () => {
+    // A rotura que um `get` aqui causaria: leria a primeira e a tela mostraria
+    // duas etiquetas escolhidas filtrando por uma. Silencioso, e por isso um
+    // caso próprio, e não uma consequência do de cima.
+    expect((await queryRecebidaCom("?tag=vip&tag=orçamento")).tag).toEqual([
+      "vip",
+      "orçamento",
+    ]);
+  });
+
+  it("`?tag=vip&modo=ou` chega com o modo — E/OU não pode ser lido só na tela", async () => {
+    const q = await queryRecebidaCom("?tag=vip&tag=orçamento&modo=ou");
+    expect([q.tag, q.modo]).toEqual([["vip", "orçamento"], "ou"]);
   });
 
   /**
@@ -72,6 +93,9 @@ describe("GET /api/v1/conversations — o `tag` da query string chega ao handler
    * ficaria verde sem provar que a leitura da query string existe.
    */
   it("sem `tag` na URL, o handler recebe `tag: undefined`", async () => {
+    // `getAll` devolve `[]` numa URL sem `tag`, e o schema transforma lista vazia
+    // em `undefined` — "sem filtro". Sem essa transformação, o handler receberia
+    // `[]`, que é um filtro que não casa nada: lista vazia com filtro desligado.
     expect((await queryRecebidaCom("")).tag).toBeUndefined();
   });
 
@@ -99,6 +123,6 @@ describe("GET /api/v1/conversations — o `tag` da query string chega ao handler
 
   it("os dois juntos convivem — `?status=open&tag=vip`", async () => {
     const q = await queryRecebidaCom("?status=open&tag=vip");
-    expect([q.status, q.tag]).toEqual([["open"], "vip"]);
+    expect([q.status, q.tag]).toEqual([["open"], ["vip"]]);
   });
 });

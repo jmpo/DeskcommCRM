@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import type { FlowGraph, FlowNode } from "@/lib/followup/graph-schema";
 import type { FollowupFlowSurface } from "@/lib/followup/api-schemas";
 import type { RFNode, RFNodeData } from "@/lib/followup/graph-mappers";
@@ -16,6 +17,7 @@ import { ClassifyForm } from "./forms/ClassifyForm";
 import { CollectForm } from "./forms/CollectForm";
 import { ConditionForm } from "./forms/ConditionForm";
 import { EndForm } from "./forms/EndForm";
+import { InternalTaskForm } from "./forms/InternalTaskForm";
 import { MatchReplyForm } from "./forms/MatchReplyForm";
 import { RepeatForm } from "./forms/RepeatForm";
 import { SkillForm } from "./forms/SkillForm";
@@ -101,11 +103,14 @@ export function NodeConfigPanel({
 
       <div className="space-y-4 border-t border-border pt-4">
         {type === "trigger" && surface !== "atendimento" && (
-          <p className="text-sm text-text-muted">
-            {t(
-              "Início do fluxo — sem configuração adicional. O disparo (manual, mudança de etapa, silêncio ou fim de conversa) é definido nas configurações do fluxo.",
-            )}
-          </p>
+          <div className="space-y-4">
+            <p className="text-sm text-text-muted">
+              {t(
+                "Início do fluxo — sem configuração adicional. O disparo (manual, mudança de etapa, silêncio ou fim de conversa) é definido nas configurações do fluxo.",
+              )}
+            </p>
+            <MarcadorDeSomenteInterno settings={settings} onSettingsChange={onSettingsChange} />
+          </div>
         )}
         {type === "trigger" && surface === "atendimento" && (
           <ConfiguracoesDoRoteiro settings={settings} onSettingsChange={onSettingsChange} />
@@ -147,6 +152,12 @@ export function NodeConfigPanel({
         {type === "action" && (
           <ActionForm config={node.data.config as ConfigOf<"action">} onChange={(config) => onChange({ config })} />
         )}
+        {type === "internal_task" && (
+          <InternalTaskForm
+            config={node.data.config as ConfigOf<"internal_task">}
+            onChange={(config) => onChange({ config })}
+          />
+        )}
         {type === "end" && (
           <EndForm
             config={node.data.config as ConfigOf<"end">}
@@ -170,6 +181,63 @@ export function NodeConfigPanel({
           {t("Excluir nó")}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * SOMENTE INTERNO (#1540) — a marca que diz ao `validate-publish` que este fluxo
+ * não fala com o cliente.
+ *
+ * A guarda já existia (`validarSomenteInterno` recusa nó de envio num fluxo com
+ * a marca) e a mensagem de recusa mandava o operador "tirar a marca" — mas não
+ * havia lugar nenhum na tela onde pôr ou tirar: o campo só vivia no jsonb, à
+ * mão, via API. Sem o controle, a única via de quem queria um fluxo interno era
+ * editar o rascunho por fora; e quem nunca o marcou nunca foi recusado — a
+ * garantia valia para quem não usava a tela.
+ *
+ * Vai no INÍCIO do fluxo (o nó `trigger`), junto com as outras configurações de
+ * grafo, e não no nó `internal_task`: o fluxo é que é interno, uma caixa só
+ * não decide isso.
+ */
+function MarcadorDeSomenteInterno({
+  settings,
+  onSettingsChange,
+}: {
+  settings?: FlowGraph["settings"];
+  onSettingsChange?: (settings: FlowGraph["settings"]) => void;
+}) {
+  const t = useT();
+  const marcado = settings?.somente_interno === true;
+  // `max_tentativas_pergunta` é OBRIGATÓRIO no schema do grafo: um rascunho
+  // gravado sem ele não pode virar `{}` aqui — o fluxo perderia a trava de
+  // tentativas do roteiro no ato de marcar uma caixa.
+  const base: NonNullable<FlowGraph["settings"]> = {
+    max_tentativas_pergunta: settings?.max_tentativas_pergunta ?? 3,
+    ...settings,
+  };
+  return (
+    <div className="space-y-1" data-testid="somente-interno">
+      <label className="flex cursor-pointer items-center gap-2" htmlFor="fluxo-somente-interno">
+        <Switch
+          id="fluxo-somente-interno"
+          checked={marcado}
+          onCheckedChange={(v) => {
+            if (v) {
+              onSettingsChange?.({ ...base, somente_interno: true });
+              return;
+            }
+            const { somente_interno: _anterior, ...resto } = base;
+            onSettingsChange?.(resto);
+          }}
+        />
+        <span className="text-sm font-medium text-text">{t("Somente interno")}</span>
+      </label>
+      <p className="text-xs text-text-muted">
+        {t(
+          "O fluxo inteiro não fala com o cliente: a publicação recusa qualquer nó que envie mensagem.",
+        )}
+      </p>
     </div>
   );
 }
@@ -256,6 +324,31 @@ function ConfiguracoesDoRoteiro({
           }}
         />
         <p className="text-xs text-text-muted">{t("Em branco, o roteiro encerra depois de 72 horas sem resposta.")}</p>
+      </div>
+      {/* #1130 (@vgamkt): o padrão é NÃO recomeçar para quem já concluiu. */}
+      <div className="space-y-1" data-testid="roteiro-pode-recomecar">
+        <label className="flex cursor-pointer items-center gap-2" htmlFor="roteiro-recomeca">
+          <Switch
+            id="roteiro-recomeca"
+            checked={settings?.pode_recomecar === true}
+            onCheckedChange={(v) => {
+              if (v) {
+                gravar({ pode_recomecar: true });
+                return;
+              }
+              const { pode_recomecar: _anterior, ...resto } = atual;
+              onSettingsChange?.(resto);
+            }}
+          />
+          <span className="text-sm font-medium text-text">
+            {t("Pode recomeçar para quem já concluiu")}
+          </span>
+        </label>
+        <p className="text-xs text-text-muted">
+          {t(
+            "Desligado, o cliente que já respondeu tudo não recebe as mesmas perguntas de novo, mesmo repetindo a palavra-gatilho. Ligue para roteiros que se repetem, como agendamento.",
+          )}
+        </p>
       </div>
     </div>
   );

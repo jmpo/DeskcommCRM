@@ -1,6 +1,10 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
+import {
+  type ModoDeEtiqueta,
+  marcadoresEscolhidos,
+} from "@/lib/inbox/marcador-da-conversa";
 
 export interface ConversationCounts {
   /**
@@ -24,7 +28,17 @@ export interface ConversationCounts {
 /** Os filtros auxiliares ligados na barra, que a contagem tem de aplicar junto. */
 export interface FiltrosDaContagem {
   unread?: boolean;
-  tag?: string;
+  /**
+   * A etiqueta, ou VÁRIAS (#1274).
+   *
+   * O badge conta o MESMO que a lista mostra, então ele recebe a MESMA lista. E
+   * `append`, nunca `set`: com `set` a segunda etiqueta substituiria a primeira e
+   * o badge contaria um filtro diferente do que a lista aplicou — a divergência
+   * que o módulo inteiro existe para impedir.
+   */
+  tag?: string | readonly string[];
+  /** E ou OU entre as etiquetas escolhidas (#1274). `e` é o padrão. */
+  tagMode?: ModoDeEtiqueta;
   channel_session_id?: string;
 }
 
@@ -38,7 +52,13 @@ export function useConversationCounts(
 ) {
   const qs = new URLSearchParams();
   if (filtros.unread) qs.set("unread", "true");
-  if (filtros.tag) qs.set("tag", filtros.tag);
+  for (const marcador of marcadoresEscolhidos(
+    typeof filtros.tag === "string" ? [filtros.tag] : (filtros.tag ?? []),
+  ))
+    qs.append("tag", marcador);
+  // Só `ou` viaja: `e` é o padrão, e mandar `&modo=e` num link de hoje mudaria a
+  // URL sem mudar o sentido do filtro.
+  if (filtros.tagMode === "ou") qs.set("modo", "ou");
   if (filtros.channel_session_id) qs.set("channel_session_id", filtros.channel_session_id);
   const sufixo = qs.toString();
 

@@ -168,7 +168,7 @@ test.describe("filtro por marcador, pela tela", () => {
     await page.addInitScript(() => {
       const w = window as unknown as { __filtro?: string[] };
       w.__filtro = [];
-      const conta = () => document.querySelectorAll('[role="option"]').length;
+      const conta = () => document.querySelectorAll('[role="menuitemcheckbox"]').length;
       // Teto: o painel da conversa re-renderiza a cada 4s (`ReplyReviewPanel`
       // tem `refetchInterval: 4000`, e isso é da BASE, não desta branch — 72
       // chamadas medidas no trace). Sem teto, o filme vira ruído e o log do job
@@ -176,15 +176,15 @@ test.describe("filtro por marcador, pela tela", () => {
       const marca = (verbo: string, alvo: string) =>
         w.__filtro!.length < 400 &&
         w.__filtro!.push(
-          `${performance.now().toFixed(0)}ms ${verbo} ${alvo} | listbox=${
-            document.querySelectorAll('[role="listbox"]').length
+          `${performance.now().toFixed(0)}ms ${verbo} ${alvo} | menu=${
+            document.querySelectorAll('[role="menu"]').length
           } options=${conta()} altura=${document.body.scrollHeight} viewport=${window.innerHeight}`,
         );
       const interessa = (nó: Node): string | null => {
         if (!(nó instanceof Element)) return null;
         const papel = nó.getAttribute("role");
-        if (papel === "option" || papel === "listbox") return `${papel}:${nó.textContent?.trim().slice(0, 40) ?? ""}`;
-        const dentro = nó.querySelector('[role="listbox"], [role="option"]');
+        if (papel === "menuitemcheckbox" || papel === "menu") return `${papel}:${nó.textContent?.trim().slice(0, 40) ?? ""}`;
+        const dentro = nó.querySelector('[role="menu"], [role="menuitemcheckbox"]');
         return dentro ? `ancestral-de:${dentro.getAttribute("role")}` : null;
       };
       new MutationObserver((lista) => {
@@ -217,12 +217,12 @@ test.describe("filtro por marcador, pela tela", () => {
     await marcar(page, "Adicionar tag ao contato", "/contacts/", tagDoContato);
 
     // 3. O seletor oferece a UNIÃO dos dois vocabulários.
-    const seletor = page.getByRole("combobox", { name: "Filtrar por tag" });
+    const seletor = page.getByRole("button", { name: "Filtrar por tag" });
     await seletor.click();
-    await expect(page.getByRole("option", { name: tagDaConversa, exact: true })).toBeVisible({
+    await expect(page.getByRole("menuitemcheckbox", { name: tagDaConversa, exact: true })).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByRole("option", { name: tagDoContato, exact: true })).toBeVisible();
+    await expect(page.getByRole("menuitemcheckbox", { name: tagDoContato, exact: true })).toBeVisible();
 
     // ── EXPERIMENTO: o cerco ao `captura()` ───────────────────────────────────
     // `fullPage: true` redimensiona a viewport para a ALTURA DO DOCUMENTO. Esta
@@ -233,13 +233,13 @@ test.describe("filtro por marcador, pela tela", () => {
     // opção já tinha saído antes dele", que é a bifurcação que um bit não dá.
     const olha = async (marco: string) => {
       const s = await page.evaluate(() => ({
-        listbox: document.querySelectorAll('[role="listbox"]').length,
-        opcoes: [...document.querySelectorAll('[role="option"]')].map((o) => o.textContent?.trim() ?? ""),
+        menu: document.querySelectorAll('[role="menu"]').length,
+        opcoes: [...document.querySelectorAll('[role="menuitemcheckbox"]')].map((o) => o.textContent?.trim() ?? ""),
         altura: document.body.scrollHeight,
         viewport: window.innerHeight,
       }));
       registra(
-        `filtro-instrumento · ${marco} · listbox=${s.listbox} opcoes=[${s.opcoes.join("|")}] altura=${s.altura} viewport=${s.viewport}`,
+        `filtro-instrumento · ${marco} · menu=${s.menu} opcoes=[${s.opcoes.join("|")}] altura=${s.altura} viewport=${s.viewport}`,
       );
     };
     await olha("antes-do-screenshot");
@@ -252,7 +252,7 @@ test.describe("filtro por marcador, pela tela", () => {
     // agora é o filme, despejado logo abaixo.
     try {
       await page
-        .getByRole("option", { name: tagDoContato, exact: true })
+        .getByRole("menuitemcheckbox", { name: tagDoContato, exact: true })
         .click({ timeout: 15_000 });
       registra("filtro-instrumento · clique OK");
     } catch (e) {
@@ -266,14 +266,21 @@ test.describe("filtro por marcador, pela tela", () => {
     registra(`filtro-instrumento · ERROS (${erros.length}):`);
     for (const linha of erros) registra(`filtro-instrumento ·   ${linha}`);
     await olha("depois-do-clique");
+    // O menu de checkbox marca e NÃO fecha (#1274): fecha-se para a lista voltar
+    // a ser alcançável (o Radix marca o resto da página com aria-hidden).
+    await page.keyboard.press("Escape");
     await expect(itemDaLista(page, b.conversa)).toBeVisible({ timeout: 30_000 });
     await expect(itemDaLista(page, a.conversa)).toHaveCount(0);
     await expect(itemDaLista(page, n.conversa)).toHaveCount(0);
     await captura(page, "filtro-tela-02-inbox-pelo-contato");
 
     // 5. O marcador da CONVERSA acha a outra — e só ela.
+    // Com várias etiquetas o padrão é E na MESMA caixa: marcar a da conversa
+    // sem desmarcar a do contato zeraria a lista. Troca-se, como antes.
     await seletor.click();
-    await page.getByRole("option", { name: tagDaConversa, exact: true }).click();
+    await page.getByRole("menuitemcheckbox", { name: tagDoContato, exact: true }).click();
+    await page.getByRole("menuitemcheckbox", { name: tagDaConversa, exact: true }).click();
+    await page.keyboard.press("Escape");
     await expect(itemDaLista(page, a.conversa)).toBeVisible({ timeout: 30_000 });
     await expect(itemDaLista(page, b.conversa)).toHaveCount(0);
     await expect(itemDaLista(page, n.conversa)).toHaveCount(0);
@@ -332,7 +339,7 @@ test.describe("filtro por marcador, pela tela", () => {
     await page.addInitScript(() => {
       const w = window as unknown as { __filtro?: string[] };
       w.__filtro = [];
-      const conta = () => document.querySelectorAll('[role="option"]').length;
+      const conta = () => document.querySelectorAll('[role="menuitemcheckbox"]').length;
       // Teto: o painel da conversa re-renderiza a cada 4s (`ReplyReviewPanel`
       // tem `refetchInterval: 4000`, e isso é da BASE, não desta branch — 72
       // chamadas medidas no trace). Sem teto, o filme vira ruído e o log do job
@@ -340,15 +347,15 @@ test.describe("filtro por marcador, pela tela", () => {
       const marca = (verbo: string, alvo: string) =>
         w.__filtro!.length < 400 &&
         w.__filtro!.push(
-          `${performance.now().toFixed(0)}ms ${verbo} ${alvo} | listbox=${
-            document.querySelectorAll('[role="listbox"]').length
+          `${performance.now().toFixed(0)}ms ${verbo} ${alvo} | menu=${
+            document.querySelectorAll('[role="menu"]').length
           } options=${conta()} altura=${document.body.scrollHeight} viewport=${window.innerHeight}`,
         );
       const interessa = (nó: Node): string | null => {
         if (!(nó instanceof Element)) return null;
         const papel = nó.getAttribute("role");
-        if (papel === "option" || papel === "listbox") return `${papel}:${nó.textContent?.trim().slice(0, 40) ?? ""}`;
-        const dentro = nó.querySelector('[role="listbox"], [role="option"]');
+        if (papel === "menuitemcheckbox" || papel === "menu") return `${papel}:${nó.textContent?.trim().slice(0, 40) ?? ""}`;
+        const dentro = nó.querySelector('[role="menu"], [role="menuitemcheckbox"]');
         return dentro ? `ancestral-de:${dentro.getAttribute("role")}` : null;
       };
       new MutationObserver((lista) => {
@@ -381,12 +388,12 @@ test.describe("filtro por marcador, pela tela", () => {
     await marcar(page, "Adicionar tag ao contato", "/contacts/", tagDoContato);
 
     // 3. O seletor oferece a UNIÃO dos dois vocabulários.
-    const seletor = page.getByRole("combobox", { name: "Filtrar por tag" });
+    const seletor = page.getByRole("button", { name: "Filtrar por tag" });
     await seletor.click();
-    await expect(page.getByRole("option", { name: tagDaConversa, exact: true })).toBeVisible({
+    await expect(page.getByRole("menuitemcheckbox", { name: tagDaConversa, exact: true })).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByRole("option", { name: tagDoContato, exact: true })).toBeVisible();
+    await expect(page.getByRole("menuitemcheckbox", { name: tagDoContato, exact: true })).toBeVisible();
 
     // ── EXPERIMENTO: o mesmo olhar do caso A, sem o screenshot no meio ───────
     // O caso A mede ANTES e DEPOIS do `captura()`. Aqui não há `captura()` no
@@ -394,13 +401,13 @@ test.describe("filtro por marcador, pela tela", () => {
     // lista quando nada redimensiona a viewport.
     const olha = async (marco: string) => {
       const s = await page.evaluate(() => ({
-        listbox: document.querySelectorAll('[role="listbox"]').length,
-        opcoes: [...document.querySelectorAll('[role="option"]')].map((o) => o.textContent?.trim() ?? ""),
+        menu: document.querySelectorAll('[role="menu"]').length,
+        opcoes: [...document.querySelectorAll('[role="menuitemcheckbox"]')].map((o) => o.textContent?.trim() ?? ""),
         altura: document.body.scrollHeight,
         viewport: window.innerHeight,
       }));
       registra(
-        `ablacao-instrumento · ${marco} · listbox=${s.listbox} opcoes=[${s.opcoes.join("|")}] altura=${s.altura} viewport=${s.viewport}`,
+        `ablacao-instrumento · ${marco} · menu=${s.menu} opcoes=[${s.opcoes.join("|")}] altura=${s.altura} viewport=${s.viewport}`,
       );
     };
     // ← A ABLAÇÃO: nenhuma screenshot aqui. É a ÚNICA diferença para o caso A.
@@ -418,7 +425,7 @@ test.describe("filtro por marcador, pela tela", () => {
     let falhaDoClique: Error | null = null;
     try {
       await page
-        .getByRole("option", { name: tagDoContato, exact: true })
+        .getByRole("menuitemcheckbox", { name: tagDoContato, exact: true })
         .click({ timeout: 15_000 });
       registra("ablacao-instrumento · clique OK");
     } catch (e) {
@@ -435,14 +442,21 @@ test.describe("filtro por marcador, pela tela", () => {
     await olha("depois-do-clique");
     await captura(page, "ablacao-filtro-tela-01-uniao-dos-vocabularios-tardia");
     if (falhaDoClique) throw falhaDoClique;
+    // O menu de checkbox marca e NÃO fecha (#1274): fecha-se para a lista voltar
+    // a ser alcançável (o Radix marca o resto da página com aria-hidden).
+    await page.keyboard.press("Escape");
     await expect(itemDaLista(page, b.conversa)).toBeVisible({ timeout: 30_000 });
     await expect(itemDaLista(page, a.conversa)).toHaveCount(0);
     await expect(itemDaLista(page, n.conversa)).toHaveCount(0);
     await captura(page, "ablacao-filtro-tela-02-inbox-pelo-contato");
 
     // 5. O marcador da CONVERSA acha a outra — e só ela.
+    // Com várias etiquetas o padrão é E na MESMA caixa: marcar a da conversa
+    // sem desmarcar a do contato zeraria a lista. Troca-se, como antes.
     await seletor.click();
-    await page.getByRole("option", { name: tagDaConversa, exact: true }).click();
+    await page.getByRole("menuitemcheckbox", { name: tagDoContato, exact: true }).click();
+    await page.getByRole("menuitemcheckbox", { name: tagDaConversa, exact: true }).click();
+    await page.keyboard.press("Escape");
     await expect(itemDaLista(page, a.conversa)).toBeVisible({ timeout: 30_000 });
     await expect(itemDaLista(page, b.conversa)).toHaveCount(0);
     await expect(itemDaLista(page, n.conversa)).toHaveCount(0);
@@ -500,15 +514,16 @@ test.describe("filtro por marcador, pela tela", () => {
     await expect(page.getByRole("group", { name: `Lead: ${cardNeutro}` })).toBeVisible();
 
     await page.getByRole("button", { name: "Tag: todas" }).click();
-    await expect(page.getByRole("menuitem", { name: tagDoContato, exact: true })).toBeVisible({
+    await expect(page.getByRole("menuitemcheckbox", { name: tagDoContato, exact: true })).toBeVisible({
       timeout: 30_000,
     });
     // O da CONVERSA também é oferecido: é a terceira caixa, e o dono decidiu
     // que ela filtra o quadro (doc 40, item 7, 19/09).
-    await expect(page.getByRole("menuitem", { name: soNaConversa, exact: true })).toBeVisible();
+    await expect(page.getByRole("menuitemcheckbox", { name: soNaConversa, exact: true })).toBeVisible();
     await captura(page, "filtro-tela-04-quadro-oferece-o-do-contato-e-o-da-conversa");
 
-    await page.getByRole("menuitem", { name: tagDoContato, exact: true }).click();
+    await page.getByRole("menuitemcheckbox", { name: tagDoContato, exact: true }).click();
+    await page.keyboard.press("Escape");
     await expect(page.getByRole("group", { name: `Lead: ${cardMarcado}` })).toBeVisible({
       timeout: 30_000,
     });
@@ -516,9 +531,13 @@ test.describe("filtro por marcador, pela tela", () => {
     await captura(page, "filtro-tela-05-quadro-filtrado-pelo-contato");
 
     // E pelo marcador da conversa: o mesmo card, e o neutro continua fora.
-    // Com um marcador escolhido, o botão do seletor passa a se chamar por ele.
-    await page.getByRole("button", { name: tagDoContato, exact: true }).click();
-    await page.getByRole("menuitem", { name: soNaConversa, exact: true }).click();
+    // Com um marcador escolhido, o botão do seletor passa a se chamar
+    // "Tag: <marcador>". E o segundo marcador SOMA (E na mesma caixa), então
+    // desmarca-se o do contato antes, para trocar em vez de misturar caixas.
+    await page.getByRole("button", { name: `Tag: ${tagDoContato}`, exact: true }).click();
+    await page.getByRole("menuitemcheckbox", { name: tagDoContato, exact: true }).click();
+    await page.getByRole("menuitemcheckbox", { name: soNaConversa, exact: true }).click();
+    await page.keyboard.press("Escape");
     await expect(page.getByRole("group", { name: `Lead: ${cardMarcado}` })).toBeVisible({
       timeout: 30_000,
     });

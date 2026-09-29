@@ -5,9 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -20,6 +23,7 @@ import { marcadoresDoCard } from "@/lib/kanban/marcadores-do-card";
 import { OwnerBadge } from "./OwnerBadge";
 import {
   agentOwnerFilter,
+  marcadoresDoFiltro,
   parseAgentOwnerFilter,
   type LeadFilters,
 } from "@/lib/kanban/filters";
@@ -129,7 +133,30 @@ export function FilterBar({ filters, onChange, leads, settings }: FilterBarProps
     STATUS_OPTIONS.find((o) => o.value === (filters.status ?? "all"))?.label ?? "Todos",
   );
 
-  const tagLabel = filters.tag ?? t("Tag: todas");
+  // ⚠️ O RÓTULO DO GATILHO RESUME, E NÃO CORTA O FILTRO (#1274). O nome da
+  // primeira etiqueta e o resto viram contagem: o que importa na tela é que há
+  // filtro com DUAS etiquetas, e não qual é a segunda — ela está no menu, com a
+  // caixa marcada. Uma etiqueta só mostra o nome dela, como sempre.
+  const marcadoresEscolhidos = marcadoresDoFiltro(filters.tag);
+  const tagLabel =
+    marcadoresEscolhidos.length === 0
+      ? t("Tag: todas")
+      : marcadoresEscolhidos.length === 1
+        ? `${t("Tag")}: ${marcadoresEscolhidos[0]}`
+        : `${t("Tag")}: ${marcadoresEscolhidos[0]} +${marcadoresEscolhidos.length - 1}`;
+  const alternaEtiqueta = (tag: string) => {
+    const escolhida = marcadoresEscolhidos.includes(tag);
+    const proximas = escolhida
+      ? marcadoresEscolhidos.filter((m) => m !== tag)
+      : [...marcadoresEscolhidos, tag];
+    onChange({
+      ...filters,
+      tag: proximas.length === 0 ? undefined : proximas,
+      // O modo só faz sentido com DUAS: `?tag=vip&modo=ou` é um link que não
+      // significa nada, e a chave de cache/url mudaria à toa.
+      tagMode: proximas.length > 1 ? filters.tagMode : undefined,
+    });
+  };
 
   /**
    * Motivo e categoria da perda (issue #1537). As opções vêm do que ESTÁ no
@@ -289,20 +316,50 @@ export function FilterBar({ filters, onChange, leads, settings }: FilterBarProps
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" disabled={tagOptions.length === 0}>
-            {filters.tag ? <PontoDaEtiqueta tag={filters.tag} className="mr-2" /> : null}
+            {marcadoresEscolhidos[0] ? (
+              <PontoDaEtiqueta tag={marcadoresEscolhidos[0]} className="mr-2" />
+            ) : null}
             {tagLabel}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
-          <DropdownMenuItem onClick={() => onChange({ ...filters, tag: undefined })}>
+          <DropdownMenuItem
+            onClick={() => onChange({ ...filters, tag: undefined, tagMode: undefined })}
+          >
             {t("Todas")}
           </DropdownMenuItem>
+          {/* O E/OU só aparece com DUAS etiquetas. Com uma só o parâmetro não
+              muda o resultado — e um controle que não muda nada é pior do que
+              nenhum. */}
+          {marcadoresEscolhidos.length > 1 && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup
+                value={filters.tagMode === "ou" ? "ou" : "e"}
+                onValueChange={(modo) =>
+                  onChange({ ...filters, tagMode: modo === "ou" ? "ou" : undefined })
+                }
+              >
+                <DropdownMenuRadioItem value="e">{t("Todas (E)")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="ou">{t("Qualquer uma (OU)")}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </>
+          )}
           <DropdownMenuSeparator />
+          {/* Checkbox, e não item comum: `DropdownMenuCheckboxItem` marca e NÃO
+              fecha o menu, que é o que permite escolher a segunda etiqueta sem
+              reabrir o menu. O `onSelect` com `preventDefault` trava esse
+              comportamento, porque o item de checkbox fecha por padrão. */}
           {tagOptions.map((tag) => (
-            <DropdownMenuItem key={tag} onClick={() => onChange({ ...filters, tag })}>
+            <DropdownMenuCheckboxItem
+              key={tag}
+              checked={marcadoresEscolhidos.includes(tag)}
+              onCheckedChange={() => alternaEtiqueta(tag)}
+              onSelect={(e) => e.preventDefault()}
+            >
               <PontoDaEtiqueta tag={tag} className="mr-2" />
               {tag}
-            </DropdownMenuItem>
+            </DropdownMenuCheckboxItem>
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -323,7 +380,7 @@ export function FilterBar({ filters, onChange, leads, settings }: FilterBarProps
 
       {(filters.search ||
         filters.owner ||
-        filters.tag ||
+        marcadoresEscolhidos.length > 0 ||
         filters.overdueOnly ||
         filters.lostReason ||
         filters.lostCategory ||

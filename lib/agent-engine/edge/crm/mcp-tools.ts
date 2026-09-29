@@ -25,6 +25,7 @@ import { IDS_DO_HARNESS, motivoDoHarness } from '@/lib/mcp/tools/ferramentas-do-
 import type { McpAuthResult } from '@/lib/mcp/auth';
 import type { McpContext } from '@/lib/mcp/types';
 import { modulosLigados } from '@/lib/instalacao/modulos';
+import { capacidadesDaOrganizacao } from '@/lib/organizacao/capacidades';
 import { filtrarToolsComCallbackDesabilitado } from '@/lib/followup/callback-policy';
 
 import type { Logger } from '../../obs/logger';
@@ -131,6 +132,7 @@ export async function buildMcpTurnTools(
     auth,
     toolIds: allowed,
     handoffToolEnabled: false,
+    proposalAiDraftEnabled: agentConfig.proposalAiDraftEnabled,
     handoffSignal,
     // "Em que negócios ele pode mexer" — o campo é OPCIONAL na interface, e
     // omiti-lo não é neutro: `escopo ?? []` e vazio significa NENHUM. Este
@@ -139,6 +141,7 @@ export async function buildMcpTurnTools(
     // tela e o card parado. Quem passava era só o dispatcher antigo.
     pipelineIds: agentConfig.pipelineIds,
     modulosLigados: await modulosLigados(cfg.supabase),
+    capacidadesLigadas: await capacidadesDaOrganizacao(cfg.supabase, ids.organizationId),
     ...(ids.contactId ? { contatoDoTurno: ids.contactId } : {}),
   });
 

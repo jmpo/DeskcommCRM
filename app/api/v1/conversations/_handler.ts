@@ -18,7 +18,7 @@ import type {
 import type { Conversation } from "@/lib/types/messaging";
 import { normalizarTermoDeBusca } from "@/lib/inbox/termo-de-busca";
 import { ORDEM_DA_ESPERA, ehAFila } from "@/lib/inbox/comando-da-conversa";
-import { aplicarMarcador } from "@/lib/inbox/marcador-da-conversa";
+import { aplicarMarcadores } from "@/lib/inbox/marcador-da-conversa";
 
 /**
  * Prepara o termo digitado para viajar dentro de um `or=` do PostgREST.
@@ -197,6 +197,11 @@ export async function listConversationsHandler(
     query = query.not("status", "in", `(${CONVERSATION_TERMINAL_STATUSES.join(",")})`);
   }
   if (q.channel_session_id) query = query.eq("channel_session_id", q.channel_session_id);
+  // A aba "Grupos" (Task 10). `undefined` (ausente) = sem filtro, a lista
+  // mostra tudo, como hoje — checagem explícita contra `undefined`, e não
+  // `if (q.is_group)`, porque `"false"` é um valor válido e verdadeiro-truthy
+  // como string.
+  if (q.is_group !== undefined) query = query.eq("is_group", q.is_group === "true");
   // ⚠️ O MARCADOR FILTRADO É O DA CONVERSA **OU** O DO CONTATO.
   //
   // Era só `conversations.tags`, e o relato mede o buraco: *"adicionei a tag nele
@@ -214,7 +219,14 @@ export async function listConversationsHandler(
   // A régua do marcador mora num lugar só (`lib/inbox/marcador-da-conversa.ts`),
   // porque a segunda régua sempre diverge: foi assim que a contagem das abas
   // passou a pedir uma coluna que não existe (#1223). Aqui ela é só aplicada.
-  if (q.tag) query = aplicarMarcador(query, q.tag);
+  //
+  // ⚠️ `aplicarMarcadores`, e o `modo` vai junto (#1274). O filtro passou a
+  // aceitar VÁRIAS etiquetas com E/OU, e `aplicarMarcadores` é quem sabe as
+  // duas coisas: que uma etiqueta só tem de sair byte a byte como antes, e que
+  // E (`cs`) e OU (`ov`) são operadores diferentes. Chamar `aplicarMarcador`
+  // aqui com a lista inteira faria o TypeScript aceitar e o filtro casar o
+  // ARRAY como se fosse um marcador só — lista vazia, sem erro.
+  if (q.tag) query = aplicarMarcadores(query, q.tag, q.modo);
 
   // No BANCO, e não em memória: filtrar depois de paginar devolveria páginas curtas —
   // e, quando a página inteira estivesse lida, uma lista vazia que a tela apresentava

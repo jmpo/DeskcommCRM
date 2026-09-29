@@ -6,7 +6,13 @@
  */
 import { describe, it, expect } from "vitest";
 
-import { resolveCardState, coolingLabel, stageAgeLabel, type CardInput } from "./card-state";
+import {
+  buildCardInput,
+  resolveCardState,
+  coolingLabel,
+  stageAgeLabel,
+  type CardInput,
+} from "./card-state";
 
 const base: CardInput = {
   id: "l-1",
@@ -128,6 +134,113 @@ describe("rótulos de tempo", () => {
     expect(stageAgeLabel(5)).toBe("5h");
     expect(stageAgeLabel(0.2)).toBe("agora");
     expect(stageAgeLabel(null)).toBe("");
+  });
+});
+
+/**
+ * `hoursInStage` é tempo NO ESTÁGIO, e a coluna que o mede é
+ * `crm_leads.stage_changed_at` (carimbada por trigger na migração 0071).
+ *
+ * Antes disso o card media `last_activity_at` — que é tempo SEM RESPOSTA. São
+ * grandezas diferentes, e a colisão era silenciosa: bastava alguém escrever uma
+ * nota na conversa para o rodapé voltar a "agora" num negócio que já estava há
+ * 9 dias no mesmo estágio. É o relógio mentindo para quem mais precisava dele.
+ *
+ * `now` é injetado: sem ele o teste mediria a data do relógio de quem roda, e o
+ * número esperado mudaria todo dia — teste que depende do dia passa hoje e
+ * falha amanhã, que é o oposto de regressão.
+ */
+describe("buildCardInput · o relógio da etapa", () => {
+  const AGORA = new Date("2026-09-27T12:00:00.000Z");
+  const HORA = 3_600_000;
+
+  function lead(over: Record<string, unknown> = {}) {
+    return {
+      id: "l-1",
+      title: "Clínica Vitalis",
+      value_cents: 1_240_000,
+      currency: "BRL",
+      tags: [],
+      owner_kind: "user",
+      owner_user_id: "u-1",
+      owner_agent_id: null,
+      owner_agent: null,
+      next_action: null,
+      score: null,
+      created_at: "2026-09-01T12:00:00.000Z",
+      // O card só pede as colunas que usa, então este helper entrega um
+      // recorte: o `Pick` do-parameter fica satisfeito pelo `as unknown as`.
+      stage_changed_at: "2026-09-20T12:00:00.000Z",
+      ...over,
+    } as unknown as Parameters<typeof buildCardInput>[0];
+  }
+
+  const opts = { stageName: "Negociação", ownerNames: undefined, now: AGORA };
+
+  // CONTROLE (a) — a coluna certa manda, mesmo com atividade bem recente.
+  it("mede a etapa por stage_changed_at, e last_activity_at NÃO zera o relógio", () => {
+    const card = buildCardInput(
+      lead({
+        stage_changed_at: new Date(AGORA.getTime() - 9 * 24 * HORA).toISOString(),
+        // Alguém respondeu agora: a nota na conversa é atividade, não mudança
+        // de estágio. Foi exatamente isto que zerava o rodapé.
+        last_activity_at: AGORA.toISOString(),
+      }),
+      opts,
+    );
+    // 9 dias = 216h — o valor da ETAPA, não o da última resposta.
+    expect(card.hoursInStage).toBeCloseTo(216, 5);
+  });
+
+  // CONTROLE (b) — o mesmo lead, agora com a resposta velha: os dois relógios
+  // discordam, e o card tem de escolher o da etapa.
+  it("com a atividade antiga, o valor é o MESMO: só a coluna da etapa decide", () => {
+    const comAtividadeAntiga = buildCardInput(
+      lead({
+        stage_changed_at: new Date(AGORA.getTime() - 9 * 24 * HORA).toISOString(),
+        last_activity_at: new Date(AGORA.getTime() - 30 * 24 * HORA).toISOString(),
+      }),
+      opts,
+    );
+    expect(comAtividadeAntiga.hoursInStage).toBeCloseTo(216, 5);
+  });
+
+  it("lead recém-movido de etapa mostra ~0h mesmo com conversa antiga", () => {
+    const card = buildCardInput(
+      lead({
+        stage_changed_at: new Date(AGORA.getTime() - 20 * 60_000).toISOString(),
+        last_activity_at: new Date(AGORA.getTime() - 12 * 24 * HORA).toISOString(),
+      }),
+      opts,
+    );
+    // 20 minutos ≈ 0,33h. O número grande aqui é o da ATIVIDADE, que é o
+    // relógio do radar — mostrar 288h no rodapé seria a mesma mentira de novo.
+    expect(card.hoursInStage).toBeCloseTo(0.3333, 3);
+    expect(stageAgeLabel(card.hoursInStage)).toBe("agora");
+  });
+
+  it("carimbo ausente: cai em created_at, nunca em last_activity_at", () => {
+    // A coluna tem `default now()` e backfill, então nulo é estado de dado
+    // legado, não o normal. mesmo assim, o fallback tem de ser a CRIAÇÃO do
+    // negócio: inventar "tempo na etapa" a partir da última mensagem é
+    // exatamente o defeito que esta mudança conserta, só que com sinal trocado.
+    const card = buildCardInput(
+      lead({
+        stage_changed_at: null,
+        last_activity_at: AGORA.toISOString(),
+      }),
+      opts,
+    );
+    // created_at está 26 dias no passado.
+    expect(card.hoursInStage).toBeCloseTo(26 * 24, 5);
+  });
+
+  it("nunca negativo: um carimbo no futuro não vira idade negativa", () => {
+    const card = buildCardInput(
+      lead({ stage_changed_at: new Date(AGORA.getTime() + 5 * HORA).toISOString() }),
+      opts,
+    );
+    expect(card.hoursInStage).toBe(0);
   });
 });
 

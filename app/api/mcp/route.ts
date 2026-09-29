@@ -17,6 +17,7 @@ import { createMcpServer } from "@/lib/mcp/server";
 import { McpAuthError, validateBearerToken } from "@/lib/mcp/auth";
 import { modulosLigados } from "@/lib/instalacao/modulos";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { capacidadesDaOrganizacao } from "@/lib/organizacao/capacidades";
 import { chaveDaRequisicao } from "@/lib/api/idempotency";
 import { z } from "zod";
 
@@ -57,10 +58,12 @@ async function handle(req: NextRequest): Promise<Response> {
   }
 
   const transport = new WebStandardStreamableHTTPServerTransport({});
+  const admin = createAdminClient();
   const server = createMcpServer(
     auth,
     requestId,
-    await modulosLigados(createAdminClient()),
+    await modulosLigados(admin),
+    await capacidadesDaOrganizacao(admin, auth.organizationId),
     idempotencyKey ?? undefined,
   );
 

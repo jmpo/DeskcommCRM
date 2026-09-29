@@ -132,12 +132,12 @@ function frameDoEstado(
 function avisoDaChave(status: BudgetStatus, t: (texto: string) => string = (texto) => texto): string | null {
   if (status.enforcement_env === "off") {
     return t(
-      "A proteção de gasto está desligada nesta instalação. O que estiver escolhido aqui não vale até que alguém religue em Comportamento, no Admin.",
+      "A proteção de gasto está desligada nesta instalação. O que estiver escolhido aqui não vale até que alguém religue em Recursos opcionais › Comportamento, no Admin.",
     );
   }
   if (status.enforcement_env === "avisar") {
     return t(
-      'Nesta instalação a proteção só avisa: mesmo com "Parar a IA" escolhido, ela vai continuar respondendo. Quem administra a instalação escolheu assim em Comportamento, no Admin.',
+      'Nesta instalação a proteção só avisa: mesmo com "Parar a IA" escolhido, ela vai continuar respondendo. Quem administra a instalação escolheu assim em Recursos opcionais › Comportamento, no Admin.',
     );
   }
   return null;

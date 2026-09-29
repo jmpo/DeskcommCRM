@@ -1,6 +1,6 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTransition, useState } from "react";
 
@@ -11,66 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updatePassword } from "@/app/actions/auth/updatePassword";
 import { Eye, EyeSlash } from "@/lib/ui/icons";
-
-const PASSWORD_REQUIREMENTS = [
-  { label: "8 ou mais caracteres", test: (value: string) => value.length >= 8 },
-  { label: "Uma letra", test: (value: string) => /[A-Za-zÀ-ÿ]/.test(value) },
-  { label: "Um número", test: (value: string) => /[0-9]/.test(value) },
-  { label: "Um símbolo", test: (value: string) => /[^A-Za-zÀ-ÿ0-9\s]/.test(value) },
-] as const;
-
-function PasswordStrength({ password }: { password: string }) {
-  const t = useT();
-  const met = PASSWORD_REQUIREMENTS.map((requirement) => requirement.test(password));
-  const score = met.filter(Boolean).length;
-  const label = ["Muito fraca", "Fraca", "Razoável", "Boa", "Forte"][score] ?? "Muito fraca";
-  const barColor = [
-    "bg-muted",
-    "bg-destructive",
-    "bg-warning",
-    "bg-info",
-    "bg-success",
-  ][score] ?? "bg-muted";
-
-  return (
-    <div className="space-y-2 pt-1" aria-live="polite">
-      <div className="flex items-center justify-between gap-3 text-xs">
-        <span className="text-muted-foreground">{t("Força da senha")}</span>
-        <span className="font-medium" data-testid="password-strength-label">
-          {t(label)}
-        </span>
-      </div>
-      <div
-        className="grid grid-cols-4 gap-1"
-        role="meter"
-        aria-label={t("Força da senha")}
-        aria-valuemin={0}
-        aria-valuemax={4}
-        aria-valuenow={score}
-        aria-valuetext={t(label)}
-      >
-        {PASSWORD_REQUIREMENTS.map((requirement, index) => (
-          <span
-            key={requirement.label}
-            className={`h-1.5 rounded-full ${index < score ? barColor : "bg-muted"}`}
-          />
-        ))}
-      </div>
-      <ul className="grid gap-1 text-xs sm:grid-cols-2">
-        {PASSWORD_REQUIREMENTS.map((requirement, index) => (
-          <li
-            key={requirement.label}
-            className={
-              met[index] ? "text-success-fg" : "text-muted-foreground"
-            }
-          >
-            <span aria-hidden>{met[index] ? "✓" : "•"}</span> {t(requirement.label)}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+import { PasswordStrength } from "@/components/auth/PasswordStrength";
 
 export function ResetPasswordForm() {
   const t = useT();
@@ -83,13 +24,13 @@ export function ResetPasswordForm() {
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     formState: { errors },
   } = useForm<ResetPasswordInput>({
     resolver: zodResolver(resetPasswordSchema),
     defaultValues: { password: "", password_confirm: "", mfa_code: "" },
   });
-  const password = watch("password");
+  const password = useWatch({ control, name: "password" });
 
   const onSubmit = (values: ResetPasswordInput) => {
     setServerError(null);
@@ -108,9 +49,7 @@ export function ResetPasswordForm() {
         setNeedsMfa(true);
         setServerError(t("Código de verificação inválido. Tente de novo."));
       } else if (res.error === "session_expired") {
-        setServerError(
-          t("Sessão de redefinição expirada. Peça um novo link em Recuperar senha."),
-        );
+        setServerError(t("Sessão de redefinição expirada. Peça um novo link em Recuperar senha."));
       } else if (res.error === "same_password") {
         setServerError(t("A nova senha precisa ser diferente da atual."));
       } else if (res.error === "validation_error") {
@@ -143,7 +82,7 @@ export function ResetPasswordForm() {
           />
           <button
             type="button"
-            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
+            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:outline-hidden focus-visible:ring-inset"
             aria-label={t(showPassword ? "Ocultar nova senha" : "Mostrar nova senha")}
             aria-pressed={showPassword}
             onClick={() => setShowPassword((visible) => !visible)}
@@ -169,7 +108,7 @@ export function ResetPasswordForm() {
           />
           <button
             type="button"
-            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
+            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:outline-hidden focus-visible:ring-inset"
             aria-label={t(
               showPasswordConfirm ? "Ocultar confirmação da senha" : "Mostrar confirmação da senha",
             )}

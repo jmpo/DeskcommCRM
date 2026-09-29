@@ -173,6 +173,8 @@ test.describe("acervo de conhecimento", () => {
       // O aviso não é um beco: o conserto abre na própria tela.
       await page.getByTestId("conhecimento-cadastrar-chave").click();
       await expect(page.getByTestId("conhecimento-chave-input")).toBeVisible();
+      await page.getByTestId("conhecimento-provedor-openrouter").check();
+      await expect(page.getByTestId("conhecimento-chave-input")).toHaveAttribute("placeholder", "sk-or-…");
     }
   });
 

@@ -28,4 +28,5 @@ export {
   catalogEntry,
   declararTools,
   deModuloDesligado,
+  deCapacidadeDesligada,
 } from "./catalogo";

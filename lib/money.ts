@@ -287,6 +287,85 @@ export function formatValorDoNegocio(
 }
 
 /**
+ * SOMA POR MOEDA — cada moeda no seu balde, nunca uma soma entre elas (#1531).
+ *
+ * R$ 5.000 mais 5.000 € não são 10.000 de nada: somar `_cents` de moedas
+ * diferentes produz um número que não existe em moeda nenhuma, e escrevê-lo no
+ * símbolo de uma delas o faz parecer verdade. O total da coluna do funil fazia
+ * isso — somava tudo e escrevia na moeda do primeiro negócio. A regra já valia
+ * em dois lugares (`lib/leads/previsao.ts` e `lib/metrics/perdas.ts`, cada um
+ * com o seu balde interno); esta é a versão exportada, para o próximo total não
+ * reinventar a terceira.
+ *
+ * Item com `cents` `null`/`undefined` não entra e NÃO cria a moeda — "sem valor"
+ * não é "zero". Zero entra e cria: é valor declarado, e é o que mantém o
+ * ponderado de uma etapa de perda (chance 0) com as mesmas moedas do total.
+ * Nada é convertido.
+ */
+export function somaPorMoeda<T>(
+  itens: readonly T[],
+  cents: (item: T) => number | null | undefined,
+  moeda: (item: T) => string,
+): Map<string, number> {
+  const soma = new Map<string, number>();
+  for (const item of itens) {
+    const valor = cents(item);
+    if (valor == null) continue;
+    const m = moeda(item);
+    soma.set(m, (soma.get(m) ?? 0) + valor);
+  }
+  return soma;
+}
+
+/**
+ * Escreve uma soma por moeda como texto: `"R$ 5.000,00 + 5000,00 €"`.
+ *
+ * ⚠️ O FORMATADOR É OBRIGATÓRIO, e não um padrão escondido, por causa das duas
+ * réguas de `_cents` (ver `formatValorDoNegocio`): valor de negócio é ×100 em
+ * qualquer moeda, preço e lançamento financeiro são unidades menores. Um padrão
+ * serviria a uma e mostraria a outra cem vezes maior em guarani — o defeito que
+ * o total da coluna já pagou uma vez.
+ *
+ * - Com UMA moeda, o texto é exatamente `formatar(cents, moeda)`: quem somava
+ *   uma moeda só não vê diferença nenhuma.
+ * - Ordem: `primeira` (quando está na soma), depois as demais em ordem
+ *   alfabética do código ISO — determinística, para o texto não mudar de lugar
+ *   a cada render.
+ * - Peso mexicano e dólar escrevem os dois `$` (e também CLP, COP e ARS), e
+ *   `"$1,500.00 + $100.00"` não diz qual é qual. Só quando o símbolo se repete
+ *   DENTRO da soma, cada parcela afetada leva o código: `"$1,500.00 MXN +
+ *   $100.00 USD"`. Símbolo único fica limpo — `"5000,00 € EUR"` seria ruído.
+ * - Soma vazia devolve `""`.
+ */
+export function formatSomaPorMoeda(
+  soma: ReadonlyMap<string, number>,
+  formatar: (cents: number, moeda: string) => string,
+  opcoes: { primeira?: string } = {},
+): string {
+  const moedas = [...soma.keys()].sort((a, b) =>
+    a === opcoes.primeira ? -1 : b === opcoes.primeira ? 1 : a.localeCompare(b),
+  );
+  // `simboloDaMoeda` lança para código malformado; aí o próprio código é o
+  // símbolo — é o que `formatCents` escreve nesse caso.
+  const simbolo = (moeda: string) => {
+    try {
+      return simboloDaMoeda(moeda);
+    } catch {
+      return moeda;
+    }
+  };
+  const simbolos = moedas.map(simbolo);
+  return moedas
+    .map((moeda) => {
+      const texto = formatar(soma.get(moeda) ?? 0, moeda);
+      const s = simbolo(moeda);
+      const repetido = simbolos.filter((outro) => outro === s).length > 1;
+      return repetido ? `${texto} ${moeda}` : texto;
+    })
+    .join(" + ");
+}
+
+/**
  * As moedas que o produto SERVE — e servir quer dizer três coisas juntas: o
  * seletor da organização a oferece, o schema a aceita, e `formatCents` sabe
  * escrevê-la na convenção de quem a usa.

@@ -48,7 +48,7 @@ Playwright 1 · Sentry 11 · WAHA 2026.7.2 (engine NOWEB) · Upstash Redis · Ve
   `lib/auth/politica-mfa.ts`.
 - **Filas** — event sourcing leve: `event_log` + workers drenados por cron. Trigger Postgres
   **nunca** faz HTTP.
-- **IA** — Vercel AI Gateway (Anthropic primário, OpenAI para embeddings), RAG por tenant,
+- **IA** — Vercel AI Gateway (Anthropic primário; embeddings pela OpenAI ou pelo Google, escolha da organização), RAG por tenant,
   guardrails before-send.
 - **Tempo real** — Supabase Realtime (`postgres_changes` para inbox/kanban, `broadcast` para
   sinais leves). **Storage** — bucket privado `whatsapp-media`, URL assinada.
@@ -309,7 +309,7 @@ server; segredo em query string; `throw` cru na borda da API.
   **pnpm 9.15.9** (`packageManager`). Não use npm/yarn.
 - **TypeScript estrito** via `tsconfig.typecheck.json`; `strict`, `noUncheckedIndexedAccess`,
   `isolatedModules`, alias `@/*` → raiz. `pnpm typecheck` é a régua.
-- **ESLint flat config** (`eslint.config.mjs`, ESLint 9): `next/core-web-vitals`,
+- **ESLint flat config** (`eslint.config.mjs`, ESLint 10): `next/core-web-vitals`,
   `react-hooks`, `typescript-eslint`. `next lint` foi removido no Next 16 — o script chama o CLI.
 - **Prettier** com `prettier-plugin-tailwindcss`; classes Tailwind em ordem canônica.
 - **Tailwind 4** — configuração em CSS (`app/globals.css`), não em `tailwind.config.js`.

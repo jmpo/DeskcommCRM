@@ -80,8 +80,11 @@ async function colunasComIsNull(): Promise<string[]> {
 
 describe("busca de contatos", () => {
   it("procura no display_name — o nome que a tela mostra e o WhatsApp preenche", async () => {
+    // O espaço do termo virou curinga na #1835 (a mesma régua da busca de
+    // conversas); o que este caso vigia é a COLUNA estar no OR, e por isso a
+    // asserção cita `display_name` por inteiro, com o padrão que hoje sai.
     const filtro = await filtroDaBusca("Cliente Retorno");
-    expect(filtro).toContain("display_name.ilike.%Cliente Retorno%");
+    expect(filtro).toContain("display_name.ilike.%Cliente*Retorno%");
   });
 
   it("continua procurando nas colunas que já procurava", async () => {
@@ -94,11 +97,14 @@ describe("busca de contatos", () => {
   });
 
   it("nome com vírgula não injeta condição extra no filtro", async () => {
-    // `,` separa condições no DSL do `.or()`. Sem escape, "Silva, Maria" vira
-    // duas condições e a busca devolve gente que ninguém pediu.
+    // `,` separa condições no `.or()`. Sem saneamento, "Silva, Maria" viraria
+    // duas condições e a busca devolveria gente que ninguém pediu — e depois da
+    // #1835 a vírgula não some: ela vira o MESMO curinga do espaço, que é o que
+    // faz "Silva Maria" achar o cadastro "Silva, Maria" (a asserção de baixo é a
+    // catraca da normalização; a de cima é a da gramática).
     const filtro = await filtroDaBusca("Silva, Maria");
     expect(filtro).not.toContain("Silva,");
-    expect(filtro).toContain("Silva  Maria");
+    expect(filtro).toContain("Silva*Maria");
   });
 
   it("curinga do LIKE digitado pelo usuário é literal, não coringa", async () => {

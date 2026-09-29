@@ -190,8 +190,8 @@ describe("clique em anúncio (Clique para o WhatsApp)", () => {
   // A FORMA do evento real (24/09/2026): o `referral` mora em `metadata`, no nível
   // do evento — não na mensagem. Valores sintéticos; as chaves são as que chegaram.
   const referral = {
-    body: "Envío gratis a todo el país",
-    headline: "DELIVERY GRATIS",
+    body: "Frete grátis para todo o país",
+    headline: "FRETE GRÁTIS",
     ctwa_clid: "ARAkZ_sintetico",
     source_id: "120200000000000001",
     source_type: "ad",
@@ -199,7 +199,7 @@ describe("clique em anúncio (Clique para o WhatsApp)", () => {
     media_type: "video",
     video_url: "https://video.example/v.mp4",
     thumbnail_url: "https://video.example/t.jpg",
-    welcome_message: { text: "Hola" },
+    welcome_message: { text: "Olá" },
   };
 
   it("lê o referral de metadata — é onde o Zernio o entrega", () => {
@@ -208,7 +208,7 @@ describe("clique em anúncio (Clique para o WhatsApp)", () => {
     expect(extrairAtribuicaoMeta(r?.referral)).toMatchObject({
       sourceId: "ARAkZ_sintetico",
       adId: "120200000000000001",
-      titulo: "DELIVERY GRATIS",
+      titulo: "FRETE GRÁTIS",
     });
   });
 

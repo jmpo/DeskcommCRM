@@ -2,7 +2,7 @@
 
 ## Operação
 
-1. Em **Configurações → Conversões**, conecte a plataforma que trouxe o contato.
+1. Em **Configurações → Conversões**, conecte a plataforma que trouxe o contato. Exceção: se a conversa do cliente passa por um canal intermediado que já liga o conjunto de dados da Meta ao número (configurado na tela do próprio provedor), a venda de um contato da Meta pode ir por esse canal quando a organização **não tem** conexão direta com a Meta — sem token nem dataset no CRM — **e** ligou a chave **Enviar vendas pelo canal da conversa** na mesma tela. A chave vem **desligada** (`organizations.settings.conversions.report_via_channel` ausente = desligado): o valor, a moeda, o telefone do cliente e a conversa só saem para o provedor do canal quando a empresa pede. Desligada, nem as conversas são lidas e a venda fica na pendência `sem_conexao` de sempre. Quem tem a conexão direta (ligada, desligada ou incompleta) segue por ela; a venda nunca sai pelos dois caminhos. Quem decide é a capacidade `reportConversion` do adapter do canal (`lib/channels/conversao-pelo-canal.ts`), não o nome do provedor.
 2. Configure a captura da origem. Anúncio direto para WhatsApp precisa fornecer o identificador real do clique; o caminho Google usa `gclid`, `gbraid` ou `wbraid` e referência na mensagem. UTMs de site permitem identificar campanha, mas não substituem o identificador aceito pela API de conversões.
 3. No funil, marque o negócio como ganho e preencha valor positivo e moeda. O consumidor `conversoes.venda` acompanha tanto `lead.won` quanto `lead.stage_changed`.
 4. A tela mostra vendas aceitas e pendências. Depois de corrigir uma pendência, clique **Verificar ou tentar novamente**. Esse comando emite `ad_conversion.retry_requested`; não repete eventos comerciais nem notificações de ganho.
@@ -66,7 +66,7 @@ Migration 0401 adiciona API da conexão e protocolo do envio, preserva RLS/grant
 ### Living System Checklist
 
 1. Entrada: captura pública Google configurada em `_formCapturaDeUtm`, eventos do funil e botão de reprocessamento.
-2. Saída: `qualificacao.handler.ts` e `envio.handler.ts` usam os transportes em `lib/plataformas-de-anuncio/`.
+2. Saída: `qualificacao.handler.ts` e `envio.handler.ts` usam os transportes em `lib/plataformas-de-anuncio/`; sem conexão direta com a Meta e com a chave **Enviar vendas pelo canal da conversa** ligada, `envio.handler.ts` usa o canal da conversa quando ele tem a capacidade `reportConversion`.
 3. Registro: `ad_conversion_dispatches`, `event_log` e `ad_conversion.retry_requested` na auditoria.
 4. Tela: `/app/settings/conversoes`, origem, pendência e próximo passo.
 5. Porta: navegação existente de Configurações → Conversões.

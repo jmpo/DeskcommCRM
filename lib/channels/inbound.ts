@@ -32,6 +32,7 @@ import { sincronizarSaudeDaConexao } from "./health";
 import { lerEnvelopeMeta } from "./meta/envelope";
 import { ingestMetaEcho, ingestMetaInbound } from "./meta/ingest";
 import { parseMetaWebhook } from "./meta/webhook";
+import { samePhone } from "./phone-variants";
 import {
   atualizarEspelhoDoTemplate,
   avisoDoEvento,
@@ -101,7 +102,7 @@ export function verifyInboundWebhookSignature(provider: string, raw: string, hea
 /**
  * O EVENTO É DESTA CONEXÃO?
  *
- * ─── O defeito, medido em produção (23/09/2026) ──────────────────────────────
+ * ─── O defeito, medido numa instalação real (23/09/2026) ─────────────────────
  *
  * Esta guarda existia só para o canal SOCIAL. Para o WhatsApp pelo provedor
  * intermediado ela devolvia `true` sem olhar nada — e o webhook do provedor NÃO
@@ -109,34 +110,36 @@ export function verifyInboundWebhookSignature(provider: string, raw: string, hea
  * as contas daquela chave. Na instalação medida eram dez contas no mesmo espaço
  * (dois WhatsApp, e Facebook/Instagram/Meta Ads de três negócios diferentes).
  *
- * Resultado: a caixa de entrada do número "Mia Costa" recebeu 33 mensagens de
- * boas-vindas de OUTRO negócio ("Hola José! Tu cuenta de Automotor…"),
- * enviadas por OUTRO número do mesmo espaço. O dono viu clientes que não eram
- * dele na conversa do e-commerce, e não havia nada na tela que explicasse.
+ * Resultado: a caixa de entrada de um número recebeu 33 mensagens de
+ * boas-vindas de OUTRO negócio, enviadas por OUTRO número do mesmo espaço. O
+ * dono viu na conversa clientes que não eram dele, e nada na tela explicava.
  *
  * O parser já lia a conta (`ZernioWebhookEvent.accountId`, com o comentário
  * "casa com channel_sessions.zernio_account_id") — só ninguém comparava.
  *
- * ─── Por que evento SEM conta passa ──────────────────────────────────────────
+ * ─── Evento SEM conta: depende de quem é o evento ───────────────────────────
  *
- * Nem todo evento do provedor carrega a conta (medido: os de saúde do número
- * vêm sem ela). Recusar o que não traz conta faria o vigia de canal ficar cego
- * para `account.disconnected` — trocar mensagem de outro negócio por queda
- * silenciosa. O que se recusa é a conta DIVERGENTE, que é prova; ausência não é.
+ * Nem todo evento do provedor carrega a conta: os de número
+ * (`whatsapp.number.*`) trazem só o objeto `number`, e recusá-los por isso
+ * cegaria o vigia de canal. Esses passam aqui e são conferidos pelo NÚMERO em
+ * `zernioInbound`.
+ *
+ * Já `message.*` e `whatsapp.template.*` trazem a conta SEMPRE, pela
+ * documentação do provedor. Nesses, a ausência é anomalia, e anomalia não
+ * entra: sem a conta não há como dizer de qual número o evento é, e ingerir
+ * seria escolher por palpite a caixa de entrada.
  */
 export async function inboundPayloadBelongsToSession(admin: SupabaseClient, input: InboundWebhookInput): Promise<boolean> {
   if (input.session.provider === CHANNEL_PROVIDER_SOCIAL) {
     return socialPayloadBelongsToSession(admin, input.session.organization_id, input.session.id, input.rawBody);
   }
   if (input.session.provider === CHANNEL_PROVIDER_ZERNIO) {
-    const contaDoEvento = contaDoEventoZernio(input.rawBody);
-    if (contaDoEvento === null) return true;
-    // A guarda busca a conta ELA MESMA, como a do canal social. A primeira
-    // versão a lia de um campo que a rota deveria trazer — e a rota não
-    // trazia: sem a conta, a guarda devolvia `true` e não filtrava nada, verde.
-    // Além disso a rota do webhook é genérica, e `lint:channels` recusa nome de
-    // coluna de provedor ali. Buscar aqui resolve os dois: a guarda não depende
-    // de ninguém lembrar de uma coluna, e a rota segue sem saber de provedor.
+    const { evento, conta: contaDoEvento } = cabecalhoDoEventoZernio(input.rawBody);
+    if (contaDoEvento === null) return !EVENTOS_QUE_SEMPRE_TRAZEM_CONTA.some((p) => evento?.startsWith(p));
+    // A guarda busca a conta ELA MESMA, como a do canal social: a rota do
+    // webhook é genérica, e `lint:channels` recusa nome de coluna de provedor
+    // ali. Uma guarda que dependesse de a rota lembrar de trazer a coluna
+    // devolveria `true` sem filtrar nada no dia em que ela esquecesse.
     const { data, error } = await admin
       .from("channel_sessions")
       .select("zernio_account_id")
@@ -145,24 +148,38 @@ export async function inboundPayloadBelongsToSession(admin: SupabaseClient, inpu
       .maybeSingle();
     if (error) throw new Error("zernio_session_lookup_failed");
     const contaDaSessao = (data as { zernio_account_id?: string | null } | null)?.zernio_account_id ?? null;
-    return contaDaSessao === null || contaDoEvento === contaDaSessao;
+    // Sessão sem conta RECUSA. Hoje este ramo não executa — a constraint
+    // `channel_sessions_provider_ref_check` exige `zernio_account_id` nesta
+    // sessão —, e é por isso que ele pode ser o fechado: se um dia a constraint
+    // afrouxar, "não sei de quem é a sessão" não vira "aceito de qualquer conta".
+    return contaDaSessao !== null && contaDoEvento === contaDaSessao;
   }
   return true;
 }
 
+/** Prefixos de evento que o provedor documenta como SEMPRE trazendo a conta. */
+const EVENTOS_QUE_SEMPRE_TRAZEM_CONTA = ["message.", "whatsapp.template."];
+
 /** A conta que o provedor diz ter originado o evento — os mesmos três lugares que o parser lê. */
 export function contaDoEventoZernio(rawBody: string): string | null {
+  return cabecalhoDoEventoZernio(rawBody).conta;
+}
+
+function cabecalhoDoEventoZernio(rawBody: string): { evento: string | null; conta: string | null } {
   let p: unknown;
   try {
     p = JSON.parse(rawBody);
   } catch {
-    return null;
+    return { evento: null, conta: null };
   }
-  if (!p || typeof p !== "object") return null;
+  if (!p || typeof p !== "object") return { evento: null, conta: null };
   const o = p as Record<string, unknown>;
   const conta = o.account && typeof o.account === "object" ? (o.account as Record<string, unknown>) : null;
   const valor = conta?.id ?? conta?.accountId ?? o.accountId;
-  return typeof valor === "string" && valor.length > 0 ? valor : null;
+  return {
+    evento: typeof o.event === "string" ? o.event : null,
+    conta: typeof valor === "string" && valor.length > 0 ? valor : null,
+  };
 }
 
 export async function handleInboundWebhook(
@@ -235,6 +252,30 @@ async function zernioInbound(
   // o tipo de coisa que só se descobre no disparo que não sai — com a campanha
   // montada e o cliente esperando. Vira aviso na Central, onde o humano já
   // procura o que está errado.
+  //
+  // ─── Evento de NÚMERO: só vale se o número é o desta sessão ──────────────
+  //
+  // `whatsapp.number.*` não traz conta — a guarda de conta deixa passar —, e o
+  // webhook do provedor é por espaço de trabalho, não por número. Sem esta
+  // conferência, o status de outro número do mesmo espaço mudaria o estado
+  // DESTE canal e abriria aviso crítico aqui. Quem decide é `number.phoneNumber`
+  // (campo do schema publicado pelo provedor) contra `channel_sessions.phone_number`.
+  //
+  // Sem os dois lados não há comparação, e o evento fica só no arquivo do
+  // webhook: sem mudar status e sem aviso. É o lado seguro também se a rota um
+  // dia deixar de trazer `phone_number` — o efeito é não aplicar, nunca
+  // aplicar o de outro número.
+  if (payload.event?.startsWith("whatsapp.number.")) {
+    const doEvento = payload.number?.phoneNumber;
+    const daSessao = input.session.phone_number;
+    if (!doEvento || !daSessao) {
+      return { ok: true, body: { status: "ignored", reason: "numero_sem_comparacao" } };
+    }
+    if (!samePhone(doEvento, daSessao)) {
+      return { ok: true, body: { status: "ignored", reason: "evento_de_outro_numero" } };
+    }
+  }
+
   const aviso = avisoDoEvento(payload);
   if (aviso) {
     // O espelho local também: o aviso empurra para olhar, e a tela de modelos

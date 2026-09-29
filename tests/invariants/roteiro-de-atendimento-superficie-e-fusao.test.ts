@@ -8,11 +8,13 @@ import { beforeAll, describe, expect, it } from "vitest";
  * O ROTEIRO DE ATENDIMENTO NÃO PODE PARAR A VARREDURA NEM O UPDATE (0394 —
  * revisão adversarial do #1559).
  *
- *   1. SUPERFÍCIE IMUTÁVEL. A policy de `followup_flow_pointers` é só de tenant:
- *      um VIEWER, pelo PostgREST, levava um fluxo de silêncio ativo a
+ *   1. SUPERFÍCIE IMUTÁVEL. A policy de `followup_flow_pointers` era só de
+ *      tenant: um VIEWER, pelo PostgREST, levava um fluxo de silêncio ativo a
  *      'atendimento'; o `trg_enrollment_superficie_coerente` passava a recusar
  *      cada inscrição e a varredura de silêncio abortava a cada tick, para todas
- *      as empresas. `trg_superficie_do_fluxo_imutavel` recusa (23514).
+ *      as empresas. `trg_superficie_do_fluxo_imutavel` recusa (23514) — para
+ *      quem PASSA pela RLS. Desde a 0489 (#1913) o viewer nem alcança a escrita,
+ *      então a trava do gatilho é exercida pelo admin.
  *   2. ROTEIRO SÓ MANUAL. Um PATCH de gatilho levava um roteiro publicado de
  *      Manual para Silêncio. CHECK `followup_flow_pointers_roteiro_so_manual`.
  *   3. FUSÃO POR NONO DÍGITO. O bloco da 0198 no baseline roda a cada
@@ -113,16 +115,18 @@ beforeAll(() => {
 });
 
 describe("superfície imutável e roteiro só com gatilho manual", () => {
-  it("controle positivo: o viewer ALCANÇA a linha (a policy é só de tenant) — muda o nome", () => {
+  it("controle positivo: o admin ALCANÇA a linha — muda o nome; o viewer não escreve (0489)", () => {
+    tentaComo(VIEWER, `update public.followup_flow_pointers set name = 'Retomada viewer' where id = '${FOLLOWUP}'`);
+    expect(sql(`select name from public.followup_flow_pointers where id = '${FOLLOWUP}';`)).toBe("Retomada");
     expect(
-      tentaComo(VIEWER, `update public.followup_flow_pointers set name = 'Retomada 2' where id = '${FOLLOWUP}'`),
+      tentaComo(ADMIN, `update public.followup_flow_pointers set name = 'Retomada 2' where id = '${FOLLOWUP}'`),
     ).toBe("ok");
     expect(sql(`select name from public.followup_flow_pointers where id = '${FOLLOWUP}';`)).toBe("Retomada 2");
   });
 
-  it("⭐ o viewer NÃO leva um fluxo de follow-up a 'atendimento' (23514)", () => {
+  it("⭐ nem quem passa pela RLS leva um fluxo de follow-up a 'atendimento' (23514)", () => {
     expect(
-      tentaComo(VIEWER, `update public.followup_flow_pointers set surface = 'atendimento' where id = '${FOLLOWUP}'`),
+      tentaComo(ADMIN, `update public.followup_flow_pointers set surface = 'atendimento' where id = '${FOLLOWUP}'`),
     ).toBe("23514");
     expect(sql(`select surface from public.followup_flow_pointers where id = '${FOLLOWUP}';`)).toBe("followup");
   });

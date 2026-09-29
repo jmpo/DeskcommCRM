@@ -24,15 +24,15 @@
  * tem, e a anonimização (LGPD) não precisa alcançar esta linha.
  *
  * O texto sai no idioma da ORGANIZAÇÃO, porque a Central mostra título e corpo
- * como foram gravados.
+ * como foram gravados (`./aviso-de-etapa.ts`).
  */
 import type { EventHandler, EventRow, HandlerResult } from "@/lib/event-log/dispatcher";
-import { traduzir } from "@/lib/i18n/dicionario";
 import { normalizarIdioma } from "@/lib/i18n/idiomas";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+import { corpoDoAvisoDeEtapa, tituloDoAvisoDeEtapa } from "./aviso-de-etapa";
+
 const CONSUMER_KEY = "leads.aviso-de-etapa";
-const ESPERA_MS = 5 * 60 * 1000;
 
 const resultado = (status: HandlerResult["status"], detail?: string): HandlerResult => ({
   consumer_key: CONSUMER_KEY,
@@ -40,12 +40,14 @@ const resultado = (status: HandlerResult["status"], detail?: string): HandlerRes
   detail,
 });
 
-const tentarDeNovo = (detail: string): HandlerResult => ({
-  consumer_key: CONSUMER_KEY,
-  status: "retry",
-  retry_at: new Date(Date.now() + ESPERA_MS).toISOString(),
-  detail,
-});
+/**
+ * Falha do banco é `error`, não `retry`: o `retry` do dreno é o reagendamento
+ * BENIGNO (janela de envio, espera de rede) e não conta tentativa — uma falha
+ * que não passa ficaria girando para sempre. Com `error`, o dreno aplica o
+ * backoff, conta a tentativa e, no teto, marca o evento morto e avisa na
+ * Central (`lib/event-log/drain.ts`).
+ */
+const falhou = (detail: string): HandlerResult => ({ consumer_key: CONSUMER_KEY, status: "error", detail });
 
 function texto(valor: unknown): string | null {
   return typeof valor === "string" && valor.trim() ? valor : null;
@@ -66,7 +68,7 @@ async function handle(row: EventRow): Promise<HandlerResult> {
     .eq("id", etapaId)
     .eq("organization_id", row.organization_id)
     .maybeSingle();
-  if (error) return tentarDeNovo(`leitura da etapa falhou: ${error.message}`);
+  if (error) return falhou(`leitura da etapa falhou: ${error.message}`);
   const lida = etapa as { name: string; avisar_na_central: boolean | null } | null;
   if (!lida?.avisar_na_central) return resultado("skipped", "etapa_sem_aviso");
 
@@ -76,7 +78,7 @@ async function handle(row: EventRow): Promise<HandlerResult> {
     .eq("id", row.organization_id)
     .maybeSingle();
   const idioma = normalizarIdioma((org as { locale?: string | null } | null)?.locale);
-  const titulo = `${traduzir("Negócio entrou em", idioma)} «${lida.name}»`;
+  const titulo = tituloDoAvisoDeEtapa(lida.name, idioma);
 
   // Um aviso aberto por negócio e etapa: o mesmo evento reprocessado, ou um
   // negócio que sai e volta antes de alguém ler, não empilha itens iguais.
@@ -90,7 +92,7 @@ async function handle(row: EventRow): Promise<HandlerResult> {
     .eq("status", "open")
     .eq("title", titulo)
     .limit(1);
-  if (erroDaBusca) return tentarDeNovo(`busca de aviso aberto falhou: ${erroDaBusca.message}`);
+  if (erroDaBusca) return falhou(`busca de aviso aberto falhou: ${erroDaBusca.message}`);
   if ((jaAberto ?? []).length > 0) return resultado("skipped", "aviso_ja_aberto");
 
   const { error: erroDoInsert } = await admin.from("agent_inbox_items").insert({
@@ -98,14 +100,11 @@ async function handle(row: EventRow): Promise<HandlerResult> {
     kind: "other",
     severity: "info",
     title: titulo,
-    body: traduzir(
-      "Abra o negócio para dar o próximo passo. Este aviso foi pedido na configuração da etapa.",
-      idioma,
-    ),
+    body: corpoDoAvisoDeEtapa(idioma),
     ref_kind: "lead",
     ref_id: leadId,
   });
-  if (erroDoInsert) return tentarDeNovo(`aviso não entrou na Central: ${erroDoInsert.message}`);
+  if (erroDoInsert) return falhou(`aviso não entrou na Central: ${erroDoInsert.message}`);
   return resultado("ok", "aviso_aberto");
 }
 
