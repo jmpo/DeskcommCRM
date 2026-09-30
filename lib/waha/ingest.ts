@@ -28,7 +28,7 @@ import { devolverAtendimentoAoAgente } from "@/lib/escalacao/retomada";
 import { getWahaClient } from "@/lib/waha/client";
 import { acelerarPipelineDeEventos } from "@/lib/dev/kick-local-pipeline";
 import { canonicalPhoneBR } from "@/lib/channels/phone-variants";
-import { estamparAtribuicaoDoContato } from "@/lib/leads/atribuicao-de-anuncio";
+import { estamparAtribuicaoDoContato, metadataDoAnuncio } from "@/lib/leads/atribuicao-de-anuncio";
 import { extrairEEstamparAtribuicaoGoogle } from "@/lib/plataformas-de-anuncio/google/atribuicao";
 import { extrairAtribuicaoWaha } from "@/lib/waha/atribuicao-de-anuncio";
 import { criarIngestDeGrupoDb, gravarMensagemDeGrupo } from "@/lib/grupos/ingest";
@@ -825,7 +825,9 @@ async function handleInbound(
       sent_via: "external_device",
       sent_at: dataDoTimestamp(p.timestamp, now),
       delivered_at: now,
-      metadata: { raw_type: p.type, ack_name: p.ackName },
+      // O anúncio DESTA mensagem vai junto — o contato guarda só o primeiro, e
+      // quem volta por outro anúncio precisa deixar rastro. Ver `metadataDoAnuncio`.
+      metadata: { raw_type: p.type, ack_name: p.ackName, ...metadataDoAnuncio(atribuicao) },
     })
     .select("id")
     .maybeSingle();

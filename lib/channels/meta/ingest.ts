@@ -25,7 +25,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { audit } from "@/lib/audit";
 import { pausarIaPorAtendimentoManual } from "@/lib/escalacao/atendimento-manual";
-import { estamparAtribuicaoDoContato } from "@/lib/leads/atribuicao-de-anuncio";
+import { estamparAtribuicaoDoContato, metadataDoAnuncio } from "@/lib/leads/atribuicao-de-anuncio";
 import {
   ehNumeroInternoDeAviso,
   registrarMensagemIgnorada,
@@ -253,6 +253,9 @@ export async function ingestMetaInbound(
       metadata: {
         ...(e.media ? { meta_media_id: e.media.id, voice: e.media.voice } : {}),
         ...(e.sharedContact ? { shared_contact: e.sharedContact } : {}),
+        // O anúncio DESTA mensagem, não só o primeiro do contato: é o que diz
+        // ao agente que a pessoa voltou por outro anúncio. Ver `metadataDoAnuncio`.
+        ...metadataDoAnuncio(atribuicao),
       },
     })
     .select("id")

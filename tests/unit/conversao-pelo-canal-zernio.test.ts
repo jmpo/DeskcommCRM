@@ -120,6 +120,12 @@ describe("o envio pelo canal", () => {
 
 const gravados: Record<string, unknown>[] = [];
 
+// A venda fechou ONTEM, relativo ao relógio de quem roda. Era a data fixa
+// 2026-09-23: a conexão direta recusa evento com mais de 7 dias
+// (`IDADE_MAXIMA_MS`), e a partir de 30/09 o caso "pela conexão direta" passou
+// a reprovar sem nada no código ter mudado — a venda ficou velha, não o envio.
+const FECHOU_ONTEM = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
 function fakeAdmin(t: { sessao: unknown; metaConfigurada?: boolean }) {
   return {
     from(tabela: string) {
@@ -129,7 +135,7 @@ function fakeAdmin(t: { sessao: unknown; metaConfigurada?: boolean }) {
           status: "won",
           value_cents: 150_000_00,
           currency: "PYG",
-          closed_at: "2026-09-23T12:00:00Z",
+          closed_at: FECHOU_ONTEM,
           contact_id: CONTATO,
         },
         contacts: {

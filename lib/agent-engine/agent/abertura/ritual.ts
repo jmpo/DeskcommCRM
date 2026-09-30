@@ -117,6 +117,19 @@ export function ritualBlocks(
             'Confira lá antes de pedir de novo.)',
         ]
       : []),
+    // Dois anúncios no contexto pedem uma regra de desempate, e o prompt do
+    // agente costuma dizer só "o anúncio de origem é o produto que ele viu" —
+    // escrito quando só existia um. Sem esta linha o de origem vence e o agente
+    // oferece o produto antigo a quem acabou de clicar no anúncio do outro.
+    // Condicional pelo mesmo motivo da ressalva do e-mail: só custa token
+    // quando há o que desempatar.
+    ...(context.anuncio_mais_recente
+      ? [
+          '(O contato voltou depois por OUTRO anúncio: `anuncio_mais_recente`. ' +
+            'Salvo se o histórico abaixo disser outra coisa, é desse anúncio mais ' +
+            'recente que ele está falando agora, não do de origem.)',
+        ]
+      : []),
     // A projeção (spec 16 §4) fecha a terceira porta: sem ela, `lead_id`,
     // `conversation_id` e `media_storage_path` chegam crus ao prompt — e UUID
     // cru na tela do cliente foi MEDIDO. Ela só arma quando o turno não tem
