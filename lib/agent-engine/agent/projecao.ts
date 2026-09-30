@@ -65,6 +65,8 @@ export interface MensagemProjetada {
 export interface ContextoProjetado {
   /** Anúncio de onde o contato veio, quando veio de um. */
   anuncio_de_origem?: { titulo: string | null; texto: string | null };
+  /** O anúncio pelo qual o contato voltou por último, quando é outro que não o de origem. */
+  anuncio_mais_recente?: { titulo: string | null; texto: string | null; recebido_em: string };
   contato: {
     nome: string | null;
     telefone: string | null;
@@ -103,6 +105,8 @@ export function projetarContexto(ctx: LeadContext): ContextoProjetado {
   return {
     // O anúncio de origem passa como veio: é texto do próprio anunciante, sem id.
     ...(ctx.anuncio_de_origem ? { anuncio_de_origem: ctx.anuncio_de_origem } : {}),
+    // Idem: o contexto já o monta sem o id do anúncio, que fica só na comparação.
+    ...(ctx.anuncio_mais_recente ? { anuncio_mais_recente: ctx.anuncio_mais_recente } : {}),
     contato: {
       nome: ctx.contact.name,
       telefone: ctx.contact.phone,

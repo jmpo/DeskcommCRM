@@ -17,6 +17,7 @@ import { deriveLgpdFromContact, type LgpdInput } from '../../guardrails/lgpd/leg
 import { isoLocalComOffset } from '@/lib/tempo/agora';
 import { logger } from '@/lib/logger';
 import { nomeDoContato } from '@/lib/contacts/rotulo-do-contato';
+import { lerAnuncioDaMensagem, type AnuncioDaMensagem } from '@/lib/leads/atribuicao-de-anuncio';
 
 /**
  * Heurística conservadora de contagem: ~3,5 chars/token para pt-br (BPE real fica
@@ -134,6 +135,18 @@ export interface LeadContext {
    */
   anuncio_de_origem?: { titulo: string | null; texto: string | null };
   /**
+   * O anúncio pelo qual o contato entrou por ÚLTIMO, quando ele é OUTRO que não
+   * o de origem. `anuncio_de_origem` é primeiro toque e nunca muda; numa loja
+   * com mais de um produto anunciado, a pessoa que veio pelo anúncio A e depois
+   * clicou no anúncio B mostrava ao agente só o A — e ele oferecia o produto
+   * errado a quem acabou de perguntar pelo B. Ausente quando o último anúncio é
+   * o mesmo da origem ou quando nenhuma mensagem veio de anúncio: repetir o
+   * mesmo anúncio duas vezes só gastaria token.
+   *
+   * `recebido_em` no fuso da organização, como `sent_at` das mensagens.
+   */
+  anuncio_mais_recente?: { titulo: string | null; texto: string | null; recebido_em: string };
+  /**
    * N7 — desfecho da última proposta com desfecho real (`enviada`, `aceita`,
    * `recusada`, `vencida`). `null` quando só há rascunho aberto ou nenhuma
    * proposta: rascunho não é desfecho (pode ser o que o próprio agente acabou
@@ -170,6 +183,7 @@ interface ContactRow {
   is_anonymized: boolean;
   ad_title: string | null;
   ad_body: string | null;
+  ad_id?: string | null;
 }
 
 interface DecisionRow {
@@ -218,7 +232,8 @@ export async function getLeadContext(
 ): Promise<LeadContextResult> {
   const { rows: contactRows } = await db.query<ContactRow>(
     `select name, display_name, email, phone_number, tags, is_blocked, source, consent, is_anonymized,
-            source_metadata->>'ad_title' as ad_title, source_metadata->>'ad_body' as ad_body
+            source_metadata->>'ad_title' as ad_title, source_metadata->>'ad_body' as ad_body,
+            source_metadata->>'ad_id' as ad_id
      from contacts where organization_id = $1 and id = $2`,
     [input.tenantId, input.leadId],
   );
@@ -287,6 +302,12 @@ export async function getLeadContext(
     });
   }
 
+  const anuncioMaisRecente = await anuncioMaisRecenteDiferenteDaOrigem(db, input, {
+    titulo: contact.ad_title ?? null,
+    texto: contact.ad_body ?? null,
+    ad_id: contact.ad_id ?? null,
+  });
+
   const history: HistoryRow[] = conversationId
     ? (
         await db.query<HistoryRow>(
@@ -349,6 +370,7 @@ export async function getLeadContext(
       ...(contact.ad_title || contact.ad_body
         ? { anuncio_de_origem: { titulo: contact.ad_title ?? null, texto: contact.ad_body ?? null } }
         : {}),
+      ...(anuncioMaisRecente ? { anuncio_mais_recente: anuncioMaisRecente } : {}),
       last_proposal,
     },
     history,
@@ -356,6 +378,68 @@ export async function getLeadContext(
     input.fuso,
   );
   return { ok: true, context, tokenCount: countPayloadTokens(JSON.stringify(context)), lgpd };
+}
+
+/**
+ * O último anúncio pelo qual o contato ENTROU, se for outro que não o de origem.
+ *
+ * Lê `messages.metadata.anuncio`, que a ingestão grava em cada mensagem nascida
+ * de um clique em anúncio (`metadataDoAnuncio`). Não dá para reaproveitar o
+ * histórico já carregado: ele é só o atendimento atual e só as últimas N
+ * mensagens, e o clique que trouxe a pessoa de volta pode ter ficado antes das
+ * duas fronteiras. A consulta é limitada: organização + contato (índice
+ * `idx_messages_contact_id`), só entrada, a mais recente.
+ *
+ * Mesmo anúncio: ver `mesmoAnuncio`. Falha aberta, como a proposta: é contexto
+ * auxiliar, e um jsonb malformado ou uma consulta que cai não podem derrubar o
+ * turno — viram "sem anúncio mais recente".
+ */
+async function anuncioMaisRecenteDiferenteDaOrigem(
+  db: Queryable,
+  input: { tenantId: string; leadId: string; fuso: string },
+  origem: AnuncioDaMensagem,
+): Promise<LeadContext['anuncio_mais_recente'] | null> {
+  try {
+    const { rows } = await db.query<{ anuncio: unknown; created_at: Date | string }>(
+      `select metadata->'anuncio' as anuncio, created_at
+         from messages
+        where organization_id = $1 and contact_id = $2
+          and direction = 'inbound'
+          and jsonb_typeof(metadata->'anuncio') = 'object'
+        order by created_at desc, id desc
+        limit 1`,
+      [input.tenantId, input.leadId],
+    );
+    const linha = rows[0];
+    const recente = lerAnuncioDaMensagem(linha?.anuncio);
+    if (!linha || !recente || (!recente.titulo && !recente.texto)) return null;
+    if (mesmoAnuncio(origem, recente)) return null;
+    const quando = new Date(linha.created_at);
+    if (Number.isNaN(quando.getTime())) return null;
+    return {
+      titulo: recente.titulo,
+      texto: recente.texto,
+      recebido_em: isoLocalComOffset(quando, input.fuso),
+    };
+  } catch (err) {
+    logger.warn('lead-context: consulta do anúncio mais recente falhou — contexto segue sem ela', {
+      organizationId: input.tenantId,
+      erro: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * O mesmo anúncio: o mesmo `ad_id`, ou — sem id comparável — o mesmo título e
+ * texto. Ids diferentes com o MESMO texto também contam como iguais: é o
+ * anúncio duplicado em outro conjunto, e o modelo, que só vê título e texto,
+ * receberia duas vezes a mesma coisa.
+ */
+function mesmoAnuncio(a: AnuncioDaMensagem, b: AnuncioDaMensagem): boolean {
+  if (a.ad_id && b.ad_id && a.ad_id === b.ad_id) return true;
+  const igual = (x: string | null, y: string | null) => (x?.trim() || null) === (y?.trim() || null);
+  return igual(a.titulo, b.titulo) && igual(a.texto, b.texto);
 }
 
 /** As colunas do CRM de que o corpo de UMA mensagem depende. */

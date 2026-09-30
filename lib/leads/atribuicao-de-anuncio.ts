@@ -55,6 +55,61 @@ export const str = (v: unknown): string | null =>
   typeof v === "string" && v.trim() !== "" ? v : null;
 
 /**
+ * O anúncio de UMA mensagem — o que fica em `messages.metadata.anuncio`.
+ *
+ * ─── Por que a mensagem também guarda, se o contato já guarda ──────────────
+ *
+ * O contato guarda só o PRIMEIRO anúncio (ver `estamparAtribuicaoDoContato`, e
+ * isso não muda). Numa loja com dois produtos, cada um com o seu anúncio, a
+ * pessoa que veio pelo anúncio A e semanas depois clica no anúncio B chega com
+ * o texto pré-preenchido genérico ("¿Cuál es el precio?") — e o agente, que só
+ * via o anúncio A, oferecia o produto errado. O clique novo precisa deixar
+ * rastro em algum lugar, e o lugar natural é a mensagem que ele gerou.
+ *
+ * Resumo COMPACTO de propósito: título, texto e id do anúncio. O clique
+ * (`ctwa_clid`) e o payload cru ficam de fora — o cru já mora no contato, e
+ * repeti-lo em toda mensagem de anúncio só engordaria a tabela mais quente do
+ * banco. O id serve para comparar anúncios; ele nunca vai ao modelo.
+ */
+export interface AnuncioDaMensagem {
+  titulo: string | null;
+  texto: string | null;
+  ad_id: string | null;
+}
+
+/**
+ * O pedaço de `metadata` que a ingestão espalha no INSERT da mensagem —
+ * `{ anuncio }` quando a mensagem veio de um anúncio reconhecido, `{}` quando
+ * não. Cada transporte chama o SEU extrator e passa o resultado aqui: quem lê o
+ * payload é o canal; o formato gravado é um só.
+ */
+export function metadataDoAnuncio(
+  atribuicao: AtribuicaoDeAnuncio | null,
+): { anuncio?: AnuncioDaMensagem } {
+  if (!atribuicao) return {};
+  const anuncio = { titulo: atribuicao.titulo, texto: atribuicao.corpo, ad_id: atribuicao.adId };
+  // Sem título, texto nem id não há o que comparar nem o que mostrar: o clique
+  // sozinho identifica uma pessoa, não um produto.
+  if (!anuncio.titulo && !anuncio.texto && !anuncio.ad_id) return {};
+  return { anuncio };
+}
+
+/**
+ * Lê `metadata.anuncio` de volta — sem confiar na forma.
+ *
+ * `metadata` é jsonb aberto: linha antiga, escrita à mão ou de outra versão
+ * pode trazer qualquer coisa ali. Quem lê no turno do agente não pode lançar
+ * por causa disso; o que não tem a forma esperada vira `null`.
+ */
+export function lerAnuncioDaMensagem(v: unknown): AnuncioDaMensagem | null {
+  const a = obj(v);
+  if (!a) return null;
+  const anuncio = { titulo: str(a.titulo), texto: str(a.texto), ad_id: str(a.ad_id) };
+  if (!anuncio.titulo && !anuncio.texto && !anuncio.ad_id) return null;
+  return anuncio;
+}
+
+/**
  * Grava a atribuição no CONTATO — só na primeira vez.
  *
  * Primeiro toque: uma vez gravada, não muda. A pessoa pode clicar em outro
