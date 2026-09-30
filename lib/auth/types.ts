@@ -88,6 +88,16 @@ export interface UserOrgMembership {
    * então quem usa passa por `fusoValido` e cai em `FUSO_PADRAO`.
    */
   timezone?: string | null;
+  /**
+   * Moeda e país da organização (`organizations.currency` / `.country`).
+   *
+   * Mesma carona de `locale` e `timezone`, e pelo mesmo motivo: são as telas do
+   * negócio e do contato que precisam deles — o rótulo do valor e o documento
+   * do titular —, e sem esta carona cada diálogo cravaria `R$` e `CPF`, que foi
+   * exatamente o defeito. `country` nulo significa Brasil (`PAIS_PADRAO`).
+   */
+  currency?: string | null;
+  country?: string | null;
 }
 
 export interface AuthUser {
@@ -150,6 +160,10 @@ export interface AuthUser {
 
 export interface ActiveOrg {
   interface_settings?: InterfaceSettings;
+  /** Moeda da organização — o rótulo do valor do negócio sai dela. */
+  currency?: string | null;
+  /** País da organização (ISO-3166 alpha-2); nulo = Brasil. */
+  country?: string | null;
   orgId: string;
   /** Fuso IANA da organização — ver `UserOrgMembership.timezone`. */
   timezone?: string | null;

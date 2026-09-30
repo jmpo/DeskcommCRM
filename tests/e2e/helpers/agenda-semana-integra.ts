@@ -383,10 +383,18 @@ async function diasCheios(page: Page): Promise<string[]> {
   // mês em tela. Sem este passo as specs reprovariam nos dias 30/31 — a mesma
   // classe de vermelho-por-calendário que este módulo existe para fechar.
   await page.getByTestId("mes-seguinte").click();
-  await expect(
-    page.locator('[data-testid^="dia-"][data-disponivel="true"]').first(),
-    "nem o mês seguinte oferece dia — a consulta deveria ter pedido o mês visível",
-  ).toBeVisible({ timeout: 20_000 });
+  // ⚠️ ESPERA PELO PRÓPRIO CRITÉRIO, não por "algum dia disponível" — a mesma
+  // corrida que `escolherDiaDesenhado` já fechou: logo depois do clique há um
+  // quadro com o mês novo na tela e os horários do mês VELHO por baixo, e um
+  // `toBeVisible` passa nele antes de a varredura ler o mês novo vazio. Medido
+  // no último dia de setembro (30/09, ~01h43 e ~02h10 UTC, na `main` e no #1938):
+  // "nenhum dia FUTURO disponível" com a espera antiga verde.
+  await expect
+    .poll(varrer, {
+      message: "nem o mês seguinte oferece dia futuro — a consulta deveria ter pedido o mês visível",
+      timeout: 20_000,
+    })
+    .not.toEqual([]);
   return varrer();
 }
 

@@ -2,8 +2,16 @@
  * Cost computation for AI invocations.
  *
  * Looks up `ai_pricing` (rarely changing global table) and converts token
- * usage to cost in *cents* (rounded up to integer to err on the side of
- * over-billing rather than free usage).
+ * usage to cost in *cents*, FRACIONADO — igual ao `costCents` do seam
+ * (`lib/agent-engine/edge/llm/pricing.ts`) e às colunas `numeric` de
+ * `llm_calls`/`ai_invocations`.
+ *
+ * Arredondava para cima até o centavo inteiro "para errar cobrando a mais".
+ * Numa chamada de classificador (~250 tokens de entrada no gpt-5.6-luna, custo
+ * real ≈ 0,01 centavo) isso gravava 1 centavo: 100× o real. Medido numa VPS em
+ * set/2026: o `sentiment_classify` somava 5.278 de 5.714 centavos do mês — o
+ * teto de orçamento via um gasto que não existiu, e ligado teria travado a IA
+ * da organização por um número falso.
  */
 
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -105,7 +113,7 @@ async function precoDoCatalogo(
 }
 
 /**
- * Returns cost in **cents**, FRACTIONAL (4 casas). Zero when pricing missing.
+ * Returns cost in **cents** (fracionado, sem arredondar). Zero when pricing missing.
  */
 export async function computeCost(input: ComputeCostInput): Promise<number> {
   const pricing = await loadPricing();
@@ -119,7 +127,7 @@ export async function computeCost(input: ComputeCostInput): Promise<number> {
     const cents =
       ((input.promptTokens ?? 0) * doCatalogo.prompt) / 1_000_000 +
       ((input.completionTokens ?? 0) * doCatalogo.completion) / 1_000_000;
-    return Math.round(cents * 10_000) / 10_000;
+    return cents;
   }
 
   const promptRate = toNumber(row.prompt_cents_per_million_tokens);
@@ -135,21 +143,7 @@ export async function computeCost(input: ComputeCostInput): Promise<number> {
     (completionTokens * completionRate) / 1_000_000 +
     (embeddingTokens * embeddingRate) / 1_000_000;
 
-  // ⚠️ FRACIONÁRIO, nunca `Math.ceil` por chamada.
-  //
-  // O ceil existia "para errar para o lado de cobrar" — e numa chamada grande
-  // ele arredonda centavos. Mas o classificador de sentimento custa 0,08¢ por
-  // chamada, e `Math.ceil(0.08)` cobra 1¢: 12× o real, EM CADA mensagem.
-  //
-  // Medido em produção (14 dias): 1.284 chamadas somaram 1.122¢ registrados
-  // contra ~103¢ de custo real — o painel do provedor cobrou $3,03 no mês
-  // inteiro enquanto o registro interno dizia $11 só de sentimento. E o teto
-  // de gasto lê ESTA coluna: cortaria a IA do cliente ~11× cedo demais.
-  //
-  // A coluna é `numeric` e o caminho do agent-engine já grava fração (medido:
-  // linhas com 16.2489¢). Duas casas de microcentavo bastam; "nunca de graça"
-  // continua valendo — fração pequena não é zero.
-  return Math.round(cents * 10_000) / 10_000;
+  return cents;
 }
 
 /** Test-only: drop the in-memory pricing cache. */

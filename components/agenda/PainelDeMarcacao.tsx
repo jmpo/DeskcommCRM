@@ -10,7 +10,7 @@ import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { instanteDe } from "@/lib/agenda/fuso";
+import { dataDeParede, instanteDe } from "@/lib/agenda/fuso";
 import { ApiError } from "@/lib/api/types";
 import { CaretLeft, CaretRight, CheckCircle, Clock, MapPin, Warning } from "@/lib/ui/icons";
 import { cn } from "@/lib/utils";
@@ -261,12 +261,23 @@ export function PainelDeMarcacao({
    * chamador, novo a cada render dele, e um efeito com o objeto na lista
    * dispararia para sempre.
    */
+  /**
+   * A data de parede no fuso que o painel EXIBE.
+   *
+   * Toda formatação do painel passa por aqui. Enquanto cada `format` lia o
+   * relógio do navegador, o horário oferecido no cabeçalho e a confirmação
+   * logo abaixo podiam dizer horas diferentes para o mesmo agendamento —
+   * silenciosamente, e só quando os dois fusos diferiam.
+   */
+  const parede = (iso: string): Date =>
+    fuso ? dataDeParede(new Date(iso), fuso) : new Date(iso);
+
   const instanteInicial = horarioInicial?.instante;
   React.useEffect(() => {
     if (!instanteInicial) return;
     const d = new Date(instanteInicial);
     setDia(d);
-    setHorario({ instante: instanteInicial, rotulo: format(d, "HH:mm") });
+    setHorario({ instante: instanteInicial, rotulo: format(parede(instanteInicial), "HH:mm") });
     setMes(startOfMonth(d));
     setMarcado(null);
   }, [instanteInicial]);
@@ -469,7 +480,7 @@ export function PainelDeMarcacao({
               também. */}
           <h3 className="mt-3 text-base font-semibold">{t("Marcado.")}</h3>
           <p className="mt-1 text-sm text-text-muted">
-            {format(new Date(marcado.instante), t("EEEE, d 'de' MMMM 'às' HH:mm"), { locale: localeDaData })}
+            {format(parede(marcado.instante), t("EEEE, d 'de' MMMM 'às' HH:mm"), { locale: localeDaData })}
           </p>
           <p className="mt-0.5 text-xs text-text-subtle">
             {t(tipo)} · {duracaoMin} {t("min · com")} {responsavel.nome}
@@ -789,7 +800,7 @@ export function PainelDeMarcacao({
             <p className="text-sm">
               <span className="text-text-muted">{t("Confirmar")} </span>
               <span className="font-semibold">
-                {format(new Date(horario.instante), t("EEEE, d 'de' MMMM 'às' HH:mm"), { locale: localeDaData })}
+                {format(parede(horario.instante), t("EEEE, d 'de' MMMM 'às' HH:mm"), { locale: localeDaData })}
               </span>
             </p>
 

@@ -41,6 +41,8 @@ interface OrgJoin {
   display_name: string;
   locale: string | null;
   timezone: string | null;
+  currency: string | null;
+  country: string | null;
 }
 
 /** O mesmo `organizations`, alcançado por outro embed: só as portas da EMPRESA. */
@@ -187,7 +189,7 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
           // issue #1341 acabou de engordar), e o alias traz só as portas da EMPRESA.
           // `timezone` veio do main (fuso da organização nas listas, #1290) e convive
           // com o alias: um embed por relação, sem renomear o que já existia.
-          "organization_id, role, interface_settings, accepted_at, organizations(display_name, locale, timezone), interface_da_empresa:organizations(interface_settings)",
+          "organization_id, role, interface_settings, accepted_at, organizations(display_name, locale, timezone, currency, country), interface_da_empresa:organizations(interface_settings)",
         )
         .eq("user_id", user.id)
         .is("revoked_at", null)
@@ -243,6 +245,8 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
       interface_settings: combinarInterfaces(empresa?.interface_settings, row.interface_settings),
       locale: org?.locale ?? null,
       timezone: org?.timezone ?? null,
+      currency: org?.currency ?? null,
+      country: org?.country ?? null,
     };
   });
 
@@ -284,10 +288,25 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
 export const resolveActiveOrg = cache(async (authUser: AuthUser): Promise<ActiveOrg | null> => {
   if (authUser.support) {
     if (authUser.support.status !== "active") redirect("/support-ended");
+    // Acompanhamento não tem membership, e era por isso que este caminho
+    // devolvia a organização PELADA: sem fuso, e agora sem moeda nem país. A
+    // tela então caía nos padrões e mostrava `R$` dentro de uma empresa em
+    // euro — o mesmo defeito que este conserto ataca, por outra porta. Uma
+    // leitura por id, só nas sessões de acompanhamento; falha degrada para o
+    // que havia antes, porque perder o acesso de suporte é pior que um símbolo
+    // errado.
+    const { data: orgDoSuporte } = await createAdminClient()
+      .from("organizations")
+      .select("timezone, currency, country")
+      .eq("id", authUser.support.organization_id)
+      .maybeSingle();
     return {
       orgId: authUser.support.organization_id,
       name: authUser.support.name,
       role: authUser.support.access_mode === "full" ? "admin" : "viewer",
+      timezone: orgDoSuporte?.timezone ?? null,
+      currency: orgDoSuporte?.currency ?? null,
+      country: orgDoSuporte?.country ?? null,
     };
   }
   const store = await cookies();
@@ -299,6 +318,8 @@ export const resolveActiveOrg = cache(async (authUser: AuthUser): Promise<Active
     role: ativo.role,
     interface_settings: ativo.interface_settings,
     timezone: ativo.timezone ?? null,
+    currency: ativo.currency ?? null,
+    country: ativo.country ?? null,
   };
 });
 

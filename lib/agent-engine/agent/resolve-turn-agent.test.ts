@@ -26,6 +26,7 @@ function fakeConfig(agentId: string): PublishedAgentConfig {
     proposalAiDraftEnabled: true,
     splitMessages: false,
     splitMaxChars: 900,
+    inboundDebounceMs: null,
     multimodalInput: false,
     casesEnabled: false,
     toolIds: [],
