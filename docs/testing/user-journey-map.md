@@ -503,7 +503,7 @@ diálogo e é asserida na spec.
 
 ---
 
-## J37 — O fluxo de silêncio espera antes de recomeçar para quem já passou por ele `[P1]` (2026-09-27)
+## J39 — O fluxo de silêncio espera antes de recomeçar para quem já passou por ele `[P1]` (2026-09-27)
 
 Contexto do código: num fluxo de silêncio com `cancel_on_reply`, cada resposta do
 cliente cancelava a inscrição e a varredura seguinte o inscrevia de novo, do
@@ -517,35 +517,35 @@ Spec: `tests/e2e/pausa-de-reentrada.spec.ts`.
 
 | # | Caso | Expectativa | Resultado |
 |---|------|-------------|-----------|
-| J37.1 | Pôr 48 h no campo «Pausa antes de recomeçar (horas)» e salvar | o banco guarda `reentry_pause_minutes: 2880`; o botão diz «pausa de 48 h» | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-01-campo-preenchido.png`, `evidence/triagem-16set-l12/pausa-02-rotulo-com-pausa.png` |
-| J37.2 | Editar OUTRO campo do gatilho | a pausa sobrevive | **PASS pela tela** |
-| J37.3 | Zerar a pausa | a chave sai do gatilho (comportamento de antes) | **PASS pela tela** |
-| J37.4 | Quem encerrou uma inscrição há menos que a pausa / quem nunca passou / conversa com pessoa no comando | pula / entra / pula (salvo `handoff_policy='allow'`) | **PASS (invariante)** — `tests/invariants/followup-silence-sweep.test.ts` |
-| J37.5 | Teto do silêncio: 5 com mínimo 10 é recusado; 60 é gravado e o botão mostra «10–60 min»; na varredura, quem está calado há 20 min entra e há 3 h fica de fora | tela + invariante | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/silencio-01-teto-de-60.png`; invariante no mesmo arquivo de J35.4 |
-| J37.6 | Pausa de 24 h contada do último envio (a opção só aparece com pausa > 0) | o banco guarda `reentry_pause_basis: "ultimo_envio"`; o botão diz «no máximo 1× a cada 24 h»; desligar tira a chave; na varredura, quem encerrou há 25 h e escreveu há 20 min entra (pela base padrão, fica na pausa) | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-03-base-do-ultimo-envio.png`; invariante no mesmo arquivo de J35.4 |
+| J39.1 | Pôr 48 h no campo «Pausa antes de recomeçar (horas)» e salvar | o banco guarda `reentry_pause_minutes: 2880`; o botão diz «pausa de 48 h» | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-01-campo-preenchido.png`, `evidence/triagem-16set-l12/pausa-02-rotulo-com-pausa.png` |
+| J39.2 | Editar OUTRO campo do gatilho | a pausa sobrevive | **PASS pela tela** |
+| J39.3 | Zerar a pausa | a chave sai do gatilho (comportamento de antes) | **PASS pela tela** |
+| J39.4 | Quem encerrou uma inscrição há menos que a pausa / quem nunca passou / conversa com pessoa no comando | pula / entra / pula (salvo `handoff_policy='allow'`) | **PASS (invariante)** — `tests/invariants/followup-silence-sweep.test.ts` |
+| J39.5 | Teto do silêncio: 5 com mínimo 10 é recusado; 60 é gravado e o botão mostra «10–60 min»; na varredura, quem está calado há 20 min entra e há 3 h fica de fora | tela + invariante | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/silencio-01-teto-de-60.png`; invariante no mesmo arquivo de J35.4 |
+| J39.6 | Pausa de 24 h contada do último envio (a opção só aparece com pausa > 0) | o banco guarda `reentry_pause_basis: "ultimo_envio"`; o botão diz «no máximo 1× a cada 24 h»; desligar tira a chave; na varredura, quem encerrou há 25 h e escreveu há 20 min entra (pela base padrão, fica na pausa) | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-03-base-do-ultimo-envio.png`; invariante no mesmo arquivo de J35.4 |
 
 
-## J38 — O pino de localização chega com a rua e a cidade aproximadas `[P1]` (2026-09-28)
+## J40 — O pino de localização chega com a rua e a cidade aproximadas `[P1]` (2026-09-28)
 
 Contexto: medido numa loja, 10 de 10 pinos do mês chegaram só com coordenadas —
 o agente lia um link e perguntava a cidade de novo. Com a chave da Geocoding API
 (Configurações › Provedores, cartão «Mapas»; tabela `map_provider_credentials`,
-migration 0493; regra em `lib/mapas/`), o pino ganha o endereço aproximado no
+migration 0503; regra em `lib/mapas/`), o pino ganha o endereço aproximado no
 corpo (o que o agente lê) e no cartão do pino da conversa.
 
 Spec: `tests/e2e/mapas-em-provedores.spec.ts`.
 
 | # | Caso | Expectativa | Resultado |
 |---|------|-------------|-----------|
-| J38.1 | Admin cola a chave e grava | o banco guarda a chave CIFRADA e os 4 últimos; a tela mostra «Chave gravada ···XXXX», limpa o campo, e a chave não aparece no HTML | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-01-chave-colada.png` |
-| J38.2 | «Testar» com chave recusada pelo Google | a tela explica a recusa (API não habilitada × chave recusada são mensagens diferentes), nunca «Funcionou» | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-02-teste-explica-a-recusa.png` |
-| J38.3 | Remover a chave | a linha sai do banco e o cartão volta a «Sem chave» | **PASS pela tela** |
-| J38.4 | Pino recebido com chave / sem chave / Google fora | corpo com «… (aprox.)» / corpo idêntico ao de antes e nenhuma chamada ao Google / corpo de antes | **PASS (unit)** — `tests/unit/mapas-pino-com-endereco.test.ts` |
-| J38.5 | A tabela não é servida pelo PostgREST | `anon`/`authenticated` sem privilégio, `permission denied`, RLS ligada sem policy | **PASS (invariante)** — `tests/invariants/credencial-de-mapas-e-server-side.test.ts` |
-| J38.6 | O que o Google diz × o endereço anotado em 8 pedidos confirmados (28/09/2026) | distrito 8/8, departamento 8/8, localidade 7/8 (Atyrá rural virou a compañía), rua 3/5, bairro 1/8, número interpolado → a cidade é o DISTRITO; bairro e número não saem | **MEDIDO em produção** (`pedilo-config/cfg/55-pines-vs-pedido.ts`); regra em `tests/unit/mapas-pino-com-endereco.test.ts` |
-| J38.7 | A API do canal não responde a tempo na ingestão do pino (medido 29/09/2026: timeout duas vezes) | a mensagem entra com o marcador e pede nova busca; 1 min depois, e a cada 2 min até 15, busca de novo e grava tipo `location` + link (+ endereço aproximado com chave); nunca rebaixa um pino que já tem coordenadas; desiste sem virar incidente | **PASS (unit)** — `tests/unit/pino-reintento.test.ts`, `tests/unit/channel-ingest-zernio.test.ts` |
+| J40.1 | Admin cola a chave e grava | o banco guarda a chave CIFRADA e os 4 últimos; a tela mostra «Chave gravada ···XXXX», limpa o campo, e a chave não aparece no HTML | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-01-chave-colada.png` |
+| J40.2 | «Testar» com chave recusada pelo Google | a tela explica a recusa (API não habilitada × chave recusada são mensagens diferentes), nunca «Funcionou» | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-02-teste-explica-a-recusa.png` |
+| J40.3 | Remover a chave | a linha sai do banco e o cartão volta a «Sem chave» | **PASS pela tela** |
+| J40.4 | Pino recebido com chave / sem chave / Google fora | corpo com «… (aprox.)» / corpo idêntico ao de antes e nenhuma chamada ao Google / corpo de antes | **PASS (unit)** — `tests/unit/mapas-pino-com-endereco.test.ts` |
+| J40.5 | A tabela não é servida pelo PostgREST | `anon`/`authenticated` sem privilégio, `permission denied`, RLS ligada sem policy | **PASS (invariante)** — `tests/invariants/credencial-de-mapas-e-server-side.test.ts` |
+| J40.6 | O que o Google diz × o endereço anotado em 8 pedidos confirmados (28/09/2026) | distrito 8/8, departamento 8/8, localidade 7/8 (Atyrá rural virou a compañía), rua 3/5, bairro 1/8, número interpolado → a cidade é o DISTRITO; bairro e número não saem | **MEDIDO em produção** (`pedilo-config/cfg/55-pines-vs-pedido.ts`); regra em `tests/unit/mapas-pino-com-endereco.test.ts` |
+| J40.7 | A API do canal não responde a tempo na ingestão do pino (medido 29/09/2026: timeout duas vezes) | a mensagem entra com o marcador e pede nova busca; 1 min depois, e a cada 2 min até 15, busca de novo e grava tipo `location` + link (+ endereço aproximado com chave); nunca rebaixa um pino que já tem coordenadas; desiste sem virar incidente | **PASS (unit)** — `tests/unit/pino-reintento.test.ts`, `tests/unit/channel-ingest-zernio.test.ts` |
 
-## J39 — A mensagem que saiu por modelo diz qual e mostra as opções `[P1]` (2026-09-29)
+## J41 — A mensagem que saiu por modelo diz qual e mostra as opções `[P1]` (2026-09-29)
 
 Contexto: com a janela de 24 h fechada, só sai modelo aprovado. A conversa
 mostrava o corpo como um texto qualquer — quem lia não sabia que tinha saído por
@@ -559,9 +559,9 @@ Spec: `tests/e2e/inbox-mensagem-por-modelo.spec.ts`.
 
 | # | Caso | Expectativa | Resultado |
 |---|------|-------------|-----------|
-| J39.1 | Abrir uma conversa com uma mensagem por modelo e uma de texto | o balão do modelo tem o selo «Modelo do WhatsApp · <nome>» e a lista «Opções enviadas ao cliente» com os botões na ordem; o de texto, nenhum dos dois; as opções cabem no balão (`boundingBox`) | **PASS pela tela** — Evidência: `evidence/inbox-mensagem-por-modelo/01-modelo-com-selo-e-opcoes.png` |
-| J39.2 | Enviar modelo com botões / sem espelho / texto comum com botões forjados no `metadata` | grava os botões da definição, na ordem / não grava nada e envia / não grava nada (o `metadata` de entrada não fala pelos botões) | **PASS (unit)** — `tests/unit/messages-handler-canal-intermediado.test.ts` |
-| J39.3 | Mensagem por modelo enviada antes desta versão (sem botões gravados) | só o selo, sem lista | **PASS (unit)** — `components/inbox/MessageBubble.test.tsx` |
+| J41.1 | Abrir uma conversa com uma mensagem por modelo e uma de texto | o balão do modelo tem o selo «Modelo do WhatsApp · <nome>» e a lista «Opções enviadas ao cliente» com os botões na ordem; o de texto, nenhum dos dois; as opções cabem no balão (`boundingBox`) | **PASS pela tela** — Evidência: `evidence/inbox-mensagem-por-modelo/01-modelo-com-selo-e-opcoes.png` |
+| J41.2 | Enviar modelo com botões / sem espelho / texto comum com botões forjados no `metadata` | grava os botões da definição, na ordem / não grava nada e envia / não grava nada (o `metadata` de entrada não fala pelos botões) | **PASS (unit)** — `tests/unit/messages-handler-canal-intermediado.test.ts` |
+| J41.3 | Mensagem por modelo enviada antes desta versão (sem botões gravados) | só o selo, sem lista | **PASS (unit)** — `components/inbox/MessageBubble.test.tsx` |
 
 ---
 

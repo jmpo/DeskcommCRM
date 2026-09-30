@@ -1,4 +1,4 @@
--- 0492 (era 0403, 0428 e 0443 no fork; renumerada ao sincronizar com a upstream em 25/09 e 27/09) — a etapa do funil pode mandar um evento de conversão à plataforma de anúncio.
+-- 0504 (era 0403, 0428, 0443 e 0492 no fork; renumerada ao sincronizar com a upstream em 25/09, 27/09 e 30/09) — a etapa do funil pode mandar um evento de conversão à plataforma de anúncio.
 --
 -- A venda (`Purchase`) só é reportada no GANHO. Em quem vende com pagamento na
 -- entrega, o ganho é a entrega — dias depois do clique —, e o otimizador da
@@ -24,4 +24,4 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 comment on column public.crm_stages.evento_de_conversao is
-  'Evento de conversão enviado à plataforma de anúncio quando um negócio entra nesta etapa (0492).';
+  'Evento de conversão enviado à plataforma de anúncio quando um negócio entra nesta etapa (0504).';

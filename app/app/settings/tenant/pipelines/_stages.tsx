@@ -512,7 +512,7 @@ export function StagesSection({
                 {t("Avisar a equipe na Central quando um negócio entrar aqui")}
               </label>
 
-              {/* Evento de conversão ao entrar (migration 0492): em venda contra
+              {/* Evento de conversão ao entrar (migration 0504): em venda contra
                   entrega, a confirmação do pedido é o sinal cedo para a
                   plataforma do anúncio — a venda só sai na entrega.
                   Na etapa de FECHAMENTO não há o que escolher, e a tela diz por

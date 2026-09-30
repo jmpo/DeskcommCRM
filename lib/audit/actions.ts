@@ -976,7 +976,7 @@ export const AUDIT_ACTIONS = [
   // o dado que importa quando alguém pergunta "por que este cliente voltou a
   // receber?".
   "contact.unblocked",
-  // A chave de Mapas da organização (0493, Configurações › Provedores): gravada ou
+  // A chave de Mapas da organização (0503, Configurações › Provedores): gravada ou
   // trocada, e removida. O metadata diz O QUE mudou — nunca a chave.
   "ai.maps_credential_saved",
   "ai.maps_credential_removed",

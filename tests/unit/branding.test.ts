@@ -814,7 +814,7 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     motivo:
       "link de mapa que `lib/messaging/localizacao.ts` monta com as coordenadas do pino que o CLIENTE mandou pelo WhatsApp: é o que o atendente toca para ver o endereço de entrega e o que o agente lê. O código não chama o host; o celular abre o app de mapas. Trocar pelo domínio do revendedor não abriria mapa nenhum.",
   },
-  // ── geocodificação reversa do pino (0493): destino de chamada ──
+  // ── geocodificação reversa do pino (0503): destino de chamada ──
   "maps.googleapis.com": {
     categoria: "FORNECEDOR",
     motivo:

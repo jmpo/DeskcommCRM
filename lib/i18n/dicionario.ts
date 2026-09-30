@@ -2475,7 +2475,7 @@ export const DICIONARIO: Traducoes = {
   "Recarregue o saldo na conta do provedor: as respostas saem sozinhas quando ele voltar.": {
     es: "Recarga el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva.",
   },
-  // Cartão "Mapas" em Provedores (0493) e a API dele.
+  // Cartão "Mapas" em Provedores (0503) e a API dele.
   "Mapas (Google)": { es: "Mapas (Google)" },
   "Chave gravada": { es: "Clave guardada" },
   "Sem chave": { es: "Sin clave" },
@@ -9850,7 +9850,7 @@ export const DICIONARIO: Traducoes = {
   "O som pode ter no máximo 1 MB.": { es: "El sonido puede tener como máximo 1 MB." },
   "O som precisa ser MP3, OGG ou WAV.": { es: "El sonido tiene que ser MP3, OGG o WAV." },
   "Aviso desconhecido.": { es: "Aviso desconocido." },
-  // ─── editor de etapas — evento de conversão (migration 0492) ───
+  // ─── editor de etapas — evento de conversão (migration 0504) ───
   "Evento para a plataforma de anúncio quando um negócio entrar aqui": {
     es: "Evento para la plataforma de anuncios cuando un negocio entre acá",
   },

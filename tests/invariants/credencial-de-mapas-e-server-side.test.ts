@@ -1,5 +1,5 @@
 /**
- * A CHAVE DE MAPAS É SERVER-SIDE ONLY — E ISSO SE MEDE (migration 0493).
+ * A CHAVE DE MAPAS É SERVER-SIDE ONLY — E ISSO SE MEDE (migration 0503).
  *
  * `map_provider_credentials` guarda a chave do Google da organização. A anon
  * key vai para o browser; se o PostgREST servisse esta tabela, qualquer um com
@@ -40,7 +40,7 @@ describe("o PostgREST não serve a chave de mapas", () => {
     const existe = sql(`
       select count(*) from information_schema.tables where table_schema = 'public' and table_name = '${TABELA}';
     `).trim();
-    expect(existe, "a 0493 não chegou ao baseline — o kit self-host não cria a tabela").toBe("1");
+    expect(existe, "a 0503 não chegou ao baseline — o kit self-host não cria a tabela").toBe("1");
   });
 
   it("`anon` e `authenticated` não têm privilégio NENHUM", () => {
