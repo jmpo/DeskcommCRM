@@ -1098,6 +1098,36 @@ jobs:
       # — as duas nunca disputam a porta, porque a parte roda uma spec por vez.
       # PREVISÃO, não medida: ~1 min.
       #
+      # `jev-pedidos` entrou junto delas em 2026-09-26 (onda 3 do Jev, bloco
+      # 3.1), pelo mesmo motivo e com o mesmo isolamento: sobe o próprio dublê
+      # (a mesma porta 3996, com `DUBLE_JEV_RESPOSTAS` forçando a resposta das
+      # perguntas dos pedidos), manda as mensagens pela mesma entrada da
+      # `jev-decisoes-rapidas`, publica um agente SÓ dela no número (sem agente
+      # no ar, o Jev não é perguntado) e apaga o agente, a chave, o
+      # `settings.jev` e as observações dos pedidos no fim. Roda depois das
+      # outras duas do Jev: escoa a fila antes de ligar, como a primeira.
+      # O bloco 3.2 acrescentou um quarto cliente e o aviso na Central ("Avisar
+      # a equipe"), que ela também apaga no fim.
+      # PREVISÃO, não medida: ~2 min.
+      #
+      # `jev-followup` entrou junto delas em 2026-09-26 (onda 4.1 do Jev, a
+      # tarefa que lê a resposta ao follow-up e só observa), pelo mesmo motivo e
+      # com o mesmo isolamento: sobe o próprio dublê (a mesma porta 3996, só para
+      # a chave passar no teste), publica dois follow-ups SÓ dela pelas rotas do
+      # construtor (um Classificar de uma saída, o controle, e um de duas) e os
+      # desativa no fim, com a chave e o `settings.jev`. A vizinhança aqui
+      # importa, e é o cuidado que ela exige: a ordem é por CAMINHO, então
+      # `followup-builder`, `-journey`, `-dossie` e `-queue` rodam antes dela, e a
+      # `followup-builder` deixa publicado um Classificar de DUAS saídas — que
+      # tiraria a tarefa do "Não roda" que ela mede primeiro. Por isso ela
+      # desativa, pela rota de desativar, todo follow-up ativo com Classificar de
+      # duas saídas ou mais, e cancela, pela rota de cancelar, toda inscrição viva
+      # numa versão com ele, antes de medir. Nenhuma spec depois dela nesta parte
+      # fala de follow-up (`grep -c followup` em `jev-pedidos`, `jev-roteador`,
+      # `marca-logo`, `olhar-telas-do-epico`, `qa-l12-*` e `suporte-temporario`:
+      # zero em todas, medido em 2026-09-26).
+      # PREVISÃO, não medida: ~1 min.
+      #
       # `contadores-do-menu` entrou aqui em 2026-09-27 pela folga da parte (a
       # maior, acima). Semeia o próprio canal, contato, conversa escalada e caso
       # pelo service role e apaga tudo no fim, então não depende de vizinha.
@@ -1137,6 +1167,8 @@ jobs:
         olhar-telas-do-epico.spec.ts
         jev-decisoes-rapidas.spec.ts
         jev-roteador.spec.ts
+        jev-pedidos.spec.ts
+        jev-followup.spec.ts
         buffer-ssr-caixa-orfa.spec.ts
         contadores-do-menu.spec.ts
         honorarios-instalar-e-pagar.spec.ts

@@ -250,7 +250,7 @@ const PROVA_PROPRIA: readonly Excecao[] = [
       "tests/invariants/credencial-de-mapas-e-server-side.test.ts — privilégio " +
       "NENHUM para anon e authenticated, `permission denied` sob `set role`, RLS " +
       "ligada, zero policies, `organization_id` NOT NULL com FK em cascata. Guarda " +
-      "a chave do Google da organização (0493), que só o servidor lê.",
+      "a chave do Google da organização (0503), que só o servidor lê.",
   },
   {
     tabela: "ad_conversion_dispatches",

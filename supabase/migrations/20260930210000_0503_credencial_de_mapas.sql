@@ -1,4 +1,4 @@
--- 0493 — A chave de MAPAS da organização (geocodificação reversa do pino).
+-- 0503 — A chave de MAPAS da organização (geocodificação reversa do pino).
 --
 -- Medido numa loja que vende pelo WhatsApp (28/09/2026): 10 de 47 conversas do
 -- mês tiveram pino de localização, e os 10 chegaram só com coordenadas. O agente

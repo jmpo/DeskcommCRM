@@ -77,13 +77,11 @@ crontab -l >"$CRONTAB_REAL_ANTES" 2>/dev/null || : >"$CRONTAB_REAL_ANTES"
 
 # dublar_uname_amd64 <diretório bin do sandbox>
 #
-# O `_common.sh` recusa, logo que é carregado, todo install.sh/update.sh que não
-# roda em amd64 — a imagem publicada é só linux/amd64. Os cenários que executam
-# esses scripts de verdade medem o INSTALADOR, não o processador de quem roda a
-# suíte: sem este dublê, num Mac Apple Silicon (`arm64`) todos eles paravam na
-# guarda (medido: 22 asserções vermelhas, a maioria "inconclusivo"). A recusa de
-# ARM tem prova própria em tests/shell/arquitetura-kit.test.sh. Só `uname -m` é
-# dublado; qualquer outro uso vai ao `uname` real.
+# Os cenários abaixo medem o instalador, não o processador de quem roda a
+# suíte. Fixamos o ambiente em x86_64 para que os fixtures e valores de imagem
+# desses casos permaneçam determinísticos; a aceitação de ARM64 tem prova
+# própria em tests/shell/arquitetura-kit.test.sh. Só `uname -m` é dublado;
+# qualquer outro uso vai ao `uname` real.
 UNAME_REAL="$(command -v uname)"
 dublar_uname_amd64() {
   cat > "$1/uname" <<STUB

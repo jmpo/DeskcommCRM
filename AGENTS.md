@@ -474,6 +474,10 @@ itens envelhecem em ritmos diferentes, e o cabeçalho passava a mentir por todos
 - Nunca logue segredo, token, CPF, telefone ou e-mail. Sentry tem `beforeSend` que
   higieniza — não confie nele como única camada.
 - Não commite screenshot/dump com dado real de cliente.
+- Descadastro (STOP): quem bloqueia é só a regra de `lib/opt-out/deteccao.ts`, quando o próprio cliente
+  manda o STOP (não há bloqueio à mão no produto — `lib/channels/pos-entrada.ts` é o único escritor); o Jev
+  (`lib/ai/decisao/pedidos.ts`) só é perguntado onde ela disse não, e nunca bloqueia ninguém — no
+  máximo abre um aviso na Central ("Avisar a equipe").
 
 ## Packaging — se você tocou `Dockerfile*`, `docker-compose*.yml` ou `hostgator-setup-kit/`
 
@@ -483,7 +487,7 @@ Lei completa em [`docs/doctrine/packaging.md`](docs/doctrine/packaging.md). O n�
   declara `image:` de uma imagem publicada; `build:` só existe **ao lado**, como escape.
   Serviço `build:`-only é pulado por `docker compose pull` e imune a `up -d` sem `--build` —
   ele não é só caro de instalar, ele **nunca é atualizado**.
-- **Publicação é ato do CI**, nunca da sua máquina: build ARM local não roda na VPS amd64.
+- **Publicação é ato do CI**, nunca da sua máquina: as imagens publicadas atendem linux/amd64 e linux/arm64.
 - **Instalação de cliente aponta para número de versão**, nunca para tag móvel. Aqui `latest`
   significa **topo da `main`**, não última release — quem quer a última release usa `stable`.
 - **Dependência upstream é referenciada com tag fixa, nunca republicada** (WAHA é licenciado).

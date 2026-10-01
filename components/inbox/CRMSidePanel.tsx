@@ -52,6 +52,8 @@ interface LeadRow {
   field_defs: CustomFieldDef[];
   funil_nome: string | null;
   etapa_nome: string | null;
+  /** Etiquetas do NEGÓCIO (`crm_leads.tags`) — só leitura aqui; ver `EtiquetasDoNegocio`. */
+  tags?: string[] | null;
   stage_id?: string;
   /** As etapas ativas do funil, na ordem do quadro (rota crm-summary). */
   etapas_do_funil?: Array<{ id: string; name: string; is_won: boolean; is_lost: boolean }>;
@@ -301,8 +303,10 @@ function SemLista({
 /**
  * Só os campos do funil, no lugar onde a conversa acontece.
  *
- * Título, valor e tags já têm casa no dossiê. Quem atende descobre o dado
+ * Título e valor já têm casa no dossiê. Quem atende descobre o dado
  * customizado (CPF, plano, endereço) aqui — e tinha de ir no Kanban gravar.
+ * As tags do negócio aparecem aqui só para LER (`EtiquetasDoNegocio`); editar
+ * continua no dossiê.
  */
 /**
  * O banco guarda `open`/`won`/`lost`; a tela mostrava a palavra crua (#943).
@@ -345,6 +349,29 @@ function ondeEstaOLead(l: LeadRow): string {
  */
 const CLASSES_DE_ONDE_ESTA = "line-clamp-2 text-muted-foreground";
 
+/**
+ * As tags do NEGÓCIO, só leitura, junto de funil e etapa.
+ *
+ * O painel mostrava as tags do contato e as da conversa, e as do negócio não
+ * apareciam em lugar nenhum da conversa: quem atendia procurava a etiqueta que
+ * o fluxo de acompanhamento lê (a condição `tag` lê `crm_leads.tags`) — ex.: o
+ * produto que o assistente apresentou — e concluía que ela não existia. Sem
+ * editor aqui de propósito: três editores de tag no mesmo painel confundem mais
+ * do que ajudam, e o do negócio já existe no dossiê.
+ */
+function EtiquetasDoNegocio({ tags }: { tags: string[] | null | undefined }) {
+  const t = useT();
+  if (!tags || tags.length === 0) return null;
+  return (
+    <div data-testid="inbox-lead-tags" className="flex flex-wrap items-center gap-1 pt-0.5">
+      <span className="text-[10px] text-muted-foreground">{t("Tags do lead")}:</span>
+      {tags.map((tag) => (
+        <ChipDeEtiqueta key={tag} tag={tag} className="h-4 px-1.5 text-[10px]" />
+      ))}
+    </div>
+  );
+}
+
 function InboxLeadEditor({
   leads,
   selecionadoId,
@@ -385,6 +412,7 @@ function InboxLeadEditor({
                   <div className="text-muted-foreground">
                     {status(l)} · {formatMoney(l.value_cents, l.currency)}
                   </div>
+                  <EtiquetasDoNegocio tags={l.tags} />
                 </button>
               </li>
             );
@@ -397,6 +425,7 @@ function InboxLeadEditor({
           <p className={CLASSES_DE_ONDE_ESTA} title={ondeEstaOLead(ativo)}>
             {ondeEstaOLead(ativo)}
           </p>
+          <EtiquetasDoNegocio tags={ativo.tags} />
         </div>
       )}
       <EtapaDoNegocio key={`etapa-${ativo.id}`} lead={ativo} onMovido={onSalvo} />

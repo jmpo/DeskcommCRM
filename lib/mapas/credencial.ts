@@ -1,5 +1,5 @@
 /**
- * A chave de MAPAS da organização (migration 0493, `map_provider_credentials`).
+ * A chave de MAPAS da organização (migration 0503, `map_provider_credentials`).
  *
  * Opcional: sem chave, o pino do WhatsApp segue exatamente como antes (só o
  * link do mapa). Mesma cifra das outras integrações (`fn_encrypt_oauth`), e a
