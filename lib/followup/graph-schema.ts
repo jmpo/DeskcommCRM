@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { variaveisDoModeloSchema } from '@/lib/channels/meta/variaveis-do-fluxo';
 
 import { PRIORIDADES_DA_TAREFA } from '@/lib/tarefas/tipos';
 
@@ -249,6 +250,12 @@ export const actionConfigSchema = z.discriminatedUnion('mode', [
   z.strictObject({
     mode: z.literal('template'),
     template_id: z.string().uuid(),
+    /**
+     * De onde sai cada variável (`{{1}}`, `{{2}}`…) de um modelo APROVADO:
+     * nome do contato ou campo do negócio, resolvido na hora do envio
+     * (`lib/channels/meta/variaveis-do-fluxo.ts`). Ausente = modelo sem variável.
+     */
+    template_values: variaveisDoModeloSchema.optional(),
   }),
 ]);
 
