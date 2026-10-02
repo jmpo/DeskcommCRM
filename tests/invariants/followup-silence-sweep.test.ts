@@ -916,7 +916,15 @@ describe("runSilenceSweep — 1 follow-up vivo por lead ORG-WIDE (Task 8.6, furo
     const contactId = await seedContact(org);
     await seedConversation(org, contactId, 90); // silencioso p/ os dois
 
-    const deps = { db: silenceSweepDb(), gateDb: pgGateDb(), clock: CLOCK };
+    // Este caso mede o ÍNDICE: o pré-filtro de inscrição viva da varredura fica
+    // desligado aqui, senão ele mesmo pularia o 2º fluxo e o RED (o spam do
+    // índice antigo) nunca apareceria. O índice é a garantia; o pré-filtro é
+    // economia — e tem caso próprio logo abaixo.
+    const deps = {
+      db: { ...silenceSweepDb(), loadContatosComInscricaoViva: async () => new Set<string>() },
+      gateDb: pgGateDb(),
+      clock: CLOCK,
+    };
 
     try {
       // RED — índice como era ANTES da 0062: (pointer_id, contact_id)
@@ -940,6 +948,39 @@ describe("runSilenceSweep — 1 follow-up vivo por lead ORG-WIDE (Task 8.6, furo
       await pool.query(`delete from followup_enrollments where contact_id = $1`, [contactId]);
       await setOneLiveIndex("organization_id, contact_id");
     }
+  });
+
+  it("com o pré-filtro, o 2º fluxo nem TENTA inscrever quem já está vivo (sem 23505 a cada minuto)", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const flowA = await seedSilenceFlow(org, { thresholdMinutes: 30 });
+    const flowB = await seedSilenceFlow(org, { thresholdMinutes: 30 });
+    await seedPublishedAgentVersion(org, { enabled: true, pointerIds: [flowA.pointerId, flowB.pointerId] });
+    const contactId = await seedContact(org);
+    await seedConversation(org, contactId, 90);
+
+    const base = silenceSweepDb();
+    const tentativas: string[] = [];
+    const db: SilenceSweepDb = {
+      ...base,
+      insertEnrollment: async (input) => {
+        if (input.contact_id === contactId) tentativas.push(input.pointer_id);
+        return base.insertEnrollment(input);
+      },
+    };
+    const deps = { db, gateDb: pgGateDb(), clock: CLOCK };
+
+    const primeira = await runSilenceSweep(deps);
+    expect(primeira.enrolled).toBe(1);
+    expect(tentativas).toHaveLength(1); // o 2º fluxo leu "já vivo" e pulou sem tentar
+    expect(primeira.skipped_existing).toBeGreaterThanOrEqual(1);
+
+    // os ticks seguintes (1×/min em produção) também não tentam: era aqui que
+    // nasciam os ~124 mil 23505 por dia
+    await runSilenceSweep(deps);
+    await runSilenceSweep(deps);
+    expect(tentativas).toHaveLength(1);
+    expect(await countLiveForContact(org, contactId)).toBe(1);
   });
 
   it("contato JÁ vivo no fluxo A → sweep do fluxo B NÃO enrolla (índice do baseline)", async () => {
