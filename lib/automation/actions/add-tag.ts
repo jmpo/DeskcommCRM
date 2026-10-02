@@ -21,7 +21,20 @@ async function execute(ctx: ActionCtx, config: Record<string, unknown>): Promise
       : null;
   if (!target) return { type: "add_tag", status: "skipped", detail: { reason: "no_target" } };
 
-  const prev = target.row.tags ?? [];
+  // As etiquetas ATUAIS, e não as do contexto: o contexto é a foto de quando o
+  // evento nasceu, e todas as regras do mesmo evento recebem a mesma foto. Duas
+  // regras que etiquetam o mesmo negócio gravavam cada uma a SUA lista inteira,
+  // e a segunda apagava o que a primeira tinha acabado de gravar — medido em
+  // 02/10/2026: "etiqueta do produto" + "confirmação" no mesmo `lead.created`,
+  // e o negócio ficava só com as etiquetas da segunda.
+  const { data: atual, error: erroDaLeitura } = await ctx.admin
+    .from(target.table)
+    .select("tags")
+    .eq("id", target.row.id)
+    .eq("organization_id", ctx.organizationId)
+    .maybeSingle();
+  if (erroDaLeitura) return { type: "add_tag", status: "failed", error: erroDaLeitura.message };
+  const prev = (atual as { tags?: string[] | null } | null)?.tags ?? target.row.tags ?? [];
   const added = tags.filter((t) => !prev.includes(t));
   if (!added.length) return { type: "add_tag", status: "success", detail: { added: [] } };
 
@@ -36,6 +49,8 @@ async function execute(ctx: ActionCtx, config: Record<string, unknown>): Promise
     .eq("id", target.row.id)
     .eq("organization_id", ctx.organizationId);
   if (error) return { type: "add_tag", status: "failed", error: error.message };
+  // A próxima regra deste evento parte do que ficou gravado.
+  target.row.tags = merged;
 
   await ctx.admin.rpc("emit_event", {
     p_event_type: target.event,
