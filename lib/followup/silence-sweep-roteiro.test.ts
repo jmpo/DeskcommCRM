@@ -82,6 +82,7 @@ describe("runSilenceSweep", () => {
       loadContatosComRetornoVivo: async () => new Set<string>(),
       loadEncerramentosDoFluxo: async () => new Map(),
       loadContatosComPessoaNoComando: async () => new Set<string>(),
+      loadContatosComInscricaoViva: async () => new Set<string>(),
       loadTriggerNode: async () => ({ id: "t", pedeAgente: false }),
       loadContactIdsEmCooldown: async () => new Set(),
       insertEnrollment: insert,
