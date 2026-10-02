@@ -290,6 +290,13 @@ export function ContactDetailClient({ contactId }: Props) {
               <div>
                 <dt className="text-xs uppercase text-muted-foreground">{t("Origem")}</dt>
                 <dd className="mt-1">{origem.origem}</dd>
+                {origem.inferidaPorHorario && (
+                  <dd className="mt-1 text-sm text-muted-foreground">
+                    {t(
+                      "Deduzida pelo horário do clique: o cliente apagou o código da mensagem.",
+                    )}
+                  </dd>
+                )}
               </div>
               <NivelDaOrigem rotulo={t("Campanha")} valor={origem.campanha} />
               <NivelDaOrigem rotulo={t("Conjunto")} valor={origem.conjunto} />

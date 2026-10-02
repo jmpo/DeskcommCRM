@@ -56,6 +56,12 @@ export interface OrigemDoContato {
    * posicionamento chegou pela URL (não há ausência para explicar).
    */
   semPosicionamentoDeAnuncio: boolean;
+  /**
+   * A origem foi DEDUZIDA pelo horário de um clique, não lida de um código no
+   * texto: o cliente apagou o código ao editar a mensagem
+   * (`lib/leads/origem-por-horario.ts`). A ficha avisa, porque é inferência.
+   */
+  inferidaPorHorario: boolean;
 }
 
 /** Texto não vazio, ou `null`. Número e booleano no jsonb não são rótulo. */
@@ -95,5 +101,6 @@ export function origemDoContato(
     anuncio: primeiro(meta, ["utm_ad", "ad_name", "ad_title"]),
     posicionamento,
     semPosicionamentoDeAnuncio: deAnuncio && posicionamento === null,
+    inferidaPorHorario: meta.origem_inferida_por === "horario",
   };
 }

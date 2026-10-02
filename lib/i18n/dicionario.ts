@@ -5382,6 +5382,9 @@ export const DICIONARIO: Traducoes = {
   "A plataforma não informa o posicionamento de cada clique em anúncio.": {
     es: "La plataforma no informa la ubicación de cada clic en un anuncio.",
   },
+  "Deduzida pelo horário do clique: o cliente apagou o código da mensagem.": {
+    es: "Deducido por el horario del clic: el cliente borró el código del mensaje.",
+  },
   "Etapa de destino": { es: "Etapa de destino" },
   "Texto da mensagem": { es: "Texto del mensaje" },
   "Tags do contato": { es: "Etiquetas del contacto" },
