@@ -320,7 +320,8 @@ describe("passo `template` com variáveis, preenchidas pelo contato e pelo negó
       { workerId: "w1" },
     );
 
-    expect(send.mock.calls[0]![0].template.values["2"]).toBe("Parasol para auto");
+    const enviado = send.mock.calls[0]![0].template as { values: Record<string, string> };
+    expect(enviado.values["2"]).toBe("Parasol para auto");
   });
 
   it("o plano B da IA não tem mapa: modelo com variável segue recusado ali", async () => {
