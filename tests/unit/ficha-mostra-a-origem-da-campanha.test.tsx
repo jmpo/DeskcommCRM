@@ -135,4 +135,26 @@ describe("a ficha do contato mostra a origem da campanha", () => {
     }
     expect(screen.queryByText(FRASE)).toBeNull();
   });
+
+  const AVISO = "Deduzida pelo horário do clique: o cliente apagou o código da mensagem.";
+
+  it("origem deduzida pelo horário do clique: a ficha avisa que é dedução", () => {
+    abrirFicha(
+      {
+        ad_platform: "site",
+        utm_source: "site",
+        utm_campaign: "Landing · Parasol",
+        origem_inferida_por: "horario",
+      },
+      "site",
+    );
+    expect(screen.getByText(AVISO)).toBeInTheDocument();
+    expect(valorDe("Campanha")).toBe("Landing · Parasol");
+  });
+
+  it("a mesma origem vinda do código não ganha o aviso", () => {
+    abrirFicha({ ad_platform: "site", utm_source: "site", utm_campaign: "Landing · Parasol" }, "site");
+    expect(valorDe("Campanha")).toBe("Landing · Parasol");
+    expect(screen.queryByText(AVISO)).toBeNull();
+  });
 });
