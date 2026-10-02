@@ -215,3 +215,13 @@ describe("casarClickRef (Meta)", () => {
     expect(casado).toBeNull();
   });
 });
+
+describe("a rota de captura é alcançável por quem clicou", () => {
+  it("o proxy não exige sessão de quem chega do botão da landing", async () => {
+    const { isPublicPath } = await import("@/lib/auth/public-paths");
+    expect(isPublicPath("/api/v1/anuncios/meta/loja")).toBe(true);
+    // Âncora num segmento só: nenhum sub-path nasce público de carona.
+    expect(isPublicPath("/api/v1/anuncios/meta/loja/admin")).toBe(false);
+    expect(isPublicPath("/api/v1/anuncios/meta")).toBe(false);
+  });
+});
