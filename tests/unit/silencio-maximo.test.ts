@@ -44,6 +44,7 @@ describe("varredura de silêncio com teto", () => {
       loadContactIdsEmCooldown: async () => new Set<string>(),
       loadEncerramentosDoFluxo: async () => new Map(),
       loadContatosComPessoaNoComando: async () => new Set<string>(),
+      loadContatosComInscricaoViva: async () => new Set<string>(),
       loadTriggerNode: async () => ({ id: "inicio", pedeAgente: false }),
       insertEnrollment: async () => ({ inserted: true }),
     };

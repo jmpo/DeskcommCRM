@@ -32,6 +32,7 @@ function fakeDb(opts: {
     // Do fork (pausa de reentrada e pessoa no comando): neutros aqui.
     loadEncerramentosDoFluxo: async () => new Map(),
     loadContatosComPessoaNoComando: async () => new Set<string>(),
+    loadContatosComInscricaoViva: async () => new Set<string>(),
     loadTriggerNode: async () => ({ id: "t-1", pedeAgente: false }),
     loadContactIdsEmCooldown: async () => opts.contatosEmCooldown,
     insertEnrollment: opts.insert ?? (async () => ({ inserted: true })),

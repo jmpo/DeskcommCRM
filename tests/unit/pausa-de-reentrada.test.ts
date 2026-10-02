@@ -102,6 +102,7 @@ describe("varredura de silêncio", () => {
       loadContactIdsEmCooldown: async () => new Set<string>(),
       loadEncerramentosDoFluxo,
       loadContatosComPessoaNoComando,
+      loadContatosComInscricaoViva: async () => new Set<string>(),
       loadTriggerNode: async () => ({ id: "inicio", pedeAgente: false }),
       insertEnrollment: insert,
     };
@@ -328,6 +329,7 @@ describe("base da pausa: a partir do último ENVIO do fluxo", () => {
           ["hoje", { encerradaEm: AGORA.getTime() - 2 * H, ultimaMensagemEm: AGORA.getTime() - H / 3 }],
         ]),
       loadContatosComPessoaNoComando: async () => new Set<string>(),
+      loadContatosComInscricaoViva: async () => new Set<string>(),
       loadTriggerNode: async () => ({ id: "inicio", pedeAgente: false }),
       insertEnrollment: insert,
     };

@@ -180,6 +180,19 @@ export interface SilenceSweepDb {
     contactIds: string[],
     cutoffIso: string,
   ): Promise<Set<string>>;
+  /**
+   * Dos `contactIds`, os que JÁ têm um enrollment VIVO (qualquer fluxo da org —
+   * o índice único `idx_followup_enrollments_one_live` é por organização e
+   * contato). Lido ANTES do insert para não tentar à toa: a tentativa que bate
+   * no índice ainda passa pela fronteira de atendimento, pela proteção da agenda
+   * e por um INSERT que o banco recusa — e cada recusa é uma tupla morta, uma
+   * linha de erro no log do Postgres e um 409 no gateway. Medido numa instalação
+   * real (02/10/2026): 86 contatos parados na espera longa de um remarketing,
+   * tentados a cada minuto em dois fluxos → ~124 mil recusas por dia, 100.854
+   * erros no log de 24 h, num banco que já estava sem fôlego de CPU. O 23505
+   * continua tratado no insert: ele cobre a corrida, não o caso comum.
+   */
+  loadContatosComInscricaoViva(orgId: string, contactIds: string[]): Promise<Set<string>>;
   /** Insere o enrollment nascendo no nó trigger; `inserted:false` = 23505 (já vivo nesse pointer) → skip. */
   insertEnrollment(input: {
     organization_id: string;
@@ -294,6 +307,7 @@ export async function runSilenceSweep(deps: SilenceSweepDeps): Promise<SilenceSw
         pointer.handoff_policy !== "allow"
           ? await db.loadContatosComPessoaNoComando(pointer.organization_id, contactIds)
           : new Set<string>();
+      const comInscricaoViva = await db.loadContatosComInscricaoViva(pointer.organization_id, contactIds);
 
       for (const contactId of contactIds) {
         if (comRetorno.has(contactId)) {
@@ -310,6 +324,12 @@ export async function runSilenceSweep(deps: SilenceSweepDeps): Promise<SilenceSw
         }
         if (emPausaDeReentrada(encerramentos.get(contactId), pausaMinutos, clock(), pointer.reentry_pause_basis)) {
           summary.skipped_reentry_pause++;
+          continue;
+        }
+        // O mesmo contador do 23505: quem já está vivo é `skipped_existing`,
+        // só que agora sem a tentativa que o banco recusaria.
+        if (comInscricaoViva.has(contactId)) {
+          summary.skipped_existing++;
           continue;
         }
         const { inserted } = await db.insertEnrollment({
@@ -536,6 +556,21 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
 
     async loadContatosComPessoaNoComando(orgId, contactIds) {
       return new Set(contactIds.filter((id) => pessoaNoComando.has(`${orgId}:${id}`)));
+    },
+
+    async loadContatosComInscricaoViva(orgId, contactIds) {
+      const vivos = new Set<string>();
+      for (let i = 0; i < contactIds.length; i += LOTE_DE_CONTATOS) {
+        const { data, error } = await admin
+          .from("followup_enrollments")
+          .select("contact_id")
+          .eq("organization_id", orgId)
+          .in("status", [...STATUS_VIVOS])
+          .in("contact_id", contactIds.slice(i, i + LOTE_DE_CONTATOS));
+        if (error) throw new Error(error.message);
+        for (const row of (data ?? []) as Array<{ contact_id: string }>) vivos.add(row.contact_id);
+      }
+      return vivos;
     },
 
     loadContatosComRetornoVivo(orgId) {

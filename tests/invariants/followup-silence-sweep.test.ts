@@ -211,6 +211,16 @@ function silenceSweepDb(): SilenceSweepDb {
       );
       return new Set(rows.map((r) => r.contact_id));
     },
+    // Mesma pergunta do adaptador de produção: vivo em QUALQUER fluxo da org.
+    async loadContatosComInscricaoViva(orgId, contactIds) {
+      const { rows } = await pool.query<{ contact_id: string }>(
+        `select distinct contact_id from followup_enrollments
+          where organization_id = $1 and contact_id = any($2::uuid[])
+            and status in ('active','waiting_reply','paused_handoff','paused_manual')`,
+        [orgId, contactIds],
+      );
+      return new Set(rows.map((r) => r.contact_id));
+    },
     async loadTriggerNode(orgId, versionId) {
       const { rows } = await pool.query<{ graph: FlowGraph }>(
         `select graph from followup_flow_versions where organization_id = $1 and id = $2`,
