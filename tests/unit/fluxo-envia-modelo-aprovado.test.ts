@@ -19,8 +19,11 @@
  *
  * - modelo aprovado sai COMO MODELO: a cadeia recebe `isTemplate` (só o gate da
  *   janela o deixa passar) e o canal recebe nome e idioma;
- * - modelo que não pode sair (pendente, com variável) pula o passo com o motivo,
- *   sem tocar na cadeia — em vez de a fila re-tentar até matar a inscrição;
+ * - modelo que não pode sair (pendente, variável sem origem ou vazia) pula o
+ *   passo com o motivo, sem tocar na cadeia — em vez de a fila re-tentar até
+ *   matar a inscrição;
+ * - modelo com variável e o mapa do passo: cada `{{n}}` sai com o nome do
+ *   contato ou o campo do negócio, lidos na hora, no corpo E no que o canal recebe;
  * - o plano B da IA sai com a janela FECHADA e só com ela: aberta, a IA escreve;
  * - controle: texto pronto continua saindo como texto.
  *
@@ -102,6 +105,10 @@ interface Cenario {
   modelo?: { status: string; texto?: string };
   /** último inbound da conversa, em horas atrás (`null` = nunca escreveu) */
   ultimoInboundHa?: number | null;
+  /** o contato, para as variáveis de nome */
+  contato?: { name: string | null; display_name?: string | null };
+  /** `custom_fields` do negócio mais recente */
+  negocio?: Record<string, unknown>;
 }
 
 function fakePool(c: Cenario) {
@@ -124,6 +131,10 @@ function fakePool(c: Cenario) {
       };
     }
     if (/from conversations/.test(sql)) return { rows: [{ id: CONVERSA, channel_session_id: CANAL, archived_at: null }] };
+    if (/select name, display_name from contacts/.test(sql)) {
+      return { rows: c.contato ? [{ display_name: null, ...c.contato }] : [] };
+    }
+    if (/select custom_fields from crm_leads/.test(sql)) return { rows: c.negocio ? [{ custom_fields: c.negocio }] : [] };
     return { rows: [] };
   });
   return { query } as never;
@@ -182,7 +193,7 @@ describe("passo `template` apontado para um modelo aprovado do canal", () => {
     expect(r.reason).toContain("PENDING");
   });
 
-  it("modelo com variável: pulado — o fluxo não tem de onde tirar o {{1}}", async () => {
+  it("modelo com variável e SEM origem escolhida no passo: pulado, e o motivo diz qual", async () => {
     const { d, completeFollowupTurn } = deps();
     await criarHandler(d)(
       job({ template_id: MODELO_ID }),
@@ -191,7 +202,9 @@ describe("passo `template` apontado para um modelo aprovado do canal", () => {
     );
 
     expect(runBeforeSend).not.toHaveBeenCalled();
-    expect(resultado(completeFollowupTurn).kind).toBe("skipped");
+    const r = resultado(completeFollowupTurn);
+    expect(r.kind).toBe("skipped");
+    expect(r.reason).toContain("{{1}} sem origem");
   });
 
   it("controle: texto pronto de Ajustes → Modelos continua saindo como TEXTO", async () => {
@@ -232,5 +245,93 @@ describe("plano B da mensagem por IA (`fallback_template_id`)", () => {
     await criarHandler(d)(job(PASSO_IA), fakePool({ texto: "oi", ultimoInboundHa: 30 }), { workerId: "w1" });
 
     expect(runAgentTurn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("passo `template` com variáveis, preenchidas pelo contato e pelo negócio", () => {
+  const PEDIDO = "¡Hola {{1}}! Recibimos tu pedido: {{2}} por {{3}}.";
+  const MAPA = {
+    "1": { kind: "contact_first_name" },
+    "2": { kind: "lead_custom", key: "producto_nombre" },
+    "3": { kind: "lead_custom", key: "precio_texto" },
+  };
+  const NEGOCIO = { producto_nombre: "Parasol Tipo Sombrilla", precio_texto: "₲135.000", producto: "parasol-sombrilla" };
+
+  it("⭐ cada {{n}} sai com o dado do contato e do negócio — no corpo e no que o canal recebe", async () => {
+    const { d, send, completeFollowupTurn } = deps();
+    await criarHandler(d)(
+      job({ template_id: MODELO_ID, template_values: MAPA }),
+      fakePool({ modelo: { status: "APPROVED", texto: PEDIDO }, contato: { name: "María José Pérez" }, negocio: NEGOCIO }),
+      { workerId: "w1" },
+    );
+
+    expect(runBeforeSend).toHaveBeenCalledTimes(1);
+    const cadeia = runBeforeSend.mock.calls[0]![0];
+    expect(cadeia.isTemplate).toBe(true);
+    // Os gates de conteúdo avaliam o texto que o cliente lê, não o marcador.
+    expect(cadeia.body).toBe("¡Hola María! Recibimos tu pedido: Parasol Tipo Sombrilla por ₲135.000.");
+    expect(send.mock.calls[0]![0].template).toEqual({
+      name: "recordatorio_pico",
+      language: "es",
+      values: { "1": "María", "2": "Parasol Tipo Sombrilla", "3": "₲135.000" },
+    });
+    expect(resultado(completeFollowupTurn).kind).toBe("sent");
+  });
+
+  it("campo vazio no negócio deste contato: pulado, sem parâmetro em branco, e o motivo nomeia o campo", async () => {
+    const { d, completeFollowupTurn } = deps();
+    await criarHandler(d)(
+      job({ template_id: MODELO_ID, template_values: MAPA }),
+      fakePool({
+        modelo: { status: "APPROVED", texto: PEDIDO },
+        contato: { name: "María" },
+        negocio: { precio_texto: "₲135.000" },
+      }),
+      { workerId: "w1" },
+    );
+
+    expect(runBeforeSend).not.toHaveBeenCalled();
+    const r = resultado(completeFollowupTurn);
+    expect(r.kind).toBe("skipped");
+    expect(r.reason).toContain('campo "producto_nombre" do negócio');
+  });
+
+  it("contato sem nome de gente (só o número): o {{1}} do nome não sai em branco", async () => {
+    const { d, completeFollowupTurn } = deps();
+    await criarHandler(d)(
+      job({ template_id: MODELO_ID, template_values: MAPA }),
+      fakePool({ modelo: { status: "APPROVED", texto: PEDIDO }, contato: { name: "+595981123456" }, negocio: NEGOCIO }),
+      { workerId: "w1" },
+    );
+
+    expect(runBeforeSend).not.toHaveBeenCalled();
+    expect(resultado(completeFollowupTurn).reason).toContain("primeiro nome do contato");
+  });
+
+  it("valor com quebra de linha vira uma linha só — a plataforma recusa parâmetro com \\n", async () => {
+    const { d, send } = deps();
+    await criarHandler(d)(
+      job({ template_id: MODELO_ID, template_values: MAPA }),
+      fakePool({
+        modelo: { status: "APPROVED", texto: PEDIDO },
+        contato: { name: "Ana" },
+        negocio: { ...NEGOCIO, producto_nombre: "Parasol\n   para   auto" },
+      }),
+      { workerId: "w1" },
+    );
+
+    expect(send.mock.calls[0]![0].template.values["2"]).toBe("Parasol para auto");
+  });
+
+  it("o plano B da IA não tem mapa: modelo com variável segue recusado ali", async () => {
+    const { d, completeFollowupTurn } = deps();
+    await criarHandler(d)(
+      job({ prompt_hint: "Retomá la charla", fallback_template_id: MODELO_ID }),
+      fakePool({ modelo: { status: "APPROVED", texto: PEDIDO }, ultimoInboundHa: 30, contato: { name: "Ana" }, negocio: NEGOCIO }),
+      { workerId: "w1" },
+    );
+
+    expect(runBeforeSend).not.toHaveBeenCalled();
+    expect(resultado(completeFollowupTurn).kind).toBe("skipped");
   });
 });
