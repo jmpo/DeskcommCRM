@@ -2396,6 +2396,15 @@ export const DICIONARIO: Traducoes = {
   "Depois de 24 horas sem resposta do cliente, só um modelo aprovado no WhatsApp chega até ele.": {
     es: "Después de 24 horas sin respuesta del cliente, solo le llega una plantilla aprobada en WhatsApp.",
   },
+  "De onde sai cada variável": { es: "De dónde sale cada variable" },
+  "no cabeçalho": { es: "en el encabezado" },
+  "Escolha a origem": { es: "Elegí el origen" },
+  "Primeiro nome do contato": { es: "Primer nombre del contacto" },
+  "Outro campo do negócio": { es: "Otro campo del negocio" },
+  "Chave do campo do negócio": { es: "Clave del campo del negocio" },
+  "Se faltar a origem de alguma variável, ou se o dado estiver vazio no contato, o passo é pulado e o motivo aparece na linha do tempo.": {
+    es: "Si falta el origen de alguna variable, o si el dato está vacío en el contacto, el paso se salta y el motivo aparece en la línea de tiempo.",
+  },
   "Modelo de mensagem": { es: "Plantilla de mensaje" },
   "Nota (opcional)": { es: "Nota (opcional)" },
   "Fluxo reprovado na validação — corrija os nós destacados.": {
