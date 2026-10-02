@@ -3244,3 +3244,15 @@ respondeu; se a mensagem do fluxo saiu da janela do histórico (`historyLimit`),
 vale o horário, no segundo. Uma inbound sem texto acorda o nó, não é
 classificada, e a carência recomeça desse despertar (comportamento anterior do
 motor, não mexido aqui).
+
+## J42 — Escolher o modelo que escreve o seguimento `[P2]` (2026-10-02)
+
+Em Agente de IA › Provedores, grupo "Atender o cliente", o ponto **"Escrever o seguimento"**
+(`followup_turn`) mostra o modelo da versão publicada do agente enquanto ninguém escolheu outro, e
+aceita um modelo próprio (com ferramentas). Escolhido, só os follow-ups (passos de IA dos fluxos de
+silêncio e retornos acordados) passam a usá-lo; responder ao cliente continua no modelo do agente.
+
+| # | Caso | Esperado | Estado |
+|---|---|---|---|
+| J42.1 | Abrir Provedores com o agente publicado e sem escolha | o ponto aparece com o modelo da versão publicada | **PASS** — `prova-painel-provedores.spec.ts`; evidência `evidence/modelo-do-seguimento/01-ponto-no-painel.png` |
+| J42.2 | Escolher outro modelo no ponto e gravar | a escolha fica gravada e o cartão a mostra | **PASS** — evidência `evidence/modelo-do-seguimento/02-escolha-gravada.png` e `evidence/modelo-do-seguimento/03-cartao-do-follow-up.png` |
