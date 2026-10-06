@@ -18,7 +18,8 @@ export function LocationCard({ localizacao }: { localizacao: Localizacao }) {
   const t = useT();
   const aproximado = localizacao.aproximado ? textoDoEnderecoAproximado(localizacao.aproximado) : "";
   const detalhe =
-    [localizacao.nome, localizacao.endereco].filter(Boolean).join(" — ") || (aproximado ? `${aproximado} (aprox.)` : "");
+    [localizacao.nome, localizacao.endereco].filter(Boolean).join(" — ") ||
+    (aproximado ? `${aproximado} (${t("aprox.")})` : "");
   return (
     <a
       href={linkDoMapa(localizacao)}

@@ -22,6 +22,13 @@ export interface RouterMember {
    * `null`/ausente = só roteia agente, como antes.
    */
   flowPointerId?: string | null;
+  /**
+   * Funil/etapa de DESTINO desta intenção (#2155): quando casa, o card sai do
+   * funil de entrada e vai para o funil do produto (mesma transferência das
+   * automações). `null`/ausente = só roteia o agente, como antes.
+   */
+  destinationPipelineId?: string | null;
+  destinationStageId?: string | null;
 }
 
 export interface LoadedRouter {
@@ -66,6 +73,8 @@ interface MemberRow {
   intent_description: string;
   examples: string[] | null;
   flow_pointer_id: string | null;
+  pipeline_id: string | null;
+  stage_id: string | null;
 }
 
 export async function loadActiveRouter(
@@ -85,7 +94,7 @@ export async function loadActiveRouter(
   if (router === undefined) return null;
 
   const { rows: memberRows } = await db.query<MemberRow>(
-    `select agent_id, intent_name, intent_description, examples, flow_pointer_id
+    `select agent_id, intent_name, intent_description, examples, flow_pointer_id, pipeline_id, stage_id
      from ai_router_members
      where router_id = $1
        and organization_id = $2
@@ -127,6 +136,8 @@ export async function loadActiveRouter(
       intentDescription: m.intent_description,
       examples: m.examples ?? [],
       flowPointerId: m.flow_pointer_id,
+      destinationPipelineId: m.pipeline_id,
+      destinationStageId: m.stage_id,
     })),
   };
 }

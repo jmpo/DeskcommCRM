@@ -45,6 +45,8 @@ import {
 import type { ClassifierModelOption } from "@/lib/ai/classifier-models";
 import type { ChannelSessionLite } from "../../agents/[id]/_components/AgentForm";
 import { useFollowupFlows } from "@/hooks/followup/useFollowupFlows";
+// #2155 — funil/etapa de DESTINO da intenção: o card vai para o funil do produto.
+import { usePipelines, usePipelineStages } from "@/hooks/webhooks/useWebhookSources";
 import { useT } from "@/hooks/i18n/useT";
 
 interface AgentLite {
@@ -130,24 +132,28 @@ export function RouterEditorClient({
       isActive: router.is_active,
       fallbackAgentId: router.fallback_agent_id ?? "",
       classifier: classifierKeyFrom(router.config),
-      members: members.map(({ agent_id, intent_name, intent_description, examples, flow_pointer_id }) => ({
+      members: members.map(({ agent_id, intent_name, intent_description, examples, flow_pointer_id, pipeline_id, stage_id }) => ({
         agent_id,
         intent_name,
         intent_description,
         examples,
         flow_pointer_id: flow_pointer_id ?? null,
+        pipeline_id: pipeline_id ?? null,
+        stage_id: stage_id ?? null,
       })),
     }),
     [router, members],
   );
 
   const currentMembers = draftMembers.map(
-    ({ agent_id, intent_name, intent_description, examples, flow_pointer_id }) => ({
+    ({ agent_id, intent_name, intent_description, examples, flow_pointer_id, pipeline_id, stage_id }) => ({
       agent_id,
       intent_name,
       intent_description,
       examples,
       flow_pointer_id: flow_pointer_id ?? null,
+      pipeline_id: pipeline_id ?? null,
+      stage_id: stage_id ?? null,
     }),
   );
 
@@ -191,6 +197,8 @@ export function RouterEditorClient({
         intent_description: "",
         examples: [],
         flow_pointer_id: null,
+        pipeline_id: null,
+        stage_id: null,
       },
     ]);
   }
@@ -461,6 +469,80 @@ export function RouterEditorClient({
   );
 }
 
+
+/**
+ * #2155 — para onde o CARD vai quando a intenção casa. Sem destino, o agente é
+ * escolhido e o negócio fica no funil de entrada (o defeito da issue): o agente
+ * do produto não escreve num funil que não é o dele. `pipeline_id` sozinho vale —
+ * a etapa vira a primeira aberta do funil.
+ */
+function DestinoDoCard({
+  pipelineId,
+  stageId,
+  disabled,
+  onChange,
+}: {
+  pipelineId: string | null;
+  stageId: string | null;
+  disabled: boolean;
+  onChange: (patch: Partial<DraftMember>) => void;
+}) {
+  const t = useT();
+  const { data: pipelinesRes } = usePipelines();
+  const pipelines = pipelinesRes?.data ?? [];
+  const { data: boardRes } = usePipelineStages(pipelineId);
+  const stages = boardRes?.data?.stages ?? [];
+  return (
+    <div className="flex flex-wrap items-end gap-2" data-testid="seletor-de-destino">
+      <div className="min-w-48 flex-1 space-y-1">
+        <Label>{t("Funil de destino (opcional)")}</Label>
+        <Select
+          value={pipelineId ?? NONE}
+          onValueChange={(v) =>
+            // trocar de funil invalida a etapa: ela não pertence ao funil novo.
+            onChange(v === NONE ? { pipeline_id: null, stage_id: null } : { pipeline_id: v, stage_id: null })
+          }
+          disabled={disabled}
+        >
+          <SelectTrigger aria-label={t("Funil de destino (opcional)")}>
+            <SelectValue placeholder={t("Sem destino — só escolher o agente")} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>{t("Sem destino — só escolher o agente")}</SelectItem>
+            {pipelines.map((pl) => (
+              <SelectItem key={pl.id} value={pl.id}>
+                {pl.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {pipelineId !== null && stages.length > 0 && (
+        <div className="min-w-40 flex-1 space-y-1">
+          <Label>{t("Etapa de destino")}</Label>
+          <Select
+            value={stageId ?? AUTO}
+            onValueChange={(v) => onChange({ stage_id: v === AUTO ? null : v })}
+            disabled={disabled}
+          >
+            <SelectTrigger aria-label={t("Etapa de destino")}>
+              <SelectValue placeholder={t("Primeira etapa aberta")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={AUTO}>{t("Primeira etapa aberta")}</SelectItem>
+              {stages.map((st) => (
+                <SelectItem key={st.id} value={st.id}>
+                  {st.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function IntentRow({
   member,
   agents,
@@ -563,6 +645,12 @@ function IntentRow({
         </p>
       </div>
       )}
+      <DestinoDoCard
+        pipelineId={member.pipeline_id ?? null}
+        stageId={member.stage_id ?? null}
+        disabled={disabled}
+        onChange={onChange}
+      />
       <ExamplesInput
         value={member.examples}
         onChange={(examples) => onChange({ examples })}

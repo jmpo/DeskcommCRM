@@ -35,34 +35,88 @@ source "$KIT_DIR/_i18n.sh"
 # usar o _common.sh). As duas funções abaixo são gêmeas das de lá — se mexer
 # numa, mexa na outra.
 dc() {
+  # Overlay da CA do Supabase (#829) — mesma condição da gêmea em _common.sh.
+  # Aqui ela importa: antes do clone o overlay pode ainda não existir, e um -f
+  # para arquivo ausente derrubaria o compose no meio da instalação.
+  local -a ca=()
+  if ca_do_supabase_ok && [ -f docker-compose.supabase-ca.yml ]; then ca=(-f docker-compose.supabase-ca.yml); fi
   if [ "${SINGLE_SERVER:-0}" = "1" ]; then
-    docker compose -f "$COMPOSE" -f docker-compose.single-server.yml "$@"
+    # #2099: o overlay do proxy da hospedagem entra também no single-server.
+    case "${REVERSE_PROXY:-caddy}" in
+    traefik) docker compose -f "$COMPOSE" -f docker-compose.single-server.yml -f "$COMPOSE_TRAEFIK" ${ca[@]+"${ca[@]}"} "$@" ;;
+    npm)     docker compose -f "$COMPOSE" -f docker-compose.single-server.yml -f "$COMPOSE_NPM" ${ca[@]+"${ca[@]}"} "$@" ;;
+    *)       docker compose -f "$COMPOSE" -f docker-compose.single-server.yml ${ca[@]+"${ca[@]}"} "$@" ;;
+    esac
     return
   fi
   case "${REVERSE_PROXY:-caddy}" in
-  traefik) docker compose -f "$COMPOSE" -f "$COMPOSE_TRAEFIK" "$@" ;;
-  npm)     docker compose -f "$COMPOSE" -f "$COMPOSE_NPM" "$@" ;;
-  *)       docker compose -f "$COMPOSE" "$@" ;;
+  traefik) docker compose -f "$COMPOSE" -f "$COMPOSE_TRAEFIK" ${ca[@]+"${ca[@]}"} "$@" ;;
+  npm)     docker compose -f "$COMPOSE" -f "$COMPOSE_NPM" ${ca[@]+"${ca[@]}"} "$@" ;;
+  *)       docker compose -f "$COMPOSE" ${ca[@]+"${ca[@]}"} "$@" ;;
   esac
 }
 dc_files() {
+  # Mesma condição do dc() (#829): a mensagem que ensina o comando tem de bater
+  # com o que o kit roda.
+  local sufixo=""
+  if ca_do_supabase_ok && [ -f docker-compose.supabase-ca.yml ]; then
+    sufixo=" -f docker-compose.supabase-ca.yml"
+  fi
   if [ "${SINGLE_SERVER:-0}" = "1" ]; then
-    printf -- '-f %s -f %s' "$COMPOSE" docker-compose.single-server.yml
+    case "${REVERSE_PROXY:-caddy}" in
+    traefik) printf -- '-f %s -f %s -f %s%s' "$COMPOSE" docker-compose.single-server.yml "$COMPOSE_TRAEFIK" "$sufixo" ;;
+    npm)     printf -- '-f %s -f %s -f %s%s' "$COMPOSE" docker-compose.single-server.yml "$COMPOSE_NPM" "$sufixo" ;;
+    *)       printf -- '-f %s -f %s%s' "$COMPOSE" docker-compose.single-server.yml "$sufixo" ;;
+    esac
     return
   fi
   case "${REVERSE_PROXY:-caddy}" in
-  traefik) printf -- '-f %s -f %s' "$COMPOSE" "$COMPOSE_TRAEFIK" ;;
-  npm)     printf -- '-f %s -f %s' "$COMPOSE" "$COMPOSE_NPM" ;;
-  *)       printf -- '-f %s' "$COMPOSE" ;;
+  traefik) printf -- '-f %s -f %s%s' "$COMPOSE" "$COMPOSE_TRAEFIK" "$sufixo" ;;
+  npm)     printf -- '-f %s -f %s%s' "$COMPOSE" "$COMPOSE_NPM" "$sufixo" ;;
+  *)       printf -- '-f %s%s' "$COMPOSE" "$sufixo" ;;
   esac
 }
 
 # psql/pg_dump efêmeros. No modo single-server o Postgres só é alcançável pela
 # bridge privada (supabase-db), nunca por porta pública.
+#
+# ── A CA do Supabase, declarada UMA vez (#829) ────────────────────────────────
+# GÊMEA da de _common.sh (mesmo motivo das duas acima: este script roda antes do
+# clone existir, e o validador da connection string já precisa saber explicar uma
+# falha de certificado). Se mexer numa, mexa na outra — as duas mensagens e o
+# caminho fixo do contêiner têm de sair byte a byte iguais.
+CA_NO_CONTAINER="/etc/deskcomm/ca/supabase-ca.crt"
+
+# stdout: caminho absoluto da CA (o docker recusa bind relativo).
+# stderr: o que falta, sempre com o nome da variável — é a frase que aparece no
+# lugar do `SELF_SIGNED_CERT_IN_CHAIN` cru que a issue reportou.
+ca_do_supabase() {
+  local p="${SUPABASE_SSL_ROOT_CERT:-}"
+  if [ -z "$p" ]; then
+    printf '%s' "SUPABASE_SSL_ROOT_CERT não está declarada no .env — sem ela o kit não recebe a CA do Supabase. Declare SUPABASE_SSL_ROOT_CERT=/caminho/do/prod-ca-2021.crt (baixe com: curl -fsSL -o /root/certs/prod-ca-2021.crt https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt)" >&2
+    return 1
+  fi
+  case "$p" in /*) ;; *) p="$PWD/$p" ;; esac
+  if [ ! -f "$p" ] || [ ! -r "$p" ]; then
+    printf '%s' "SUPABASE_SSL_ROOT_CERT aponta para '$p', e este arquivo não existe (ou não é legível). Corrija o caminho no .env — a CA fica FORA do checkout, e o kit só monta arquivo que existe." >&2
+    return 1
+  fi
+  printf '%s' "$p"
+}
+
+# Idem _common.sh: silenciosa, para as decisões de montagem.
+ca_do_supabase_ok() { ca_do_supabase >/dev/null 2>&1; }
+
 pg_container() {
-  local -a rede=()
+  local -a rede=() ca=()
+  local caminho=""
   [ -n "${PSQL_DOCKER_NETWORK:-}" ] && rede=(--network "$PSQL_DOCKER_NETWORK")
-  docker run --rm ${rede[@]+"${rede[@]}"} "$@"
+  # `local caminho` separado de propósito: `local caminho="$(...)"` engole o
+  # status do comando substituído e o `if` aceitaria CA quebrada como pronta.
+  if caminho="$(ca_do_supabase 2>/dev/null)"; then
+    ca=(-v "$caminho:$CA_NO_CONTAINER:ro" -e "PGSSLROOTCERT=$CA_NO_CONTAINER")
+  fi
+  docker run --rm ${rede[@]+"${rede[@]}"} ${ca[@]+"${ca[@]}"} "$@"
 }
 
 # ── Aparência ───────────────────────────────────────────────────────────────
@@ -361,6 +415,24 @@ v_db_url() {
   echo "$(t "Não consegui conectar no banco. O Postgres respondeu:")"
   printf '   %s\n' "$(printf '%s' "$out" | head -2)"
   case "$out" in
+    # ── Falha de certificado (#829) ─────────────────────────────────────────
+    # É o `SELF_SIGNED_CERT_IN_CHAIN` da issue: a cadeia do pooler não está na
+    # trust store padrão. O erro cru não diz o que fazer, então este ramo fala o
+    # que falta — com o NOME da variável — antes de qualquer outra hipótese.
+    # Só mensagem de CERTIFICADO entra aqui, nunca qualquer "SSL": senha errada
+    # com a segunda tentativa citando "SSL connection is required" tem de cair
+    # no ramo da senha, e "SSL SYSCALL error" é queda de rede. As mensagens de
+    # verificação da libpq que conhecemos citam "certificate"; o
+    # ca-supabase-tls.test.sh prende a classificação pelo comportamento.
+    *[Cc]ertificate*|*[Cc]ertificado*|*SELF_SIGNED_CERT*)
+      echo "   👉 $(t "O Postgres recusou o certificado TLS: a cadeia dele não está na trust store desta máquina (SELF_SIGNED_CERT_IN_CHAIN).")"
+      if ca_do_supabase >/dev/null 2>&1; then
+        echo "      $(t "SUPABASE_SSL_ROOT_CERT já está declarada — confira se o arquivo é o prod-ca-2021.crt oficial do Supabase e se o hostname da connection string bate com o certificado.")"
+      else
+        echo "      $(t "Declare SUPABASE_SSL_ROOT_CERT no .env, apontando para a CA oficial do Supabase:")"
+        echo "      curl -fsSL -o /root/certs/prod-ca-2021.crt https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt"
+        echo "      SUPABASE_SSL_ROOT_CERT=/root/certs/prod-ca-2021.crt"
+      fi;;
     *"could not translate host name"*)
       echo "   👉 $(t "Quase sempre é a senha com caractere especial: na URL ela precisa ser codificada.")"
       echo "      $(t "Troque  @ por %40   :  por %3A   /  por %2F   ?  por %3F   #  por %23")";;

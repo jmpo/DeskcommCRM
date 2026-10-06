@@ -152,6 +152,7 @@ import { garantirPerguntaDoRoteiro, perguntaDoRoteiroPodeSair, prepararRoteiroDo
 import { validarRespostaDoFluxo } from './flow-validate';
 import { moduloLigadoComMemo } from '@/lib/instalacao/modulos';
 import { msAteAJanelaAbrir } from './janela-de-atendimento';
+import { enviaAvisoForaDoHorario, portasDeProducao } from './aviso-fora-do-horario';
 import { janelaDeEnvioAberta, proximaAberturaDaJanela } from '../pacing/engine';
 import { loadChannelKnobs } from '../pacing/store';
 import { avisarJanelaFechada, resolverAvisoDeJanela } from '../pacing/aviso-de-janela';
@@ -178,7 +179,12 @@ import {
 } from './skills';
 import { readSkillReference, skillHasReferences } from './skill-references';
 import { READ_ONLY_TOOLS, wrapToolsWithBreaker, type ToolBreakerThresholds } from './tool-breaker';
-import { loadChannelProvider, nomesDasFerramentas, runBeforeSend } from '../guardrails/before-send';
+import {
+  loadChannelProvider,
+  nomesDasFerramentas,
+  runBeforeSend,
+  tipoDeEnvio,
+} from '../guardrails/before-send';
 import { isStatusSendable } from '../../channels/meta/template-binding';
 import { capabilitiesOf } from '@/lib/channels/capabilities';
 import { renderTemplateBody } from '@/lib/channels/meta/render-template';
@@ -187,6 +193,10 @@ import { instrucaoDeBolhas, sendInBubbles, splitForSend } from './split-message'
 import type { DisclosureMode } from '../guardrails/disclosure/template';
 import { decidePromise } from '../guardrails/promise/engine';
 import { loadPromiseTable } from '../guardrails/promise/table';
+import {
+  carregarFontesQueProvamOferta,
+  criarEvidenciasComerciaisDoTurno,
+} from '../guardrails/promise/evidencias-comerciais';
 import { classifyPromise } from '../guardrails/promise/semantic';
 import { expectativaDeAtendimento } from '@/lib/escalacao/disponibilidade';
 import {
@@ -196,6 +206,7 @@ import {
 import { diffCheckpoint } from '@/lib/leads/checkpoint-diff';
 import { emitAgentActivityForContact } from '@/lib/leads/agent-activity';
 import { resolveActiveLeadForContact, type LeadCandidate } from '@/lib/leads/active-lead';
+import { aplicaDestinoDaIntencao } from './destino-da-intencao';
 import { recalculaScoreDoLead } from '@/lib/leads/score-writer';
 import {
   JAILBREAK_ESCALATION_LEVEL,
@@ -1607,6 +1618,9 @@ export async function deteccoesDeterministicasDoAssistido(
         ? deps.channel(pool)
         : new WahaChannelAdapter(pool, { ...deps.crmCfg, agentActorId: agent.agentId }),
       optedOutThisTurn,
+      // #2112: o TIPO do turno decide a janela do aviso — inbound/case respondem,
+      // follow-up dispara. Mesmo discriminador do resto do turno (`eTurnoDeResposta`).
+      origem: tipoDeEnvio(eTurnoDeResposta(job)),
       now: clock(),
       log,
       ...(lgpd !== undefined ? { lgpd } : {}),
@@ -1773,6 +1787,9 @@ export async function runAgentTurn(
             channel: (deps.channel ?? ((p: pg.Pool) => new WahaChannelAdapter(p, deps.crmCfg)))(
               pool,
             ),
+            // #2112: a escolta roda no turno INTEIRO, inclusive num follow-up —
+            // o tipo do turno é o que diz qual janela o gate do aviso avalia.
+            origem: tipoDeEnvio(eTurnoDeResposta(job)),
             now: deps.clock?.() ?? new Date(),
             log: logDaEscolta,
             ...(deps.knobs.disclosureMode !== undefined
@@ -2024,6 +2041,10 @@ async function executarTurnoDoAgente(
         inbound: liveJob().kind === 'inbound_turn',
       }, { log: runLog, jev: deps.jev });
   const agentConfig = routed.config;
+  // #2155 — o destino do card. `in` porque o ramo de preview/campanha devolve um
+  // objeto literal SEM estes campos: sem a guarda, o tipo da união recusa a leitura.
+  const destinoPipelineId = 'destinationPipelineId' in routed ? (routed.destinationPipelineId ?? null) : null;
+  const destinoStageId = 'destinationStageId' in routed ? (routed.destinationStageId ?? null) : null;
   if (
     !preview &&
     agentConfig?.operationMode === 'assisted' &&
@@ -2104,6 +2125,37 @@ async function executarTurnoDoAgente(
   if (!preview && liveJob().kind === 'inbound_turn' && agentConfig?.janelaDeAtendimento != null) {
     const esperaMs = msAteAJanelaAbrir(agentConfig.janelaDeAtendimento, clock());
     if (esperaMs !== null) {
+      // O AVISO DE FORA DO HORÁRIO (#1926) — ANTES do adiamento, para sair na
+      // hora em que a mensagem chegou. É resposta a quem escreveu primeiro (o
+      // pacing lê a janela `resposta*` e o aviso CONTA no ledger); as réguas de
+      // opt-out, teto de envio e LGPD continuam valendo — a ordem e os vetores
+      // moram em `aviso-fora-do-horario.ts`. Qualquer erro aqui só PERDE um
+      // aviso: o turno é adiado de qualquer forma, e a resposta não pode morrer
+      // por causa de um recado.
+      try {
+        const aviso = await enviaAvisoForaDoHorario(
+          portasDeProducao(pool, deps.crmCfg.supabase, runLog),
+          {
+            organizationId: tenantId,
+            conversationId: input.conversationId,
+            contactId: leadId,
+            channelSessionId: input.channelSessionId,
+            texto: agentConfig.avisoForaDoHorario ?? null,
+            janela: agentConfig.janelaDeAtendimento,
+            agora: clock(),
+          },
+        );
+        runLog.info(
+          aviso.enviar
+            ? 'aviso de fora do horário enviado'
+            : 'aviso de fora do horário não enviado',
+          { motivo: aviso.enviar ? 'enviado' : aviso.motivo },
+        );
+      } catch (err) {
+        runLog.warn('aviso de fora do horário falhou — o turno segue adiado para a abertura', {
+          error: (err instanceof Error ? err.message : String(err)).slice(0, 200),
+        });
+      }
       await rescheduleJob(pool, liveJob().id, ctx.workerId, {
         acquiredAt: claimOfJob(liveJob())?.acquired_at,
         delayMs: esperaMs,
@@ -2159,6 +2211,54 @@ async function executarTurnoDoAgente(
     } catch (err) {
       runLog.warn('decisão do router não gravada', {
         error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
+      });
+    }
+  }
+  // #2155 — A INTENÇÃO TAMBÉM DIZ PARA ONDE O CARD VAI. O roteador escolhia o
+  // agente e o card ficava no funil de entrada: o agente do produto não escrevia
+  // nele, a conversa morria no time errado. Aplicado DEPOIS da decisão de
+  // roteamento (mesmo agente, mesma intenção) e ANTES do turno do agente, para
+  // que ele já responda com o card no funil certo. Silencioso por design: card
+  // já no destino, destino já ocupado e alvo ambíguo não são erro (ver
+  // `destino-da-intencao.ts`).
+  if (!preview && destinoPipelineId !== null) {
+    try {
+      const destino = await aplicaDestinoDaIntencao({
+        admin: deps.crmCfg.supabase,
+        organizationId: tenantId,
+        contactId: leadId,
+        destinoPipelineId,
+        destinoStageId,
+        handlerCtx: {
+          organization_id: tenantId,
+          actor: {
+            type: 'ai_agent',
+            id: 'agent-engine',
+            role: 'ai_operator',
+            ...(agentConfig === null ? {} : { agent_id: agentConfig.agentId }),
+          },
+          requestId: liveJob().id,
+        },
+      });
+      runLog.info('destino da intenção aplicado', {
+        status: destino.status,
+        pipeline_id: destinoPipelineId,
+        intent: routed.intentName,
+        ...(destino.error === undefined ? {} : { error: destino.error }),
+        ...(destino.origemId === undefined ? {} : { origem: destino.origemId }),
+        ...(destino.cloneId === undefined ? {} : { clone: destino.cloneId }),
+      });
+    } catch (err) {
+      // Nunca derruba a resposta ao lead por causa do destino do card.
+      //
+      // A recusa da RÉGUA (#2297, caminho 1) não chega mais aqui: ela é
+      // capturada dentro de `aplicaDestinoDaIntencao`, que conhece o negócio de
+      // origem e abre o aviso na Central antes de devolver `recusado` — este
+      // `catch` é a rede para o que não é recusa prevista (falha de banco na
+      // leitura, por exemplo), e segue sem aviso porque não há negócio a apontar.
+      runLog.warn('destino da intenção não aplicado', {
+        error: (err instanceof Error ? err.message : String(err)).slice(0, 160),
+        pipeline_id: destinoPipelineId,
       });
     }
   }
@@ -2308,6 +2408,11 @@ async function executarTurnoDoAgente(
     base: {
       channel: liveChannel(),
       optedOutThisTurn,
+      // #2112: o TIPO do turno decide a janela do aviso — `inbound_turn`/
+      // `case_reply_turn` respondem a quem escreveu; `followup_turn` é disparo
+      // (retomada), e o aviso de escalação dentro dele tem de cair na janela de
+      // `window_*`. Mesmo discriminador do resto do turno.
+      origem: tipoDeEnvio(eTurnoDeResposta(liveJob())),
       now: clock(),
       log: runLog,
       lgpd,
@@ -2583,6 +2688,19 @@ async function executarTurnoDoAgente(
   // correlacionar tentativa de promessa fora de tabela com o sinal de jailbreak — a
   // detecção NÃO depende do gate estar na cadeia default (a ordem final é da F4-08).
   const promiseTable = (await loadPromiseTable(pool, tenantId))?.table ?? null;
+  // Falha fechada: sem saber o tipo da fonte, nenhum trecho de conhecimento prova
+  // oferta, e a conferência de promessa age como agia antes das evidências.
+  const fontesQueProvamOferta = await carregarFontesQueProvamOferta(
+    pool,
+    tenantId,
+    agentConfig?.knowledgeSourceIds ?? [],
+  ).catch((err: unknown) => {
+    runLog.warn('tipos das fontes de conhecimento indisponíveis — nenhum trecho prova oferta', {
+      error: (err instanceof Error ? err.message : String(err)).slice(0, 160),
+    });
+    return [];
+  });
+  const evidenciasComerciais = criarEvidenciasComerciaisDoTurno(fontesQueProvamOferta);
   // Gate 5 da cadeia (F4-02/F4-08): closure do classificador semântico com tenant/lead/job da
   // ROW do job fechados dentro (regra dura nº 1) — resolvido pelo seam agnóstico. undefined =
   // camada off (gate no-op). CUSTO: uma chamada de modelo POR ENVIO quando ligada.
@@ -2597,6 +2715,7 @@ async function executarTurnoDoAgente(
           { tenantId, leadId: leadId || null, jobId: job?.id },
           {
             candidate,
+            commercialEvidence: evidenciasComerciais.ler(),
             ...argsAux(deps.knobs.promiseSemantic?.model),
           },
           { ...(deps.registry !== undefined ? { registry: deps.registry } : {}), log: runLog },
@@ -2669,6 +2788,9 @@ async function executarTurnoDoAgente(
   // as tools do modelo rodam em passos anteriores do mesmo loop, o valor já está certo
   // quando o modelo decide mandar a resposta.
   let agendaToolCalledThisTurn = false;
+  // Lido pelo `casePromiseGate` (#1873): true só depois de `schedule_followup` AGENDAR com
+  // sucesso neste turno. Libera apenas a promessa de retorno do próprio assistente.
+  let followupAgendadoNesteTurno = false;
   const outcomes: ChannelSendResult[] = [];
   // Citações acumuladas por buscas de conhecimento DESTE turno — anexadas à
   // próxima outbound enviada (shape de lib/ai/citations/types, que a UI já lê).
@@ -2962,6 +3084,7 @@ async function executarTurnoDoAgente(
           { log: runLog, embed: deps.embed },
         );
         if (out.ok && out.results.length > 0) {
+          evidenciasComerciais.registrarConhecimento(out);
           // As citações são montadas AQUI, pelo código, a partir do resultado
           // cru — é por isso que os ids podem sair do que vai ao modelo sem
           // perder nada: quem precisa deles é esta linha, não o modelo.
@@ -3150,6 +3273,10 @@ async function executarTurnoDoAgente(
               active: agentConfig !== null && temFerramentaDeAgenda(agentConfig.toolIds),
               ferramentas: agentConfig === null ? [] : ferramentasDeAgendaDoAgente(agentConfig.toolIds),
               toolCalledThisTurn: agendaToolCalledThisTurn,
+            },
+            followup: {
+              disponivel: rawTools.schedule_followup !== undefined,
+              agendadoNesteTurno: followupAgendadoNesteTurno,
             },
             ...(deps.knobs.disclosureMode !== undefined
               ? { disclosureMode: deps.knobs.disclosureMode }
@@ -3639,6 +3766,10 @@ async function executarTurnoDoAgente(
               conversationSummary: buildHandoffSummary(previous),
               contextoDoTurno: { checkpoint: previous, pendentesDoCliente: inboundsPendentes },
               avisoAoLead: aviso,
+              // #2210: com a mensagem na mão o handoff pergunta ao banco se a
+              // derivação da mídia ainda estava em aberto — e aí grava a marca
+              // que permite devolver o atendimento sozinho quando o texto chegar.
+              gatilho: { inboundMessageId: input.inboundMessageId },
               log: runLog,
             },
             raw,
@@ -3681,6 +3812,7 @@ async function executarTurnoDoAgente(
           if (!res.ok) {
             return res; // erro de ensino (payload / data no passado / fora da janela)
           }
+          followupAgendadoNesteTurno = true;
           return {
             ok: true,
             status: 'agendado',
@@ -3902,6 +4034,24 @@ async function executarTurnoDoAgente(
           mcpCleanup = mcp.cleanup;
           for (const [name, mcpTool] of Object.entries(mcp.tools)) {
             if (name in rawTools) continue;
+            if (
+              (name === 'crm_search_products' || name === 'crm_search_knowledge') &&
+              typeof mcpTool.execute === 'function'
+            ) {
+              const executeOriginal = mcpTool.execute.bind(mcpTool);
+              rawTools[name] = {
+                ...mcpTool,
+                execute: (async (...args: Parameters<typeof executeOriginal>) => {
+                  const resultado = await executeOriginal(...args);
+                  // O modelo escolhe a consulta, nunca fornece a autorização.
+                  // A ponte MCP já aplica organização, papel e escopo de leitura.
+                  if (name === 'crm_search_products') evidenciasComerciais.registrarCatalogo(resultado);
+                  else evidenciasComerciais.registrarConhecimento(resultado);
+                  return resultado;
+                }) as typeof mcpTool.execute,
+              };
+              continue;
+            }
             // Marca a EXECUÇÃO (não só a decisão de chamar) — é isso que o agendaStallGate
             // precisa saber para não vetar um turno que já checou a agenda de verdade.
             if (AGENDA_TOOL_NAMES.has(name) && typeof mcpTool.execute === 'function') {

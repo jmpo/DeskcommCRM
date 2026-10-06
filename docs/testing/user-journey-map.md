@@ -241,7 +241,7 @@ consertos estão em commits próprios desta branch — procure pelas palavras ab
 | J4.20 | Arquivar funil que é destino de formulário/automação | recusa NOMEANDO a fonte ou a regra (coberto por unit; `webhook_sources` cascateia) |
 | J4.21 | Lista de funis como `agent` | vê a lista e abre o quadro, sem nenhum controle de escrita (executado 2026-08-03) |
 | J4.22 | **Mensagem de contato desconhecido chega pelo webhook do WAHA** | card nasce no funil de entrada (`is_default`), na primeira etapa aberta, com o NOME de quem escreveu — nunca `@c.us`/`@lid` (executado 2026-08-06 · `conversa-vira-lead.spec.ts`) |
-| J4.23 | Timeline do card recém-nascido | diz **"Entrou pelo WhatsApp"** — card que aparece sem explicação destrói a confiança no automatismo (executado 2026-08-06) |
+| J4.23 | Timeline do card recém-nascido | diz **"Entrou no funil"**, com o canal no motivo ("primeira mensagem recebida no WhatsApp" / "no Instagram") — até 2026-10-03 dizia "Entrou pelo WhatsApp" para qualquer canal — card que aparece sem explicação destrói a confiança no automatismo (executado 2026-08-06) |
 | J4.24 | Segunda mensagem do MESMO contato | **não** abre um segundo card: um lead por demanda, não um por mensagem (executado 2026-08-06) |
 | J4.31 | **Marcar em que funis o assistente pode mexer** | nasce FECHADO (a tela explica: "conversa normalmente, mas não mexe em negócio"); a marcação sobrevive ao salvar E RECARREGAR — o defeito do campo que "se desmarca sozinho" (`escopo-de-funil-do-agente.spec.ts`, 2026-08-07) |
 | J4.32 | Funil marcado que o assistente não sabe percorrer | a lacuna de tradução aparece AO LADO da marcação, e só no funil marcado — fora do escopo ela não custa nada |
@@ -313,6 +313,7 @@ para reproduzir o teste local.
 | J6.2 | "Enviar lead de teste" | toast de sucesso + lead visível no Kanban + feed atualiza |
 | J6.3 | POST externo real (curl de "Zapier") | lead entra; feed mostra recebimento; idempotência por external_id |
 | J6.4 | HMAC: fonte com secret + assinatura errada | 401; feed marca inválido |
+| J6.17 | **`[P0]` Ligar a assinatura da fonte pela tela, e ela valer de verdade** | quem administra gera o segredo em Automações › Receber dados, vê o valor UMA vez e copia. Com o valor lido da própria tela: sem segredo → 200 (controle), com segredo e sem assinar → 401, assinatura de outro segredo → 401, assinado → 200. Reabrir mostra o estado e nenhum valor; remover devolve o 200 · `tests/e2e/fonte-de-captacao-assina-os-envios.spec.ts` (SPECS_PARTE_6) + `tests/unit/fonte-de-webhook-assinatura-hmac.test.tsx` (12 casos). Evidência: `evidence/assinatura-da-fonte-de-captacao/1-assinatura-desligada.png`, `evidence/assinatura-da-fonte-de-captacao/2-segredo-uma-vez.png`, `evidence/assinatura-da-fonte-de-captacao/3-reaberto-sem-valor.png`, `evidence/assinatura-da-fonte-de-captacao/4-assinatura-removida.png`. **Achado da própria execução:** o rig do e2e não gravava `nuvemshop_oauth_key` em `private.app_secrets` — a chave que o `install.sh` cria em toda VPS —, então "Gerar segredo" respondia 422 `encryption_unavailable` aqui e funcionaria no cliente. O rig media um produto que não existe; corrigido em `scripts/gerar-env-e2e.sh` |
 | J6.5 | Criar regra: lead com utm instagram → tag | regra nasce pausada; ativar pelo switch |
 | J6.6 | Drain roda → regra executa | tag aplicada; aba Atividade mostra run Sucesso |
 | J6.7 | Ação call_webhook → receiver local REAL | payload chega no receiver; envelope sem org_id/cpf |
@@ -325,6 +326,12 @@ para reproduzir o teste local.
 | J6.14 | **Formulário com campos que o mapeamento não reconhece** | a captação aparece como **Não entrou**, com o motivo em português e os campos crus — antes o site recebia 400 e não sobrava rastro nenhum na tela |
 | J6.15 | `viewer` tenta abrir o histórico | redirecionado; a RLS de `webhook_lead_captures` exige `manager` (o formulário é PII) |
 | J6.16 | Ação **"Mensagem escrita pela IA"** no ENTÃO | pede agente publicado + número + o contexto do que fazer com os dados; o agente sabe que é abordagem pós-formulário |
+| J6.17 | **Formulário do Elementor Pro** (ação "Webhook", `fields[id][value]`) | o lead ENTRA com nome, telefone e e-mail — antes o webhook respondia 400 "Nenhum campo mapeável" e nenhum lead nascia (achado de 2026-09-30, com envio real). **Unit verde** (`lib/webhooks/elementor.test.ts`, com sabotagem); **NÃO provado pela tela nem pela rota com banco** — sem Docker na sessão que escreveu |
+| J6.18 | **JetFormBuilder**, envio REAL (página publicada) | o lead entra sem `__refer`/`__form_id`/`__is_ajax` no card. **Medido em envio real** que name/phone/email já eram reconhecidos; o lixo interno só some com a mudança. Na PRÉVIA do editor o JetFormBuilder manda só os campos internos e a captação aparece "Não entrou" — é o comportamento dele, não defeito do CRM |
+| J6.19 | Painel da captação, campo **já cadastrado** no funil | a linha mostra o rótulo do funil, não a chave crua. Unit com RTL (`CapturaDetail.test.tsx`); **tela real NÃO executada** |
+| J6.20 | Painel da captação, campo **novo** → "Cadastrar como campo do lead" | grava o que já existia MAIS o campo, a partir da leitura fresca do funil; some o botão para nome que a API recusaria. Unit com RTL; **tela real NÃO executada** |
+| J6.21 | `{{servico}}` numa mensagem de automação | resolve o campo do lead; `{{nome}}` e o caminho longo seguem iguais. Unit (`template.test.ts`) |
+| J6.22 | Ação "Mensagem escrita pela IA" com campo cadastrado | a IA recebe "Serviço que precisa: …" em vez de `servico: …`. Unit com banco dublê (`dados-do-formulario.test.ts`) |
 
 ## J8 — O cliente não morre por falta de resposta `[P1]`
 
@@ -503,48 +510,6 @@ diálogo e é asserida na spec.
 
 ---
 
-## J39 — O fluxo de silêncio espera antes de recomeçar para quem já passou por ele `[P1]` (2026-09-27)
-
-Contexto do código: num fluxo de silêncio com `cancel_on_reply`, cada resposta do
-cliente cancelava a inscrição e a varredura seguinte o inscrevia de novo, do
-primeiro passo, depois do limiar (medido numa instalação real: uma oferta nova a
-cada "obrigado"; dois contatos em laço de ~95 reinscrições). A pausa
-(`trigger_config.params.reentry_pause_minutes`, regra em
-`lib/followup/pausa-de-reentrada.ts`) só vale se a TELA a grava e a preserva — o
-formulário do gatilho remonta os `params` a partir dos campos.
-
-Spec: `tests/e2e/pausa-de-reentrada.spec.ts`.
-
-| # | Caso | Expectativa | Resultado |
-|---|------|-------------|-----------|
-| J39.1 | Pôr 48 h no campo «Pausa antes de recomeçar (horas)» e salvar | o banco guarda `reentry_pause_minutes: 2880`; o botão diz «pausa de 48 h» | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-01-campo-preenchido.png`, `evidence/triagem-16set-l12/pausa-02-rotulo-com-pausa.png` |
-| J39.2 | Editar OUTRO campo do gatilho | a pausa sobrevive | **PASS pela tela** |
-| J39.3 | Zerar a pausa | a chave sai do gatilho (comportamento de antes) | **PASS pela tela** |
-| J39.4 | Quem encerrou uma inscrição há menos que a pausa / quem nunca passou / conversa com pessoa no comando | pula / entra / pula (salvo `handoff_policy='allow'`) | **PASS (invariante)** — `tests/invariants/followup-silence-sweep.test.ts` |
-| J39.5 | Teto do silêncio: 5 com mínimo 10 é recusado; 60 é gravado e o botão mostra «10–60 min»; na varredura, quem está calado há 20 min entra e há 3 h fica de fora | tela + invariante | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/silencio-01-teto-de-60.png`; invariante no mesmo arquivo de J35.4 |
-| J39.6 | Pausa de 24 h contada do último envio (a opção só aparece com pausa > 0) | o banco guarda `reentry_pause_basis: "ultimo_envio"`; o botão diz «no máximo 1× a cada 24 h»; desligar tira a chave; na varredura, quem encerrou há 25 h e escreveu há 20 min entra (pela base padrão, fica na pausa) | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-03-base-do-ultimo-envio.png`; invariante no mesmo arquivo de J35.4 |
-
-
-## J40 — O pino de localização chega com a rua e a cidade aproximadas `[P1]` (2026-09-28)
-
-Contexto: medido numa loja, 10 de 10 pinos do mês chegaram só com coordenadas —
-o agente lia um link e perguntava a cidade de novo. Com a chave da Geocoding API
-(Configurações › Provedores, cartão «Mapas»; tabela `map_provider_credentials`,
-migration 0503; regra em `lib/mapas/`), o pino ganha o endereço aproximado no
-corpo (o que o agente lê) e no cartão do pino da conversa.
-
-Spec: `tests/e2e/mapas-em-provedores.spec.ts`.
-
-| # | Caso | Expectativa | Resultado |
-|---|------|-------------|-----------|
-| J40.1 | Admin cola a chave e grava | o banco guarda a chave CIFRADA e os 4 últimos; a tela mostra «Chave gravada ···XXXX», limpa o campo, e a chave não aparece no HTML | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-01-chave-colada.png` |
-| J40.2 | «Testar» com chave recusada pelo Google | a tela explica a recusa (API não habilitada × chave recusada são mensagens diferentes), nunca «Funcionou» | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-02-teste-explica-a-recusa.png` |
-| J40.3 | Remover a chave | a linha sai do banco e o cartão volta a «Sem chave» | **PASS pela tela** |
-| J40.4 | Pino recebido com chave / sem chave / Google fora | corpo com «… (aprox.)» / corpo idêntico ao de antes e nenhuma chamada ao Google / corpo de antes | **PASS (unit)** — `tests/unit/mapas-pino-com-endereco.test.ts` |
-| J40.5 | A tabela não é servida pelo PostgREST | `anon`/`authenticated` sem privilégio, `permission denied`, RLS ligada sem policy | **PASS (invariante)** — `tests/invariants/credencial-de-mapas-e-server-side.test.ts` |
-| J40.6 | O que o Google diz × o endereço anotado em 8 pedidos confirmados (28/09/2026) | distrito 8/8, departamento 8/8, localidade 7/8 (Atyrá rural virou a compañía), rua 3/5, bairro 1/8, número interpolado → a cidade é o DISTRITO; bairro e número não saem | **MEDIDO em produção** (`pedilo-config/cfg/55-pines-vs-pedido.ts`); regra em `tests/unit/mapas-pino-com-endereco.test.ts` |
-| J40.7 | A API do canal não responde a tempo na ingestão do pino (medido 29/09/2026: timeout duas vezes) | a mensagem entra com o marcador e pede nova busca; 1 min depois, e a cada 2 min até 15, busca de novo e grava tipo `location` + link (+ endereço aproximado com chave); nunca rebaixa um pino que já tem coordenadas; desiste sem virar incidente | **PASS (unit)** — `tests/unit/pino-reintento.test.ts`, `tests/unit/channel-ingest-zernio.test.ts` |
-
 ## J41 — A mensagem que saiu por modelo diz qual e mostra as opções `[P1]` (2026-09-29)
 
 Contexto: com a janela de 24 h fechada, só sai modelo aprovado. A conversa
@@ -640,6 +605,7 @@ ao cliente dele, e a tela de acesso é a primeira coisa que qualquer usuário v�
 | J10.7 | Nome com apóstrofo (`Sant'Ana Odontologia`) | o `.env` sobrevive: 18/18 nos três consumidores de compose | PASS |
 | J10.8 | Cor escura de marca não quebra o contraste | o anel de foco respeita o piso de 3:1 em ambos os temas | PASS (unit) |
 | J10.9 | Dois logos, um por tema, com remoção independente | arte escura sem moldura na prévia, menu e login; remover apenas a escura preserva o padrão com a proteção anterior | `tests/e2e/logo-moldura-no-tema-escuro.spec.ts`, caso (7); ver evidência da execução no PR |
+| J10.10 | Administrador salva CSS visual da instalação | CSS aparece no login sem sessão, em valor computado; salvar vazio remove; folha global afeta as organizações | SPEC adicionada em `tests/e2e/marca-logo.spec.ts`; execução pendente |
 
 **Bug de produto achado ao executar (2026-08-14), e é o que justifica esta jornada
 existir.** O caso J10.1 reprovou no CI, e não por defeito do teste: quem sobe o
@@ -1186,7 +1152,7 @@ ação `send_ai_message`, retomada manual (`lib/escalacao/retomada.ts`).
 | J20.15 | Org SEM versão de agente publicada (caminho legado `ai-response-worker`), gate allowlist, contato não autorizado | IA NÃO responde por este caminho tampouco | **UNIT** — `ai-response-worker-elegibilidade.test.ts` (skip `nao_elegivel_para_ia` antes de ler mensagem/agente; fail-closed em erro de leitura) |
 | J20.16 | Follow-up de TEXTO FIXO drenado inline (`enviarTextoFixoPendente`, sem worker), contato não autorizado | NÃO envia; job vira `done` | **UNIT** — `enviar-texto-fixo.test.ts` "conversa NÃO elegível" (+ fail-closed volta pra `pending`) |
 | J20.17 | Cliente antigo irritado (gate allowlist, não autorizado) → worker de sentimento dispara `low_sentiment` | `triggerHandoff` NÃO dispara: sem "um humano vai te atender", sem mexer no estado da conversa | **UNIT** — `handoff-orchestrator-elegibilidade.test.ts` (`bloqueioPorAllowlist` e `conversa_silenciada` barram; fail-closed em erro) |
-| J20.18 | Eu respondo o cliente à mão pelo meu WhatsApp numa conversa autorizada | IA para naquela conversa por um PRAZO (`PRAZO_DO_SILENCIO_MS`, 60 min) renovado a cada nova fala humana, SEM apagar `ai_authorized_at`; volta sozinha quando o prazo vence, ou antes por "devolver ao automático" | **UNIT** — `atendimento-manual.test.ts` (as duas pontas do prazo medidas pelo motor real `decidirElegibilidade`, renovação, e o que NUNCA encurta: `'infinity'` do handoff formal e janela mais longa) + `waha-ingest-atendimento-manual.test.ts` (via `dispatchWahaEvent` real; eco do próprio envio NÃO pausa) + guarda de fonte no Zernio + fiação em `handoff-fantasma-fiacao.test.ts`; **E2E** — `tests/e2e/j20-elegibilidade-atendimento-manual.spec.ts` (webhook `fromMe` genuíno → `bot_silenced_until` finito e futuro, nunca `'infinity'`, + rastro; `ai_authorized_at` intacto; 2ª mensagem RENOVA o prazo; tela mostra o selo; "devolver ao automático" solta a trava e a autorização continua) |
+| J20.18 | Eu respondo o cliente à mão pelo meu WhatsApp numa conversa autorizada | IA para naquela conversa por um PRAZO renovado a cada nova fala humana — o da EMPRESA (`settings.routing.manual_reply_silence_minutes`, Configurações › Atendimento, 5 min a 24 h; padrão `PRAZO_DO_SILENCIO_MS`, 60 min; diagnóstico de @gaberaldo-svg no #2005: clínica que atende o dia inteiro pelo celular nunca via a IA voltar) —, SEM apagar `ai_authorized_at`; volta sozinha quando o prazo vence, ou antes por "devolver ao automático" | **UNIT** — `atendimento-manual.test.ts` (as duas pontas do prazo medidas pelo motor real `decidirElegibilidade`, renovação, e o que NUNCA encurta: `'infinity'` do handoff formal e janela mais longa) + `waha-ingest-atendimento-manual.test.ts` (via `dispatchWahaEvent` real; eco do próprio envio NÃO pausa) + guarda de fonte no Zernio + fiação em `handoff-fantasma-fiacao.test.ts` + o prazo da empresa em `atendimento-manual.test.ts` (15 min gravado; erro/exceção ao ler o ajuste ainda pausa com 60; `#off` nem consulta) e os valores inválidos em `prazo-silencio-knob.test.ts` + o campo em `app/app/settings/atendimento/_form.test.tsx`; **E2E** — `tests/e2e/j20-elegibilidade-atendimento-manual.spec.ts` (webhook `fromMe` genuíno → `bot_silenced_until` finito e futuro, nunca `'infinity'`, + rastro; `ai_authorized_at` intacto; 2ª mensagem RENOVA o prazo; tela mostra o selo; "devolver ao automático" solta a trava e a autorização continua) |
 | J20.19 | Worker parado acorda com backlog; dois inbound antigos com o MESMO `sent_at` | a "última inbound" é a mais RECENTE (por `created_at`), nunca a de maior uuid — o evento antigo é pulado | **INVARIANTE** — `tests/invariants/drain-recencia-inbound.test.ts` (Postgres real) + `drain.test.ts` guarda a cláusula `coalesce(sent_at, created_at)` |
 
 **Sabotagem que confirma:** removendo o veto `sem_autorizacao` de
@@ -1351,6 +1317,44 @@ mesma busca que a IA usa; a pergunta vira linha em `knowledge_searches` com
 **Não coberto:** a busca com material indexado e chave de embedding real (nenhum
 e2e do CI tem chave); o gráfico "Consultas da equipe ao acervo" em tela.
 
+## J37 — Suspender uma empresa cala a IA e os envios dela `[P0]` (2026-09-29)
+
+**Origem:** PR 1 da cobrança do revendedor
+(`docs/superpowers/specs/2026-09-29-cobranca-do-revendedor-design.md`, §1.3, §4 e §9).
+Antes, suspender só tirava a pessoa da tela: a IA, o follow-up, as automações,
+o token de API e o MCP seguiam funcionando, e quem tinha acesso só de leitura ao
+painel suspendia e reativava empresas.
+
+| Caso | Spec | Estado |
+|---|---|---|
+| Quem só tem leitura clica em Suspender: a resposta é 403 `forbidden_scope`, a tela mostra o erro, e a empresa segue ativa | `tests/e2e/suspensao-administrativa.spec.ts` | CI (PARTE_6) |
+| O dono suspende pela tela; o turno agendado e a resposta na fila viram `failed`; o gate (pelo PostgREST real) passa a negar | idem | CI (PARTE_6) |
+| Status, fila e evento mudam numa transação só (`fn_suspender_organizacao`): dentro dela o evento já existe, e o rollback desfaz status, evento e o turno agendado juntos. A tela só confere o resultado depois | `tests/invariants/org-suspensa.test.ts` | test:db |
+| A admin da empresa suspensa cai no hub: pedido de LGPD abrindo no próprio hub; o clique em "Voltar para" a empresa que opera leva ao inbox dela | `tests/e2e/suspensao-administrativa.spec.ts` | CI (PARTE_6) |
+| `/app/inbox` volta para o hub; o token `dsk_` da empresa responde 403 `org_suspended` | idem | CI (PARTE_6) |
+| A captação por `webhooks/in/[token]` é gravada durante a suspensão; nenhuma `llm_calls` nem mensagem de saída nasce | idem | CI (PARTE_6) |
+| A atendente da empresa suspensa lê "Avise o administrador da sua empresa", sem LGPD; "Sair" encerra a sessão e `/app` manda ao login | idem | CI (PARTE_6) |
+| O dono reativa: nada sai em rajada, e a Central mostra o aviso que leva ao Inbox | idem | CI (PARTE_6) |
+| O aviso de reativação conta só conversa que não é de grupo, diz só o fato, e a orientação manda procurar nas abas Fila e Automático (numa empresa com IA a conversa sem dono está em Automático) | `tests/invariants/org-suspensa.test.ts`, `lib/ai/inbox-destino.ts` | test:db |
+| Hub: empresa que opera volta para `/app`, pedido inválido cai na lista, leitura que falha lança | `app/account-suspended/page.test.tsx` | unit |
+| O aviso de reativação leva ao Inbox só para quem atende, e nunca por referência | `lib/ai/inbox-destino.test.ts` | unit |
+| O agendador pula o follow-up da empresa parada, no Postgres real | `tests/invariants/cron-org-parada.test.ts` | test:db |
+| O lembrete da agenda não sai nem abre conversa para a empresa parada | `tests/unit/lembrete-pula-org-parada.test.ts` | unit |
+| Suspensão no meio do envio não pausa a prospecção nem tira o destinatário da campanha | `tests/unit/prospecting-worker.test.ts`, `tests/unit/suspensao-nao-dispara-campanha.test.ts` | unit |
+| Quem tem acesso só de leitura ao painel e é membro comum de uma empresa não apaga os dados dela | `tests/unit/zona-de-perigo-apaga-so-a-propria-org.test.ts` | unit |
+
+**Não coberto pela tela:** a suspensão por falta de pagamento e o painel de
+pagamento no hub (PR 3a); a IA calada com um agente publicado de verdade (a
+spec não publica agente — quem prova o veto é `lib/ai/elegibilidade/gate.test.ts`,
+`tests/invariants/org-suspensa.test.ts` e o controle do gate na própria spec);
+APROVAR um pedido de LGPD pelo hub (a spec abre o pedido, não aprova).
+
+**Evidência:** `evidence/suspensao-administrativa/leitura-recusada.png`,
+`evidence/suspensao-administrativa/hub-admin.png`,
+`evidence/suspensao-administrativa/hub-pedido-lgpd.png`,
+`evidence/suspensao-administrativa/hub-atendente.png`,
+`evidence/suspensao-administrativa/central-apos-reativar.png`.
+
 ## Jornadas exercitadas (instalação final, virgem)
 
 | Jornada | Resultado |
@@ -1398,7 +1402,7 @@ e2e do CI tem chave); o gráfico "Consultas da equipe ao acervo" em tela.
 | 19 | 🟠 **A regra de bloqueio no Caddy não valia**: fora de um bloco `route`, o Caddy reordena e `respond` vem depois de `reverse_proxy` — o catch-all atendia primeiro | após o deploy, o POST sem assinatura ainda respondia 200 | `route { }` para valer a ordem escrita |
 | 20 | 🔴 **Mudança no Caddyfile nunca chegava em quem já instalou.** Bind mount de um arquivo fica preso ao inode; `git pull` cria inode novo e o contêiner segue lendo o antigo | inode 3283869 no host x 3271833 no contêiner, com conteúdo velho, depois de um `update.sh` que disse "concluída" | `update.sh` recria o contêiner do proxy |
 
-**Nota de método:** medi o que o WAHA realmente envia **antes** de escrever o conserto. Os eventos reais chegam **sem assinatura** (2026.7.2 CORE não assina, mesmo com `WHATSAPP_HOOK_HMAC` no contêiner) — o único evento com header no log era a minha própria injeção. Passar a exigir assinatura por padrão derrubaria a ingestão de mensagens de todo mundo: por isso a defesa padrão é de rede, e a exigência de assinatura fica atrás de `WAHA_WEBHOOK_REQUIRE_SIGNATURE` para quem roda WAHA Plus.
+**Nota de método:** medi o que o WAHA realmente envia **antes** de escrever o conserto. Os eventos reais chegavam **sem assinatura** — na época li isso como "2026.7.2 CORE não assina", mas a medição de 2026-10-04 mostrou a causa real: o compose entregava `WHATSAPP_HOOK_HMAC`, nome que não existe na doc do WAHA (o certo é `WHATSAPP_HOOK_HMAC_KEY`), então ele ignorava e nunca assinava. O único evento com header no log era a minha própria injeção. Passar a exigir assinatura por padrão derrubaria a ingestão de mensagens de todo mundo: por isso a defesa padrão é de rede, e a exigência de assinatura fica atrás de `WAHA_WEBHOOK_REQUIRE_SIGNATURE` para quem tem o WAHA assinando.
 
 **Efeito colateral no mundo real, registrado:** ao conectar o WhatsApp **pessoal** do dono, o agente começou a responder contatos reais (4 respostas automáticas para 2 pessoas) assinando "assistente virtual da loja". O agente foi despublicado. Recomendação: testar agente com número descartável, e avaliar um modo "só observa" para primeira conexão.
 
@@ -3256,3 +3260,48 @@ silêncio e retornos acordados) passam a usá-lo; responder ao cliente continua 
 |---|---|---|---|
 | J42.1 | Abrir Provedores com o agente publicado e sem escolha | o ponto aparece com o modelo da versão publicada | **PASS** — `prova-painel-provedores.spec.ts`; evidência `evidence/modelo-do-seguimento/01-ponto-no-painel.png` |
 | J42.2 | Escolher outro modelo no ponto e gravar | a escolha fica gravada e o cartão a mostra | **PASS** — evidência `evidence/modelo-do-seguimento/02-escolha-gravada.png` e `evidence/modelo-do-seguimento/03-cartao-do-follow-up.png` |
+## J39 — O fluxo de silêncio espera antes de recomeçar para quem já passou por ele `[P1]` (2026-09-27)
+
+Contexto do código: num fluxo de silêncio com `cancel_on_reply`, cada resposta do
+cliente cancelava a inscrição e a varredura seguinte o inscrevia de novo, do
+primeiro passo, depois do limiar (medido numa instalação real: uma oferta nova a
+cada "obrigado"; dois contatos em laço de ~95 reinscrições). O cooldown da
+varredura não segura esse caso: ele conta o limiar desde o fim da tentativa, e a
+resposta que encerra a inscrição é a mesma que começa o silêncio. A pausa
+(`trigger_config.params.reentry_pause_minutes`, regra em
+`lib/followup/pausa-de-reentrada.ts`) só vale se a TELA a grava e a preserva — o
+formulário do gatilho remonta os `params` a partir dos campos.
+
+Spec: `tests/e2e/pausa-de-reentrada.spec.ts`.
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J39.1 | Pôr 48 h no campo «Pausa antes de recomeçar (horas)» e salvar | o banco guarda `reentry_pause_minutes: 2880`; o botão diz «pausa de 48 h» | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-01-campo-preenchido.png`, `evidence/triagem-16set-l12/pausa-02-rotulo-com-pausa.png` |
+| J39.2 | Editar OUTRO campo do gatilho | a pausa sobrevive | **PASS pela tela** |
+| J39.3 | Zerar a pausa | a chave sai do gatilho (comportamento de antes) | **PASS pela tela** |
+| J39.4 | Quem encerrou uma inscrição há menos que a pausa / quem nunca passou / conversa com pessoa no comando / sem pausa (só o cooldown) | pula / entra / pula (salvo `handoff_policy='allow'`) / entra de novo no limiar | **PASS (invariante)** — `tests/invariants/followup-silence-sweep.test.ts` |
+| J39.5 | Teto do silêncio: 5 com mínimo 10 é recusado; 60 é gravado e o botão mostra «10–60 min»; na varredura, quem está calado há 20 min entra e há 3 h fica de fora | tela + invariante | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/silencio-01-teto-de-60.png`; invariante no mesmo arquivo de J39.4 |
+| J39.6 | Pausa de 24 h contada do último envio (a opção só aparece com pausa > 0) | o banco guarda `reentry_pause_basis: "ultimo_envio"`; o botão diz «no máximo 1× a cada 24 h»; desligar tira a chave; na varredura, quem encerrou há 25 h e escreveu há 20 min entra (pela base padrão, fica na pausa) | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/pausa-03-base-do-ultimo-envio.png`; invariante no mesmo arquivo de J39.4 |
+
+## J40 — O pino de localização chega com a rua e a cidade aproximadas `[P1]` (2026-09-28)
+
+Contexto: medido numa loja, 10 de 10 pinos do mês chegaram só com coordenadas —
+o agente lia um link e perguntava a cidade de novo. Com a chave da Geocoding API
+(Agente de IA › Provedores, cartão «Mapas (Google)»; tabela
+`map_provider_credentials`, migration 0504; regra em `lib/mapas/`), o pino ganha
+o endereço aproximado no corpo (o que o agente lê) e no cartão do pino da
+conversa. Os nomes vêm no idioma da organização (`organizations.locale`, pelo
+registro de idiomas).
+
+Spec: `tests/e2e/mapas-em-provedores.spec.ts`.
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J40.1 | Admin cola a chave e grava | o banco guarda a chave CIFRADA e os 4 últimos; a tela mostra «Chave gravada ···XXXX», limpa o campo, e a chave não aparece no HTML | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-01-chave-colada.png` |
+| J40.2 | «Testar» com chave recusada pelo Google | a tela explica a recusa (API não habilitada × chave recusada são mensagens diferentes), nunca «Funcionou» | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-02-teste-explica-a-recusa.png` |
+| J40.3 | Remover a chave | a linha sai do banco e o cartão volta a «Sem chave» | **PASS pela tela** |
+| J40.4 | Pino recebido com chave / sem chave / Google fora | corpo com «… (aprox.)» / corpo idêntico ao de antes e nenhuma chamada ao Google / corpo de antes | **PASS (unit)** — `tests/unit/mapas-pino-com-endereco.test.ts` |
+| J40.5 | A tabela não é servida pelo PostgREST | `anon`/`authenticated` sem privilégio, `permission denied`, RLS ligada sem policy | **PASS (invariante)** — `tests/invariants/credencial-de-mapas-e-server-side.test.ts` |
+| J40.6 | O que o Google diz × o endereço anotado em 8 pedidos confirmados (28/09/2026, numa instalação real) | município 8/8, região 8/8, localidade 7/8 (na zona rural virou o povoado), rua 3/5, bairro 1/8, número interpolado → a cidade é o MUNICÍPIO; bairro e número não saem | **MEDIDO em produção** (fora deste repositório); regra em `tests/unit/mapas-pino-com-endereco.test.ts` |
+| J40.7 | O pino com endereço aproximado, aberto na conversa pela equipe | o cartão do pino mostra «Rua, Cidade, Estado (aprox.)», com o texto inteiro no `title` (o cartão corta com …) e o toque abre as COORDENADAS no mapa | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-03-pino-na-conversa.png` |
+| J40.8 | A API do canal intermediado não responde a tempo na ingestão do pino (medido 29/09/2026: timeout duas vezes seguidas) | a mensagem entra com o marcador e pede nova busca (`message.location_retry_requested`); 1 min depois, e a cada 2 min até 15, busca de novo e grava tipo `location` + link (+ endereço aproximado com chave); nunca rebaixa um pino que já tem coordenadas; desiste sem virar incidente | **PASS (unit)** — `tests/unit/pino-reintento.test.ts`, `tests/unit/channel-ingest-zernio.test.ts` |
