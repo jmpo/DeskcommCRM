@@ -3109,6 +3109,10 @@ sim. Consertado pela ordem: publicar primeiro, decidir a porta depois.
 
 [P1] `tests/e2e/conversoes-reprocessamento.spec.ts`: administrador abre Conversões sem credenciais opcionais, vê o que falta, identifica origem de uma venda pendente e agenda reprocessamento pela tela. A spec confere o evento exclusivo e captura screenshot; integra o CI. O teste não prova aceite/atribuição por contas reais de anúncios.
 
+### Regras de etapa da Meta sem conexão direta (06/10/2026)
+
+- [P1] `tests/e2e/conversoes-reprocessamento.spec.ts`: organização SEM conexão direta com a Meta. Com a chave "Enviar vendas pelo canal da conversa" desligada, a seção "O que cada etapa do funil informa à Meta" não aparece; ligada, aparece com as etapas do funil para editar. Evidência: `evidence/regras-meta-pelo-canal/01-regras-visiveis-sem-conexao-direta.png`. Não prova o envio ao provedor (coberto por `tests/unit/conversao-pelo-canal.test.ts`).
+
 ### Conversões Google: captura e qualificação
 
 - [P1] `tests/e2e/conversoes-reprocessamento.spec.ts`: salvar captura Google pela tela, recarregar configuração, abrir endereço com wbraid e verificar a referência criada. Destino WhatsApp interceptado; não envia mensagem nem comprova atribuição externa.

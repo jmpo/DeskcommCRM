@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/lib/database.types";
+import type { Database, Json } from "@/lib/database.types";
 import { expect, test } from "./helpers/test";
 import { credenciaisSupabaseDeTeste } from "../../scripts/lib/env-de-teste";
 import { lerCreds, loginComoAdmin } from "./helpers/login-admin";
@@ -138,7 +138,7 @@ test("regras de etapa da Meta: sem conexão direta, aparecem quando a venda sai 
     .single();
   if (erroOrg) throw erroOrg;
   const original = (linhaOrg.settings ?? {}) as Record<string, unknown>;
-  const comAChave = (ligada: boolean) => ({
+  const comAChave = (ligada: boolean): Json => ({
     ...original,
     conversions: {
       ...((original.conversions as Record<string, unknown> | undefined) ?? {}),
@@ -188,7 +188,7 @@ test("regras de etapa da Meta: sem conexão direta, aparecem quando a venda sai 
       fullPage: true,
     });
   } finally {
-    await admin.from("organizations").update({ settings: original }).eq("id", org);
+    await admin.from("organizations").update({ settings: original as Json }).eq("id", org);
     await admin.from("crm_stages").delete().eq("organization_id", org).eq("id", stage);
     await admin.from("crm_pipelines").delete().eq("organization_id", org).eq("id", pipeline);
   }
