@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveZernioCreds } from "@/lib/channels/zernio/credentials";
+import { EVENTO_NOVA_BUSCA_DO_PINO } from "@/lib/channels/zernio/localizacao";
 import {
   DESISTE_APOS_MS,
   ESPERA_INICIAL_MS,
@@ -20,7 +21,8 @@ import {
   pinoReintentoHandler,
   tratarNovaBuscaDoPino,
 } from "@/lib/channels/zernio/pino-reintento.handler";
-import type { EventRow } from "@/lib/event-log/dispatcher";
+import { getRegisteredHandlers, type EventRow } from "@/lib/event-log/dispatcher";
+import { ensureHandlersRegistered } from "@/lib/event-log/register-handlers";
 
 vi.mock("@/lib/channels/zernio/credentials", async (orig) => ({
   ...(await orig<typeof import("@/lib/channels/zernio/credentials")>()),
@@ -63,7 +65,7 @@ function adminFalso(opcoes: { tipo?: string; chaveDeMapas?: boolean } = {}) {
           if (tabela === "messages")
             return { data: { id: "msg-1", type: opcoes.tipo ?? "text", metadata: { sentiment_score: 0.5 } }, error: null };
           if (tabela === "map_provider_credentials") return { data: opcoes.chaveDeMapas ? { api_key_encrypted: "\\xabc" } : null, error: null };
-          if (tabela === "organizations") return { data: { locale: "es-PY" }, error: null };
+          if (tabela === "organizations") return { data: { locale: "es" }, error: null };
           return { data: null, error: null };
         },
         then: (ok: (r: unknown) => unknown) => {
@@ -79,7 +81,7 @@ function adminFalso(opcoes: { tipo?: string; chaveDeMapas?: boolean } = {}) {
 
 const listagemComPino = () =>
   new Response(
-    JSON.stringify({ status: "success", messages: [{ id: "wamid.PINO", metadata: { location: { latitude: -25.2891058, longitude: -57.6077977 } } }] }),
+    JSON.stringify({ status: "success", messages: [{ id: "wamid.PINO", metadata: { location: { latitude: -23.5613991, longitude: -46.6565323 } } }] }),
     { status: 200 },
   );
 
@@ -91,6 +93,21 @@ afterEach(() => vi.restoreAllMocks());
 describe("a nova busca do pino", () => {
   it("consome o evento que a ingestão emite", () => {
     expect(pinoReintentoHandler.events).toEqual(["message.location_retry_requested"]);
+  });
+
+  // A cerca `dispatcher-org-parada` confere quem está na lista PULA, não o valor
+  // do campo: é aqui que "roda" no lugar de "pula" fica vermelho.
+  it("numa empresa suspensa, pula — pode chamar o Google", () => {
+    expect(pinoReintentoHandler.naOrgParada).toBe("pula");
+  });
+
+  // A ingestão emite pela CONSTANTE, e `evento-comando-tem-consumidor.test.ts` só
+  // enxerga `p_event_type: "<literal>"`: sem esta linha, tirar o consumidor do
+  // barramento deixaria o pedido `pending` para sempre com a cerca verde.
+  it("o barramento registra o consumidor do pedido", () => {
+    ensureHandlersRegistered();
+    const consumidores = getRegisteredHandlers().filter((h) => h.events.includes(EVENTO_NOVA_BUSCA_DO_PINO));
+    expect(consumidores.map((h) => h.key)).toEqual([pinoReintentoHandler.key]);
   });
 
   it("espera 1 minuto antes da primeira tentativa — sem tocar o banco nem a API", async () => {
@@ -111,8 +128,8 @@ describe("a nova busca do pino", () => {
     const [u] = admin.updates;
     expect(u!.payload).toEqual({
       type: "location",
-      body: "📍 https://maps.google.com/?q=-25.2891058,-57.6077977",
-      metadata: { sentiment_score: 0.5, location: { latitude: -25.2891058, longitude: -57.6077977 } },
+      body: "📍 https://maps.google.com/?q=-23.5613991,-46.6565323",
+      metadata: { sentiment_score: 0.5, location: { latitude: -23.5613991, longitude: -46.6565323 } },
     });
     expect(u!.filtros).toContainEqual(["eq", "organization_id", ORG]);
     expect(u!.filtros).toContainEqual(["neq", "type", "location"]);
@@ -128,9 +145,9 @@ describe("a nova busca do pino", () => {
               results: [
                 {
                   address_components: [
-                    { long_name: "Cap. Victor Manuel Brizuela", types: ["route"] },
-                    { long_name: "Asunción", types: ["administrative_area_level_2"] },
-                    { long_name: "Asunción", types: ["administrative_area_level_1"] },
+                    { long_name: "Avenida Paulista", types: ["route"] },
+                    { long_name: "São Paulo", types: ["administrative_area_level_2"] },
+                    { long_name: "São Paulo", types: ["administrative_area_level_1"] },
                   ],
                 },
               ],
@@ -141,7 +158,7 @@ describe("a nova busca do pino", () => {
     );
     await tratarNovaBuscaDoPino(evento(), { admin: admin as never, agora: () => CRIADO + ESPERA_INICIAL_MS });
     expect(admin.updates[0]!.payload.body).toBe(
-      "📍 Cap. Victor Manuel Brizuela, Asunción (aprox.) — https://maps.google.com/?q=-25.2891058,-57.6077977",
+      "📍 Avenida Paulista, São Paulo (aprox.) — https://maps.google.com/?q=-23.5613991,-46.6565323",
     );
   });
 

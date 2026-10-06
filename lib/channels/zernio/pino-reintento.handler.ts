@@ -105,6 +105,8 @@ export async function tratarNovaBuscaDoPino(
 
 export const pinoReintentoHandler: EventHandler = {
   key: CONSUMER_KEY,
+  // Pode chamar o Google (chave de Mapas): numa empresa suspensa, o pino fica como marcador.
+  naOrgParada: "pula",
   events: [EVENTO_NOVA_BUSCA_DO_PINO],
   handle: (row) => tratarNovaBuscaDoPino(row),
 };

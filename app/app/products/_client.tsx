@@ -12,6 +12,8 @@ import { MAXIMO_DE_FOTOS } from "@/lib/catalogo/fotos";
 import { casasDaMoeda, formatCents } from "@/lib/money";
 import { precoParaCentavos, type Produto } from "@/lib/schemas/produtos";
 
+import { EdicaoDoProduto } from "./_edicao";
+
 interface Textos {
   titulo: string;
   subtitulo: string;
@@ -211,55 +213,6 @@ function FotosDoProduto({ produto, urls }: { produto: Produto; urls: Record<stri
   );
 }
 
-/**
- * A descrição de UM produto — o texto que o atendente de IA usa para responder
- * "para que serve", "de que é feito", "que medida tem". Sem ela o agente só tem
- * nome e preço, e toda pergunta sobre o produto vira "vou consultar a equipe".
- */
-function DetalhesDoProduto({ produto, aoSalvar }: { produto: Produto; aoSalvar: () => void }) {
-  const t = useT();
-  const [texto, setTexto] = React.useState(produto.descricao ?? "");
-  const [salvando, setSalvando] = React.useState(false);
-  const mudou = texto.trim() !== (produto.descricao ?? "").trim();
-
-  async function salvar() {
-    setSalvando(true);
-    try {
-      await apiClient.patch(`/api/v1/products/${produto.id}`, { descricao: texto.trim() });
-      toast.success(t("Descrição salva"));
-      aoSalvar();
-    } catch (e) {
-      showApiError(e);
-    } finally {
-      setSalvando(false);
-    }
-  }
-
-  return (
-    <div className="border-t bg-muted/30 p-3" data-testid={`detalhes-${produto.codigo}`}>
-      <label className="block text-sm">
-        {t("Descrição")}
-        <textarea
-          value={texto}
-          onChange={(e) => setTexto(e.target.value)}
-          maxLength={2000}
-          rows={5}
-          className="mt-1 w-full rounded-md border bg-background px-3 py-2"
-          data-testid={`descricao-${produto.codigo}`}
-        />
-      </label>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {t("É o que o atendente de IA conta ao cliente: para que serve, medidas, materiais, diferenciais. Ele repete o que estiver aqui — e não inventa o que faltar.")}
-      </p>
-      <div className="mt-2 flex justify-end">
-        <Button size="sm" onClick={() => void salvar()} disabled={!mudou || salvando} data-testid={`salvar-descricao-${produto.codigo}`}>
-          {salvando ? t("Salvando…") : t("Salvar descrição")}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 export function ProdutosClient({
   inicial,
   urlsDasFotos,
@@ -284,11 +237,11 @@ export function ProdutosClient({
   const [resumo, setResumo] = React.useState<ResumoDaImportacao | null>(null);
   const arquivoRef = React.useRef<HTMLInputElement>(null);
   const [fotosAbertas, setFotosAbertas] = React.useState<string | null>(null);
-  const [detalhesAbertos, setDetalhesAbertos] = React.useState<string | null>(null);
   // O exemplo do campo de preço segue a moeda: «5.499,00» ensina a digitar
   // centavos, e guarani não tem centavo.
   const exemploDePreco =
     casasDaMoeda(moeda) === 0 ? { preco: "125.000", custo: "42.000" } : { preco: "5.499,00", custo: "4.100,00" };
+  const [editando, setEditando] = React.useState<string | null>(null);
 
   const filtrados = React.useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -593,11 +546,11 @@ export function ProdutosClient({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setDetalhesAbertos((v) => (v === p.id ? null : p.id))}
-                    aria-expanded={detalhesAbertos === p.id}
-                    data-testid={`abrir-detalhes-${p.codigo}`}
+                    onClick={() => setEditando((v) => (v === p.id ? null : p.id))}
+                    aria-expanded={editando === p.id}
+                    data-testid={`editar-${p.codigo}`}
                   >
-                    {t("Detalhes")}
+                    {t("Editar")}
                   </Button>
                   <Button
                     variant="ghost"
@@ -619,11 +572,14 @@ export function ProdutosClient({
                 </>
               ) : null}
             </div>
-            {podeEditar && detalhesAbertos === p.id ? (
-              <DetalhesDoProduto produto={p} aoSalvar={() => router.refresh()} />
-            ) : null}
             {podeEditar && fotosAbertas === p.id ? (
               <FotosDoProduto produto={p} urls={urlsDasFotos} />
+            ) : null}
+            {podeEditar && editando === p.id ? (
+              // `key` porque o painel fica na MESMA posição do DOM ao trocar de
+              // produto: sem ela o React reaproveita o estado e o formulário
+              // abriria preenchido com o produto anterior.
+              <EdicaoDoProduto key={p.id} produto={p} aoFechar={() => setEditando(null)} />
             ) : null}
             </li>
             );

@@ -70,10 +70,15 @@ import { StaleServiceBoundaryError, parseServiceBoundary, assertCurrentServiceBo
  *     `skipped_existing` que o índice único já garante via 23505 — trocando o
  *     que cada contador mede sem nenhuma mudança de comportamento real.
  *
- * ─── Pausa de reentrada e pessoa no comando (fork, 2026-09-26) ────────────
+ * ─── Pausa de reentrada e pessoa no comando (2026-09-26) ─────────────────
  *
- * Além do cooldown, o fluxo pode declarar `reentry_pause_minutes`: aí quem já
- * encerrou uma inscrição deste fluxo espera a pausa (`pausa-de-reentrada.ts`).
+ * O cooldown acima é o PISO de todo fluxo e conta do fim da tentativa. Ele não
+ * segura quem RESPONDE: com `cancel_on_reply`, a resposta do cliente encerra a
+ * inscrição e começa o silêncio no mesmo instante — cooldown e limiar vencem
+ * juntos, e o fluxo recomeça do primeiro passo um limiar depois de cada
+ * "obrigado". Por isso o fluxo pode declarar `reentry_pause_minutes`: quem já
+ * encerrou uma inscrição deste fluxo espera a pausa, contada também da última
+ * mensagem do cliente (`pausa-de-reentrada.ts`). Sem pausa, vale só o cooldown.
  *
  * Conversa com PESSOA NO COMANDO (assumida por alguém da equipe, contato em
  * `force_human`, IA silenciada): não é inscrita, salvo fluxo com
@@ -81,7 +86,8 @@ import { StaleServiceBoundaryError, parseServiceBoundary, assertCurrentServiceBo
  * a inscrição quando a pessoa assume no meio do caminho — mas ela reage ao
  * EVENTO do handoff, e uma inscrição criada DEPOIS dele não o vê: o passo de
  * texto saía por cima da pessoa, e o de IA terminava sem enviar e era
- * cancelado, num laço com a varredura seguinte.
+ * cancelado, num laço com a varredura seguinte (o cooldown o espaça, não o
+ * encerra).
  *
  * agent_id: `decidirAgenteDoEnrollmentAutomatico` pina o agente publicado que
  * ARMA o pointer (menor uuid se >1). Grafo só de texto fixo nasce com
@@ -433,7 +439,7 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
       const { data, error } = await admin
         .from("conversations")
         .select(
-          "id, service_revision, current_demanda_id, demandas!conversations_current_demanda_id_fkey(revision,fechada_em), status, assignee_kind, bot_silenced_until, messages!messages_conversation_id_fkey(organization_id,contact_id,conversation_id,service_revision,demanda_id,demanda_revision,sent_at), contact_id, last_inbound_at, contacts:contact_id(tags, is_blocked, ai_authorized_at, phone_number, force_human), sessao:channel_session_id(metadata)",
+          "id, service_revision, current_demanda_id, demandas!conversations_current_demanda_id_fkey(revision,fechada_em), status, assignee_kind, bot_silenced_until, messages!messages_conversation_id_fkey(organization_id,contact_id,conversation_id,service_revision,demanda_id,demanda_revision,sent_at), contact_id, last_inbound_at, contacts:contact_id(tags, is_blocked, ai_authorized_at, phone_number, force_human), sessao:channel_session_id(metadata), organizations:organization_id(status)",
         )
         .eq("organization_id", orgId).eq("demandas.organization_id", orgId)
         .eq("contacts.organization_id", orgId).eq("sessao.organization_id", orgId)
@@ -453,6 +459,7 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
         last_inbound_at: string;
         contacts: ContactEmbed;
         sessao: { metadata: Record<string, unknown> | null } | null;
+        organizations: { status: string | null } | null;
       };
       const cutoff = new Date(cutoffIso).getTime();
       const desde = desdeIso ? new Date(desdeIso).getTime() : null;
@@ -484,6 +491,7 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
           const metadata = row.sessao?.metadata ?? {};
           const acesso = decidirElegibilidade(
             montarEstadoDeElegibilidade({
+              orgStatus: row.organizations?.status ?? null,
               aiGate: metadata.ai_gate,
               aiGateMode: metadata.ai_gate_mode,
               aiTestPhoneNumbers: metadata.ai_test_phone_numbers,

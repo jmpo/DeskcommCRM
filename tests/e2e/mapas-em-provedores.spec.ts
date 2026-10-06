@@ -1,5 +1,5 @@
 /**
- * A CHAVE DE MAPAS, PELA TELA (Configurações › Provedores, cartão "Mapas").
+ * A CHAVE DE MAPAS, PELA TELA (Agente de IA › Provedores, cartão "Mapas").
  *
  * Pedido de uma loja (28/09/2026): o pino de localização chegava só com
  * coordenadas e o agente não sabia a cidade. Com a chave da Geocoding API, o
@@ -16,7 +16,8 @@ import * as path from "node:path";
 
 import { expect, test } from "./helpers/test";
 import { generateTotp, msUntilNextTotpWindow } from "./utils/totp";
-import { admin, captura, creds, registra } from "./qa-l12-comum";
+import { corpoDaLocalizacao } from "../../lib/messaging/localizacao";
+import { abreConversa, admin, captura, creds, insere, login, registra } from "./qa-l12-comum";
 
 const CREDS_PATH = path.join(process.cwd(), ".e2e-creds.json");
 const CHAVE = `AIzaChaveFalsaDeTesteE2E${`${Date.now()}`.slice(-6)}`;
@@ -98,5 +99,99 @@ test.describe("Mapas em Provedores", () => {
       .select("id", { count: "exact", head: true })
       .eq("organization_id", c.org_id);
     expect(count).toBe(0);
+  });
+
+  /**
+   * O OUTRO LADO: o cartão do pino na conversa. O pino é gravado como a ingestão
+   * grava quando a organização tem a chave (tipo `location`, `metadata.location`
+   * com `aproximado`, corpo de `corpoDaLocalizacao`) — a chamada ao Google em si
+   * é provada em `tests/unit/mapas-pino-com-endereco.test.ts`, com rede de mentira.
+   * Aqui se prova que o endereço atravessa a rota da conversa e aparece no cartão,
+   * marcado "(aprox.)", com o texto inteiro no `title` (o cartão corta com `…`).
+   */
+  test("o cartão do pino na conversa mostra a rua e a cidade aproximadas", async ({ page }) => {
+    const c = creds();
+    const PREFIXO = "Pino Aproximado E2E";
+    const limpar = async () => {
+      const { data } = await admin
+        .from("contacts")
+        .select("id")
+        .eq("organization_id", c.org_id)
+        .like("display_name", `${PREFIXO}%`);
+      const ids = ((data as Array<{ id: string }> | null) ?? []).map((x) => x.id);
+      if (ids.length === 0) return;
+      await admin.from("messages").delete().in("contact_id", ids);
+      await admin.from("conversations").delete().in("contact_id", ids);
+      await admin.from("contacts").delete().in("id", ids);
+    };
+    await limpar();
+
+    const { data: sessao } = await admin
+      .from("channel_sessions")
+      .select("id")
+      .eq("organization_id", c.org_id)
+      .limit(1)
+      .maybeSingle();
+    const sessaoId =
+      (sessao as { id: string } | null)?.id ??
+      (await insere("channel_sessions", {
+        organization_id: c.org_id,
+        waha_session_name: `e2e-pino-aprox-${Date.now()}`,
+        webhook_secret_encrypted: "e2e",
+      }));
+    const contatoId = await insere("contacts", {
+      organization_id: c.org_id,
+      display_name: `${PREFIXO} ${Date.now()}`,
+      phone_number: `+55419${String(Date.now()).slice(-8)}`,
+    });
+    const agora = new Date().toISOString();
+    const conversaId = await insere("conversations", {
+      organization_id: c.org_id,
+      contact_id: contatoId,
+      channel_session_id: sessaoId,
+      status: "open",
+      last_message_at: agora,
+      last_inbound_at: agora,
+    });
+    const localizacao = {
+      latitude: -25.4284,
+      longitude: -49.2733,
+      aproximado: { rua: "Rua XV de Novembro", cidade: "Curitiba", regiao: "Paraná" },
+    };
+    await insere("messages", {
+      organization_id: c.org_id,
+      conversation_id: conversaId,
+      channel_session_id: sessaoId,
+      contact_id: contatoId,
+      direction: "inbound",
+      status: "delivered",
+      sent_via: "external_device",
+      type: "location",
+      body: corpoDaLocalizacao(localizacao),
+      metadata: { location: localizacao },
+      sent_at: agora,
+    });
+
+    try {
+      await login(page, c.users.agent!.email, c.password);
+      await abreConversa(page, conversaId);
+      const detalhe = page.getByTestId("pino-detalhe");
+      await expect(detalhe).toBeVisible({ timeout: 60_000 });
+      const esperado = "Rua XV de Novembro, Curitiba, Paraná (aprox.)";
+      await expect(detalhe).toHaveText(esperado);
+      await expect(detalhe).toHaveAttribute("title", esperado);
+      // O toque abre o ponto no mapa — as coordenadas, não o endereço aproximado.
+      const link = page.locator("a", { has: detalhe });
+      await expect(link).toHaveAttribute("href", "https://maps.google.com/?q=-25.4284,-49.2733");
+      const caixa = await detalhe.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { largura: r.width, altura: r.height, rolagem: el.scrollWidth, cliente: el.clientWidth };
+      });
+      registra(`mapas · cartão do pino = ${JSON.stringify(caixa)}`);
+      expect(caixa.altura).toBeGreaterThan(0);
+      await captura(page, "mapas-03-pino-na-conversa");
+    } finally {
+      await limpar();
+    }
   });
 });

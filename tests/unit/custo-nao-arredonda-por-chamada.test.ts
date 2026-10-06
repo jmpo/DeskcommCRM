@@ -71,6 +71,8 @@ describe("o custo por chamada é fracionário", () => {
       inputTokens: 566,
       outputTokens: 47,
     });
+    // O modelo tem preço conhecido: `null` (preço desconhecido, upstream #1963) aqui seria defeito.
+    if (umaChamada === null) throw new Error("claude-haiku-4-5 sem preço");
     const mil = umaChamada * 1000;
     // O real de 1.000 chamadas é ~80¢. Com o ceil antigo seriam 1.000¢.
     expect(mil).toBeLessThan(100);

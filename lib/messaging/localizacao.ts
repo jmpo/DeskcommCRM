@@ -89,6 +89,9 @@ export function linkDoMapa(loc: Localizacao): string {
  *
  * O endereço aproximado sai marcado "(aprox.)" — a mesma abreviação em
  * português e em espanhol —, para o agente confirmar em vez de afirmar.
+ * Os NOMES vêm no idioma da organização (`idiomaDaConsulta`); a marca, que é
+ * gravada uma vez no corpo, é a mesma nos dois idiomas que o registro serve
+ * hoje. Na tela, o cartão do pino a traduz para quem olha (`LocationCard`).
  */
 export function corpoDaLocalizacao(loc: Localizacao): string {
   const aproximado = loc.aproximado ? textoDoEnderecoAproximado(loc.aproximado) : "";

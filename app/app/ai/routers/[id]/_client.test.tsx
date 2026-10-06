@@ -6,9 +6,11 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { authMock, flowsMock, testeMock } = vi.hoisted(() => ({
+const { authMock, flowsMock, testeMock, pipelinesMock, stagesMock } = vi.hoisted(() => ({
   authMock: vi.fn(),
   flowsMock: vi.fn(),
+  pipelinesMock: vi.fn(() => ({ data: undefined })),
+  stagesMock: vi.fn(() => ({ data: undefined })),
   testeMock: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, data: undefined as unknown })),
 }));
 
@@ -16,6 +18,12 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: 
 vi.mock("@/hooks/auth/AuthProvider", () => ({ useAuth: authMock, usePermission: () => true }));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (s: string) => s }));
 vi.mock("@/hooks/followup/useFollowupFlows", () => ({ useFollowupFlows: flowsMock }));
+// #2155 — o seletor de funil/etapa de destino usa os MESMOS hooks dos webhooks:
+// sem o mock, a renderização estoura "No QueryClient set" (não há provider aqui).
+vi.mock("@/hooks/webhooks/useWebhookSources", () => ({
+  usePipelines: pipelinesMock,
+  usePipelineStages: stagesMock,
+}));
 vi.mock("@/hooks/ai/useRouters", () => {
   const mut = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false });
   return {

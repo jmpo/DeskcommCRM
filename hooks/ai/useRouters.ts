@@ -21,6 +21,9 @@ export interface RouterMember {
   position: number;
   /** Fluxo de atendimento que começa quando a intenção casa. `null` = só agente. */
   flow_pointer_id: string | null;
+  /** Funil de DESTINO do card quando a intenção casa (#2155). `null` = só roteia. */
+  pipeline_id: string | null;
+  stage_id: string | null;
 }
 
 export interface RouterMemberInput {
@@ -29,6 +32,9 @@ export interface RouterMemberInput {
   intent_description: string;
   examples: string[];
   flow_pointer_id: string | null;
+  /** Funil de DESTINO do card quando a intenção casa (#2155). `null` = só roteia. */
+  pipeline_id: string | null;
+  stage_id: string | null;
 }
 
 export interface RouterDetail {

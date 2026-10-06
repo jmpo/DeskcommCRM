@@ -767,6 +767,12 @@
       "to": "jevRoteador",
       "label": "Deixar o Jev decidir / Pausar esta tarefa (settings.jev.tarefas.roteador)",
       "variant": "emphasis"
+    },
+    {
+      "id": "evidencias-comerciais-gates",
+      "from": "turn",
+      "to": "gates",
+      "label": "Catálogo/acervo consultados no turno → contexto limitado da promessa semântica; sem bypass"
     }
   ],
   "cards": [
@@ -818,6 +824,16 @@
         "O Operador NÃO tem aresta para o canal: 'send_message' não está no toolset dele, e a ponte troca a lista em UM ponto só (operator-turn.ts). É ausência, não regra de prompt — a única forma que não depende de o modelo obedecer",
         "A projeção (§4) NÃO se aplica ao Operador: ele precisa do dado cru para operar, e não tem canal por onde vazar. Projetar os dois seria cegar quem opera para proteger quem não fala",
         "O Operador NÃO decide qual unidade atende: isso é do Intent Router. Os dois eixos convivem"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Promessas conferidas contra fontes consultadas",
+      "items": [
+        "Entrada: produtos ativos/disponíveis do catálogo e trechos das fontes habilitadas (FAQ, documento, catálogo; nunca Conversas anteriores) consultados no turno",
+        "Saída: candidata inteira + evidências limitadas → classificador → gates existentes; sem exceção automática",
+        "Sem fonte consultada mantém regra anterior; cliente, notas e prompt não autorizam oferta",
+        "Laço: impedimento no Teste → humano corrige Catálogo/Conhecimento → próxima consulta usa a fonte atualizada"
       ]
     }
   ]

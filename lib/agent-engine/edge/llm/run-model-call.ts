@@ -381,7 +381,14 @@ async function aplicarOrcamento(d: {
      where not exists (
        select 1 from agent_inbox_items
        where organization_id = $1 and kind = 'budget_exceeded' and status = 'open'
-     )`,
+     )
+     -- on conflict SEM ALVO pela mesma razão do statement do orçamento
+     -- (SQL_ORCAMENTO): a forma com alvo exige que o índice da 0540 já exista,
+     -- e um clone fora de ordem falharia aqui com 42P10 — trocando a RECUSA (o
+     -- erro lançado abaixo) por um erro de banco. Sem alvo, se outro processo
+     -- abriu o mesmo item entre a guarda e o insert, a linha não entra e a
+     -- recusa continua valendo.
+     on conflict do nothing`,
     [d.organizationId, BLOQUEIO_TITULO, corpoDoBloqueio(gastoCents, tetoCents)],
   );
   // A recusa vira LINHA em llm_calls. A tela /app/ai/runs nasceu porque

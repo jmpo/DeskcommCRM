@@ -29,7 +29,7 @@ function fakeDb(opts: {
     ],
     loadSilentContactIds: async () => ["contato-a", "contato-b"],
     loadContatosComRetornoVivo: async () => new Set<string>(),
-    // Do fork (pausa de reentrada e pessoa no comando): neutros aqui.
+    // Pausa de reentrada e pessoa no comando: neutros aqui.
     loadEncerramentosDoFluxo: async () => new Map(),
     loadContatosComPessoaNoComando: async () => new Set<string>(),
     loadContatosComInscricaoViva: async () => new Set<string>(),

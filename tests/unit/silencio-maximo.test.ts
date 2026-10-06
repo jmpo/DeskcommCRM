@@ -41,10 +41,10 @@ describe("varredura de silêncio com teto", () => {
       ],
       loadSilentContactIds,
       loadContatosComRetornoVivo: async () => new Set<string>(),
+      loadContatosComInscricaoViva: async () => new Set<string>(),
       loadContactIdsEmCooldown: async () => new Set<string>(),
       loadEncerramentosDoFluxo: async () => new Map(),
       loadContatosComPessoaNoComando: async () => new Set<string>(),
-      loadContatosComInscricaoViva: async () => new Set<string>(),
       loadTriggerNode: async () => ({ id: "inicio", pedeAgente: false }),
       insertEnrollment: async () => ({ inserted: true }),
     };
@@ -100,6 +100,7 @@ describe("createSupabaseSilenceSweepDb — a consulta de PRODUÇÃO", () => {
     ],
     contacts: { tags: [], is_blocked: false, ai_authorized_at: null, phone_number: null, force_human: false },
     sessao: { metadata: { ai_gate_mode: "open" } },
+    organizations: { status: "active" },
   });
 
   it("⭐ quem falou antes do teto fica de fora; quem está na faixa entra", async () => {
