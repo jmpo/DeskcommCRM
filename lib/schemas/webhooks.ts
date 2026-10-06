@@ -203,7 +203,15 @@ export const actionSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("start_message_flow"),
-    config: z.object({ flow_pointer_id: z.string().uuid() }),
+    config: z.object({
+      flow_pointer_id: z.string().uuid(),
+      /**
+       * Se o contato já está em OUTRO fluxo (ativo ou esperando), encerra aquele
+       * e inscreve neste. Desligado por padrão: o contato só tem uma inscrição
+       * viva, e sem isto a regra perde para o fluxo que chegou antes.
+       */
+      replace_live_flow: z.boolean().optional(),
+    }),
   }),
   // #1540 — a ação que NUNCA fala com o cliente: grava `crm_tasks` e avisa o
   // responsável. Advocacia, saúde e serviços regulados precisam do lembrete e
