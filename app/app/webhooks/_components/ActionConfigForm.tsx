@@ -33,7 +33,7 @@ export type ActionItem =
   | { type: "add_tag"; config: { tags: string[] } }
   | { type: "assign_owner"; config: { user_id: string } }
   | { type: "call_webhook"; config: { url: string; secret?: string; secret_enc?: string; include_owner?: boolean } }
-  | { type: "start_message_flow"; config: { flow_pointer_id: string } }
+  | { type: "start_message_flow"; config: { flow_pointer_id: string; replace_live_flow?: boolean } }
   // #1540 — o lembrete interno: mesmos campos do schema da API e do nó de fluxo.
   | {
       type: "create_task";
@@ -498,7 +498,10 @@ function CallWebhookForm({
   );
 }
 
-function StartMessageFlowForm({ config, onChange }: FormProps<{ flow_pointer_id: string }>) {
+function StartMessageFlowForm({
+  config,
+  onChange,
+}: FormProps<{ flow_pointer_id: string; replace_live_flow?: boolean }>) {
   const t = useT();
   const { data, isLoading } = useQuery({
     queryKey: ["followup", "flows", "list"],
@@ -516,7 +519,7 @@ function StartMessageFlowForm({ config, onChange }: FormProps<{ flow_pointer_id:
       <Label>{t("Fluxo de follow-up")}</Label>
       <Select
         value={config.flow_pointer_id}
-        onValueChange={(v) => onChange({ flow_pointer_id: v })}
+        onValueChange={(v) => onChange({ ...config, flow_pointer_id: v })}
         disabled={isLoading}
       >
         <SelectTrigger>
@@ -539,6 +542,23 @@ function StartMessageFlowForm({ config, onChange }: FormProps<{ flow_pointer_id:
           {t("Só entram fluxos publicados e ativos.")}
         </p>
       )}
+      {/* Um contato só anda em UM fluxo por vez. Desligado, a regra perde para o
+          fluxo que chegou antes — e a pessoa que acabou de pedir pode ficar sem
+          a confirmação porque estava no remarketing. */}
+      <div className="mt-2 flex items-center justify-between gap-3 rounded-md border p-3">
+        <div className="space-y-0.5">
+          <Label>{t("Tirar o contato de outro fluxo")}</Label>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "Se o contato já estiver em outro fluxo, ele sai daquele e entra neste. Fluxo pausado por uma pessoa não é trocado.",
+            )}
+          </p>
+        </div>
+        <Switch
+          checked={config.replace_live_flow === true}
+          onCheckedChange={(v) => onChange({ ...config, replace_live_flow: v ? true : undefined })}
+        />
+      </div>
     </div>
   );
 }
