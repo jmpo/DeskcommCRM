@@ -427,6 +427,16 @@ export function CartaoDoJev({
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{t(dados.provedor.quandoUsar)}</p>
       </div>
 
+      {/* DEC-012 #2: quem é da área da saúde manda dado sensível (LGPD), e o
+          contrato da TypeSafe precisa cobrir isso. O produto não guarda o nicho
+          como categoria, então o aviso aparece para todos em forma condicional.
+          A ida para os EUA já está no consentimento, mais abaixo. */}
+      <p className="mt-3 rounded-md bg-warning-bg p-3 text-sm text-warning-fg" data-testid="jev-aviso-area-saude">
+        {t(
+          "Se a sua empresa é da área da saúde: as mensagens que o Jev lê podem conter dado de saúde, que a LGPD trata como sensível. Antes de ligar, confira com quem cuida da LGPD da empresa se o contrato da TypeSafe cobre esse tipo de dado.",
+        )}
+      </p>
+
       {/* Depois de colar a chave nada confirmava que ela FUNCIONA: esta linha é
           o resultado do teste, dito em palavras (o ✓ é enfeite). */}
       {dados.chave.validada && (

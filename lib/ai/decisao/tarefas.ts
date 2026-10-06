@@ -306,6 +306,41 @@ export const TAREFA_DO_FOLLOWUP = {
     "Lê a resposta do cliente à mensagem do follow-up, sozinha, e diz em qual das saídas que você criou no fluxo ela se encaixa.",
 } as const satisfies TarefaDoJev;
 
+/**
+ * A conferência de campo personalizado do negócio (#2234): antes de a IA gravar
+ * um campo do funil na ficha, conferir nas mensagens do CLIENTE se foi ele quem
+ * disse aquele valor. Hoje `crm_update_lead` grava `custom_fields` direto
+ * (`lib/mcp/tools/leads.ts`), sem nenhuma conferência — os campos de CONTATO já
+ * têm proposta com confirmação humana (#1650), os do negócio não, e uma
+ * confirmação humana a cada valor seria pesada demais.
+ *
+ * É `novo`: não há mecanismo de conferência hoje com o que concordar. É
+ * `alcance: "conversa"` de propósito: o degrau 2 lê as mensagens pendentes do
+ * TURNO, em geral 1 a 3 juntas — mais que o aceite de "cada mensagem, sozinha",
+ * então sem o aceite da conversa (`config.aceite.alcance`) ela nasce DESLIGADA
+ * e a ficha segue gravando como hoje.
+ *
+ * O degrau 1 (número, data, e-mail e valor monetário conferidos em código, sem
+ * rede) não depende do Jev: ele acontece antes, em quem chama (`./campo-do-negocio`).
+ */
+export const TAREFA_DA_CONFERENCIA_DE_CAMPO = {
+  id: "campo_do_negocio",
+  primitiva: "noul",
+  alcance: "conversa",
+  familia: "novo",
+  aoDecidir:
+    "O Jev confere, nas mensagens que o cliente deixou sem resposta neste turno, se foi ele quem disse o valor do campo. O valor que ele não disse deixa de ser gravado e o assistente é mandado perguntar para ele; os outros campos da mesma chamada seguem gravando.",
+  aoConfirmarDecidir:
+    "Antes de a IA gravar um campo personalizado do negócio, o Jev vai conferir nas mensagens do cliente se foi ele quem informou aquele valor. Ele não disse: o campo não é gravado e a IA pergunta ao cliente.",
+  concordancia: {
+    antes: "dias, o Jev e o jeito de hoje deram o mesmo destino a",
+    depois: "campos do negócio.",
+  },
+  rotulo: "Conferir o campo antes de a IA gravar",
+  oQueFaz:
+    "Lê o que o cliente disse nas mensagens ainda sem resposta do turno e confere se o valor que a IA quer gravar no campo personalizado do negócio foi ele quem informou.",
+} as const satisfies TarefaDoJev;
+
 export const TAREFAS_DO_JEV: readonly TarefaDoJev[] = [
   TAREFA_DO_CLIMA,
   TAREFA_DA_MANIPULACAO,
@@ -313,6 +348,7 @@ export const TAREFAS_DO_JEV: readonly TarefaDoJev[] = [
   TAREFA_DO_PEDIDO_DE_HUMANO,
   TAREFA_DO_PEDIDO_PARA_PARAR,
   TAREFA_DO_FOLLOWUP,
+  TAREFA_DA_CONFERENCIA_DE_CAMPO,
 ];
 
 /**
@@ -322,6 +358,21 @@ export const TAREFAS_DO_JEV: readonly TarefaDoJev[] = [
 export function tarefaPodeDecidir(tarefa: Pick<TarefaDoJev, "soObserva">): boolean {
   return tarefa.soObserva === undefined;
 }
+
+/**
+ * A chamada da conferência de campo (#2234): também sem ponto no registro — o
+ * degrau 2 do `crm_update_lead` é quem pergunta, e as perguntas são por CAMPO,
+ * não por tarefa (`./campo-do-negocio`). Mesmo enquadramento de
+ * `PEDIDOS_DO_CLIENTE`, incluindo o `porQue` como PERGUNTA: a chamada sai só
+ * quando há campo para conferir, e a falha não muda nada no atendimento.
+ */
+export const CONFERENCIA_DE_CAMPO = {
+  purpose: "jev_campo_do_negocio",
+  rotulo: "Conferir o campo antes de a IA gravar",
+  porQue:
+    "O Jev foi perguntado se o cliente disse, nas mensagens ainda sem resposta deste turno, o valor do campo personalizado do negócio que a IA ia gravar.",
+  porQueNaFalha: "O Jev não respondeu: o campo foi gravado como antes, sem a conferência.",
+} as const;
 
 /**
  * A chamada que pergunta os dois pedidos (`./pedidos.ts`) precisa de um
@@ -352,6 +403,7 @@ export const PEDIDOS_DO_CLIENTE = {
  * ponto, ou o dos pedidos. `null` quando não é chamada do Jev.
  */
 export function rotuloDaChamadaDoJev(purpose: string): string | null {
+  if (purpose === CONFERENCIA_DE_CAMPO.purpose) return CONFERENCIA_DE_CAMPO.rotulo;
   if (purpose === PEDIDOS_DO_CLIENTE.purpose) return PEDIDOS_DO_CLIENTE.rotulo;
   return TAREFAS_DO_JEV.find((t) => t.ponto === purpose)?.rotulo ?? null;
 }

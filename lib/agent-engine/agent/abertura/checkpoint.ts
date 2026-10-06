@@ -21,6 +21,7 @@ import {
   currentExecutionBoundary,
   guardServiceEffect,
 } from "@/lib/atendimento/fronteira-server";
+import { extrairJsonDoTexto } from "@/lib/agent-engine/texto/extrair-json-do-texto";
 
 import type { Queryable } from "../../queue/queue";
 import {
@@ -153,29 +154,19 @@ export class FechamentoRecusado extends Error {
 }
 
 /**
- * Extrai e valida o JSON do fechamento. Tolerante a cerca de código e prosa em
- * volta (pega do primeiro '{' ao último '}'); inválido → erro SEM o texto do
+ * Extrai e valida o JSON do fechamento. Tolerante a cerca de código, prosa em
+ * volta e repetição (`extrairJsonDoTexto`); inválido → erro SEM o texto do
  * modelo na mensagem (pode carregar PII da conversa) — o job re-tenta.
  */
 export function parseCheckpointText(text: string): CheckpointContent {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end <= start) {
+  const bruto = extrairJsonDoTexto(text);
+  if (bruto === null) {
     throw new FechamentoRecusado(
       'fechamento do turno sem JSON de checkpoint — run re-tentado pela fila',
-      'a resposta não tinha um objeto JSON',
+      'a resposta não tinha um objeto JSON válido',
     );
   }
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text.slice(start, end + 1));
-  } catch {
-    throw new FechamentoRecusado(
-      'JSON de checkpoint inválido no fechamento do turno — run re-tentado pela fila',
-      'o JSON não era válido',
-    );
-  }
-  const parsed = checkpointContentSchema.safeParse(raw);
+  const parsed = checkpointContentSchema.safeParse(bruto);
   if (!parsed.success) {
     const onde = (i: (typeof parsed.error.issues)[number]) => `${i.path.join('.') || '(raiz)'}: ${i.code}`;
     const issues = parsed.error.issues.map(onde).join('; ');

@@ -3,15 +3,15 @@
  *
  * Medido numa loja que vende pelo WhatsApp (28/09/2026): 10 de 47 conversas do
  * mês tiveram pino de localização, e os 10 chegaram só com coordenadas — sem
- * nome, sem endereço. O agente lia `📍 https://maps.google.com/?q=-25.34,-57.61`
+ * nome, sem endereço. O agente lia `📍 https://maps.google.com/?q=<lat>,<lng>`
  * e não sabia em que cidade o cliente estava: perguntava a cidade de novo, e
  * não conseguia conferir a cobertura de entrega.
  *
  * Com uma chave da Geocoding API, as coordenadas viram rua, cidade e
  * departamento/estado. É APROXIMADO — a própria documentação do Google diz que
  * a geocodificação reversa "não é uma ciência exata" e devolve o endereço mais
- * próximo dentro de uma tolerância (medido: um ponto na divisa de Fernando de
- * la Mora voltou como Asunción). Por isso o texto leva "(aprox.)", e quem o lê
+ * próximo dentro de uma tolerância (medido: um ponto na divisa entre duas
+ * cidades voltou como a cidade vizinha). Por isso o texto leva "(aprox.)", e quem o lê
  * confirma com o cliente em vez de afirmar.
  *
  * Nada aqui lança: sem resposta, o pino segue como era antes (só o link).
@@ -19,21 +19,24 @@
  * ─── O que se mostra, e por quê (medido em 28/09/2026) ─────────────────────
  *
  * Os 8 pinos de clientes que confirmaram pedido, comparados com o endereço que
- * ficou anotado no pedido: o DISTRITO (`administrative_area_level_2`) acertou
- * 8/8 e o departamento 8/8; a "localidade" (`locality`) errou na zona rural
- * (Atyrá virou "Tucangua Cordillera", a compañía); o BAIRRO bateu 1/8 — o
- * bairro do Google não é o que o cliente chama de bairro —; e o número da casa
- * é interpolado (655 contra 882; num caso, "casi"). Por isso a cidade é o
- * distrito, e bairro e número não saem: um dado errado dito com confiança é
+ * ficou anotado no pedido: o MUNICÍPIO (`administrative_area_level_2`) acertou
+ * 8/8 e a região 8/8; a "localidade" (`locality`) errou na zona rural (virou o
+ * povoado, e o cliente escreveu o município); o BAIRRO bateu 1/8 — o bairro do
+ * Google não é o que o cliente chama de bairro —; e o número da casa é
+ * interpolado (a centenas de números do anotado). Por isso a cidade é o
+ * município, e bairro e número não saem: um dado errado dito com confiança é
  * pior que nenhum. A rua fica (3 de 5 bateram, e ajuda quem entrega).
  */
+
+import { IDIOMA_PADRAO, parseAcceptLanguage } from "@/lib/i18n/idiomas";
+import { idiomaVisivelPorCodigo } from "@/lib/i18n/registro";
 
 /** O que o Google disse sobre o ponto. Todos opcionais: o Google devolve o que tem. */
 export interface EnderecoAproximado {
   rua?: string;
-  /** O distrito/município — medido mais confiável que a "localidade" do Google. */
+  /** O município/distrito — medido mais confiável que a "localidade" do Google. */
   cidade?: string;
-  /** Departamento (Paraguai), estado (Brasil) — `administrative_area_level_1`. */
+  /** Estado (Brasil), departamento ou província (outros países) — `administrative_area_level_1`. */
   regiao?: string;
 }
 
@@ -57,8 +60,8 @@ export type ResultadoDaGeocodificacao =
 /** Host fixo — nunca vem de input, então não há destino a validar contra SSRF. */
 export const URL_DA_GEOCODIFICACAO = "https://maps.googleapis.com/maps/api/geocode/json";
 
-/** Plaza de los Héroes, Asunción: o ponto do botão "Testar" — público, nunca o de um cliente. */
-export const PONTO_DE_TESTE = { latitude: -25.2822, longitude: -57.6351 };
+/** Praça da Sé, São Paulo: o ponto do botão "Testar" — público, nunca o de um cliente. */
+export const PONTO_DE_TESTE = { latitude: -23.5503, longitude: -46.634 };
 
 /** Curto: roda dentro do recebimento do pino, e o pino não pode esperar pelo Google. */
 export const TEMPO_LIMITE_MS = 2_500;
@@ -111,7 +114,7 @@ export function lerRespostaDoGoogle(corpo: unknown): ResultadoDaGeocodificacao {
 
   const resultados = Array.isArray(r.results) ? r.results : [];
   const tipo = primeiroPorTipo(resultados);
-  // O distrito antes da localidade: na zona rural a localidade é a compañía.
+  // O município antes da localidade: na zona rural a localidade é o povoado.
   const cidade = tipo.get("administrative_area_level_2") ?? tipo.get("locality");
   const rua = tipo.get("route");
   const regiao = semSufixoDeDepartamento(tipo.get("administrative_area_level_1"));
@@ -127,7 +130,7 @@ export function lerRespostaDoGoogle(corpo: unknown): ResultadoDaGeocodificacao {
 
 /**
  * O Google às vezes devolve o departamento em inglês mesmo com `language=es`
- * (medido: "Central Department" num pino de Capiatá, "Central" no vizinho).
+ * (medido: "X Department" num pino e "X" no pino vizinho, na mesma região).
  */
 function semSufixoDeDepartamento(nome: string | undefined): string | undefined {
   const limpo = nome?.replace(/\s+Department$/i, "").replace(/^Department of\s+/i, "").trim();
@@ -135,8 +138,8 @@ function semSufixoDeDepartamento(nome: string | undefined): string | undefined {
 }
 
 /**
- * "Boqueron, Capiatá, Central". A região sai quando repete a
- * cidade (Asunción é capital e departamento ao mesmo tempo). Sem rótulo de
+ * "Rua XV de Novembro, Curitiba, Paraná". A região sai quando repete a
+ * cidade (São Paulo é município e estado ao mesmo tempo). Sem rótulo de
  * idioma ("bairro", "barrio"): o texto vai para o agente e para a prévia da
  * conversa em qualquer idioma, e os nomes próprios se explicam sozinhos.
  */
@@ -145,12 +148,14 @@ export function textoDoEnderecoAproximado(e: EnderecoAproximado): string {
   return [e.rua, e.cidade, regiao].filter((p): p is string => Boolean(p)).join(", ");
 }
 
-/** O idioma dos nomes que o Google devolve, a partir de `organizations.locale`. */
+/**
+ * O idioma dos nomes que o Google devolve: o da organização (`organizations.locale`,
+ * que o instalador grava), resolvido pelo REGISTRO de idiomas como o resto do
+ * produto — `es-MX` e `es` viram `es`; o que o produto não serve, o padrão.
+ * Um idioma novo no registro chega aqui sem ninguém mexer neste arquivo.
+ */
 export function idiomaDaConsulta(locale: string | null | undefined): string {
-  const l = (locale ?? "").trim().toLowerCase();
-  if (l.startsWith("es")) return "es";
-  if (l.startsWith("en")) return "en";
-  return "pt-BR";
+  return idiomaVisivelPorCodigo(parseAcceptLanguage(locale) ?? IDIOMA_PADRAO).tagBcp47;
 }
 
 export async function geocodificarReverso(

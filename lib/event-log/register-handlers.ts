@@ -25,8 +25,8 @@ import { mediaDeriveHandler } from "@/workers/media-derive-worker.handler";
 import { CONSUMIDORES_DOS_CANAIS } from "@/lib/channels/consumidores";
 import { webPushInboundHandler } from "@/lib/notifications/push.handler";
 import { conversaoDeQualificacaoHandler } from "@/lib/conversoes/qualificacao.handler";
+import { conversaoDeEtapaMetaHandler } from "@/lib/conversoes/etapa-meta.handler";
 import { conversaoDeVendaHandler } from "@/lib/conversoes/envio.handler";
-import { conversaoDeEtapaHandler } from "@/lib/conversoes/etapa.handler";
 import { avisoDeEtapaHandler } from "@/lib/leads/aviso-de-etapa.handler";
 import { avisoDeCasoAoSuporteHandler } from "@/lib/escalacao/aviso-ao-suporte.handler";
 import { avisoDePropostaNoWhatsAppHandler } from "@/lib/propostas/aviso-no-whatsapp.handler";
@@ -83,8 +83,7 @@ export function ensureHandlersRegistered(): void {
   // fechamento — depende de rede de terceiro e não pode atrasar quem escreve
   // no banco. Falha dele nunca segura os handlers acima.
   registerHandler(conversaoDeVendaHandler);
-  // Mesmo critério: evento de etapa também sai por rede de terceiro.
-  registerHandler(conversaoDeEtapaHandler);
   registerHandler(conversaoDeQualificacaoHandler);
+  registerHandler(conversaoDeEtapaMetaHandler);
   _registered = true;
 }

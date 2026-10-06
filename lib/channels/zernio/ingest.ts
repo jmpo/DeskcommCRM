@@ -317,7 +317,12 @@ export async function ingestZernioInbound(
  */
 async function efeitosDaEntrada(
   admin: SupabaseClient,
-  input: { organizationId: string; channelSessionId: string; requestId?: string },
+  input: {
+    organizationId: string;
+    channelSessionId: string;
+    requestId?: string;
+    socialMessage?: Pick<SocialMessage, "platform">;
+  },
   msg: ZernioInboundMessage,
   contactId: string,
   conversationId: string,
@@ -347,6 +352,9 @@ async function efeitosDaEntrada(
     nomeDoContato: msg.identity.displayName,
     requestId: input.requestId,
     origem: "zernio_webhook",
+    // A rede é o canal que os dois ramos acima já gravaram em
+    // `conversations.channel`; sem ela o negócio nasce como WhatsApp.
+    canal: input.socialMessage?.platform,
   });
 }
 

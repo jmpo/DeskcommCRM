@@ -379,7 +379,7 @@ export function MessageBubble({
           <>
             {hasMedia && (
               <div className={cn(message.body && "mb-1")}>
-                <MediaRenderer message={message} />
+                <MediaRenderer message={message} agora={agora} />
               </div>
             )}
 
@@ -488,7 +488,7 @@ export function MessageBubble({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Ocultar esta mensagem no CRM?")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("A mensagem continua no WhatsApp do cliente e no registro da empresa. Um gestor pode restaurá-la aqui.")}</AlertDialogDescription>
+            <AlertDialogDescription>{t("A mensagem continua na conversa do cliente e no registro da empresa. Um gestor pode restaurá-la aqui.")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={ocupado}>{t("Cancelar")}</AlertDialogCancel>

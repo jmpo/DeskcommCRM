@@ -1,14 +1,15 @@
 /**
  * O PINO GANHA RUA, BAIRRO E CIDADE APROXIMADOS — quando a organização tem a
- * chave de Mapas (migration 0503).
+ * chave de Mapas (migration 0504).
  *
  * Medido numa loja (28/09/2026): 10 de 10 pinos do mês chegaram só com
  * coordenadas, e o agente lia um link sem saber a cidade. As respostas do
- * Google abaixo são recortes das REAIS, pedidas em 28/09 para pontos públicos.
+ * Google abaixo têm a FORMA das reais (medidas em 28/09 numa instalação), com
+ * lugares públicos no lugar dos pinos de clientes.
  *
  * O que este arquivo prende:
- * - a leitura da resposta: a cidade é o DISTRITO, sem bairro nem número —
- *   medido contra 8 pedidos confirmados (distrito 8/8, bairro 1/8, número
+ * - a leitura da resposta: a cidade é o MUNICÍPIO, sem bairro nem número —
+ *   medido contra 8 pedidos confirmados (município 8/8, bairro 1/8, número
  *   interpolado) —, e os erros que pedem ações diferentes de quem configura
  *   (API não habilitada × chave recusada);
  * - o corpo do pino — o que o agente lê — com "(aprox.)", e IDÊNTICO ao de
@@ -36,96 +37,96 @@ vi.mock("@/lib/channels/zernio/credentials", async (orig) => ({
 
 const comp = (long_name: string, ...types: string[]) => ({ long_name, short_name: long_name, types });
 
-/** Capiatá (28/09/2026): o primeiro resultado já é a rua com número. */
-const CAPIATA = {
+/** O primeiro resultado já é a rua com número (e bairro, que não sai). */
+const CURITIBA = {
   status: "OK",
   results: [
     {
       types: ["premise", "street_address"],
       address_components: [
-        comp("402", "street_number"),
-        comp("Boqueron", "route"),
-        comp("Santo Domingo", "neighborhood", "political"),
-        comp("Capiatá", "locality", "political"),
-        comp("Capiatá", "administrative_area_level_2", "political"),
-        comp("Central", "administrative_area_level_1", "political"),
-        comp("Paraguay", "country", "political"),
+        comp("1000", "street_number"),
+        comp("Rua XV de Novembro", "route"),
+        comp("Centro", "sublocality_level_1", "sublocality", "political"),
+        comp("Curitiba", "locality", "political"),
+        comp("Curitiba", "administrative_area_level_2", "political"),
+        comp("Paraná", "administrative_area_level_1", "political"),
+        comp("Brasil", "country", "political"),
       ],
     },
   ],
 };
 
-/** Asunción (28/09/2026): o primeiro resultado é um estabelecimento SEM bairro; o segundo tem. */
-const ASUNCION = {
+/** O primeiro resultado é um estabelecimento SEM bairro nem município; o segundo tem o bairro. */
+const SAO_PAULO = {
   status: "OK",
   results: [
     {
-      types: ["establishment", "lodging", "point_of_interest"],
+      types: ["establishment", "point_of_interest"],
       address_components: [
-        comp("1155", "street_number"),
-        comp("Ytororó", "route"),
-        comp("Asunción", "locality", "political"),
-        comp("Asunción", "administrative_area_level_1", "political"),
+        comp("100", "street_number"),
+        comp("Praça da Sé", "route"),
+        comp("São Paulo", "locality", "political"),
+        comp("São Paulo", "administrative_area_level_1", "political"),
       ],
     },
     {
       types: ["neighborhood", "political"],
       address_components: [
-        comp("Itá Enramada", "neighborhood", "political"),
-        comp("San Juan", "sublocality_level_1", "sublocality", "political"),
-        comp("Asunción", "locality", "political"),
+        comp("Sé", "sublocality_level_1", "sublocality", "political"),
+        comp("São Paulo", "locality", "political"),
       ],
     },
   ],
 };
 
 describe("a resposta do Google vira endereço aproximado", () => {
-  it("rua, cidade e departamento — sem bairro nem número", () => {
-    const r = lerRespostaDoGoogle(CAPIATA);
-    expect(r).toEqual({ ok: true, endereco: { rua: "Boqueron", cidade: "Capiatá", regiao: "Central" } });
-    expect(r.ok && textoDoEnderecoAproximado(r.endereco)).toBe("Boqueron, Capiatá, Central");
+  it("rua, cidade e estado — sem bairro nem número", () => {
+    const r = lerRespostaDoGoogle(CURITIBA);
+    expect(r).toEqual({ ok: true, endereco: { rua: "Rua XV de Novembro", cidade: "Curitiba", regiao: "Paraná" } });
+    expect(r.ok && textoDoEnderecoAproximado(r.endereco)).toBe("Rua XV de Novembro, Curitiba, Paraná");
   });
 
-  it("o departamento igual à cidade não se repete, e sem distrito vale a localidade", () => {
-    const r = lerRespostaDoGoogle(ASUNCION);
-    expect(r.ok && textoDoEnderecoAproximado(r.endereco)).toBe("Ytororó, Asunción");
+  it("o estado igual à cidade não se repete, e sem município vale a localidade", () => {
+    const r = lerRespostaDoGoogle(SAO_PAULO);
+    expect(r.ok && textoDoEnderecoAproximado(r.endereco)).toBe("Praça da Sé, São Paulo");
   });
 
-  it("⭐ zona rural: a cidade é o DISTRITO, não a compañía que o Google chama de localidade", () => {
-    // Pedido confirmado em Atyrá (28/09/2026): locality "Tucangua Cordillera",
-    // administrative_area_level_2 "Atyrá" — e o cliente escreveu Atyrá.
+  it("⭐ zona rural: a cidade é o MUNICÍPIO, não o povoado que o Google chama de localidade", () => {
+    // Medido num pedido confirmado (28/09/2026): a `locality` era o povoado, o
+    // `administrative_area_level_2` era o município — e o cliente escreveu o município.
     const r = lerRespostaDoGoogle({
       status: "OK",
       results: [
         {
           address_components: [
-            comp("Ruta Tobati - Atyra", "route"),
-            comp("San Vicente", "neighborhood", "political"),
-            comp("Tucangua Cordillera", "locality", "political"),
-            comp("Atyrá", "administrative_area_level_2", "political"),
-            comp("Cordillera", "administrative_area_level_1", "political"),
+            comp("Estrada Municipal", "route"),
+            comp("Vila Rural", "neighborhood", "political"),
+            comp("Povoado Boa Vista", "locality", "political"),
+            comp("Município Exemplo", "administrative_area_level_2", "political"),
+            comp("Minas Gerais", "administrative_area_level_1", "political"),
           ],
         },
       ],
     });
-    expect(r.ok && textoDoEnderecoAproximado(r.endereco)).toBe("Ruta Tobati - Atyra, Atyrá, Cordillera");
+    expect(r.ok && textoDoEnderecoAproximado(r.endereco)).toBe("Estrada Municipal, Município Exemplo, Minas Gerais");
   });
 
-  it("\"Unnamed Road\" não é rua, e \"Central Department\" é Central", () => {
-    // Os dois medidos em pinos reais de 28/09 (Ypané e Capiatá).
+  it("\"Unnamed Road\" não é rua, e \"Canelones Department\" é Canelones", () => {
+    // As duas formas medidas em pinos reais de 28/09: a rua sem nome e o
+    // departamento em inglês mesmo com `language=es`.
     const r = lerRespostaDoGoogle({
       status: "OK",
       results: [
         {
           address_components: [
             comp("Unnamed Road", "route"),
-            comp("Ypané", "administrative_area_level_2", "political"),
-            comp("Central Department", "administrative_area_level_1", "political"),
+            comp("Pando", "administrative_area_level_2", "political"),
+            comp("Canelones Department", "administrative_area_level_1", "political"),
           ],
         },
       ],
     });
-    expect(r).toEqual({ ok: true, endereco: { cidade: "Ypané", regiao: "Central" } });
+    expect(r).toEqual({ ok: true, endereco: { cidade: "Pando", regiao: "Canelones" } });
   });
 
   it("⭐ API não habilitada e chave recusada são motivos DIFERENTES — pedem ações diferentes", () => {
@@ -142,27 +143,30 @@ describe("a resposta do Google vira endereço aproximado", () => {
   });
 
   it("OK sem nenhum componente útil não inventa endereço", () => {
-    expect(lerRespostaDoGoogle({ status: "OK", results: [{ address_components: [comp("Paraguay", "country")] }] })).toEqual({
+    expect(lerRespostaDoGoogle({ status: "OK", results: [{ address_components: [comp("Brasil", "country")] }] })).toEqual({
       ok: false,
       motivo: "sem_resultado",
     });
   });
 
-  it("o idioma dos nomes segue o da organização", () => {
-    expect(idiomaDaConsulta("es-PY")).toBe("es");
+  it("o idioma dos nomes segue o da organização, pelo registro de idiomas", () => {
+    expect(idiomaDaConsulta("es")).toBe("es");
+    expect(idiomaDaConsulta("es-MX")).toBe("es");
     expect(idiomaDaConsulta("pt-BR")).toBe("pt-BR");
     expect(idiomaDaConsulta(null)).toBe("pt-BR");
+    // Um idioma que o produto não serve cai no padrão, como na tela.
+    expect(idiomaDaConsulta("xx-YY")).toBe("pt-BR");
   });
 });
 
 describe("a chamada ao Google", () => {
   it("manda coordenadas, idioma e chave; não lança em rede fora nem em resposta sem JSON", async () => {
-    const f = vi.fn(async () => new Response(JSON.stringify(CAPIATA), { status: 200 }));
-    const r = await geocodificarReverso("CHAVE", { latitude: -25.3551, longitude: -57.4455 }, { idioma: "es", fetchImpl: f as never });
+    const f = vi.fn(async () => new Response(JSON.stringify(CURITIBA), { status: 200 }));
+    const r = await geocodificarReverso("CHAVE", { latitude: -25.4284, longitude: -49.2733 }, { idioma: "es", fetchImpl: f as never });
     expect(r.ok).toBe(true);
     const url = new URL(String((f.mock.calls[0] as unknown[])[0]));
     expect(url.host).toBe("maps.googleapis.com");
-    expect(url.searchParams.get("latlng")).toBe("-25.3551,-57.4455");
+    expect(url.searchParams.get("latlng")).toBe("-25.4284,-49.2733");
     expect(url.searchParams.get("language")).toBe("es");
     expect(url.searchParams.get("key")).toBe("CHAVE");
 
@@ -183,18 +187,18 @@ describe("a chamada ao Google", () => {
 
 describe("o corpo do pino — o que o agente lê", () => {
   it("⭐ com endereço aproximado: marcado (aprox.), antes do link", () => {
-    const loc = { latitude: -25.3551, longitude: -57.4455, aproximado: { rua: "Boqueron", cidade: "Capiatá", regiao: "Central" } };
-    expect(corpoDaLocalizacao(loc)).toBe("📍 Boqueron, Capiatá, Central (aprox.) — https://maps.google.com/?q=-25.3551,-57.4455");
+    const loc = { latitude: -25.4284, longitude: -49.2733, aproximado: { rua: "Rua XV de Novembro", cidade: "Curitiba", regiao: "Paraná" } };
+    expect(corpoDaLocalizacao(loc)).toBe("📍 Rua XV de Novembro, Curitiba, Paraná (aprox.) — https://maps.google.com/?q=-25.4284,-49.2733");
   });
 
   it("controle: sem endereço aproximado, o corpo é o mesmo de antes", () => {
-    expect(corpoDaLocalizacao({ latitude: -25.3, longitude: -57.5 })).toBe("📍 https://maps.google.com/?q=-25.3,-57.5");
+    expect(corpoDaLocalizacao({ latitude: -23.55, longitude: -46.63 })).toBe("📍 https://maps.google.com/?q=-23.55,-46.63");
   });
 
   it("o endereço gravado no metadata volta na leitura (a tela o mostra), e lixo nele é ignorado", () => {
-    const lida = lerLocalizacao({ latitude: -25.3, longitude: -57.5, aproximado: { cidade: "Lambaré", bairro: 7, x: "y" } });
-    expect(lida?.aproximado).toEqual({ cidade: "Lambaré" });
-    expect(lerLocalizacao({ latitude: -25.3, longitude: -57.5, aproximado: {} })?.aproximado).toBeUndefined();
+    const lida = lerLocalizacao({ latitude: -23.55, longitude: -46.63, aproximado: { cidade: "Osasco", bairro: 7, x: "y" } });
+    expect(lida?.aproximado).toEqual({ cidade: "Osasco" });
+    expect(lerLocalizacao({ latitude: -23.55, longitude: -46.63, aproximado: {} })?.aproximado).toBeUndefined();
   });
 });
 
@@ -221,7 +225,7 @@ function adminFalso(opcoes: { temChave: boolean }) {
     from(tabela: string) {
       const linhas: Record<string, unknown> = {
         map_provider_credentials: opcoes.temChave ? { api_key_encrypted: "\\xabc" } : null,
-        organizations: { locale: "es-PY" },
+        organizations: { locale: "es" },
       };
       const q = {
         select: () => q,
@@ -237,7 +241,7 @@ function redeFalsa(google: () => Response) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
     if (String(url).includes("maps.googleapis.com")) return google();
     return new Response(
-      JSON.stringify({ status: "success", messages: [{ id: "wamid.X", metadata: { location: { latitude: -25.3551, longitude: -57.4455 } } }] }),
+      JSON.stringify({ status: "success", messages: [{ id: "wamid.X", metadata: { location: { latitude: -25.4284, longitude: -49.2733 } } }] }),
       { status: 200 },
     );
   });
@@ -246,12 +250,12 @@ function redeFalsa(google: () => Response) {
 describe("o pino que chega pelo canal", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("⭐ com a chave de Mapas: o pino entra com rua, cidade e departamento", async () => {
+  it("⭐ com a chave de Mapas: o pino entra com rua, cidade e estado", async () => {
     vi.mocked(resolveZernioCreds).mockResolvedValue({ accountId: "acc_1", apiKey: "k", baseUrl: "https://z.test/api", source: "session" });
-    const f = redeFalsa(() => new Response(JSON.stringify(CAPIATA), { status: 200 }));
+    const f = redeFalsa(() => new Response(JSON.stringify(CURITIBA), { status: 200 }));
     const msg = await completarLocalizacao(adminFalso({ temChave: true }) as never, ORG, PINO);
-    expect(msg.location?.aproximado).toEqual({ rua: "Boqueron", cidade: "Capiatá", regiao: "Central" });
-    expect(corpoDaLocalizacao(msg.location!)).toContain("Boqueron, Capiatá, Central (aprox.)");
+    expect(msg.location?.aproximado).toEqual({ rua: "Rua XV de Novembro", cidade: "Curitiba", regiao: "Paraná" });
+    expect(corpoDaLocalizacao(msg.location!)).toContain("Rua XV de Novembro, Curitiba, Paraná (aprox.)");
     const google = f.mock.calls.find(([u]) => String(u).includes("maps.googleapis.com"));
     expect(new URL(String(google![0])).searchParams.get("language")).toBe("es");
   });
@@ -260,7 +264,7 @@ describe("o pino que chega pelo canal", () => {
     vi.mocked(resolveZernioCreds).mockResolvedValue({ accountId: "acc_1", apiKey: "k", baseUrl: "https://z.test/api", source: "session" });
     const f = redeFalsa(() => new Response("{}", { status: 200 }));
     const msg = await completarLocalizacao(adminFalso({ temChave: false }) as never, ORG, PINO);
-    expect(msg.location).toEqual({ latitude: -25.3551, longitude: -57.4455 });
+    expect(msg.location).toEqual({ latitude: -25.4284, longitude: -49.2733 });
     expect(f.mock.calls.some(([u]) => String(u).includes("maps.googleapis.com"))).toBe(false);
   });
 
@@ -268,18 +272,18 @@ describe("o pino que chega pelo canal", () => {
     vi.mocked(resolveZernioCreds).mockResolvedValue({ accountId: "acc_1", apiKey: "k", baseUrl: "https://z.test/api", source: "session" });
     redeFalsa(() => new Response(JSON.stringify({ status: "REQUEST_DENIED", error_message: "This API is not activated on your API project." }), { status: 200 }));
     const recusado = await completarLocalizacao(adminFalso({ temChave: true }) as never, ORG, PINO);
-    expect(recusado.location).toEqual({ latitude: -25.3551, longitude: -57.4455 });
+    expect(recusado.location).toEqual({ latitude: -25.4284, longitude: -49.2733 });
 
     vi.restoreAllMocks();
     vi.mocked(resolveZernioCreds).mockResolvedValue({ accountId: "acc_1", apiKey: "k", baseUrl: "https://z.test/api", source: "session" });
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       if (String(url).includes("maps.googleapis.com")) throw new TypeError("fetch failed");
       return new Response(
-        JSON.stringify({ status: "success", messages: [{ id: "wamid.X", metadata: { location: { latitude: -25.3551, longitude: -57.4455 } } }] }),
+        JSON.stringify({ status: "success", messages: [{ id: "wamid.X", metadata: { location: { latitude: -25.4284, longitude: -49.2733 } } }] }),
         { status: 200 },
       );
     });
     const foraDoAr = await completarLocalizacao(adminFalso({ temChave: true }) as never, ORG, PINO);
-    expect(foraDoAr.location).toEqual({ latitude: -25.3551, longitude: -57.4455 });
+    expect(foraDoAr.location).toEqual({ latitude: -25.4284, longitude: -49.2733 });
   });
 });

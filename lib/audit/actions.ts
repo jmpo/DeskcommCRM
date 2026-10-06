@@ -465,6 +465,8 @@ export const AUDIT_ACTIONS = [
   // de mídia, então precisa de dono na trilha como a conexão acima.
   "google_ads_conversion_rules.updated",
   "google_ads_conversion_action.created",
+  // O que cada etapa do funil informa à Meta (0524) — o par da regra acima.
+  "meta_ads_conversion_rules.updated",
   // A conexão de LEITURA da organização com a conta de anúncios (0214).
   // Ação SEPARADA da de cima, e não um `metadata.purpose` na mesma: a pergunta
   // que cada trilha responde é diferente. "Quem apontou minhas vendas para este
@@ -976,10 +978,6 @@ export const AUDIT_ACTIONS = [
   // o dado que importa quando alguém pergunta "por que este cliente voltou a
   // receber?".
   "contact.unblocked",
-  // A chave de Mapas da organização (0503, Configurações › Provedores): gravada ou
-  // trocada, e removida. O metadata diz O QUE mudou — nunca a chave.
-  "ai.maps_credential_saved",
-  "ai.maps_credential_removed",
 
   // ── Grupos de WhatsApp na inbox (2026-09-23) ─────────────────────────────
   // Ligar/desligar QUAL grupo de um número entra no CRM. O filtro do WhatsApp é
@@ -996,6 +994,7 @@ export const AUDIT_ACTIONS = [
   // CRM B2B fase 1 — companies / people / import (migration 0239)
   "companies.created",
   "companies.updated",
+  "companies.deleted",
   "companies.enriched",
   "people.created",
   "people.updated",
@@ -1003,6 +1002,18 @@ export const AUDIT_ACTIONS = [
   "company_people.updated",
   "contacts.person_linked",
   "imports.companies_people",
+  // A chave de Mapas da organização (0504, Agente de IA › Provedores): gravada ou
+  // trocada, e removida. O metadata diz O QUE mudou — nunca a chave.
+  "ai.maps_credential_saved",
+  "ai.maps_credential_removed",
+
+  // A assinatura do emissor (#2066, PR #2079): quem ligou ou desligou o nome de
+  // quem fala nas mensagens ao cliente, e com que nome a IA passou a assinar.
+  "settings.message_signature_updated",
+
+  // A identidade da Página/WABA que a Meta exige no Purchase de clique-para-WhatsApp
+  // (#2098): gravada pela tela de Conversões, em `organizations.settings.conversions`.
+  "conversions.meta_identity_updated",
 ] as const;
 
 /** Um código de auditoria. Derivado de `AUDIT_ACTIONS` — não redigite a lista. */

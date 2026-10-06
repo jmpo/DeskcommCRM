@@ -135,6 +135,10 @@ function fakePool(c: Cenario) {
       return { rows: c.contato ? [{ display_name: null, ...c.contato }] : [] };
     }
     if (/select custom_fields from crm_leads/.test(sql)) return { rows: c.negocio ? [{ custom_fields: c.negocio }] : [] };
+    // A inscrição viva que o handler consulta ANTES do envio (guard da #1913).
+    if (sql.includes("select current_node_id, status from followup_enrollments")) {
+      return { rows: [{ current_node_id: "passo", status: "active" }] };
+    }
     return { rows: [] };
   });
   return { query } as never;

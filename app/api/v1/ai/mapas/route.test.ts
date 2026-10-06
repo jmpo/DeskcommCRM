@@ -38,7 +38,7 @@ function bancoFalso(opcoes: { linha?: { api_key_last4: string } | null; cifra?: 
     }),
     from(tabela: string) {
       if (tabela === "organizations") {
-        const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: { locale: "es-PY" }, error: null }) };
+        const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: { locale: "es" }, error: null }) };
         return q;
       }
       let apagar = false;
@@ -158,14 +158,14 @@ describe("POST /testar — o botão Testar", () => {
       new Response(
         JSON.stringify({
           status: "OK",
-          results: [{ address_components: [{ long_name: "Asunción", types: ["locality"] }, { long_name: "Asunción", types: ["administrative_area_level_1"] }] }],
+          results: [{ address_components: [{ long_name: "São Paulo", types: ["locality"] }, { long_name: "São Paulo", types: ["administrative_area_level_1"] }] }],
         }),
         { status: 200 },
       ),
     );
     const res = await TESTAR(testar({ api_key: CHAVE }) as never);
     const corpo = await res.json();
-    expect(corpo.data).toEqual({ ok: true, endereco: "Asunción" });
+    expect(corpo.data).toEqual({ ok: true, endereco: "São Paulo" });
     const url = new URL(String(f.mock.calls[0]![0]));
     expect(url.searchParams.get("key")).toBe(CHAVE);
     expect(url.searchParams.get("language")).toBe("es");

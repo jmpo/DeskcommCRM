@@ -253,43 +253,58 @@ function numerosDaSemana(linhas: readonly LinhaDaSemana[]) {
 }
 
 /**
- * A nota chamaria uma pessoa? O corte é `DEFAULT_SENTIMENT_THRESHOLD`
- * (`lib/ai/prompts/sentiment.ts:34`), o mesmo que `workers/ai-sentiment-worker.ts`
- * compara (`score < threshold`) para emitir `ai.sentiment_alert`.
- * ponytail: o limiar por agente (`config.sentiment_threshold`) não entra — não
- * tem tela que o grave hoje. Se ganhar, o worker passa a gravar o limiar usado
- * em `messages.metadata` e a conta lê de lá.
+ * O limiar COM O QUAL a nota foi cortada — lido da própria mensagem
+ * (`messages.metadata.sentiment_threshold`, que o worker passou a gravar na
+ * #2219), e não do fixo. É o `config.sentiment_threshold` do agente da
+ * conversa (tela desde o #2216): um agente em 0,1 tem a concordância dele
+ * medida contra 0,1. Mensagem antiga, gravada antes do #2219, não tem a chave:
+ * aí vale `DEFAULT_SENTIMENT_THRESHOLD`, o mesmo default do worker — e um valor
+ * fora da faixa 0–1 nunca corta no escuro.
  */
-const abaixo = (n: number) => n < DEFAULT_SENTIMENT_THRESHOLD;
+const limiarDa = (linha: { limiar?: unknown }): number =>
+  typeof linha.limiar === "number" && Number.isFinite(linha.limiar) && linha.limiar >= 0 && linha.limiar <= 1
+    ? linha.limiar
+    : DEFAULT_SENTIMENT_THRESHOLD;
+
+/** A nota chamaria uma pessoa? O worker decide por `score < limiar`. */
+const abaixo = (n: number, limiar: number) => n < limiar;
 
 /**
  * Concordância em observação: as duas notas caíram do MESMO LADO do corte que
  * decide a passagem para humano? É a pergunta que importa antes de deixar o Jev
- * decidir — "chamou uma pessoa quando a IA de sempre chamaria".
+ * decidir — "chamou uma pessoa quando a IA de sempre chamaria". O corte é o de
+ * CADA mensagem (o limiar por agente gravado na decisão), com o padrão como
+ * fallback para as antigas (issue #2219).
  */
-function concordancia(linhas: ReadonlyArray<{ nota: unknown; nota_do_jev: unknown }>): Concordancia {
+function concordancia(
+  linhas: ReadonlyArray<{ nota: unknown; nota_do_jev: unknown; limiar?: unknown }>,
+): Concordancia {
   const pares = linhas.flatMap((l) =>
     typeof l.nota === "number" && typeof l.nota_do_jev === "number"
-      ? [[l.nota, l.nota_do_jev] as const]
+      ? [[l.nota, l.nota_do_jev, limiarDa(l)] as const]
       : [],
   );
   return {
     dias: DIAS_DA_CONCORDANCIA,
     comparadas: pares.length,
-    concordaram: pares.filter(([ia, jev]) => abaixo(ia) === abaixo(jev)).length,
+    concordaram: pares.filter(([ia, jev, limiar]) => abaixo(ia, limiar) === abaixo(jev, limiar)).length,
   };
 }
 
 /**
- * "Clientes irritados percebidos": conversas em que a nota DO JEV ficou abaixo
+ * "Clientes irritados percebidos": conversas em que a nota DO Jev ficou abaixo
  * do corte da passagem para humano. A nota dele, e não a que decidiu: em
  * observação quem decide é a IA de sempre, e o número do cartão ficaria em zero
  * enquanto o Jev percebe a irritação do mesmo jeito. Conversa, e não mensagem:
  * o cliente irritado que manda três mensagens é um cliente.
  */
-function irritadosPercebidos(linhas: ReadonlyArray<{ conversa: unknown; nota_do_jev: unknown }>): number {
+function irritadosPercebidos(
+  linhas: ReadonlyArray<{ conversa: unknown; nota_do_jev: unknown; limiar?: unknown }>,
+): number {
   return new Set(
-    linhas.flatMap((l) => (typeof l.nota_do_jev === "number" && abaixo(l.nota_do_jev) ? [l.conversa] : [])),
+    linhas.flatMap((l) =>
+      typeof l.nota_do_jev === "number" && abaixo(l.nota_do_jev, limiarDa(l)) ? [l.conversa] : [],
+    ),
   ).size;
 }
 
@@ -436,7 +451,12 @@ export async function GET(): Promise<Response> {
     // `metadata ? 'sentiment_jev_score'` (migration) quando pesar.
     db
       .from("messages")
-      .select(`nota:metadata->${CHAVES_DO_CLIMA.nota}, nota_do_jev:metadata->${CHAVES_DO_CLIMA.notaDoJev}`)
+      // `limiar` é o corte que valeu NAQUELA mensagem (o do agente da
+      // conversa, #2216): a concordância corta por ele, com o padrão como
+      // fallback para as mensagens anteriores ao #2219.
+      .select(
+        `nota:metadata->${CHAVES_DO_CLIMA.nota}, nota_do_jev:metadata->${CHAVES_DO_CLIMA.notaDoJev}, limiar:metadata->${CHAVES_DO_CLIMA.limiar}`,
+      )
       .eq("organization_id", org.orgId)
       .gte("created_at", diasAtras(DIAS_DA_CONCORDANCIA))
       .eq(`metadata->>${CHAVES_DO_CLIMA.motor}`, "llm" satisfies MotorDoClima)
@@ -452,7 +472,9 @@ export async function GET(): Promise<Response> {
     // disso a conta sai das mais recentes. O agregado em SQL é o passo seguinte.
     db
       .from("messages")
-      .select(`conversa:conversation_id, nota_do_jev:metadata->${CHAVES_DO_CLIMA.notaDoJev}`)
+      .select(
+        `conversa:conversation_id, nota_do_jev:metadata->${CHAVES_DO_CLIMA.notaDoJev}, limiar:metadata->${CHAVES_DO_CLIMA.limiar}`,
+      )
       .eq("organization_id", org.orgId)
       .gte("created_at", diasAtras(DIAS_DOS_NUMEROS))
       .not(`metadata->${CHAVES_DO_CLIMA.notaDoJev}`, "is", null)

@@ -14,9 +14,11 @@
  *     inscrição era cancelada, e a varredura seguinte a recriava — ~95 vezes,
  *     sem nunca chegar ao segundo passo.
  *
- * O cabeçalho de `silence-sweep.ts` já registrava a lacuna: "um contato que
- * COMPLETOU ou foi cancelado pode ser re-enrollado na varredura seguinte se
- * continuar silencioso — aceitável no MVP, sem cooldown".
+ * O cooldown da varredura (`silence-sweep.ts`) não segura nenhum dos dois: ele
+ * espera `threshold_minutes` desde o FIM da tentativa anterior, e com
+ * `cancel_on_reply` a resposta do cliente encerra a inscrição no mesmo instante
+ * em que o silêncio começa — cooldown e limiar vencem juntos. No laço, ele
+ * espaça as reinscrições (uma por limiar), mas não as encerra.
  *
  * ─── A regra ───────────────────────────────────────────────────────────────
  *

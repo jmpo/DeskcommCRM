@@ -93,6 +93,12 @@ export async function listContactsHandler(
   supabase: SB,
   ctx: HandlerCtx,
   raw: ContactListQueryParams,
+  /**
+   * Só este contato — o escopo do turno do agente (`crm_search_contacts`).
+   * Fora do `raw` de propósito: não é parâmetro da rota HTTP, e vai no WHERE,
+   * antes do limite.
+   */
+  soContato?: string,
 ): Promise<ListContactsResult> {
   const q: ContactListQuery = contactListQuerySchema.parse(raw);
 
@@ -233,6 +239,7 @@ export async function listContactsHandler(
   // `yes` responde "quem pediu para não ser incomodado"; `no` é a lista de quem
   // ainda dá para contactar — que é a pergunta de quem vai montar campanha.
   if (q.blocked) query = query.eq("is_blocked", q.blocked === "yes");
+  if (soContato) query = query.eq("id", soContato);
 
   if (q.cursor) {
     const c = decodeCursor(q.cursor);
@@ -791,11 +798,17 @@ const VINCULOS_RESTRICT_NAO_APAGADOS: ReadonlyArray<{ tabela: string; rotulo: st
   { tabela: "calendar_appointments", rotulo: "compromisso(s) na agenda" },
 ];
 
-export async function deleteContactHandler(
+/**
+ * A ficha precisa existir DENTRO da organização de quem chama — o mesmo 404 da
+ * exclusão. É a porta também da pré-checagem de vínculos (#1925): sem o filtro
+ * por organização, um id alheio responderia "sem vínculos" e a tela diria que é
+ * seguro excluir algo que quem chamou nem enxerga.
+ */
+async function contatoExistente(
   supabase: SB,
   ctx: HandlerCtx,
   contactId: string,
-): Promise<{ id: string }> {
+): Promise<void> {
   const { data: existing, error: selErr } = await supabase
     .from("contacts")
     .select("id, organization_id")
@@ -815,14 +828,21 @@ export async function deleteContactHandler(
       traduzir("Contato não encontrado.", ctx.idioma ?? "pt-BR"),
     );
   }
+}
 
-  const a = actorAuditPayload(ctx.actor);
-
-  // Pré-checagem dos vínculos que barram o DELETE da ficha (issue #752).
-  //
-  // Só CONTA: quem recusa continua sendo o banco, com o 23503 do RESTRICT. A
-  // contagem existe para saber disso antes de apagar o histórico, e é por isso
-  // que ela vem antes da chamada que apaga — depois não há mais como desfazer.
+/**
+ * Pré-checagem dos vínculos que barram o DELETE da ficha (issue #752), que a
+ * pré-checagem da tela e a exclusão compartilham (#1925).
+ *
+ * Só CONTA: quem recusa continua sendo o banco, com o 23503 do RESTRICT. A
+ * contagem existe para saber disso antes de apagar o histórico, e é por isso
+ * que ela vem antes da chamada que apaga — depois não há mais como desfazer.
+ */
+async function contarVinculosRestrict(
+  supabase: SB,
+  ctx: HandlerCtx,
+  contactId: string,
+): Promise<{ vinculos: string[]; por_tabela: Record<string, number> }> {
   const vinculos: string[] = [];
   // A contagem crua por tabela é o que a tela traduz e pluraliza; `vinculos`
   // (texto em pt-BR) segue igual ao da auditoria.
@@ -845,6 +865,37 @@ export async function deleteContactHandler(
       por_tabela[vinculo.tabela] = count ?? 0;
     }
   }
+  return { vinculos, por_tabela };
+}
+
+/**
+ * O que a exclusão VAI encontrar, apurado sem apagar nada: a pré-checagem que o
+ * diálogo "Excluir contato?" consulta antes do clique (issue #1925).
+ *
+ * Reusa as duas funções acima de propósito: uma lista própria de vínculos para a
+ * tela viraria uma segunda verdade — dia em que uma FK RESTRICT nova entrar em
+ * `VINCULOS_RESTRICT_NAO_APAGADOS`, o diálogo avisaria de um bloqueio que não
+ * existe e ficaria quieto sobre outro.
+ */
+export async function vinculosDoContatoHandler(
+  supabase: SB,
+  ctx: HandlerCtx,
+  contactId: string,
+): Promise<{ vinculos: string[]; por_tabela: Record<string, number> }> {
+  await contatoExistente(supabase, ctx, contactId);
+  return contarVinculosRestrict(supabase, ctx, contactId);
+}
+
+export async function deleteContactHandler(
+  supabase: SB,
+  ctx: HandlerCtx,
+  contactId: string,
+): Promise<{ id: string }> {
+  await contatoExistente(supabase, ctx, contactId);
+
+  const a = actorAuditPayload(ctx.actor);
+
+  const { vinculos, por_tabela } = await contarVinculosRestrict(supabase, ctx, contactId);
 
   if (vinculos.length > 0) {
     // O 409 é o MESMO do caminho de FK (mesma causa, mesmo tratamento no

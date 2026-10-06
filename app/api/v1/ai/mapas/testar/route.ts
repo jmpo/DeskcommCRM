@@ -1,6 +1,6 @@
 import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
- * "Testar" a chave de Mapas: geocodifica um ponto fixo (o centro de Asunción) e
+ * "Testar" a chave de Mapas: geocodifica um ponto público fixo (`PONTO_DE_TESTE`) e
  * diz o que o Google respondeu. Com `api_key` no corpo, testa ESSA chave antes de
  * gravar; sem ela, testa a gravada.
  *
