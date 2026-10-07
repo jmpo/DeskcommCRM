@@ -62,6 +62,7 @@ import {
   type LeadCheckpointRow,
 } from './inbound-turn';
 import { isLeadInHandoff } from './human-handoff';
+import { aplicarPessoaNoComandoAoTurno } from '@/lib/followup/pessoa-no-comando-no-turno';
 import { fusoDaOrganizacao } from './fuso-da-org';
 import {
   followupPublicadoDoEnrollment,
@@ -380,6 +381,28 @@ export function createFollowupTurnHandler(deps: FollowupTurnDeps) {
     // sem nó é defeito de programação e segue falhando alto em
     // `runFlowDrivenTurn`, como falhava.
     if (payload.followup_enrollment_id !== undefined && payload.node_id !== undefined) {
+      // PESSOA NO COMANDO: a política de handoff do fluxo vale também para a
+      // conversa assumida à mão, que não emite `ai.handoff_triggered`. Pausada
+      // ou cancelada aqui, a inscrição cai no descarte logo abaixo — e a
+      // pausada ganha o `turn_discarded` que a retomada precisa.
+      const pessoa = await aplicarPessoaNoComandoAoTurno(
+        pool,
+        {
+          organizationId: tenantId,
+          enrollmentId: payload.followup_enrollment_id,
+          nodeId: payload.node_id,
+          conversationId: boundary!.conversation_id,
+        },
+        (deps.clock ?? ((): Date => new Date()))(),
+      );
+      if (pessoa !== null) {
+        withFields(deps.log, {
+          job_id: job.id,
+          tenant_id: tenantId,
+          lead_id: leadId,
+          enrollment_id: payload.followup_enrollment_id,
+        }).info('turno de fluxo não fala por cima de quem assumiu a conversa', { inscricao: pessoa });
+      }
       const { rows: inscricaoRows } = await pool.query<{ current_node_id: string; status: string }>(
         `select current_node_id, status from followup_enrollments where organization_id = $1 and id = $2 limit 1`,
         [tenantId, payload.followup_enrollment_id],
