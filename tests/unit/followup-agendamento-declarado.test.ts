@@ -92,6 +92,13 @@ const ESCRITORES: Record<string, { agenda: "agora" | "futuro" | "nenhum"; nota: 
       "ele é conduzido pelo turno do agente e não tem relógio (o CHECK `relogio_coerente` o põe " +
       "no grupo sem relógio). Omitir a coluna daria o default now() — nulo é não agendar.",
   },
+  "pessoa-no-comando-no-turno.ts": {
+    agenda: "nenhum",
+    nota:
+      "Só DESAGENDA: pausar (`paused_handoff`) ou cancelar a inscrição quando uma pessoa assumiu a " +
+      "conversa grava `next_eval_at = null`. Quem volta a agendar é a retomada (`ai.handoff_resolved`, " +
+      "`reactivity.ts`), já declarada. `null` não tem relógio para escolher errado.",
+  },
   "aplicar-inbound.ts": {
     agenda: "nenhum",
     nota:
