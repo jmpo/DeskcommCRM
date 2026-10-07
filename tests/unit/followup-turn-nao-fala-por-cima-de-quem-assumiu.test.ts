@@ -40,7 +40,9 @@ vi.mock("@/lib/agent-engine/edge/crm/send-ledger", () => ({
 }));
 
 let estado = "active";
-const aplicarPessoaNoComandoAoTurno = vi.fn(async (): Promise<"pausada" | "cancelada" | null> => null);
+const aplicarPessoaNoComandoAoTurno = vi.fn(
+  async (_pool: unknown, _alvo: unknown, _agora: unknown): Promise<"pausada" | "cancelada" | null> => null,
+);
 vi.mock("@/lib/followup/pessoa-no-comando-no-turno", () => ({ aplicarPessoaNoComandoAoTurno }));
 
 const ORG = "org-1";
