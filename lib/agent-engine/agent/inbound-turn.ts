@@ -204,6 +204,7 @@ import {
   type BriefingDaPassagem,
 } from '@/lib/escalacao/briefing-da-passagem';
 import { diffCheckpoint } from '@/lib/leads/checkpoint-diff';
+import { CORRECAO_DO_TURNO_MUDO, turnoMudoPedeCorrecao } from './turno-mudo';
 import { emitAgentActivityForContact } from '@/lib/leads/agent-activity';
 import { resolveActiveLeadForContact, type LeadCandidate } from '@/lib/leads/active-lead';
 import { aplicaDestinoDaIntencao } from './destino-da-intencao';
@@ -2676,6 +2677,11 @@ async function executarTurnoDoAgente(
   // ligada, NADA mais sai dele, nem a pergunta pendente do roteiro (que segue
   // feita para o turno da mensagem nova). Ver `perguntaDoRoteiroPodeSair`.
   let turnoDescartado = false;
+  // TURNO MUDO: quantas vezes o modelo chamou `send_message` e se passou a conversa à
+  // equipe. Os dois dizem que o silêncio foi decisão — só sem eles o motor pede a
+  // correção do turno que terminou sem falar com o cliente (ver depois da chamada principal).
+  let tentativasDeEnvio = 0;
+  let passouParaAEquipe = false;
   // Teto de mensagens físicas por turno (F2-15b) — `seq` JÁ é a contagem certa: ele só
   // avança quando o envio de fato sai pro canal (send_message + send_template, bolhas
   // incluídas), nunca em veto de gate. Checar `seq` antes de tentar o próximo envio
@@ -2763,6 +2769,9 @@ async function executarTurnoDoAgente(
   // o cap depende de quanto já saiu HOJE, que muda com o turno concorrente — só dá pra
   // saber com certeza no momento do envio, não antes.
   let pacingCapVeto: { code: string; nextAllowedAt: Date } | null = null;
+  // Lido por função: atribuído numa closure, comparar a variável direto estreita o tipo
+  // para `null` e quebra o `if (pacingCapVeto !== null …)` do fim do turno.
+  const capDeEnvioAtingido = (): boolean => pacingCapVeto !== null;
   // Best-effort: move o lead pra etapa `crm_stages.slug='chamar-humano'` do pipeline
   // dele (se o tenant tiver criado essa etapa — opt-in, ver `lib/leads/handoff-stage-move.ts`)
   // sempre que um caso humano abre neste turno, deliberado (open_human_case) ou pelo
@@ -2937,6 +2946,7 @@ async function executarTurnoDoAgente(
     send_template: tool({
       ...AGENT_TOOL_DEFS.send_template,
       execute: async ({ template_name, language, values }) => {
+        tentativasDeEnvio += 1;
         if (seq >= maxSendsPerTurn) {
           return {
             ok: false,
@@ -3100,6 +3110,7 @@ async function executarTurnoDoAgente(
     send_message: tool({
       ...AGENT_TOOL_DEFS.send_message,
       execute: async ({ body, produto_codigo }) => {
+        tentativasDeEnvio += 1;
         // CORPO VAZIO NÃO SAI. Medido ao vivo (2026-09-19): o `gpt-4o-mini`
         // chamou `send_message` várias vezes com corpo que virou vazio e o
         // WhatsApp do cliente recebeu bolhas em branco. O schema garante
@@ -3729,6 +3740,7 @@ async function executarTurnoDoAgente(
     request_human_handoff: tool({
       ...AGENT_TOOL_DEFS.request_human_handoff,
       execute: async (raw) => {
+        passouParaAEquipe = true;
         try {
           // ═══ O PISO: se o modelo não falou, o sistema fala ═══
           //
@@ -4470,6 +4482,59 @@ async function executarTurnoDoAgente(
       throw new Error('envio marcado como failed pelo CRM — run re-tentado pela fila');
     }
 
+    // TURNO MUDO: o turno de resposta terminou sem mensagem ao cliente e sem
+    // nenhuma razão para o silêncio (`turno-mudo.ts`). UMA correção, com a mesma
+    // conversa e as mesmas ferramentas: o envio passa pela cadeia inteira, como
+    // qualquer outro. O fechamento lê a fita das DUAS chamadas.
+    let mensagensDoTurno: ModelMessage[] = turn.result.response.messages;
+    if (
+      !preview &&
+      liveJob().kind === 'inbound_turn' &&
+      turnoMudoPedeCorrecao({
+        tentativasDeEnvio,
+        enviadas: outcomes.length,
+        turnoDescartado,
+        passouParaAEquipe,
+        capDeEnvio: capDeEnvioAtingido(),
+      })
+    ) {
+      runLog.warn('turno terminou sem mensagem ao cliente — pedindo UMA correção', {
+        job_id: liveJob().id,
+      });
+      const pedidoDeCorrecao: ModelMessage = { role: 'user', content: CORRECAO_DO_TURNO_MUDO };
+      const correcao = await runModelCall(
+        pool,
+        deps.llmCfg,
+        {
+          tenantId,
+          leadId: leadId || null,
+          jobId: job?.id,
+          agentId: agentConfig?.agentId ?? null,
+          purpose: 'agent_turn',
+          system,
+          messages: [...openingMessages, ...turn.result.response.messages, pedidoDeCorrecao],
+          tools,
+          maxSteps: Math.min(maxSteps, 3),
+          ...(agentConfig !== null
+            ? {
+                model: agentConfig.model,
+                llmOverride: {
+                  provider: agentConfig.provider,
+                  credentialId: agentConfig.credentialId,
+                },
+              }
+            : {}),
+        },
+        { registry: deps.registry, log: runLog },
+      );
+      mensagensDoTurno = [...mensagensDoTurno, pedidoDeCorrecao, ...correcao.result.response.messages];
+      if (runError !== null) throw runError;
+      if (outcomes.some((o) => o.kind === 'failed')) {
+        throw new Error('envio marcado como failed pelo CRM — run re-tentado pela fila');
+      }
+      runLog.info('correção do turno mudo concluída', { messages_sent: outcomes.length });
+    }
+
     // ROTEIRO: a pergunta pendente é compromisso. Se o modelo não a fez, o motor
     // a manda — pela MESMA cadeia de guardrails, dentro do teto de envios. Roda
     // mesmo com o teto cheio: registrar que o MODELO fez a pergunta é o que a
@@ -4536,8 +4601,8 @@ async function executarTurnoDoAgente(
     // sufixo por-lead, nunca no prefixo estável (regra de cache 15).
     const responseMessages =
       deps.knobs.prune !== undefined
-        ? pruneToolResults(turn.result.response.messages, deps.knobs.prune)
-        : turn.result.response.messages;
+        ? pruneToolResults(mensagensDoTurno, deps.knobs.prune)
+        : mensagensDoTurno;
 
     // Fechamento imposto pelo runtime: 2ª chamada, mesma conversa, só o checkpoint.
     //
