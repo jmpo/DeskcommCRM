@@ -407,6 +407,12 @@ export async function carregaRadarDeRisco(
   // o item cai na ficha do contato. Prefere uma conversa ABERTA (qualquer uma
   // serve para o link do inbox); sem nenhuma aberta, a última linha que achou
   // (a conversa arquivada ainda é o lugar onde o atendimento aconteceu).
+  // #2294 — o invariante que encolhe esta lista de verdade:
+  // `tests/invariants/caso-encerrado-marca-o-proximo-passo-da-demanda.test.ts`
+  // prova no Postgres real que a 0505 preenche o `proximo_passo` da demanda
+  // aberta sem passo — e só dela, a mesma `agent_case_id` noutra organização
+  // fica intocada —, é o que tira o item da seção sem reescrever o passo que
+  // uma pessoa já marcou.
   const STATUS_ABERTOS_DA_CONVERSA = new Set(["open", "pending", "claimed", "ai_handling"]);
   const conversaPorDemanda = new Map<string, { id: string; aberta: boolean }>();
   if (demandasVisiveis.length > 0) {

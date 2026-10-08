@@ -628,6 +628,7 @@ jobs:
         degradacao-silenciosa.spec.ts vps-webhook-outbound-ssrf.spec.ts
         kanban-owner-filter.spec.ts queue-assign.spec.ts
         conversa-vira-lead.spec.ts contato-salva-email.spec.ts
+        contato-pessoal-sai-da-operacao.spec.ts
         confirmar-dado-do-contato.spec.ts
         credenciais-de-ia.spec.ts
         risk-radar.spec.ts invite-lifecycle.spec.ts system-update.spec.ts
@@ -985,6 +986,7 @@ jobs:
         presenca-do-atendente.spec.ts
         trunk-sip-config.spec.ts
         fotos-no-catalogo.spec.ts
+        catalogo-busca-no-catalogo-inteiro.spec.ts
         relatorio-por-etiqueta.spec.ts
 
       # ─── PARTE 4 — a spec de VPS fresca, e quem pode entrar ao lado dela ───
@@ -1223,6 +1225,7 @@ jobs:
       SPECS_PARTE_6: >-
         agenda-google-meet.spec.ts
         agenda-presenca-recuperacao.spec.ts
+        celular-cabe-na-tela.spec.ts
         filtro-por-marcador-pela-tela.spec.ts
         fonte-de-captacao-assina-os-envios.spec.ts
         inbox-busca-e-filtros-dizem-a-verdade.spec.ts
@@ -2158,6 +2161,17 @@ jobs:
           path: |
             playwright-report/
             test-results/
+          retention-days: 7
+
+      # A prova das três telas do roteador deve existir também quando o teste
+      # passa. Apenas capturas sintéticas deste teste, sem traces ou credenciais.
+      - name: Guardar prova visual do roteador JEV
+        if: ${{ !cancelled() && matrix.parte == 5 }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: jev-roteador-telas
+          path: test-results/**/jev-roteador-*.png
+          if-no-files-found: ignore
           retention-days: 7
 
       # ── ONDE A MEDIÇÃO FICA ───────────────────────────────────────────────

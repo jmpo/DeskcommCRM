@@ -324,3 +324,52 @@ describe("o mapa do turno conhece todos os turnos", () => {
     }
   });
 });
+
+/**
+ * TODO CHAMADOR DO GATE DE ORÇAMENTO É PEÇA DO MAPA DO TETO.
+ *
+ * `aplicarOrcamento` deixou de ser privado do seam para que o worker de mídia
+ * recusasse com a MESMA régua — e o mapa seguiu mostrando só o turno chegando
+ * nele. Quem mede o raio de uma mudança no gate pelo mapa não enxergava a visão
+ * de imagem. Mesma lógica do caso dos kinds acima: o que se guarda é estrutural
+ * (cada arquivo que chama o gate tem nó com aresta até ele), nunca o texto.
+ */
+describe("o mapa do teto conhece todos os chamadores do gate", () => {
+  const RAIZES = ["lib", "workers", "app"];
+  const DEFINICAO = path.join("lib", "agent-engine", "edge", "llm", "run-model-call.ts");
+
+  const varrer = (dir: string): string[] =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) return e.name === "node_modules" ? [] : varrer(p);
+      return /\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) ? [p] : [];
+    });
+
+  it("cada arquivo que chama aplicarOrcamento tem nó ligado ao gate", () => {
+    const chamadores = RAIZES.flatMap((r) => varrer(path.join(process.cwd(), r)))
+      .map((p) => path.relative(process.cwd(), p))
+      .filter((p) => p !== DEFINICAO)
+      .filter((p) => /\baplicarOrcamento\(/.test(fs.readFileSync(p, "utf8")));
+    // Controle positivo: sem o worker de mídia, a varredura compararia com lista vazia.
+    expect(chamadores, "não achei chamador nenhum — ENSINE ESTE TESTE").toContain(
+      path.join("workers", "media-derive-worker.ts"),
+    );
+
+    const mapa = JSON.parse(
+      fs.readFileSync(path.join(DIR, "teto-de-orcamento.architecture.json"), "utf8"),
+    ) as { nodes: Array<{ id: string; label?: string }>; edges: Array<{ from: string; to: string }> };
+    const gate = mapa.nodes.find((n) => (n.label ?? "").includes("aplicarOrcamento"));
+    expect(gate, "o nó do gate sumiu do mapa do teto").toBeTruthy();
+
+    const ausentes = chamadores.filter((arquivo) => {
+      const nome = path.basename(arquivo).replace(/\.tsx?$/, "");
+      const nos = mapa.nodes.filter((n) => (n.label ?? "").includes(nome)).map((n) => n.id);
+      return !mapa.edges.some((e) => nos.includes(e.from) && e.to === gate!.id);
+    });
+    expect(
+      ausentes,
+      "arquivo que chama aplicarOrcamento sem nó (com o nome do arquivo no label) " +
+        "e aresta até o gate no mapa do teto.\n",
+    ).toEqual([]);
+  });
+});

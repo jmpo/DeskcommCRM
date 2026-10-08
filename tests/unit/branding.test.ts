@@ -233,6 +233,12 @@ const MARCA_CONGELADA: Record<string, EntradaDeMarca> = {
       "nome do servidor MCP, que o cliente (Claude Desktop e afins) grava na própria configuração. Renomear derruba as conexões já configuradas de quem usa",
     marcas: ["deskcomm-crm"],
   },
+  "lib/mcp/servidor-externo/chamada.ts": {
+    categoria: "PROTOCOLO",
+    motivo:
+      "clientInfo do handshake `initialize` do MCP que este cliente manda ao servidor REMOTO: ele registra quem conectou e é comum haver regra de acesso por identificação do cliente lá do lado. Não é texto de interface — a tela nunca mostra — e renomear muda a identidade reportada no fio do protocolo",
+    marcas: ["deskcomm-crm"],
+  },
   "lib/supabase/admin.ts": {
     categoria: "PROTOCOLO",
     motivo:
@@ -329,6 +335,11 @@ const MARCA_CONGELADA: Record<string, EntradaDeMarca> = {
       "é a DEFINIÇÃO de DEFAULT_APP_NAME — o valor que aparece quando o operador não configurou marca nenhuma. Se esta linha sumir, some o padrão",
     marcas: ["deskcommcrm"],
   },
+  // `lib/video/jitsi.ts` ficou DE FORA por decisão do review do #2441: ele
+  // prefixa a sala do Jitsi com `sala-`, neutro. O link é repassado no chat e
+  // cai na tela do cliente final de quem revende a instalação — a sala não é
+  // lugar de marca. Com o prefixo neutro o arquivo não tem marca nenhuma, e
+  // lista só encolhe.
 };
 
 /**
@@ -799,7 +810,13 @@ type CategoriaDeHost =
   /** Host de plataforma ACEITO na entrada (validação), não destino de chamada. */
   | "PLATAFORMA"
   /** Identificador de fio que gravamos; quem reconhece é código de fora. */
-  | "PROTOCOLO";
+  | "PROTOCOLO"
+  /**
+   * Autoridade de controlo citada ao TITULAR num documento legal (alínea f) do
+   * art. 15.º, n.º 1 do RGPD). O código não fala com ela; quem a visita é a
+   * pessoa que vai reclamar. Uma por país com lei revisada — fechada por nome.
+   */
+  | "AUTORIDADE";
 
 type EntradaDeHost = { categoria: CategoriaDeHost; motivo: string };
 
@@ -843,6 +860,16 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     categoria: "FORNECEDOR",
     motivo:
       "endpoint da API da OpenAI (embeddings da busca e transcrição de áudio). É o destino do request: trocar pelo domínio do revendedor faria a chamada não chegar a lugar nenhum.",
+  },
+  "auth.openai.com": {
+    categoria: "FORNECEDOR",
+    motivo:
+      "endpoint de autorização OAuth da OpenAI usado pelo login por PKCE da assinatura (`lib/ai/pontos/pkce-da-assinatura.ts`): é onde o fluxo troca o code pelo token e renova o acesso. É o destino do request, iniciado pelo próprio usuário na tela de Sistema — trocar pelo domínio do revendedor faria o login não chegar a lugar nenhum.",
+  },
+  "chatgpt.com": {
+    categoria: "FORNECEDOR",
+    motivo:
+      "backend do Codex (`OPENAI_CODEX_ENDPOINT` em `lib/agent-engine/edge/llm/providers.ts`): é para lá que a chamada da ASSINATURA do ChatGPT vai, com o access_token do login por PKCE, e o mesmo host é o painel que a lista de Credenciais aponta em `ondePegarAChave` (`lib/ai/pontos/provedores.ts`). Não é contrato público da OpenAI e a Openai pode mudá-lo sem aviso — é por isto que a queda para a chave da organização existe: muda o destino, não a conversa.",
   },
   "api.typesafe.ai": {
     categoria: "FORNECEDOR",
@@ -943,6 +970,11 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     motivo:
       "painel onde o usuário gera a PRÓPRIA chave da Requesty (`ondePegarAChave` em lib/ai/pontos/provedores.ts). Endereço do fornecedor, não nosso.",
   },
+  "myaccount.google.com": {
+    categoria: "CONSOLE",
+    motivo:
+      "página do Google onde a PESSOA revoga o acesso que deu ao app (`/permissions`). A política de privacidade (`app/legal/privacy/page.tsx`) tem de apontar para ela — o Google exige que o texto diga como revogar, e o endereço é dele, não nosso.",
+  },
   "aistudio.google.com": {
     categoria: "CONSOLE",
     motivo: "Google AI Studio — onde o usuário cria a chave do Gemini.",
@@ -973,6 +1005,11 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     motivo:
       "placeholder do campo de base URL de gateway OpenAI-compatible na tela de provedores: amostra do formato aceito.",
   },
+  "meet.jit.si": {
+    categoria: "AMOSTRA",
+    motivo:
+      "a origem citada como EXEMPLO da URL da videochamada — na mensagem de erro do Zod de lib/env.ts (JITSI_SERVER_URL fora de http(s) desliga a feature), no comoLigar do catálogo de recursos opcionais e na tradução espanhola do mesmo texto. Não é destino de chamada: o produto nunca fala com `meet.jit.si`; quem chega lá é o operador e o contato, na aba que o link abre, pelo navegador deles — e o valor real é o do `.env` de cada instalação (em runtime, não queimado no build). Fica AMOSTRA porque chega à TELA, que é a razão de a régua exigir declaração em vez de silêncio.",
+  },
   "000000000000-xxxxxxxx.apps.googleusercontent.com": {
     categoria: "AMOSTRA",
     motivo:
@@ -983,6 +1020,12 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     categoria: "PLATAFORMA",
     motivo:
       "host do Google Meet aceito na validação do link de reunião (`meetVideoUrl`): é entrada que o produto CONFERE, não endereço que ele busca. Sem a linha, qualquer host passaria por link de reunião.",
+  },
+  // ── autoridade de controlo: a quem o titular reclama (art. 15.º, n.º 1, f) ──
+  "www.cnpd.pt": {
+    categoria: "AUTORIDADE",
+    motivo:
+      "site oficial da Comissão Nacional de Proteção de Dados, a autoridade de controlo portuguesa (`autoridadeDeSupervisao` do perfil PT em lib/legal/perfil-do-pais.ts). Sai impresso no relatório de acesso do titular, alínea f) do art. 15.º, n.º 1 (#2354). O código nunca chama o host — quem o visita é o titular que vai reclamar —, e trocá-lo pelo domínio do revendedor mandaria a reclamação para quem é reclamado.",
   },
   "deskcomm.app": {
     categoria: "PROTOCOLO",
@@ -1108,6 +1151,7 @@ describe("catraca de host de terceiro no código que embarca", () => {
       "AMOSTRA",
       "PLATAFORMA",
       "PROTOCOLO",
+      "AUTORIDADE",
     ];
     for (const [host, entrada] of Object.entries(HOSTS_DECLARADOS)) {
       expect(categorias, `${host}: categoria desconhecida`).toContain(entrada.categoria);
@@ -1147,8 +1191,19 @@ describe("catraca de host de terceiro no código que embarca", () => {
       // abre é o celular do atendente. Crescimento escrito, como a regra pede.
       "maps.google.com",
       "meet.google.com",
+      // Decisão escrita, #2441: a origem do Jitsi aparece como EXEMPLO na
+      // mensagem do Zod de `JITSI_SERVER_URL`, no `comoLigar` do catálogo de
+      // recursos opcionais e na tradução do mesmo texto. O produto não fala
+      // com esse host (o valor real vem do `.env` em runtime); quem chega lá
+      // é quem abre o link. Crescimento escrito, como a regra pede.
+      "meet.jit.si",
       "meusistema.com",
       "mi-gateway.ejemplo.com",
+      // Decisão escrita: a política de privacidade (`app/legal/privacy/page.tsx`) manda a
+      // pessoa revogar o acesso ao Google em `/permissions`, que é onde o Google exige
+      // que o texto aponte. O produto não fala com o host — quem abre o link é a pessoa
+      // — e o endereço é do Google, não nosso. Crescimento escrito, como a regra pede.
+      "myaccount.google.com",
       "partners.tiendanube.com",
       "platform.deepseek.com",
       "platform.openai.com",
@@ -1164,6 +1219,11 @@ describe("catraca de host de terceiro no código que embarca", () => {
       // aqui, e não em FORNECEDOR, porque o produto NÃO fala com esse host: quem
       // abre o link é o visitante do site. Crescimento escrito, como a regra pede.
       "wa.me",
+      // Decisão escrita (#2354): a CNPD, autoridade de controlo citada na
+      // alínea f) do relatório de acesso de Portugal. Categoria própria,
+      // AUTORIDADE, porque não é painel, amostra nem plataforma: é o endereço
+      // a que a lei manda o titular ir. País novo com lei revisada traz a sua.
+      "www.cnpd.pt",
     ]);
   });
 

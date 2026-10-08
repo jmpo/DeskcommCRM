@@ -27,6 +27,8 @@ import { createClient } from "@/lib/supabase/server";
 
 import { GET, PATCH } from "./route";
 
+import type * as Credenciais from "@/lib/agent-engine/edge/llm/credentials";
+
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn(async () => null) }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
@@ -36,6 +38,12 @@ vi.mock("@/lib/ai/gateway-binding", () => ({ resolverModeloDoPonto: vi.fn() }));
 // O portão de quem atende fala `pg`, não o supabase-js: o dublê responde por ele.
 vi.mock("@/lib/agent-engine/db/request-pool", () => ({ getRequestPool: vi.fn(() => ({ query: vi.fn() })) }));
 vi.mock("@/lib/ai/agents/quem-atende-a-sessao", () => ({ haQuemAtendaAOrganizacao: vi.fn() }));
+// "A empresa tem a IA de sempre?" do roteador (decisão B, doc 89). Padrão: tem.
+const { temIaDeSempre } = vi.hoisted(() => ({ temIaDeSempre: vi.fn(async () => true) }));
+vi.mock("@/lib/agent-engine/edge/llm/credentials", async (original) => ({
+  ...(await original<typeof Credenciais>()),
+  temIaDeSempre,
+}));
 
 const ORG = "22222222-2222-4222-8222-222222222222";
 const OUTRA_ORG = "99999999-9999-4999-8999-999999999999";
@@ -262,12 +270,13 @@ describe("GET /api/v1/ai/jev", () => {
       rotulo: null,
       erro_de_validacao: null,
     });
-    expect(d.config).toEqual({ ligado: false, modo: "observacao", aceite: null });
+    expect(d.config).toEqual({ ligado: false, modo: "observacao", modo_roteador: "comparacao", aceite: null });
     expect(d.tarefas.map((t: { id: string }) => t.id)).toEqual([
       "sentiment_classify",
       "jailbreak_detect",
       "intent_router",
       "followup_classify",
+      "afirmacao_de_fato",
     ]);
     expect(d.tem_ia_de_sempre).toBe(true);
     expect(d.numeros).toEqual({
@@ -717,6 +726,10 @@ describe("o Jev por tarefa na rota", () => {
       expect.objectContaining({ id: "followup", ponto: "followup_classify", estado: "desligada", novo: false }),
       // A conferência de campo (#2234) tem alcance "conversa": nasce desligada até o aceite dela.
       expect.objectContaining({ id: "campo_do_negocio", ponto: null, estado: "desligada", novo: false }),
+      // O sinal de urgência da mensagem represada (#2232): também em cascata, também sem ponto.
+      expect.objectContaining({ id: "sinal_de_urgencia", ponto: null, estado: "desligada", novo: false }),
+      // A conferência de fato (#2231) cabe no aceite de cada mensagem, mas com o Jev desligado nada roda.
+      expect.objectContaining({ id: "afirmacao_de_fato", ponto: "afirmacao_de_fato", estado: "desligada", novo: false }),
     ]);
 
     estado.settings = { jev: { ligado: true, modo: "decide", aceite: ACEITE_ANTIGO } };
@@ -740,6 +753,7 @@ describe("o Jev por tarefa na rota", () => {
       expect.objectContaining({ id: "jailbreak_detect", rotulo: "Perceber tentativa de manipulação" }),
       expect.objectContaining({ id: "intent_router", rotulo: "Escolher qual agente atende" }),
       expect.objectContaining({ id: "followup_classify", rotulo: "Ler a resposta ao follow-up" }),
+      expect.objectContaining({ id: "afirmacao_de_fato", rotulo: "Conferir afirmações de fato na resposta" }),
     ]);
   });
 
@@ -816,6 +830,8 @@ describe("o Jev por tarefa na rota", () => {
       ["opt_out", false],
       ["followup", false],
       ["campo_do_negocio", false],
+      ["sinal_de_urgencia", false],
+      ["afirmacao_de_fato", false],
     ]);
     estado.camadas = [
       { organization_id: ORG, layer: "jailbreak", enabled: false },
@@ -829,6 +845,8 @@ describe("o Jev por tarefa na rota", () => {
       ["opt_out", false],
       ["followup", false],
       ["campo_do_negocio", false],
+      ["sinal_de_urgencia", false],
+      ["afirmacao_de_fato", false],
     ]);
   });
 
@@ -844,6 +862,8 @@ describe("o Jev por tarefa na rota", () => {
       ["opt_out", false],
       ["followup", false],
       ["campo_do_negocio", false],
+      ["sinal_de_urgencia", false],
+      ["afirmacao_de_fato", false],
     ]);
     // O ativo de OUTRA empresa não conta — o filtro é o da sessão.
     const intencoes = (n: number) => [{ count: n }];
@@ -856,6 +876,8 @@ describe("o Jev por tarefa na rota", () => {
       ["opt_out", false],
       ["followup", false],
       ["campo_do_negocio", false],
+      ["sinal_de_urgencia", false],
+      ["afirmacao_de_fato", false],
     ]);
     // Ativo, mas sem intenção nenhuma (o estado logo depois de criar um) ou com
     // mais do que cabe numa pergunta: o Jev nunca é perguntado, e "Só observa"
@@ -873,6 +895,8 @@ describe("o Jev por tarefa na rota", () => {
       ["opt_out", false],
       ["followup", false],
       ["campo_do_negocio", false],
+      ["sinal_de_urgencia", false],
+      ["afirmacao_de_fato", false],
     ]);
     // E o cartão segue dizendo que a tarefa observa: é o que ela faz quando há roteador.
     const roteador = (await ler()).corpo.data.por_tarefa.find((t: { id: string }) => t.id === "roteador");
@@ -1016,7 +1040,7 @@ describe("o Jev por tarefa na rota", () => {
     // As outras tarefas não têm pedidos percebidos.
     expect(d.por_tarefa.find((t: { id: string }) => t.id === "manipulacao").percebidos).toBeNull();
     const lidas = estado.consultas.filter((c) => c.tabela === "jev_observacoes" && !c.head);
-    expect(lidas.length, "a leitura dos pedidos percebidos (controle positivo)").toBe(2);
+    expect(lidas.length, "a leitura dos pedidos percebidos (controle positivo)").toBe(3);
     expect(
       lidas.every(
         (c) =>
@@ -1045,7 +1069,17 @@ describe("o Jev por tarefa na rota", () => {
     vi.mocked(haQuemAtendaAOrganizacao).mockResolvedValue(haQuem);
     const d = (await ler()).corpo.data;
     const motivos = Object.fromEntries(d.por_tarefa.map((t: { id: string; sem_atendente: unknown }) => [t.id, t.sem_atendente]));
-    expect(motivos).toEqual({ clima: null, manipulacao: null, roteador: null, humano: motivo, opt_out: motivo, followup: null, campo_do_negocio: null });
+    expect(motivos).toEqual({
+      clima: null,
+      manipulacao: null,
+      roteador: null,
+      humano: motivo,
+      opt_out: motivo,
+      followup: null,
+      campo_do_negocio: null,
+      sinal_de_urgencia: motivo,
+      afirmacao_de_fato: null,
+    });
     // A organização é a da sessão, e a pergunta é a do portão do worker.
     expect(vi.mocked(haQuemAtendaAOrganizacao).mock.calls.map(([, org]) => org)).toEqual([ORG]);
   });
@@ -1204,5 +1238,55 @@ describe("o Jev por tarefa na rota", () => {
     estado.credenciais = [credencial()];
     await mudar({ ligado: true, aceite_lgpd: true });
     expect((estado.settings.jev as Linha).aceite).toMatchObject({ por: USUARIO, alcance: "mensagem" });
+  });
+});
+
+
+describe("modo Jev com reserva sob demanda", () => {
+  it("instalação existente continua comparando até o admin escolher, e a mudança é auditada", async () => {
+    estado.settings.jev = { ligado: true, aceite: ACEITE_ANTIGO,
+      tarefas: { roteador: { estado: "decidindo" } } };
+    expect((await ler()).corpo.data.config.modo_roteador).toBe("comparacao");
+    const mudou = await mudar({ modo_roteador: "sob_demanda" });
+    expect(mudou.status).toBe(200);
+    expect(mudou.corpo.data.config.modo_roteador).toBe("sob_demanda");
+    expect((await ler()).corpo.data.config.modo_roteador).toBe("sob_demanda");
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ modo_roteador: "sob_demanda", modo_roteador_anterior: "comparacao" }),
+    }));
+    expect((await mudar({ modo_roteador: "sob_demanda" })).corpo.data.alterado).toBe(false);
+    expect((await mudar({ modo_roteador: "comparacao" })).corpo.data.config.modo_roteador).toBe("comparacao");
+  });
+
+  it("sem a IA de sempre (decisão B), o sob demanda é recusado com o porquê, e o GET diz que ela falta", async () => {
+    temIaDeSempre.mockResolvedValue(false);
+    try {
+      estado.settings.jev = { ligado: true, aceite: ACEITE_ANTIGO, tarefas: { roteador: { estado: "decidindo" } } };
+      const antes = structuredClone(estado.settings);
+      const recusado = await mudar({ modo_roteador: "sob_demanda" });
+      expect(recusado.status).toBe(422);
+      expect(recusado.corpo.error.code).toBe("jev_sem_ia_de_sempre");
+      expect(recusado.corpo.error.message).toContain("Sem a sua IA de sempre");
+      expect(estado.settings).toEqual(antes);
+      expect(audit).not.toHaveBeenCalled();
+      expect((await ler()).corpo.data.roteador_tem_ia_de_sempre).toBe(false);
+      // Voltar a comparar nunca depende dela.
+      estado.settings.jev = { ...(estado.settings.jev as Linha), modo_roteador: "sob_demanda" };
+      expect((await mudar({ modo_roteador: "comparacao" })).status).toBe(200);
+    } finally {
+      temIaDeSempre.mockResolvedValue(true);
+    }
+  });
+
+  it("com a IA de sempre, o GET diz que ela existe", async () => {
+    expect((await ler()).corpo.data.roteador_tem_ia_de_sempre).toBe(true);
+  });
+
+  it("só admin muda o modo, e valor desconhecido não é aceito", async () => {
+    papel = "manager";
+    expect((await mudar({ modo_roteador: "sob_demanda" })).status).toBe(403);
+    papel = "admin";
+    expect((await mudar({ modo_roteador: "mais_rapido" })).status).toBe(422);
+    expect(audit).not.toHaveBeenCalled();
   });
 });

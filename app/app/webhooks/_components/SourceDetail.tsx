@@ -113,6 +113,8 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
   const { data: eventsRes, refetch: refetchEvents } = useWebhookSourceEvents(
     open ? source.id : null,
   );
+  const [autorizacaoIA, setAutorizacaoIA] = React.useState<{ id: string; ativa: boolean } | null>(null);
+  const autorizaIA = autorizacaoIA?.id === source.id ? autorizacaoIA.ativa : source.authorize_ai_on_capture;
   const [testing, setTesting] = React.useState(false);
   const [testOk, setTestOk] = React.useState(false);
   const podeGerirWebhooks = usePermission("webhooks.manage");
@@ -226,6 +228,29 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
                 <Copy />
               </Button>
             </div>
+          </section>
+
+          <section className="space-y-2 rounded-sm border border-border p-3">
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="authorize-ai-on-capture" className="block text-sm font-medium text-text">
+                {t("Autorizar IA para leads deste formulário")}
+              </label>
+              <Switch id="authorize-ai-on-capture" checked={Boolean(autorizaIA)}
+                disabled={!podeGerirWebhooks || update.isPending || (!temAssinatura && !autorizaIA)}
+                onCheckedChange={(ativa) => update.mutate(
+                  { id: source.id, authorize_ai_on_capture: ativa },
+                  { onSuccess: (res) => setAutorizacaoIA({ id: source.id, ativa: res.data.authorize_ai_on_capture }) },
+                )} />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {t("Autoriza somente novos envios completos com consentimento explícito para atendimento automatizado. Não retoma contatos bloqueados ou em atendimento humano. O agente e o canal precisam estar configurados para atender.")}
+            </p>
+            {!temAssinatura && <p className="text-sm text-muted-foreground">
+              {t("Configure a assinatura da fonte antes de autorizar IA. Para remover a assinatura, desligue primeiro a autorização de IA.")}
+            </p>}
+            <p className="text-sm text-muted-foreground">
+              {t("O integrador deve enviar external_id, ai_service_consent: true, submission_status: completed e ai_service_consent_version com a versão do aviso aceito. Aceitar apenas a política de privacidade não autoriza a IA. Sem external_id, o envio não concede nem renova a autorização; reenviar com o mesmo external_id não libera de novo. Uma recusa (false) num envio completo e válido revoga, mesmo sem external_id.")}
+            </p>
           </section>
 
           <section className="space-y-2">

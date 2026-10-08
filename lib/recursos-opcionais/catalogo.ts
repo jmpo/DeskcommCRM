@@ -118,6 +118,11 @@ const TEXTO_DO_MODULO: Record<ModuloOpcional, { nome: string; oQueFaz: string }>
     nome: "Honorários",
     oQueFaz: "Contratos de honorários com parcelas e o controle do que já foi pago.",
   },
+  login_codex: {
+    nome: "Login do Codex por assinatura",
+    oQueFaz:
+      "Conecta a assinatura do ChatGPT (o mesmo login do Codex): cada empresa conecta a própria conta, em Credenciais, com a chave de API da mesma empresa como reserva. Desligado por padrão.",
+  },
 };
 
 /**
@@ -256,6 +261,25 @@ const DO_SERVIDOR: RecursoOpcional[] = [
     href: null,
     comoLigar: "No arquivo de ambiente, WACALLS_API_BASE_URL e WACALLS_API_TOKEN, e voz em COMPOSE_PROFILES.",
     ler: peloServidor("voz_whatsapp"),
+  },
+  {
+    // Entra aqui pelo review do #2441: a feature passa a ser visível ao dono
+    // do servidor do mesmo jeito que a voz — `JITSI_SERVER_URL` no `.env`,
+    // liga ou não, sem rebuild. A linha existe mesmo o teste não cobrando
+    // recurso que vive só em env: quem chega nesta tela é justamente para
+    // saber o que está ligado, e a videochamada não pode ser a uma que só
+    // aparece quando alguém lembra do `.env`.
+    id: "videochamada_jitsi",
+    nome: "Videochamada (Jitsi Meet)",
+    oQueFaz:
+      "Abrir sala de vídeo no header da conversa: o contato entra pelo link no chat, sem instalar nada.",
+    nivel: "servidor",
+    padrao: "desligado",
+    quemDecide: "dono_do_servidor",
+    href: null,
+    comoLigar:
+      "No arquivo de ambiente, JITSI_SERVER_URL apontando para a origem da sala (ex.: https://meet.jit.si). Vazio = o botão Vídeo não aparece.",
+    ler: peloServidor("videochamada_jitsi"),
   },
   {
     id: "telefonia_sip",

@@ -69,6 +69,7 @@ import { escalateLgpdVeto, isLegalBasisValid } from './lgpd/legal-basis';
 import type { LgpdInput } from './lgpd/legal-basis';
 import { detectHumanPromise } from './human-promise';
 import { detectarVazamentoInterno, renderVetoDeVazamento } from './vazamento-interno';
+import { detectarAfirmacaoClinica, renderVetoDeAfirmacaoClinica } from './afirmacao-clinica';
 // Módulo PURO de propósito (`capabilities`, não `index`): o seam não arrasta o
 // adapter — e com ele o cliente HTTP do canal — para dentro do worker.
 import { capabilitiesOf, DEFAULT_CHANNEL_PROVIDER } from '@/lib/channels/capabilities';
@@ -76,6 +77,7 @@ import { isWindowOpen } from './messaging-window';
 import type { ChannelProvider } from '@/lib/channels/capabilities';
 import { aplicarAjustesDeEstilo, lerAjustesDeEstiloDaOrg } from './ajustes-de-estilo-da-org';
 import type { AjusteDeEstilo, LeituraDosAjustes } from './ajustes-de-estilo-da-org';
+import { renderVetoDeAfirmacao, type ConferenciaDeFato } from './factual-claim';
 
 /** O que os gates enxergam — carregado UMA vez sob o lock, por tentativa de envio. */
 export interface GateContext {
@@ -224,7 +226,21 @@ export interface GateContext {
    * silêncio — é coberto por `tests/unit/gate-vazamento-interno.test.ts`, que cobra a
    * fiação nos dois sentidos: presente no `send_message`, ausente no follow-up.
    */
+  factualClaim?: ConferenciaDeFato | null;
   internalVocabularyEnforced?: boolean;
+  /**
+   * Arma o `clinicalClaimGate` (diagnóstico, prescrição, promessa de resultado,
+   * afirmação de câncer — `./afirmacao-clinica.ts`). Ausente = DESARMADO, pelas DUAS
+   * razões do `internalVocabularyEnforced`, e mais uma:
+   *
+   *  - no caminho determinístico (follow-up, template, resposta aprovada) o texto não é
+   *    do modelo e veto ali é drop silencioso;
+   *  - a camada é OPCIONAL por organização (`afirmacao_clinica` em
+   *    `org_guardrail_layers`, padrão desligado): fora da saúde, "passe o creme
+   *    hidratante" é frase normal de loja de cosméticos. Quem arma é o turno do agente, e só
+   *    quando a organização ligou a camada.
+   */
+  clinicalClaimEnforced?: boolean;
   /**
    * Arma o `spinningGate`. **Ausente = ARMADO** — a direção segura aqui é a
    * oposta do `internalVocabularyEnforced` logo acima, e a assimetria é
@@ -309,7 +325,7 @@ export type GateVerdict =
       pass: true;
       waitMs?: number;
       amendBody?: string;
-      skipped?: 'not_applicable' | 'sandbox_send_embargo';
+      skipped?: 'not_applicable' | 'sandbox_send_embargo' | 'nao_conferido';
     }
   | {
       pass: false;
@@ -500,6 +516,33 @@ export const internalVocabularyGate: Gate = {
       // nunca os termos — termo casado é trecho da candidata, e um snake_case pode ter
       // vindo de um dado do lead. A medição que a doutrina pede cabe nestes dois campos.
       detail: { leaked_count: achado.termos.length, leaked_kinds: achado.categorias.join(',') },
+    };
+  },
+};
+
+/**
+ * Gate de AFIRMAÇÃO CLÍNICA — barra a mensagem em que o assistente diz o que a pessoa
+ * tem, indica remédio ou dose, garante resultado ou afirma que uma lesão é câncer. Só
+ * arma quando a organização ligou a camada `afirmacao_clinica` e o corpo é do modelo
+ * (ver `GateContext.clinicalClaimEnforced`).
+ *
+ * Posição 6.8 de `BEFORE_SEND_GATES`: logo depois do `internal_vocabulary` e antes do
+ * `agenda_stall` e do `disclosure`, pela mesma razão do vocabulário — inspeciona o texto
+ * que o MODELO escreveu, antes de o disclosure poder emendá-lo.
+ */
+export const clinicalClaimGate: Gate = {
+  name: 'clinical_claim',
+  evaluate: (ctx) => {
+    if (ctx.clinicalClaimEnforced !== true) return { pass: true };
+    const achado = detectarAfirmacaoClinica(ctx.body);
+    if (!achado.achou) return { pass: true };
+    return {
+      pass: false,
+      code: 'clinical_claim',
+      reason: renderVetoDeAfirmacaoClinica(achado.categorias),
+      // detail é LOGADO e persistido: só as CATEGORIAS (rótulos nossos, fechados),
+      // nunca o trecho — a frase barrada pode conter o nome da doença do paciente.
+      detail: { clinical_kinds: achado.categorias.join(',') },
     };
   },
 };
@@ -859,8 +902,44 @@ const spinningGate: Gate = {
  * `GateContext.agenda`): só o caminho do agente o arma quando o agente publicado tem
  * `crm_book_appointment` nas tools, então a v7 também não muda o destino de nenhum envio que
  * já existia fora desse caso — muda o TRACE e passa a medir/impedir a promessa vazia.
+ * v8 = insere `clinicalClaimGate` entre `internal_vocabulary` e `agenda_stall` — a rede
+ * contra diagnóstico, prescrição, promessa de resultado e afirmação de câncer na boca do
+ * assistente. Nasce DESARMADO (ver `GateContext.clinicalClaimEnforced`): só arma no turno
+ * do agente de uma organização que ligou a camada `afirmacao_clinica`, então a v8 não
+ * muda o destino de nenhum envio de quem não ligou.
  */
-export const BEFORE_SEND_CHAIN_VERSION = 7;
+export const BEFORE_SEND_CHAIN_VERSION = 9;
+
+/**
+ * Gate 6.3 — CONFERÊNCIA DE FATO (#2231): a afirmação de FATO da resposta
+ * ("abrimos às 8h", "check-in às 12h", "temos piscina") conferida contra a
+ * evidência consultada NESTE turno. Depois da F4-01/F4-02 — que proíbem o
+ * agente de PROMETER —, e antes do disclosure. Promessa e fato são camadas
+ * diferentes: a de promessa não muda nada aqui (o "abrimos às 8h" continua
+ * passando por ela, e só cai por ESTA camada quando não está no material).
+ *
+ * `nao_conferido` (sem evidência, sem frases, desligada, catraca ou falha do
+ * fornecedor) passa com o motivo no trace — fail-open com registro, a mesma
+ * postura do #2010. `observando` (como a tarefa nasce) também passa: a
+ * observação já foi gravada em `jev_observacoes`, e ninguém aqui decide.
+ */
+export const factualClaimGate: Gate = {
+  name: 'factual_claim',
+  evaluate: (ctx) => {
+    const conferencia = ctx.factualClaim;
+    if (conferencia === null || conferencia === undefined) return { pass: true };
+    if (conferencia.veredito === 'nao_conferido') return { pass: true, skipped: 'nao_conferido' };
+    if (conferencia.estado !== 'decidindo') return { pass: true };
+    if (conferencia.veredito === 'passa') return { pass: true };
+    return {
+      pass: false,
+      code: conferencia.veredito === 'contradiz' ? 'factual_claim_contradicted' : 'factual_claim_unsupported',
+      // SÓ para o erro de ensino devolvido ao MODELO. Log e trace levam rótulo.
+      reason: renderVetoDeAfirmacao(conferencia.veredito, conferencia.frase),
+      detail: { veredito: conferencia.veredito, frases: conferencia.quantidadeDeFrases },
+    };
+  },
+};
 
 /**
  * Ordem FINAL da cadeia (F4-08/F4-09; edge-contract §before_send / blueprint órgão 5) — DADO
@@ -872,9 +951,13 @@ export const BEFORE_SEND_CHAIN_VERSION = 7;
  *   (4) spinning — template idêntico em massa (F2-12);
  *   (5) promise — validação determinística de preço/desconto/parcelamento (F4-01);
  *   (6) semantic_promise — promessa em texto livre que a regex não pega (F4-02);
+ *   (6.3) factual_claim — afirmação de FATO da resposta contra a evidência
+ *         consultada no turno (#2231); logo após a F4-02, antes do disclosure;
  *   (6.5) case_promise — anti-alucinação de casos humanos (spec 15 §10.2, Wave 4);
  *   (6.7) internal_vocabulary — vazamento de vocabulário interno ao cliente (doutrina
  *         `separacao-fala-e-operacao.md`); antes do disclosure porque ele pode emendar o corpo;
+ *   (6.8) clinical_claim — diagnóstico, prescrição, promessa de resultado ou afirmação de
+ *         câncer escritos pelo modelo; só arma com a camada `afirmacao_clinica` ligada;
  *   (6.9) agenda_stall — "vou verificar/confirmar horário" sem ter chamado a ferramenta de
  *         agenda neste turno; antes do disclosure pelo mesmo motivo do internal_vocabulary;
  *   (8) disclosure — 1ª mensagem se apresenta como assistente virtual (F4-05).
@@ -888,8 +971,10 @@ export const BEFORE_SEND_GATES: readonly Gate[] = [
   spinningGate,
   promiseGate,
   semanticPromiseGate,
+  factualClaimGate,
   casePromiseGate,
   internalVocabularyGate,
+  clinicalClaimGate,
   agendaStallGate,
   disclosureGate,
 ];
@@ -973,6 +1058,12 @@ export interface RunBeforeSendArgs {
    */
   classifyPromiseSemantic?: (body: string) => Promise<PromiseClassification>;
   /**
+   * Conferência de fato (#2231): a terceira camada, chamada FORA do lock (antes
+   * de tomar conexão, junto da F4-02) com o corpo do modelo. `null`/ausente = não
+   * conferido (o gate passa).
+   */
+  conferirAfirmacoes?: (body: string) => Promise<ConferenciaDeFato | null>;
+  /**
    * Modo do gate de disclosure (F4-05) quando a 1ª mensagem sai sem disclosure: 'inject'
    * (default conservador — o disclosure é sempre adicionado, garantindo a apresentação) ou
    * 'veto' (bloqueia + ensina o modelo). Knob do env (DISCLOSURE_MODE).
@@ -1003,6 +1094,12 @@ export interface RunBeforeSendArgs {
    * depois de N vetos no mesmo turno o envio sai, com registro.
    */
   enforceInternalVocabulary?: boolean;
+  /**
+   * Arma o `clinicalClaimGate` — ver `GateContext.clinicalClaimEnforced`. Ausente
+   * (default) = no-op. O turno do agente passa a escolha da organização
+   * (`camadaLigada(camadas.afirmacao_clinica, false)`).
+   */
+  enforceClinicalClaim?: boolean;
   /**
    * Desarma o `spinningGate` para ESTA tentativa. Ausente = armado (ver
    * `GateContext.spinningEnforced` para a razão da assimetria e para a conta que
@@ -1142,23 +1239,64 @@ const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTim
  * O que NÃO muda de ordem: a cadeia continua julgando (e o estado sob o lock sendo
  * lido) exatamente quando julgava, o `send` continua acontecendo sob o lock, uma vez
  * por re-run, e o `finalBody` pós-disclosure continua sendo o que vai ao canal. A
- * espera é a única coisa que sai da janela da transação.
+ * espera é uma das três coisas que saem da janela da transação; as outras duas são o
+ * classificador semântico de promessa (F4-02) e a conferência de fato (#2231), que
+ * rodam antes de tomar conexão — ver o porquê no ponto da chamada.
  */
 export async function runBeforeSend(args: RunBeforeSendArgs): Promise<BeforeSendResult> {
   const gates = args.gates ?? BEFORE_SEND_GATES;
-  // Fora do lock (nem conexão tomada): aqui não existe transação aberta para segurar.
-  if (args.esperaForaDoLock) await args.esperaForaDoLock();
+  // ANTES de tomar conexão, de propósito: preferência de estilo não precisa do
+  // lock, e uma consulta que falha DENTRO da transação a deixa abortada — a
+  // próxima morreria com 25P02, longe daqui e com outro nome. Aqui, uma falha
+  // custa o default (desligado) e uma linha no trace, não o envio. Pelo pool,
+  // e não pela conexão do envio, para a classificação abaixo poder começar antes.
+  const estilo =
+    args.enforceInternalVocabulary !== undefined
+      ? await lerAjustesDeEstiloDaOrg(args.pool, args.tenantId)
+      : null;
+
+  // O campo `enforceInternalVocabulary` tem três estados no seam: AUSENTE nos
+  // envios determinísticos/humanos, `true` no texto normal do modelo e `false`
+  // somente no re-run do fail-safe do próprio modelo. A PRESENÇA, portanto, é
+  // o marcador estável de "este corpo foi escrito pela IA" sem fazer template,
+  // resposta aprovada ou aviso de código passarem por uma preferência de estilo.
+  const bodyDoModelo =
+    estilo !== null ? aplicarAjustesDeEstilo(args.body, estilo.ajustes) : args.body;
+
+  // ═══ A CONFERÊNCIA SEMÂNTICA DE PROMESSA RODA FORA DO LOCK ═══
+  //
+  // Camada semântica (F4-02): recebe o MESMO corpo final de estilo que os gates
+  // determinísticos receberão. Se classificasse `args.body`, a cadeia julgaria
+  // uma frase diferente da que efetivamente pode chegar ao cliente.
+  //
+  // É uma ida e volta ao modelo por envio. Ela rodava DENTRO da transação, com
+  // o `pg_advisory_xact_lock` do número na mão: todo outro envio do MESMO
+  // WhatsApp esperava a IA responder, e a conexão (de um pool de 10 para 8 jobs
+  // simultâneos) ficava presa o tempo inteiro.
+  //
+  // E não era só latência: era TRAVAMENTO. Lá dentro, a transação já segurava a
+  // trava de leitura de `contacts` (readStopFlags) enquanto o `runModelCall`
+  // gravava `llm_calls` — que tem FK para `contacts` — por OUTRA conexão do
+  // pool. Com um DDL na fila de `contacts`, o insert esperava o DDL, o DDL
+  // esperava esta transação e esta transação esperava o insert: um ciclo que o
+  // Postgres não detecta, porque uma das arestas mora no processo Node. Medido
+  // numa VPS por @AlecsanderAbreu (#2363), em 2026-10-02: 8m47s `idle in
+  // transaction`, o worker inteiro parado e ~10 min de 503 até alguém encerrar
+  // o DDL à mão.
+  //
+  // O veredito não depende de nada lido sob o lock — só do corpo —, então ele é
+  // calculado antes e entra no contexto dos gates no mesmo lugar de sempre.
+  // Começa junto com a pausa humana: o cliente espera o maior dos dois, não a soma.
+  const [, semanticPromise, factualClaim] = await Promise.all([
+    // Fora do lock (nem conexão tomada): aqui não existe transação aberta para segurar.
+    args.esperaForaDoLock ? args.esperaForaDoLock() : undefined,
+    args.classifyPromiseSemantic ? args.classifyPromiseSemantic(bodyDoModelo) : null,
+    // Conferência de fato (#2231): mesma razão da F4-02 — grava llm_calls por outra conexão.
+    args.conferirAfirmacoes ? args.conferirAfirmacoes(bodyDoModelo) : null,
+  ]);
+
   const client = await args.pool.connect();
   try {
-    // ANTES do `begin`, de propósito: preferência de estilo não precisa do lock,
-    // e uma consulta que falha DENTRO da transação a deixa abortada — a próxima
-    // morreria com 25P02, longe daqui e com outro nome. Aqui, uma falha custa o
-    // default (desligado) e uma linha no trace, não o envio.
-    const estilo =
-      args.enforceInternalVocabulary !== undefined
-        ? await lerAjustesDeEstiloDaOrg(client, args.tenantId)
-        : null;
-
     await client.query('begin');
     // Serialização por número: dois workers no MESMO channel_session esperam a vez.
     await client.query('select pg_advisory_xact_lock(hashtext($1))', [args.channelSessionId]);
@@ -1195,14 +1333,6 @@ export async function runBeforeSend(args: RunBeforeSendArgs): Promise<BeforeSend
     )
       throw new Error('reply_scope_mismatch');
 
-    // O campo `enforceInternalVocabulary` tem três estados no seam: AUSENTE nos
-    // envios determinísticos/humanos, `true` no texto normal do modelo e `false`
-    // somente no re-run do fail-safe do próprio modelo. A PRESENÇA, portanto, é
-    // o marcador estável de "este corpo foi escrito pela IA" sem fazer template,
-    // resposta aprovada ou aviso de código passarem por uma preferência de estilo.
-    const bodyDoModelo =
-      estilo !== null ? aplicarAjustesDeEstilo(args.body, estilo.ajustes) : args.body;
-
     const optedOut =
       args.optedOutThisTurn ||
       (await readStopFlags(
@@ -1236,12 +1366,6 @@ export async function runBeforeSend(args: RunBeforeSendArgs): Promise<BeforeSend
     );
     // org de fonte confiável (RunBeforeSendArgs.tenantId = organization_id do row do job) — regra dura nº 1.
     const promise = await loadPromiseTable(client, args.tenantId);
-    // Camada semântica (F4-02): recebe o MESMO corpo final de estilo que os gates
-    // determinísticos receberão. Se classificasse `args.body`, a cadeia julgaria
-    // uma frase diferente da que efetivamente pode chegar ao cliente.
-    const semanticPromise = args.classifyPromiseSemantic
-      ? await args.classifyPromiseSemantic(bodyDoModelo)
-      : null;
     // Disclosure (F4-05): template por ponteiro da org + detecção de 1º outbound via
     // send_ledger (só conta se há template — sem template o gate é no-op de qualquer forma).
     const disclosure = await loadDisclosureTemplate(client, args.tenantId);
@@ -1279,6 +1403,7 @@ export async function runBeforeSend(args: RunBeforeSendArgs): Promise<BeforeSend
         ...(promise?.versionId !== undefined ? { versionId: promise.versionId } : {}),
       },
       semanticPromise,
+      factualClaim,
       disclosure: {
         template: disclosure?.body ?? null,
         ...(disclosure?.versionId !== undefined ? { versionId: disclosure.versionId } : {}),
@@ -1293,6 +1418,7 @@ export async function runBeforeSend(args: RunBeforeSendArgs): Promise<BeforeSend
         ? { humanPromiseExtraTargets: args.humanPromiseExtraTargets }
         : {}),
       internalVocabularyEnforced: args.enforceInternalVocabulary ?? false,
+      clinicalClaimEnforced: args.enforceClinicalClaim ?? false,
       ...(args.agenda !== undefined ? { agenda: args.agenda } : {}),
       ...(args.followup !== undefined ? { followup: args.followup } : {}),
     };
@@ -1422,10 +1548,12 @@ async function readStopFlags(
   contactId: string,
   humanMeetingCommand = false,
 ): Promise<boolean> {
+  // Pessoal não recebe nem via encontro (spec 21, etapa 11): o `or is_personal`
+  // vale nos DOIS ramos — o veto segue o bloqueio até aqui.
   const { rows } = await db.query<{ stopped: boolean }>(
     humanMeetingCommand
-      ? 'select is_blocked as stopped from contacts where organization_id = $1 and id = $2'
-      : 'select (is_blocked or force_human) as stopped from contacts where organization_id = $1 and id = $2',
+      ? 'select (is_blocked or is_personal) as stopped from contacts where organization_id = $1 and id = $2'
+      : 'select (is_blocked or force_human or is_personal) as stopped from contacts where organization_id = $1 and id = $2',
     [organizationId, contactId],
   );
   return rows[0]?.stopped === true;

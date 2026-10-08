@@ -29,12 +29,13 @@ import type {
 } from "@/lib/schemas";
 import { contactListQuerySchema } from "@/lib/schemas";
 import { arrayDeUmValorParaOr } from "@/lib/inbox/marcador-da-conversa";
-import { buscaValeConsulta, normalizarTermoDeBusca } from "@/lib/inbox/termo-de-busca";
+import { buscaValeConsulta } from "@/lib/inbox/termo-de-busca";
+import { padraoRegexDeBusca } from "@/lib/contacts/busca-regex";
 
 type SB = SupabaseClient;
 
 const SELECT_COLS =
-  "id, organization_id, name, display_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, custom_fields, created_at, updated_at, last_activity_at, first_service_at";
+  "id, organization_id, name, display_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_personal, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, custom_fields, created_at, updated_at, last_activity_at, first_service_at";
 
 interface CursorPayload {
   sort: string | null;
@@ -161,25 +162,44 @@ export async function listContactsHandler(
     .limit(q.limit + 1);
 
   if (q.search && termoDeTexto !== undefined) {
-    // ─── Duas normalizações, em ordem, com responsabilidades diferentes ─────
-    // É a MESMA composição da busca de conversas
-    // (`conversations/_handler.ts:297`, `termoSeguroParaOr(normalizarTermoDeBusca(...))`):
+    // ─── O padrão sai em regex, não em LIKE (#1835, F2) ─────────────────────
+    // A composição continua a MESMA da busca de conversas
+    // (`conversations/_handler.ts:297`, `termoSeguroParaOr(normalizarTermoDeBusca(...))`)
+    // e continua sendo a régua única de `lib/inbox/termo-de-busca.ts` — o que
+    // muda é o DESTINO do padrão:
     //
     //   normalizarTermoDeBusca → como a PESSOA digitou: espaço duplo, vírgula e
     //                            ponto e vírgula colapsam num curinga só, então
-    //                            "Paulo  Lima" e "Paulo Jr" achem o "Paulo Lima Jr"
+    //                            "Paulo  Lima" e "Paulo Jr" acham o "Paulo Lima Jr"
     //                            e "Silva, Maria" não exige mais adjacência
-    //   saneamento de `%`/`_`  → gramática do LIKE: curinga digitado é literal
+    //   padraoRegexDeBusca     → o curinga vira `.*`, o `%`/`_` digitado continua
+    //                            literal, e a LETRA com grafias vira classe
+    //                            (`jo[aáàâãä]o`) — é ela que faz "Joao" achar
+    //                            "João" e "João" achar "Joao"
+    //
+    // Por que regex e não `ilike` (a parte medida da F2): `ILIKE` dobra a CAIXA,
+    // não o ACENTO — `lower("Á") = "á"`, que não é `"a"` —, e o banco não tem
+    // `unaccent` nenhum (`git grep unaccent origin/main -- supabase/` = 0) para
+    // chamar do lado de lá. Sem coluna materializada (migração + backfill + gatilho,
+    // a F2 que ficou de fora do #1892), a comparação de acento é NOSSA dos dois
+    // lados: o termo normalizado aqui, a coluna virando classe no padrão. O
+    // operador `imatch` (`~*`) resolve a caixa. Medido contra o PostgREST real
+    // (docker postgrest/postgrest:latest + postgres:17) antes de escrever esta
+    // linha: um só `or=` com as quatro colunas em `imatch` + as variantes de
+    // telefone em `ilike` devolve as seis linhas certas.
     //
     // Os PARÊNTESES saem ANTES da régua: são delimitador do DSL do `.or()` do
-    // PostgREST (um "(" sem fechar derrubaria o filtro inteiro com HTTP 400) e
-    // a normalização não os conhece — tirá-los depois deixaria `Paulo* Jr` com
-    // espaço solto, que não casa nada. Mesmo escape de sempre, mesmo defeito de
-    // sempre: um nome com vírgula injetaria condição extra no `.or()`.
-    const s = normalizarTermoDeBusca(termoDeTexto).replace(/[%_]/g, (m) => `\\${m}`);
+    // PostgREST (um "(" sem fechar derrubaria o filtro inteiro com HTTP 400 — no
+    // regex o Postgres devolve `2201B parentheses () not balanced`) e a régua não
+    // os conhece — tirá-los depois deixaria `Paulo* Jr` com espaço solto, que não
+    // casa nada. A VÍRGULA também não passa: `normalizarTermoDeBusca` usa ela
+    // como separador, e uma vírgula que sobrasse splitaria o `.or()` em duas
+    // condições (medido: `PGRST100 failed to parse logic tree`). Um nome com
+    // vírgula continua sem injetar condição nenhuma.
+    const s = padraoRegexDeBusca(termoDeTexto);
     const digits = q.search.replace(/\D/g, "");
     const orParts = [
-      `name.ilike.%${s}%`,
+      `name.imatch.${s}`,
       // ⚠️ `display_name` ESTAVA DE FORA, e é a coluna que a tela MOSTRA.
       //
       // Contato que entra pelo WhatsApp nasce só com `display_name` (o pushName);
@@ -198,9 +218,9 @@ export async function listContactsHandler(
       // um retorno para "Cliente Retorno E2E", o modelo chamou esta busca, levou
       // zero resultados para um contato que EXISTE, e desistiu — a demanda
       // morreria por uma coluna faltando no OR.
-      `display_name.ilike.%${s}%`,
-      `email.ilike.%${s}%`,
-      `phone_number.ilike.%${s}%`,
+      `display_name.imatch.${s}`,
+      `email.imatch.${s}`,
+      `phone_number.imatch.${s}`,
     ];
     if (digits.length >= 8) {
       // 10/11 dígitos sem DDI: no Brasil é DDD+local. Sem o 55, `3284793302`
@@ -240,6 +260,12 @@ export async function listContactsHandler(
   // ainda dá para contactar — que é a pergunta de quem vai montar campanha.
   if (q.blocked) query = query.eq("is_blocked", q.blocked === "yes");
   if (soContato) query = query.eq("id", soContato);
+  // Pessoal fora da lista por padrão; `?pessoais=true` lista SÓ pessoais
+  // (spec 21, etapa 13 — a tela do filtro e o desmarcar). Sem esta linha a
+  // lista de Contatos furava pelo outro lado o esconderijo que o inbox
+  // construiu — e o MCP search herdaria o furo junto.
+  if (q.pessoais) query = query.eq("is_personal", true);
+  else query = query.eq("is_personal", false);
 
   if (q.cursor) {
     const c = decodeCursor(q.cursor);

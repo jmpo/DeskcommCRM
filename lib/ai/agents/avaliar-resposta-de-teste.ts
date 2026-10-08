@@ -47,12 +47,21 @@ const NAO_AVALIAVEIS_SEM_TURNO: ReadonlyArray<{ gate: string; porque: string }> 
   { gate: "spinning", porque: "depende das últimas mensagens enviadas por este número" },
   { gate: "promise", porque: "depende da tabela de preços e condições da organização" },
   { gate: "semantic_promise", porque: "esta checagem textual não chama modelo; a prévia do motor pode chamar um modelo adicional" },
+  {
+    gate: "factual_claim",
+    porque: "depende do material que o assistente consultou numa conversa real e de o Jev estar ligado; esta checagem textual não chama o Jev",
+  },
   { gate: "case_promise", porque: "depende de haver um chamado aberto para este contato" },
   {
     gate: "agenda_stall",
     porque: "depende de a ferramenta de agenda ter sido chamada neste turno — não há turno real no teste",
   },
   { gate: "disclosure", porque: "depende de esta ser a primeira mensagem ao contato" },
+  {
+    gate: "clinical_claim",
+    porque:
+      "depende de a organização ter ligado \"Não fazer afirmação clínica\" em Segurança; quando ligada, a prévia do motor aplica",
+  },
 ];
 
 /**

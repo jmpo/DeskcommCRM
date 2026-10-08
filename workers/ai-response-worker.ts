@@ -20,7 +20,7 @@ import type { ServiceBoundary } from "@/lib/atendimento/fronteira";
 
 import { generateText, type LanguageModel } from "ai";
 
-import { DEFAULT_BOT_MODEL, gatewayConfig, gatewayHeaders } from "@/lib/ai/gateway";
+import { gatewayConfig, gatewayHeaders } from "@/lib/ai/gateway";
 import { embedText } from "@/lib/ai/embed";
 import { MODELO_DE_EMBEDDING_DO_GOOGLE } from "@/lib/ai/embeddings/chave";
 import { getBudgetStatus, type BudgetStatus } from "@/lib/ai/budget/check";
@@ -630,12 +630,54 @@ interface BuildContextInput {
 async function buildContext(input: BuildContextInput): Promise<GuardDecision> {
   const admin = createAdminClient();
 
+  // A PRIMEIRA consulta, de propósito: toda organização com agente publicado
+  // emite `message.received` por mensagem, e este worker não tem o que fazer
+  // nela sem candidato legado — sai aqui com uma ida ao banco em vez de quatro.
+  // Quem tem candidato segue a ordem de sempre (guardas → aviso de legado →
+  // triagem G1/G4).
+  //
+  // `is_active` sozinho NÃO é "quem atende", e tratá-lo como se fosse era o
+  // buraco: pausar um `mcp_agent` limpava `published_version_id` e deixava
+  // `is_active` de pé, então este SELECT continuava trazendo o agente que o dono
+  // acabara de pausar — e a trava `engine_owns_reply` logo abaixo, que é
+  // ORG-WIDE, deixava de valer exatamente quando o último publicado era pausado.
+  // (Hoje pausar grava só `paused_at` e a versão segue publicada; a régua lê a
+  // pausa, e não depende de qual das duas formas a pausa tem.)
+  // Resultado medido em produção: pausar o agente o fazia VOLTAR a responder,
+  // com o `system_prompt` do cadastro no lugar do da versão publicada.
+  //
+  // A régua agora é a mesma que a tela usa (`lib/ai/agents/no-ar.ts`).
+  //
+  // ⚠️ Quem PROTEGE é a régua, não o `.is("archived_at", null)` abaixo — medido
+  // por sabotagem: apagar o filtro deixa os 4 casos de
+  // `tests/unit/agente-pausado-nao-atende.test.ts` verdes, porque
+  // `estadoDoAgente` já devolve "arquivado". O filtro fica por ser mais barato
+  // não trazer do banco o que vai ser descartado; não confie nele como guarda.
+  // Sem `.limit(1)`: o primeiro da ordem pode ser justamente o que a régua
+  // recusa, e cortar antes de filtrar faria um `mcp_agent` pausado — que é
+  // `is_default` na instalação que o onboarding cria — esconder o `rag_bot`
+  // legítimo logo abaixo dele. A ordem (`is_default`, depois `created_at`) é a
+  // de sempre; o que muda é que ela agora escolhe entre os ELEGÍVEIS.
+  const { data: candidatos } = await admin
+    .from("ai_agents")
+    .select(
+      "id, organization_id, model, system_prompt, config, guardrails, active_kb_version_id, is_active, is_default, kind, published_version_id, archived_at, paused_at",
+    )
+    .eq("organization_id", input.organizationId)
+    .eq("is_active", true)
+    .is("archived_at", null)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true });
+
+  const agent = (candidatos ?? []).find(precisaRecuperarLegado) ?? null;
+  if (!agent) return skip("agent_inactive_or_missing");
+
   // Conversation + contact + agent in 2 round trips. Service-role bypasses RLS,
   // so org filter is mandatory on every where-clause.
   const { data: conv, error: convErr } = await admin
     .from("conversations")
     .select(
-      "id, organization_id, contact_id, channel_session_id, last_inbound_at, bot_silenced_until, last_handoff_at, assignee_kind, contacts:contact_id(id, name, display_name, locale, is_blocked, force_human)",
+      "id, organization_id, contact_id, channel_session_id, last_inbound_at, bot_silenced_until, last_handoff_at, assignee_kind, contacts:contact_id(id, name, display_name, locale, is_blocked, is_personal, force_human)",
     )
     .eq("id", input.conversationId)
     .eq("organization_id", input.organizationId)
@@ -659,12 +701,15 @@ async function buildContext(input: BuildContextInput): Promise<GuardDecision> {
       display_name: string | null;
       locale: string | null;
       is_blocked: boolean;
+      /** Spec 21: contato pessoal nunca recebe turno (mesma família de guard do bloqueio). */
+      is_personal: boolean;
       force_human: boolean;
     } | null;
   };
   const c = conv as unknown as ConvRow;
   if (!c.contacts) return skip("conversation_not_found", "contact join missing");
   if (c.contacts.is_blocked) return skip("contact_blocked");
+  if (c.contacts.is_personal === true) return skip("contact_personal");
   if (c.contacts.force_human) return skip("force_human");
   // G3-02 — assignee de 1ª classe: humano atendendo (kind='user') veta o bot
   // deterministicamente, mesma família de guard de force_human/bot_silenced_until.
@@ -738,48 +783,11 @@ async function buildContext(input: BuildContextInput): Promise<GuardDecision> {
   const inbound_body = (msg.body ?? "").trim();
   if (!inbound_body) return skip("empty_inbound_body");
 
-  // O agente legado desta organização.
-  //
-  // `is_active` sozinho NÃO é "quem atende", e tratá-lo como se fosse era o
-  // buraco: pausar um `mcp_agent` limpava `published_version_id` e deixava
-  // `is_active` de pé, então este SELECT continuava trazendo o agente que o dono
-  // acabara de pausar — e a trava `engine_owns_reply` logo abaixo, que é
-  // ORG-WIDE, deixava de valer exatamente quando o último publicado era pausado.
-  // (Hoje pausar grava só `paused_at` e a versão segue publicada; a régua lê a
-  // pausa, e não depende de qual das duas formas a pausa tem.)
-  // Resultado medido em produção: pausar o agente o fazia VOLTAR a responder,
-  // com o `system_prompt` do cadastro no lugar do da versão publicada.
-  //
-  // A régua agora é a mesma que a tela usa (`lib/ai/agents/no-ar.ts`).
-  //
-  // ⚠️ Quem PROTEGE é a régua, não o `.is("archived_at", null)` abaixo — medido
-  // por sabotagem: apagar o filtro deixa os 4 casos de
-  // `tests/unit/agente-pausado-nao-atende.test.ts` verdes, porque
-  // `estadoDoAgente` já devolve "arquivado". O filtro fica por ser mais barato
-  // não trazer do banco o que vai ser descartado; não confie nele como guarda.
-  // Sem `.limit(1)`: o primeiro da ordem pode ser justamente o que a régua
-  // recusa, e cortar antes de filtrar faria um `mcp_agent` pausado — que é
-  // `is_default` na instalação que o onboarding cria — esconder o `rag_bot`
-  // legítimo logo abaixo dele. A ordem (`is_default`, depois `created_at`) é a
-  // de sempre; o que muda é que ela agora escolhe entre os ELEGÍVEIS.
-  const { data: candidatos } = await admin
-    .from("ai_agents")
-    .select(
-      "id, organization_id, model, system_prompt, config, guardrails, active_kb_version_id, is_active, is_default, kind, published_version_id, archived_at, paused_at",
-    )
-    .eq("organization_id", input.organizationId)
-    .eq("is_active", true)
-    .is("archived_at", null)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true });
-
+  // O aviso de legado sai só para a conversa que passou as guardas acima.
   for (const candidate of candidatos ?? []) {
     if (precisaRecuperarLegado(candidate))
       await recordLegacyNotice(admin, input.organizationId, candidate.id, "sem_versao");
   }
-  const agent = (candidatos ?? []).find(precisaRecuperarLegado) ?? null;
-
-  if (!agent) return skip("agent_inactive_or_missing");
 
   // O ENGINE É O DONO DA RESPOSTA QUANDO HÁ VERSÃO PUBLICADA (issue #129).
   //
@@ -858,7 +866,13 @@ async function buildContext(input: BuildContextInput): Promise<GuardDecision> {
         // decisão que a lê ("este agente atende?") ficava sem o dado.
         paused_at: agent.paused_at,
         id: agent.id,
-        model: agent.model || DEFAULT_BOT_MODEL,
+        // Sem `|| DEFAULT_BOT_MODEL` (issue #2377): aquele OU injetava um
+        // Claude da Anthropic num agente sem modelo — para uma empresa em
+        // OpenAI — no caminho que responde sozinho. `ai_agents.model` é NOT
+        // NULL com default no banco e a API exige min(1); vindo vazio mesmo assim,
+        // o resolvedor PULA com motivo no log (este ponto não pede queda para o
+        // par da organização).
+        model: agent.model,
         system_prompt: agent.system_prompt,
         config: (agent.config as Record<string, unknown>) ?? {},
         guardrails: (agent.guardrails as Record<string, unknown>) ?? {},

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EntradaDeMensagem } from "@/lib/channels/pos-entrada";
-import { acelerarPipelineDeEventos } from "@/lib/dev/kick-local-pipeline";
+import { acelerarFollowupDoInbound, drenarEventosDoInbound } from "@/lib/dev/kick-local-pipeline";
 import { palavraDeSaida } from "@/lib/prospecting/rodape-de-saida";
 
 /**
@@ -53,6 +53,8 @@ vi.mock("@/lib/leads/origem-por-horario", () => ({
   casarOrigemPorHorario: (...a: unknown[]) => casarOrigemPorHorario(...a),
 }));
 vi.mock("@/lib/dev/kick-local-pipeline", () => ({
+  acelerarFollowupDoInbound: vi.fn(async () => {}),
+  drenarEventosDoInbound: vi.fn(async () => {}),
   acelerarPipelineDeEventos: vi.fn(async () => {}),
   kickLocalPipeline: vi.fn(async () => {}),
 }));
@@ -224,7 +226,8 @@ beforeEach(() => {
   casarOrigemPorHorario.mockClear();
   garantirLeadDaConversa.mockClear();
   garantirLeadDaConversa.mockResolvedValue({ criado: true, leadId: "lead-1" } as never);
-  vi.mocked(acelerarPipelineDeEventos).mockClear();
+  vi.mocked(acelerarFollowupDoInbound).mockReset();
+  vi.mocked(drenarEventosDoInbound).mockReset();
 });
 
 describe("a ordem dos três efeitos", () => {
@@ -565,9 +568,9 @@ describe("os dois canais usam o mesmo passo", () => {
     );
   });
 
-  it("acorda o follow-up do contato ANTES do drain genérico", async () => {
+  it("acorda o follow-up do contato com a mensagem que chegou", async () => {
     await rodar();
-    expect(acelerarPipelineDeEventos).toHaveBeenCalledWith(
+    expect(acelerarFollowupDoInbound).toHaveBeenCalledWith(
       admin,
       expect.objectContaining({
         organizationId: "org-1",
@@ -579,7 +582,7 @@ describe("os dois canais usam o mesmo passo", () => {
   });
 
   it("avança o follow-up ANTES de acordar o agente", async () => {
-    vi.mocked(acelerarPipelineDeEventos).mockImplementation(async () => {
+    vi.mocked(acelerarFollowupDoInbound).mockImplementation(async () => {
       sequencia.push("acelerar-followup");
     });
     await rodar();
@@ -587,6 +590,28 @@ describe("os dois canais usam o mesmo passo", () => {
     const agente = sequencia.indexOf("rpc:ai_agent.dispatch_requested");
     expect(followup).toBeGreaterThanOrEqual(0);
     expect(agente).toBeGreaterThan(followup);
+  });
+
+  it("pede o turno do agente ANTES de drenar o event_log", async () => {
+    // O dreno roda handlers de outros eventos (e, sem worker, de outras
+    // organizações). Nenhum deles decide se o agente fala; cada um que vinha
+    // antes atrasava o pedido do turno.
+    vi.mocked(acelerarFollowupDoInbound).mockImplementation(async () => {
+      sequencia.push("acelerar-followup");
+    });
+    vi.mocked(drenarEventosDoInbound).mockImplementation(async () => {
+      sequencia.push("drenar-event-log");
+    });
+    await rodar();
+    expect(sequencia.filter((p) => /acelerar|drenar|dispatch_requested/.test(p))).toEqual([
+      "acelerar-followup",
+      "rpc:ai_agent.dispatch_requested",
+      "drenar-event-log",
+    ]);
+    expect(drenarEventosDoInbound).toHaveBeenCalledWith(
+      admin,
+      expect.objectContaining({ organizationId: "org-1", contactId: "contato-1" }),
+    );
   });
 
   it("o vocabulário do opt-out vive num lugar só", () => {
@@ -685,7 +710,7 @@ describe("a origem da página que veio no texto", () => {
     await rodar({ texto: `oi ${CODIGO}` });
     expect(nomesDeRpc()).toContain("fn_estampar_atribuicao_de_anuncio");
     expect(garantirLeadDaConversa).toHaveBeenCalled();
-    expect(vi.mocked(acelerarPipelineDeEventos)).toHaveBeenCalled();
+    expect(vi.mocked(acelerarFollowupDoInbound)).toHaveBeenCalled();
   });
 
   it("na SEGUNDA mensagem do contato o código NÃO estampa", async () => {
@@ -735,7 +760,7 @@ describe("a origem da página que veio no texto", () => {
     await expect(rodar({ texto: `oi ${CODIGO}` })).resolves.toBeUndefined();
     expect(nomesDeRpc()).not.toContain("fn_estampar_atribuicao_de_anuncio");
     expect(garantirLeadDaConversa).toHaveBeenCalled();
-    expect(vi.mocked(acelerarPipelineDeEventos)).toHaveBeenCalled();
+    expect(vi.mocked(acelerarFollowupDoInbound)).toHaveBeenCalled();
   });
 });
 

@@ -113,6 +113,15 @@ describe("o envio pelo canal (o adapter)", () => {
     });
   });
 
+  it("evento de etapa sem valor sai sem `value` e sem `currency` — zero seria mentira", async () => {
+    const f = vi.spyOn(globalThis, "fetch").mockResolvedValue(resposta({ eventsReceived: 1, eventsFailed: 0 }));
+    await zernioReportConversion({ ...VENDA, event: "InitiateCheckout", valueCents: null });
+    const corpo = JSON.parse(f.mock.calls[0]![1]?.body as string);
+    expect(corpo.eventName).toBe("InitiateCheckout");
+    expect(corpo).not.toHaveProperty("value");
+    expect(corpo).not.toHaveProperty("currency");
+  });
+
   it("sem conversa conhecida, manda só o telefone", async () => {
     const f = vi.spyOn(globalThis, "fetch").mockResolvedValue(resposta({ eventsReceived: 1, eventsFailed: 0 }));
     await zernioReportConversion({ ...VENDA, providerConversationId: null });
