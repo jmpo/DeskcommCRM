@@ -356,16 +356,23 @@ export async function getLeadContext(
     }
   };
 
-  const [{ conversationId, history, previousOutcomes }, lastHumanDecision, last_proposal, anuncioMaisRecente] =
+  const [{ conversationId, history, previousOutcomes }, lastHumanDecision, [last_proposal, anuncioMaisRecente]] =
     await Promise.all([
       conversaHistoricoEDesfechos(),
       ultimaDecisao(),
-      ultimaProposta(),
-      anuncioMaisRecenteDiferenteDaOrigem(db, input, {
-        titulo: contact.ad_title ?? null,
-        texto: contact.ad_body ?? null,
-        ad_id: contact.ad_id ?? null,
-      }),
+      // O anúncio mais recente (fork) divide a vaga da proposta, em série: o turno
+      // tem teto de 4 consultas em voo (`tests/unit/turno-le-em-paralelo.test.ts`).
+      ultimaProposta().then(
+        async (proposta) =>
+          [
+            proposta,
+            await anuncioMaisRecenteDiferenteDaOrigem(db, input, {
+              titulo: contact.ad_title ?? null,
+              texto: contact.ad_body ?? null,
+              ad_id: contact.ad_id ?? null,
+            }),
+          ] as const,
+      ),
     ]);
 
   // LGPD: base legal derivada DIRETO do contato (fonte da verdade, mesmo banco).
