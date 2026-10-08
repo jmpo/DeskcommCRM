@@ -52,6 +52,11 @@ export const KIND_LABEL = {
   // chegam e ninguém responde. "Modo de teste sem número autorizado" descreve
   // o campo; "a IA não responde ninguém" é o que faz o operador agir.
   canal_mudo_sem_numero: "Um canal está em modo de teste — a IA não responde ninguém nele",
+  // Diz o que ACONTECEU e a consequência para quem está do outro lado. "Pausado"
+  // sozinho descreve o toggle que alguém clicou; "não recebe nem envia
+  // mensagens" é o que muda para quem estava esperando mensagem neste canal —
+  // e é a frase que faz quem lê no outro turno abrir o item.
+  canal_pausado: "Um canal foi pausado — não recebe nem envia mensagens",
   // Diz o que o CLIENTE está esperando, não o que o sistema deixou de gravar.
   // "Promessa não cumprida" é a única frase que faz o dono do negócio agir: do
   // lado de lá existe uma pessoa que ouviu um compromisso e está aguardando.

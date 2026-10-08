@@ -83,6 +83,12 @@ export const POLITICAS_DE_AVISO = {
   // A orientação evita "revisar a conexão": nada caiu, e o conserto é um clique
   // de autorização em Conexões — dizer "revisar" mandaria procurar um defeito.
   canal_mudo_sem_numero: { refs: ["channel_session"], orientacao: "Peça a quem administra para autorizar os números de teste em Conexões ou abrir o canal ao público." },
+  // Sem `geral`, pelo mesmo motivo do vizinho acima: o item nasce SEMPRE
+  // apontando para a conexão que foi pausada (`ref_kind: channel_session`).
+  // Nada quebrou, então a orientação não manda "revisar" — manda retomar a
+  // pausa, que é o único clique que devolve o canal ao ar. E o aviso fecha
+  // sozinho quando isso acontecer.
+  canal_pausado: { refs: ["channel_session"], orientacao: "Se este canal precisar voltar a operar, retome a pausa em Conexões — este aviso se resolve sozinho quando a pausa for desfeita." },
   promise_unfulfilled: { refs: ["conversation"], orientacao: "Confira o compromisso descrito e defina quem fica responsável." },
   contact_proposal_expired: { refs: ["organization"], orientacao: "A sugestão venceu. Se a informação ainda for relevante, confirme com o cliente antes de editar sua ficha." },
   conhecimento_nao_indexado: { refs: ["ai_knowledge_source"], orientacao: "Peça ao gestor para conferir o material e o motivo da falha na base de conhecimento." },

@@ -358,13 +358,36 @@ export function createFollowupTurnHandler(deps: FollowupTurnDeps) {
 
     const boundary = parseServiceBoundary(job.payload.service_boundary);
     await requireCurrentServiceBoundary(pool, boundary);
-    const { rows: targetRows } = await pool.query<{ channel_session_id: string; archived_at: string | null }>(
-      `select c.channel_session_id, to_jsonb(cs)->>'archived_at' as archived_at from conversations c
+    const { rows: targetRows } = await pool.query<{ channel_session_id: string; archived_at: string | null; canal_desativado: string | null }>(
+      `select c.channel_session_id, to_jsonb(cs)->>'archived_at' as archived_at, to_jsonb(cs)->'metadata'->>'disabled' as canal_desativado from conversations c
        join channel_sessions cs on cs.id=c.channel_session_id and cs.organization_id=c.organization_id
        where c.organization_id=$1 and c.id=$2 and c.contact_id=$3`,
       [tenantId, boundary!.conversation_id, leadId]);
     if (!targetRows[0]) throw new Error('conversa de origem indisponível');
     if (targetRows[0].archived_at) throw new Error('canal arquivado');
+    // Canal DESATIVADO (#2329): consumir SEM ERRO, em vez de `throw`.
+    //
+    // `throw` mandava o job para a fila de retentativa: 5 tentativas gastas para
+    // descartar uma mensagem que não pode sair, e no fim um `dead` com o aviso
+    // CRÍTICO "Job descartado" na Central — UM por follow-up, sem ninguém poder
+    // fazer nada (o canal continua desligado). O desfecho próprio é este: o job
+    // termina `done`, com o motivo no log, sem pagar o turno de modelo nem
+    // acender alerta.
+    //
+    // `turn_discarded` NÃO é gravado aqui, ao contrário do descarte por
+    // organização parada (migration 0501): lá a reativação reenfileira porque o
+    // `claim` não entrega inscrição com a org parada; com o CANAL pausado não há
+    // essa barreira, e o evento enfileiraria um turno novo a cada recheck até o
+    // operador religar — justamente a reação que esta issue está barrando.
+    if (targetRows[0].canal_desativado === 'true') {
+      deps.log?.info('followup_turn: canal desativado — turno consumido sem rodar', {
+        job_id: job.id,
+        tenant_id: tenantId,
+        lead_id: leadId,
+        motivo: 'canal_desativado',
+      });
+      return;
+    }
     const target: ReentrySendTarget = { tenantId, leadId, conversationId: boundary!.conversation_id, channelSessionId: targetRows[0]!.channel_session_id };
 
     // A INSCRIÇÃO PRECISA ESTAR VIVA ANTES DE QUALQUER EFEITO. O turno já

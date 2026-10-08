@@ -190,6 +190,51 @@ async function registrarAdiamento(
   }
 }
 
+/** O contato do evento, quando ele existe — direto ou via conversa. */
+async function contatoDoEvento(
+  admin: SupabaseClient,
+  row: EventRow,
+): Promise<string | null> {
+  const direto = typeof row.payload.contact_id === "string" ? row.payload.contact_id : null;
+  if (direto) return direto;
+  const conversa =
+    typeof row.payload.conversation_id === "string" ? row.payload.conversation_id : null;
+  if (!conversa) return null;
+  const { data } = await admin
+    .from("conversations")
+    .select("contact_id")
+    .eq("id", conversa)
+    .eq("organization_id", row.organization_id)
+    .maybeSingle();
+  return (data as { contact_id?: string } | null)?.contact_id ?? null;
+}
+
+/**
+ * Verdadeiro quando o evento é de um contato pessoal (spec 21, caminho 8).
+ *
+ * Fail-open de propósito: sem conseguir resolver o contato, a regra segue o
+ * caminho de sempre — calar por falta de leitura esconderia automação legítima
+ * sem deixar rastro do porquê.
+ */
+async function eventoEhDeContatoPessoal(
+  admin: SupabaseClient,
+  row: EventRow,
+): Promise<boolean> {
+  try {
+    const contatoId = await contatoDoEvento(admin, row);
+    if (!contatoId) return false;
+    const { data } = await admin
+      .from("contacts")
+      .select("is_personal")
+      .eq("id", contatoId)
+      .eq("organization_id", row.organization_id)
+      .maybeSingle();
+    return (data as { is_personal?: boolean } | null)?.is_personal === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function runAutomationForEvent(
   admin: SupabaseClient,
   row: EventRow,
@@ -204,8 +249,14 @@ export async function runAutomationForEvent(
 
   const expectedKind = EXPECTED_ENTITY_KIND[row.event_type];
   if (expectedKind && entidadeDoEvento(row) !== expectedKind) {
-  
+
     return { consumer_key: AUTOMATION_CONSUMER_KEY, status: "skipped", detail: "entity_kind_mismatch" };
+  }
+
+  // Contato pessoal (spec 21, caminho 8): evento de pessoal não casa com regra
+  // nenhuma — nem webhook externo sai por ele.
+  if (await eventoEhDeContatoPessoal(admin, row)) {
+    return { consumer_key: AUTOMATION_CONSUMER_KEY, status: "skipped", detail: "contato_pessoal" };
   }
 
   const { data: rules, error } = await admin
@@ -242,6 +293,13 @@ export async function runAutomationForEvent(
   }
 
   const context = await buildContext(admin, row);
+  // O pré-check acima só acha o contato pelo payload (`contact_id`/`conversation_id`).
+  // O aniversário (`contact.birthday`) traz o contato em `entity_id`, e o evento de
+  // negócio ou de compromisso traz o contato pelo lead/compromisso: o contexto
+  // hidratado é quem os alcança.
+  if ((context.contact as { is_personal?: boolean } | undefined)?.is_personal === true) {
+    return { consumer_key: AUTOMATION_CONSUMER_KEY, status: "skipped", detail: "contato_pessoal" };
+  }
   const applicable = matched.filter((r) => evaluateConditions(r.conditions ?? [], context));
   if (!applicable.length) {
     return { consumer_key: AUTOMATION_CONSUMER_KEY, status: "ok", detail: "no_match" };

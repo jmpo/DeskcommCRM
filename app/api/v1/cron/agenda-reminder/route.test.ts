@@ -288,3 +288,53 @@ describe("a rota repassa o instante do último carimbo (#2243)", () => {
     expect(fonte).not.toMatch(/\.is\(\s*["']reminder_sent_at["']/);
   });
 });
+
+describe("degrausPendentes — a véspera não sai no dia em que a reunião foi marcada", () => {
+  // Amanhã 14h em São Paulo (17h UTC); avisos de 1 dia e de 1 hora.
+  const comeca = new Date("2026-10-06T17:00:00.000Z");
+  const base = { comeca, principal: 1440, extras: [60], jaEnviados: null as number[] | null, timezone: "America/Sao_Paulo" };
+
+  it("marcou hoje às 9h para amanhã às 14h: a véspera de hoje às 14h não sai", () => {
+    const criadoEm = new Date("2026-10-05T12:00:00.000Z");
+    expect(degrausPendentes({ ...base, criadoEm, agora: new Date("2026-10-05T17:00:00.000Z") })).toEqual([]);
+  });
+
+  it("o aviso de 1 hora continua saindo amanhã", () => {
+    const criadoEm = new Date("2026-10-05T12:00:00.000Z");
+    expect(degrausPendentes({ ...base, criadoEm, agora: new Date("2026-10-06T16:00:00.000Z") })).toEqual([60]);
+  });
+
+  it("marcou ontem para amanhã: a véspera sai normalmente hoje", () => {
+    const criadoEm = new Date("2026-10-04T12:00:00.000Z");
+    expect(degrausPendentes({ ...base, criadoEm, agora: new Date("2026-10-05T17:00:00.000Z") })).toEqual([1440]);
+  });
+
+  it("o dia é o do fuso da organização, não o UTC", () => {
+    // 22h de SP já é o dia seguinte em UTC; para SP a véspera (dia 5, 14h) é o mesmo dia.
+    const criadoEm = new Date("2026-10-05T01:00:00.000Z"); // dia 4, 22h em SP
+    expect(degrausPendentes({ ...base, criadoEm, agora: new Date("2026-10-05T17:00:00.000Z") })).toEqual([1440]);
+  });
+
+  it("aviso curto no dia da marcação não é afetado", () => {
+    // Marcou hoje às 10h para hoje às 18h: o aviso das 17h sai.
+    const hoje18 = new Date("2026-10-05T21:00:00.000Z");
+    expect(
+      degrausPendentes({ ...base, comeca: hoje18, criadoEm: new Date("2026-10-05T13:00:00.000Z"), agora: new Date("2026-10-05T20:00:00.000Z") }),
+    ).toEqual([60]);
+  });
+
+  it("sem fuso a guarda fica fora do caminho", () => {
+    const criadoEm = new Date("2026-10-05T12:00:00.000Z");
+    expect(degrausPendentes({ ...base, timezone: null, criadoEm, agora: new Date("2026-10-05T17:00:00.000Z") })).toEqual([1440]);
+  });
+});
+
+describe("vesperaNoDiaDaMarcacao — fuso ilegível não derruba a rodada", () => {
+  it("fuso inválido devolve false em vez de lançar (o cron é de todas as organizações)", async () => {
+    const { vesperaNoDiaDaMarcacao } = await import("./route");
+    const marcadoEm = new Date("2026-10-05T12:00:00Z");
+    const comeca = new Date("2026-10-06T17:00:00Z");
+    expect(() => vesperaNoDiaDaMarcacao(comeca, 1440, marcadoEm, "Brasilia")).not.toThrow();
+    expect(vesperaNoDiaDaMarcacao(comeca, 1440, marcadoEm, "Brasilia")).toBe(false);
+  });
+});

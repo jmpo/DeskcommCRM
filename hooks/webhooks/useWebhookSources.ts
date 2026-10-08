@@ -10,6 +10,7 @@ export interface WebhookSourceRow {
   name: string;
   path_token: string;
   is_active: boolean;
+  authorize_ai_on_capture: boolean;
   kind: string;
   last_received_at: string | null;
   default_pipeline_id: string;
@@ -88,6 +89,7 @@ export function useUpdateWebhookSource() {
     }: {
       id: string;
       is_active?: boolean;
+      authorize_ai_on_capture?: boolean;
       secret?: string | null;
     }) => apiClient.patch<{ data: WebhookSourceRow }>(`/api/v1/webhook-sources/${id}`, patch),
     onError: showApiError,

@@ -91,7 +91,7 @@ async function turno(fake: ReturnType<typeof modelo>["fake"]): Promise<void> {
     `insert into messages (id, organization_id, conversation_id, channel_session_id, contact_id,
        type, direction, status, body, sent_via, sent_at, created_at)
      values ($1,$2,$3,$4,$5,'text','inbound','delivered',$6,'external_device',now(),now())`,
-    [msg, ORG, CONV, SESSION, CONTACT, "Elvio Esteban, barrio Centro, portón marrón, a las 12"],
+    [msg, ORG, CONV, SESSION, CONTACT, "Juan Pérez, barrio Centro, portón verde, a las 12"],
   );
   const { job } = await m.queue.enqueueJob(pool, ORG, {
     kind: "inbound_turn",

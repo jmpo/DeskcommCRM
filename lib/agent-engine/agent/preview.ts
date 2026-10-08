@@ -20,6 +20,7 @@ import { PACING_DEFAULTS } from '../pacing/defaults';
 import { SPINNING_DEFAULTS } from '../spinning/defaults';
 import { loadRecentCopies, loadSpinningKnobs } from '../spinning/store';
 import { loadPromiseTable } from '../guardrails/promise/table';
+import { camadaLigada, lerCamadasDaOrg } from '../guardrails/camadas-da-org';
 import { loadDisclosureTemplate, countPriorAcceptedSends } from '../guardrails/disclosure/template';
 import { DEFAULT_CHANNEL_PROVIDER } from '@/lib/channels/capabilities';
 import { getToolByName } from '@/lib/mcp/tools';
@@ -137,6 +138,10 @@ export async function previewGateContext(
       toolCalledThisTurn: false,
     },
     internalVocabularyEnforced: true,
+    // A MESMA decisão do turno real: a camada de afirmação clínica é da organização.
+    // Um Testar que arma diferente da produção faz quem afina o prompt testar contra
+    // outro sistema — o mesmo motivo do `agenda` logo acima.
+    clinicalClaimEnforced: camadaLigada((await lerCamadasDaOrg(db, org)).afirmacao_clinica, false),
   };
 }
 export const SCENARIO_READS = new Set([

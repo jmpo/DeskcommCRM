@@ -520,6 +520,8 @@ export const crmListAppointments: McpToolDefinition<typeof listarShape> = {
         inicio: a.iniciaEm,
         fim: a.terminaEm,
         fuso: a.fuso,
+        quando: rotuloLocal(new Date(a.iniciaEm), a.fuso),
+        fim_quando: rotuloLocal(new Date(a.terminaEm), a.fuso),
         situacao: a.situacao,
         meet_state: a.meetingState,
         meeting_url: a.meetingState === "ready" ? a.meetingUrl : null,
@@ -599,6 +601,57 @@ async function semDerrubarOTurno<T>(
   }
 }
 
+/**
+ * Quem pode entrar no convite do Google pela mão do agente: só quem é USUÁRIO
+ * ATIVO desta organização (decisão do mantenedor no #2077, issue #2062).
+ *
+ * O agente escreve o que o cliente dita. Um e-mail de cliente ou de terceiro no
+ * convite faria o Google mandar, em nome do negócio, um convite a quem o
+ * negócio nunca escolheu. O caso que a issue pede — o consultor que conduz a
+ * reunião — é sempre alguém da equipe. (Convidado externo com confirmação
+ * humana ficou como pedido futuro.)
+ *
+ * A conferência é contra os membros da organização do TURNO
+ * (`ctx.organizationId`), nunca do input, e nunca olha outras organizações: a
+ * recusa é a mesma para e-mail desconhecido e para membro de outra empresa.
+ */
+const DESCRICAO_DO_CONVIDADO =
+  "e-mail de alguém DA EQUIPE (usuário desta empresa) que também participa do compromisso — por " +
+  "exemplo, o consultor que conduz a reunião. E-mail de cliente ou de terceiro é RECUSADO: o contato " +
+  "atendido já entra no convite pelo e-mail da ficha, quando ele existe.";
+
+async function convidadoEhDaEquipe(ctx: McpContext, email: string): Promise<boolean> {
+  const { data, error } = await ctx.supabase
+    .from("user_organizations")
+    .select("user_id")
+    .eq("organization_id", ctx.organizationId)
+    .is("revoked_at", null);
+  if (error) throw new ApiError(500, "internal_error", undefined, ctx.requestId, error.message);
+  const alvo = email.trim().toLowerCase();
+  // ponytail: uma leitura de auth por membro; equipe de self-host é pequena. Se
+  // crescer, troque por uma função que cruze `auth.users` no banco.
+  const emails = await Promise.all(
+    ((data ?? []) as Array<{ user_id: string }>).map(async (m) => {
+      const r = await ctx.supabase.auth.admin.getUserById(m.user_id);
+      if (r.error) throw new ApiError(500, "internal_error", undefined, ctx.requestId, r.error.message);
+      return r.data.user?.email?.trim().toLowerCase();
+    }),
+  );
+  return emails.includes(alvo);
+}
+
+/** A escrita conserva seus instantes; a IA recebe também a hora de parede. */
+function compromissoComHorarioLocal(r: Record<string, unknown>): Record<string, unknown> {
+  if (typeof r.starts_at !== "string" || typeof r.time_zone !== "string") return r;
+  return {
+    ...r,
+    quando: rotuloLocal(new Date(r.starts_at), r.time_zone),
+    ...(typeof r.ends_at === "string"
+      ? { fim_quando: rotuloLocal(new Date(r.ends_at), r.time_zone) }
+      : {}),
+  };
+}
+
 const marcarShape = {
   event_type_slug: z.string().min(1).describe("o identificador legível do tipo de atendimento"),
   starts_at: z.string().datetime({ offset: true }).describe("o instante exato do início, vindo de `crm_find_free_slots`"),
@@ -620,6 +673,12 @@ const marcarShape = {
     .max(300)
     .optional()
     .describe("endereço ou local DESTE compromisso. Vazio apaga o que o tipo sugeriu."),
+  guest_email: z
+    .string()
+    .email()
+    .max(320)
+    .optional()
+    .describe(DESCRICAO_DO_CONVIDADO),
 };
 
 export const crmBookAppointment: McpToolDefinition<typeof marcarShape> = {
@@ -650,6 +709,16 @@ export const crmBookAppointment: McpToolDefinition<typeof marcarShape> = {
           mensagem: `não existe atendimento chamado "${input.event_type_slug}". Pergunte que tipo de atendimento a pessoa quer.`,
         };
       }
+      if (input.guest_email !== undefined && !(await convidadoEhDaEquipe(ctx, input.guest_email))) {
+        return {
+          marcado: false,
+          motivo: "convidado_fora_da_equipe",
+          mensagem:
+            "NADA foi marcado: o convite só pode incluir e-mail de alguém da equipe desta empresa. " +
+            "Marque de novo SEM `guest_email` e, se a pessoa quer outro participante, diga que a " +
+            "equipe inclui no convite.",
+        };
+      }
       const r = await marcarAgendamentoHandler(
         ctx.supabase,
         {
@@ -671,6 +740,7 @@ export const crmBookAppointment: McpToolDefinition<typeof marcarShape> = {
           ...(input.location_details !== undefined
             ? { location_details: input.location_details }
             : {}),
+          ...(input.guest_email !== undefined ? { guest_email: input.guest_email } : {}),
         },
       );
       /**
@@ -707,7 +777,7 @@ export const crmBookAppointment: McpToolDefinition<typeof marcarShape> = {
 
       return {
         marcado: true,
-        compromisso: r,
+        compromisso: compromissoComHorarioLocal(r),
         // Campo próprio, além da mensagem: um booleano no topo é o que o modelo
         // enxerga sem precisar interpretar prosa.
         aguarda_confirmacao: aguardaConfirmacao,
@@ -736,6 +806,7 @@ async function marcarHorario(
     ownerUserId?: string;
     title?: string;
     notes?: string;
+    guestEmail?: string;
   },
 ): Promise<unknown> {
   return crmBookAppointment.handler(
@@ -746,6 +817,7 @@ async function marcarHorario(
       ...(args.ownerUserId !== undefined ? { owner_user_id: args.ownerUserId } : {}),
       ...(args.title !== undefined ? { title: args.title } : {}),
       ...(args.notes !== undefined ? { notes: args.notes } : {}),
+      ...(args.guestEmail !== undefined ? { guest_email: args.guestEmail } : {}),
     },
     ctx,
   );
@@ -771,6 +843,12 @@ const consultarEMarcarShape = {
   owner_user_id: z.string().uuid().optional(),
   title: z.string().min(1).max(200).optional(),
   notes: z.string().max(2000).optional(),
+  guest_email: z
+    .string()
+    .email()
+    .max(320)
+    .optional()
+    .describe(DESCRICAO_DO_CONVIDADO),
 };
 
 /**
@@ -872,6 +950,7 @@ export const crmFindAndBookAppointment: McpToolDefinition<typeof consultarEMarca
       ...(input.owner_user_id !== undefined ? { ownerUserId: input.owner_user_id } : {}),
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      ...(input.guest_email !== undefined ? { guestEmail: input.guest_email } : {}),
     });
 
     const recusado =
@@ -886,10 +965,16 @@ export const crmFindAndBookAppointment: McpToolDefinition<typeof consultarEMarca
       // modelo precisa para não encerrar a conversa com o cliente na mão.
       //
       // ⚠️ A lista vai SEM o horário recusado: ele acabou de ser recusado, e
-      // oferecê-lo de volta ao cliente é o começo de um laço.
+      // oferecê-lo de volta ao cliente é o começo de um laço. Exceção: a recusa
+      // do CONVIDADO (#2077) não é do horário — ele segue livre, e a instrução é
+      // marcar de novo sem `guest_email`; tirá-lo da lista empurraria o agente a
+      // oferecer outro horário ao cliente.
+      const motivoDaRecusa = (resultado as { motivo?: unknown }).motivo;
       const payload = payloadDeHorarios(
         consulta,
-        slotsDoDia.filter((s) => s !== achado),
+        motivoDaRecusa === "convidado_fora_da_equipe"
+          ? slotsDoDia
+          : slotsDoDia.filter((s) => s !== achado),
         HORARIOS_PADRAO,
       );
       // ⚠️ E o ensino só é REESCRITO quando a recusa é o horário que ficou
@@ -902,7 +987,6 @@ export const crmFindAndBookAppointment: McpToolDefinition<typeof consultarEMarca
       // ofereça horários", `agenda_tipo_desativado` diz "pergunte que outro
       // atendimento serve" — e as duas passavam a mandar oferecer um horário da
       // lista. E sem opção no dia, consultar outro dia é mesmo o próximo passo.
-      const motivoDaRecusa = (resultado as { motivo?: unknown }).motivo;
       const ofereceDaLista =
         motivoDaRecusa === "agenda_horario_indisponivel" && payload.horarios.length > 0;
       return {
@@ -968,7 +1052,7 @@ export const crmRescheduleAppointment: McpToolDefinition<typeof remarcarShape> =
           ...(input.notes ? { notes: input.notes } : {}),
         },
       );
-      return { remarcado: true, compromisso: r };
+      return { remarcado: true, compromisso: compromissoComHorarioLocal(r) };
     }),
 };
 
@@ -1003,7 +1087,7 @@ export const crmCancelAppointment: McpToolDefinition<typeof cancelarShape> = {
         { organization_id: ctx.organizationId, actor: ctx.actor, requestId: ctx.requestId },
         { id: input.appointment_id, reason: input.reason },
       );
-      return { cancelado: true, compromisso: r };
+      return { cancelado: true, compromisso: compromissoComHorarioLocal(r) };
     }),
 };
 
@@ -1037,7 +1121,7 @@ export const crmConfirmAppointment: McpToolDefinition<typeof confirmarShape> = {
           ...(input.notes ? { notes: input.notes } : {}),
         },
       );
-      return { confirmado: true, compromisso: r };
+      return { confirmado: true, compromisso: compromissoComHorarioLocal(r) };
     }),
 };
 
@@ -1073,6 +1157,6 @@ export const crmSetAppointmentOutcome: McpToolDefinition<typeof desfechoShape> =
           ...(input.notes ? { notes: input.notes } : {}),
         },
       );
-      return { registrado: true, compromisso: r };
+      return { registrado: true, compromisso: compromissoComHorarioLocal(r) };
     }),
 };
