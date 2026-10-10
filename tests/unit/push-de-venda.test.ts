@@ -14,6 +14,7 @@ vi.mock("@/lib/notifications/vapid", () => ({ vapidPronto: () => true, vapidPubl
 vi.mock("@/lib/notifications/web_push", () => ({
   enviarPushDaOrg: vi.fn().mockResolvedValue({ sent: 1, gone: 0 }),
   enviarPushAoUsuario: vi.fn().mockResolvedValue({ sent: 1, gone: 0 }),
+  enviarPushAQuemVeAConversa: vi.fn().mockResolvedValue({ sent: 1, gone: 0 }),
 }));
 
 import type { EventRow } from "@/lib/event-log/dispatcher";
@@ -25,7 +26,7 @@ import {
   montarPushDeVenda,
   novasDeHoje,
 } from "@/lib/notifications/push-de-venda";
-import { enviarPushAoUsuario, enviarPushDaOrg } from "@/lib/notifications/web_push";
+import { enviarPushAQuemVeAConversa, enviarPushAoUsuario, enviarPushDaOrg } from "@/lib/notifications/web_push";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -69,6 +70,7 @@ const evento = (event_type: string, payload: Record<string, unknown>): EventRow 
 beforeEach(() => {
   vi.mocked(enviarPushDaOrg).mockClear();
   vi.mocked(enviarPushAoUsuario).mockClear();
+  vi.mocked(enviarPushAQuemVeAConversa).mockClear();
 });
 
 describe("o texto do push de venda", () => {
@@ -228,8 +230,11 @@ describe("pelo handler", () => {
     }) as never);
     await webPushInboundHandler.handle(evento("lead.lost", { lead_id: "l1" }));
     expect(vi.mocked(enviarPushAoUsuario).mock.calls[0]![2].title).toBe("Lead perdido");
+    // A menção vai só a quem vê a conversa (upstream 1.78, 0612) — o título segue no idioma da organização.
     await webPushInboundHandler.handle(evento("user.mentioned", { to_user_id: "u2", conversation_id: "c1" }));
-    expect(vi.mocked(enviarPushAoUsuario).mock.calls[1]![2]).toMatchObject({
+    const [org, conversa, payload, so] = vi.mocked(enviarPushAQuemVeAConversa).mock.calls[0]!;
+    expect([org, conversa, so]).toEqual([ORG, "c1", ["u2"]]);
+    expect(payload).toMatchObject({
       title: "Te mencionaron",
       body: "Te mencionaron",
     });
