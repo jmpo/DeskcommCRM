@@ -18,6 +18,8 @@ import { audit } from "@/lib/audit";
 import { sincronizarSaudeDaConexao } from "@/lib/channels/health";
 import { marcarConversaComMensagem } from "@/lib/channels/marcar-conversa";
 import { aplicarEfeitosPosEntrada } from "@/lib/channels/pos-entrada";
+import { ORIGEM_DO_WHATSAPP_OPERADOR } from "@/lib/channels/origem-do-negocio";
+import { garantirLeadDaConversa } from "@/lib/leads/nascimento-do-lead";
 import {
   MOTIVO_COMANDO_OFF,
   pausarIaDuravelmente,
@@ -39,6 +41,7 @@ import { ackToStatus } from "@/lib/types/messaging";
 import type { WahaEnvelope, WahaPayload } from "@/lib/waha/envelope";
 import { bareWaMessageId, chatIdFromWaMessageId, wahaEchoExternalIds } from "@/lib/waha/message-id";
 import { logger } from "@/lib/logger";
+import { nomeDeArquivoLimpo } from "@/lib/messaging/media/nome-de-arquivo";
 import {
   ehNumeroInternoDeAviso,
   registrarMensagemIgnorada,
@@ -323,6 +326,22 @@ export function mediaUrlOf(p: WahaPayload): string | null {
 /** MIME da mídia: idem (payload.media.mimetype é o campo do NOWEB atual). */
 export function mediaMimeOf(p: WahaPayload): string | null {
   return p.mimetype ?? p.media?.mimetype ?? null;
+}
+
+/**
+ * Nome ORIGINAL do arquivo (`payload.media.filename`, o campo que o WAHA
+ * documenta em "Receive messages": `"some-file.pdf"` em documento, `null` em
+ * imagem/áudio) — a chave `metadata.media_filename` que o cartão do Inbox lê
+ * (#2613).
+ *
+ * Guarda por VALOR, não por presença: `null`, não-string e string em branco
+ * não é nome, e a chave só entra no `metadata` quando sobra algo. O path de
+ * storage é canônico (`{org}/{conversa}/{mensagem}.{ext}`) e apaga o nome que o
+ * cliente mandou — sem isto aqui, o cartão nunca deixa de mostrar o rótulo de
+ * extensão.
+ */
+export function mediaFilenameOf(p: WahaPayload): string | null {
+  return nomeDeArquivoLimpo(p.media?.filename);
 }
 
 /**
@@ -936,6 +955,7 @@ async function handleInbound(
     : null;
 
   const now = new Date().toISOString();
+  const nomeDoArquivo = mediaFilenameOf(p);
   const { data: insertedMessage, error: insertErr } = await admin
     .from("messages")
     .insert({
@@ -965,6 +985,10 @@ async function handleInbound(
         // O anúncio DESTA mensagem vai junto — o contato guarda só o primeiro, e
         // quem volta por outro anúncio precisa deixar rastro. Ver `metadataDoAnuncio`.
         ...metadataDoAnuncio(atribuicao),
+        // Nome original do anexo (#2613). Só quando há nome: a chave nunca é
+        // gravada vazia, e gravação é de linha NOVA (o INSERT é o único caminho
+        // que escreve `metadata` aqui), então nada do que já está é sobrescrito.
+        ...(nomeDoArquivo ? { media_filename: nomeDoArquivo } : {}),
       },
     })
     .select("id")
@@ -1120,6 +1144,112 @@ async function revogarComando(
 }
 
 /**
+ * A conversa que COMEÇA pelo celular também vira lead (issue #2448).
+ *
+ * ═══ O defeito, medido ═══
+ *
+ * `garantirLeadDaConversa` só era alcançada por `aplicarEfeitosPosEntrada`
+ * (`lib/channels/pos-entrada.ts`), que roda exclusivamente no caminho
+ * RECEBIDO. A primeira mensagem que o operador digita no aparelho conectado ao
+ * WAHA passa por este handler — grava a conversa, pausa a IA, audita — e saía
+ * sem passar pelo funil: a conversa aparecia no CRM e ninguém era dona dela
+ * (invariante 4 — "conversa fora do funil não é cobrada por ninguém"). Nada
+ * reclamava, que é o pior modo de falhar.
+ *
+ * ═══ Por que AQUI, e não na pós-entrada ═══
+ *
+ * Este caminho não chama `aplicarEfeitosPosEntrada`: os três efeitos dela
+ * (opt-out, lead, despacho) são de mensagem QUE CHEGA, e o recebido não muda.
+ * O que falta aqui é só o nascimento, e ele acontece no MESMO evento em que a
+ * conversa nasce — a mesma entrega de webhook, sem esperar a pessoa responder,
+ * que é exatamente o que a issue pede.
+ *
+ * ═══ Idempotência — chamada a cada mensagem, não só na primeira ═══
+ *
+ * `garantirLeadDaConversa` recusa quando já existe lead aberto para o contato
+ * (um por DEMANDA, não por mensagem) e a RPC `fn_nascer_lead_da_conversa`
+ * serializa por (organização, contato) e devolve NULL quando já existe um.
+ * Conversa que já tinha card não ganha um segundo; conversa antiga que ficou
+ * órfã ganha o seu na primeira fala seguinte.
+ *
+ * ═══ Só contato que NUNCA teve lead ═══
+ *
+ * Aqui a régua é mais estreita que a do recebido. Lá, lead fechado (ganho ou
+ * perdido) + a pessoa volta a escrever = demanda nova, e nasce outro card. Aqui
+ * quem fala é o OPERADOR: o código de rastreio depois da venda, o "chegou
+ * certinho?" — falar com cliente de lead fechado não é demanda nova. Sem esta
+ * guarda, toda mensagem do celular para um contato sem lead ABERTO abria card
+ * no funil de entrada e disparava `lead.created`. A issue pede o número que
+ * "ainda não tem conversa nem lead"; contato com qualquer lead, aberto ou
+ * fechado, não nasce nada por aqui.
+ *
+ * Best-effort, como todo efeito desta ingestão: a mensagem JÁ está gravada.
+ * Uma exceção daqui subiria para o webhook, o WAHA reenviaria tudo, e
+ * trocaríamos um lead que não nasceu por uma tempestade de reentrega.
+ */
+async function nascerLeadDaConversaPeloCelular(
+  admin: Admin,
+  session: Session,
+  contactId: string,
+  conversationId: string,
+): Promise<void> {
+  try {
+    const { data: qualquerLead, error: erroDoHistorico } = await admin
+      .from("crm_leads")
+      .select("id")
+      .eq("organization_id", session.organization_id)
+      .eq("contact_id", contactId)
+      .limit(1)
+      .maybeSingle();
+    if (erroDoHistorico) throw new Error(erroDoHistorico.message);
+    if (qualquerLead) {
+      logger.info("waha.ingest: lead nao criado a partir do celular", {
+        organization_id: session.organization_id,
+        conversation_id: conversationId,
+        contact_id: contactId,
+        motivo: "contato_ja_tem_lead",
+      });
+      return;
+    }
+
+    const nascimento = await garantirLeadDaConversa(admin, {
+      organizationId: session.organization_id,
+      contactId,
+      conversationId,
+      // NÃO o `pushName` do payload: em `fromMe` ele é o do OPERADOR, e o
+      // título do card sairia com o nome da loja no lugar do cliente. Quem
+      // batiza é o cadastro (`rotuloDoContato`), como no caminho recebido.
+      nomeDoContato: null,
+      origem: ORIGEM_DO_WHATSAPP_OPERADOR,
+    });
+    logger.info(
+      nascimento.criado
+        ? "waha.ingest: lead criado a partir do celular"
+        : "waha.ingest: lead nao criado a partir do celular",
+      {
+        organization_id: session.organization_id,
+        conversation_id: conversationId,
+        contact_id: contactId,
+        ...(nascimento.criado
+          ? {
+              lead_id: nascimento.leadId,
+              pipeline_id: nascimento.pipelineId,
+              stage_id: nascimento.stageId,
+            }
+          : { motivo: nascimento.motivo }),
+      },
+    );
+  } catch (err) {
+    logger.error("waha.ingest: nascimento do lead pelo celular falhou (a mensagem entra assim mesmo)", {
+      organization_id: session.organization_id,
+      conversation_id: conversationId,
+      contact_id: contactId,
+      error: err instanceof Error ? err.message.slice(0, 120) : "unknown",
+    });
+  }
+}
+
+/**
  * fromMe=true: operador respondeu direto do WhatsApp dele (não pelo composer).
  * Contato = destinatário (`to`). `from` é o próprio número do operador — nunca
  * vira contato. Registrado como outbound p/ o operador ver o histórico completo.
@@ -1266,6 +1396,7 @@ async function handleOutboundFromUserPhone(
   const comando = lerComandoDeControle(bodyOf(p));
 
   const now = new Date().toISOString();
+  const nomeDoArquivo = mediaFilenameOf(p);
   const { data: insertedOutbound, error: insertErr } = await admin
     .from("messages")
     .insert({
@@ -1289,6 +1420,8 @@ async function handleOutboundFromUserPhone(
         fromMe: true,
         // Mesmo critério do inbound: cópia do texto só quando não há ponteiro.
         ...(citacao?.texto && !citadaId ? { reply_to_body: citacao.texto } : {}),
+        // Mesma regra do inbound (#2613): nome só quando há nome.
+        ...(nomeDoArquivo ? { media_filename: nomeDoArquivo } : {}),
       },
     })
     .select("id")
@@ -1420,6 +1553,16 @@ async function handleOutboundFromUserPhone(
     }
     // O comando não é fala de atendimento: esconde do cliente depois de aplicar.
     if (comandoAplicado && revogar) await revogarComando(session, chatId, p.id);
+  }
+
+  // ── A CONVERSA QUE COMEÇA PELO CELULAR NASCE NO FUNIL (#2448) ────────────
+  //
+  // Depois da guarda de eco, e SÓ para o que não é eco: o eco é o envio do
+  // PRÓPRIO CRM (composer, IA, regra), cuja conversa não nasceu nesta fala do
+  // aparelho. Toda a razão — e a idempotência — está em
+  // `nascerLeadDaConversaPeloCelular`.
+  if (!ehEco) {
+    await nascerLeadDaConversaPeloCelular(admin, session, contactId, conversationId);
   }
 
   await audit({

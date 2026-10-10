@@ -42,7 +42,7 @@ import {
   useUpdateAutomationRule,
   type AutomationRuleRow,
 } from "@/hooks/webhooks/useAutomationRules";
-import { usePipelines, usePipelineStages } from "@/hooks/webhooks/useWebhookSources";
+import { usePipelines, usePipelineStages, useWebhookSources } from "@/hooks/webhooks/useWebhookSources";
 import { TRIGGER_LABELS, ACTION_LABELS, type TriggerEvent, type ActionType } from "./labels";
 import { ActionConfigForm, defaultActionConfig, type ActionItem } from "./ActionConfigForm";
 import { useT } from "@/hooks/i18n/useT";
@@ -198,6 +198,16 @@ interface ConfigDaData {
 const DIAS_PADRAO = "7";
 
 /**
+ * Sentinela dos seletores de recorte (#2483).
+ *
+ * O Radix recusa `SelectItem` com `value=""`, então "sem filtro" viaja como um
+ * valor nomeado e vira `null` na hora de gravar (e `""` no estado, que é o
+ * mesmo "todos/qualquer" da limpeza).
+ */
+const TODOS_OS_FUNIS = "__todos_os_funis__";
+const QUALQUER_ETAPA = "__qualquer_etapa__";
+
+/**
  * O que os gatilhos por TEMPO (#1540) guardam além do nome deles: N dias, de
  * QUEM é o silêncio (só no `lead.silent_for`) e se a agenda protege.
  *
@@ -208,7 +218,16 @@ interface ConfigDoTempo {
   dias: string;
   direcao: DirecaoDoSilencio;
   proteger_pela_agenda: boolean;
+  /**
+   * O recorte da varredura (#2483): `""` = todos os funis. A tela passou a
+   * DESENHAR o filtro que antes só a API sabia gravar — e a gravá-lo de novo.
+   */
+  pipeline_id: string;
+  /** Recorte da etapa, só no gatilho de etapa parada: `""` = qualquer etapa. */
+  stage_id: string;
 }
+
+const QUALQUER_FONTE = "__qualquer_fonte__";
 
 export function RuleEditor({ open, onOpenChange, rule }: Props) {
   const t = useT();
@@ -227,17 +246,26 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
     dias: DIAS_PADRAO,
     direcao: "da_equipe",
     proteger_pela_agenda: false,
+    pipeline_id: "",
+    stage_id: "",
   });
+  const [webhookSourceId, setWebhookSourceId] = React.useState(QUALQUER_FONTE);
 
   const create = useCreateAutomationRule();
   const update = useUpdateAutomationRule();
   const saving = create.isPending || update.isPending;
 
   const { data: pipelinesRes } = usePipelines();
+  const { data: sourcesRes } = useWebhookSources();
+  const webhookSources = sourcesRes?.data ?? [];
   const defaultPipeline =
     pipelinesRes?.data?.find((p) => p.is_default) ?? pipelinesRes?.data?.[0] ?? null;
   const { data: boardRes } = usePipelineStages(defaultPipeline?.id ?? null);
   const stages = boardRes?.data?.stages ?? [];
+  // As etapas do funil escolhido no bloco de TEMPO (#2483): segundo consumidor
+  // do MESMO hook, com o funil do formulário em vez do padrão.
+  const { data: boardDoTempo } = usePipelineStages(configDoTempo.pipeline_id || null);
+  const etapasDoTempo = boardDoTempo?.data?.stages ?? [];
 
   React.useEffect(() => {
     if (!open) return;
@@ -248,6 +276,8 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
     );
     setAdvancedRows({});
     setActions((rule?.actions as ActionItem[] | undefined) ?? []);
+    const sourceId = rule?.trigger_config?.webhook_source_id;
+    setWebhookSourceId(typeof sourceId === "string" ? sourceId : QUALQUER_FONTE);
     // A configuração salva volta pelo MESMO leitor que a varredura usa: se ela
     // não reconhece o que está guardado, a tela não inventa nada e o operador
     // reescolhe — em vez de a tela mostrar um funil que o cron ignora.
@@ -268,6 +298,10 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
       dias: tempoGuardado ? String(tempoGuardado.dias) : DIAS_PADRAO,
       direcao: silencioGuardado ? silencioGuardado.direcao : "da_equipe",
       proteger_pela_agenda: tempoGuardado ? tempoGuardado.proteger_pela_agenda : false,
+      // A tela agora MOSTRA o recorte gravado (#2483): `""` quando não há, que
+      // é o mesmo "todos/qualquer" da limpeza. Nada é inventado.
+      pipeline_id: tempoGuardado?.pipeline_id ?? "",
+      stage_id: etapaGuardada?.stage_id ?? "",
     });
   }, [open, rule]);
 
@@ -275,6 +309,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
   const ehGatilhoDeData = triggerEvent === GATILHO_DE_DATA_DO_FUNIL;
   const ehGatilhoDeTempo =
     triggerEvent === GATILHO_SILENCIO || triggerEvent === GATILHO_ETAPA_PARADA;
+  const ehGatilhoDeNovoContato = triggerEvent === "lead.created";
   const camposDeData = camposDoFunil(
     (pipelinesRes?.data ?? []).find((p) => p.id === configDaData.pipeline_id)?.settings ?? null,
   ).filter((campo) => campo.type === "date");
@@ -350,9 +385,25 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                 dias: configDoTempo.dias.trim() === "" ? Number.NaN : Number(configDoTempo.dias),
                 ...(triggerEvent === GATILHO_SILENCIO ? { direcao: configDoTempo.direcao } : {}),
                 proteger_pela_agenda: configDoTempo.proteger_pela_agenda,
+                // O recorte da varredura (#2483): a tela DESENHA e GRAVA o funil
+                // (nos dois gatilhos de tempo) e a etapa (só no de etapa
+                // parada). "" = todos/qualquer, que a API guarda como `null`.
+                pipeline_id: configDoTempo.pipeline_id || null,
+                ...(triggerEvent === GATILHO_ETAPA_PARADA
+                  ? { stage_id: configDoTempo.stage_id || null }
+                  : {}),
               },
             })
-          : undefined,
+          : ehGatilhoDeNovoContato
+            ? configAoSalvarDaTela({
+                gatilhoDaRegra: rule?.trigger_event,
+                configDaRegra: rule?.trigger_config,
+                gatilhoDaTela: triggerEvent,
+                configDaTela: {
+                  webhook_source_id: webhookSourceId === QUALQUER_FONTE ? null : webhookSourceId,
+                },
+              })
+            : {},
     };
     const parsed = createAutomationRuleSchema.safeParse(payload);
     if (!parsed.success) {
@@ -405,6 +456,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                 setTriggerEvent(v as TriggerEvent);
                 setConditions([]);
                 setAdvancedRows({});
+                if (v !== "lead.created") setWebhookSourceId(QUALQUER_FONTE);
               }}
             >
               <SelectTrigger>
@@ -418,6 +470,29 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                 ))}
               </SelectContent>
             </Select>
+
+            {ehGatilhoDeNovoContato ? (
+              <div className="space-y-1 rounded-sm border border-border p-3">
+                <Label>{t("Fonte do formulário")}</Label>
+                <Select value={webhookSourceId} onValueChange={setWebhookSourceId}>
+                  <SelectTrigger aria-label={t("Fonte do formulário")}>
+                    <SelectValue placeholder={t("Qualquer fonte")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={QUALQUER_FONTE}>{t("Qualquer fonte")}</SelectItem>
+                    {webhookSourceId !== QUALQUER_FONTE && !webhookSources.some((source) => source.id === webhookSourceId) ? (
+                      <SelectItem value={webhookSourceId}>{t("Fonte removida")}</SelectItem>
+                    ) : null}
+                    {webhookSources.map((source) => (
+                      <SelectItem key={source.id} value={source.id}>{source.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t("Escolha uma fonte para limitar esta automação a um formulário. Qualquer fonte mantém o comportamento geral.")}
+                </p>
+              </div>
+            ) : null}
 
             {/* O gatilho de DATA só sabe onde olhar se a regra disser o funil e o
                 campo: o campo de data pertence a UM funil. Sem esta escolha a
@@ -556,6 +631,68 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                                     ? "Do cliente (ele não respondeu)"
                                     : "De qualquer um",
                               )}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* #2483 — o recorte da varredura, agora DESENHADO. Antes
+                    desta escolha a regra valia para todos os funis e a tela não
+                    dizia isso; "Todos os funis"/"Qualquer etapa" voltam a esse
+                    `null` que a API já grava. */}
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex-1 basis-52 space-y-1">
+                    <Label>{t("Funil")}</Label>
+                    <Select
+                      value={configDoTempo.pipeline_id || TODOS_OS_FUNIS}
+                      onValueChange={(v) =>
+                        setConfigDoTempo((prev) => ({
+                          ...prev,
+                          pipeline_id: v === TODOS_OS_FUNIS ? "" : v,
+                          // Trocar de funil (ou limpar) zera a etapa: uma etapa
+                          // não existe no outro funil.
+                          stage_id: "",
+                        }))
+                      }
+                    >
+                      <SelectTrigger aria-label={t("Funil")}>
+                        <SelectValue placeholder={t("Todos os funis")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={TODOS_OS_FUNIS}>{t("Todos os funis")}</SelectItem>
+                        {(pipelinesRes?.data ?? []).map((pipeline) => (
+                          <SelectItem key={pipeline.id} value={pipeline.id}>
+                            {pipeline.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {triggerEvent === GATILHO_ETAPA_PARADA ? (
+                    <div className="flex-1 basis-52 space-y-1">
+                      <Label>{t("Etapa")}</Label>
+                      <Select
+                        value={configDoTempo.stage_id || QUALQUER_ETAPA}
+                        onValueChange={(v) =>
+                          setConfigDoTempo((prev) => ({
+                            ...prev,
+                            stage_id: v === QUALQUER_ETAPA ? "" : v,
+                          }))
+                        }
+                        disabled={!configDoTempo.pipeline_id}
+                      >
+                        <SelectTrigger aria-label={t("Etapa")}>
+                          <SelectValue placeholder={t("Qualquer etapa")} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={QUALQUER_ETAPA}>{t("Qualquer etapa")}</SelectItem>
+                          {etapasDoTempo.map((etapa) => (
+                            <SelectItem key={etapa.id} value={etapa.id}>
+                              {etapa.name}
                             </SelectItem>
                           ))}
                         </SelectContent>

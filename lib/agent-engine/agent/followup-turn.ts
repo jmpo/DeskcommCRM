@@ -405,26 +405,50 @@ export function createFollowupTurnHandler(deps: FollowupTurnDeps) {
     // `runFlowDrivenTurn`, como falhava.
     if (payload.followup_enrollment_id !== undefined && payload.node_id !== undefined) {
       // PESSOA NO COMANDO: a política de handoff do fluxo vale também para a
-      // conversa assumida à mão, que não emite `ai.handoff_triggered`. Pausada
-      // ou cancelada aqui, a inscrição cai no descarte logo abaixo — e a
-      // pausada ganha o `turn_discarded` que a retomada precisa.
-      const pessoa = await aplicarPessoaNoComandoAoTurno(
-        pool,
-        {
-          organizationId: tenantId,
-          enrollmentId: payload.followup_enrollment_id,
-          nodeId: payload.node_id,
-          conversationId: boundary!.conversation_id,
-        },
-        (deps.clock ?? ((): Date => new Date()))(),
-      );
-      if (pessoa !== null) {
-        withFields(deps.log, {
-          job_id: job.id,
-          tenant_id: tenantId,
-          lead_id: leadId,
-          enrollment_id: payload.followup_enrollment_id,
-        }).info('turno de fluxo não fala por cima de quem assumiu a conversa', { inscricao: pessoa });
+      // conversa assumida à mão, que não emite `ai.handoff_triggered`. Com
+      // `pause` o passo é ADIADO e confere de novo (o mesmo `deferred` da janela
+      // de envio, abaixo); cancelada, a inscrição cai no descarte logo abaixo.
+      if (payload.purpose === 'send_message') {
+        const agora = (deps.clock ?? ((): Date => new Date()))();
+        const pessoa = await aplicarPessoaNoComandoAoTurno(
+          pool,
+          {
+            organizationId: tenantId,
+            enrollmentId: payload.followup_enrollment_id,
+            nodeId: payload.node_id,
+            contactId: leadId,
+          },
+          agora,
+        );
+        if (pessoa !== null) {
+          withFields(deps.log, {
+            job_id: job.id,
+            tenant_id: tenantId,
+            lead_id: leadId,
+            enrollment_id: payload.followup_enrollment_id,
+          }).info('turno de fluxo não fala por cima de quem assumiu a conversa', {
+            inscricao: pessoa.kind,
+            ...(pessoa.kind === 'adiada' ? { next_run_at: pessoa.ate.toISOString() } : {}),
+          });
+        }
+        if (pessoa?.kind === 'adiada') {
+          const complete = deps.completeFollowupTurn;
+          if (!complete) {
+            throw new Error(
+              'passo adiado por pessoa no comando sem completeFollowupTurn — o enrollment não saberia do adiamento',
+            );
+          }
+          await rescheduleReentry(pool, { tenantId, leadId, jobId: job.id, at: pessoa.ate, payload: job.payload });
+          await complete(pool, {
+            jobId: job.id,
+            jobClaim: claimOfJob(job),
+            organizationId: tenantId,
+            enrollmentId: payload.followup_enrollment_id,
+            nodeId: payload.node_id,
+            result: { kind: 'deferred', until: pessoa.ate, reason: 'pessoa_no_comando' },
+          });
+          return;
+        }
       }
       const { rows: inscricaoRows } = await pool.query<{ current_node_id: string; status: string }>(
         `select current_node_id, status from followup_enrollments where organization_id = $1 and id = $2 limit 1`,
