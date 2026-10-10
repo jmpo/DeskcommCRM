@@ -260,12 +260,18 @@ describe("webPushInboundHandler", () => {
     const QUEM_VE = "user-que-ve";
     beforeEach(() => {
       state.vapidPronto = true;
+      // O título sai no idioma da organização (fork): o handler lê `organizations`
+      // antes da menção. Sem locale, cai no padrão (pt-BR).
+      fromMock.mockImplementation(() => ({
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+      }));
       enviarPushAQuemVeAConversaMock.mockImplementation(async (_org, _conv, _payload, soUsuarios) => ({
         sent: (soUsuarios ?? []).filter((u) => u === QUEM_VE).length,
         gone: 0,
       }));
     });
     afterEach(() => {
+      fromMock.mockReset();
       enviarPushAQuemVeAConversaMock.mockImplementation(async () => ({ sent: 1, gone: 0 }));
     });
 

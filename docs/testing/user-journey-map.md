@@ -520,7 +520,7 @@ diálogo e é asserida na spec.
 
 ---
 
-## J41 — A mensagem que saiu por modelo diz qual e mostra as opções `[P1]` (2026-09-29)
+## J45 — A mensagem que saiu por modelo diz qual e mostra as opções `[P1]` (2026-09-29)
 
 Contexto: com a janela de 24 h fechada, só sai modelo aprovado. A conversa
 mostrava o corpo como um texto qualquer — quem lia não sabia que tinha saído por
@@ -534,9 +534,9 @@ Spec: `tests/e2e/inbox-mensagem-por-modelo.spec.ts`.
 
 | # | Caso | Expectativa | Resultado |
 |---|------|-------------|-----------|
-| J41.1 | Abrir uma conversa com uma mensagem por modelo e uma de texto | o balão do modelo tem o selo «Modelo do WhatsApp · <nome>» e a lista «Opções enviadas ao cliente» com os botões na ordem; o de texto, nenhum dos dois; as opções cabem no balão (`boundingBox`) | **PASS pela tela** — Evidência: `evidence/inbox-mensagem-por-modelo/01-modelo-com-selo-e-opcoes.png` |
-| J41.2 | Enviar modelo com botões / sem espelho / texto comum com botões forjados no `metadata` | grava os botões da definição, na ordem / não grava nada e envia / não grava nada (o `metadata` de entrada não fala pelos botões) | **PASS (unit)** — `tests/unit/messages-handler-canal-intermediado.test.ts` |
-| J41.3 | Mensagem por modelo enviada antes desta versão (sem botões gravados) | só o selo, sem lista | **PASS (unit)** — `components/inbox/MessageBubble.test.tsx` |
+| J45.1 | Abrir uma conversa com uma mensagem por modelo e uma de texto | o balão do modelo tem o selo «Modelo do WhatsApp · <nome>» e a lista «Opções enviadas ao cliente» com os botões na ordem; o de texto, nenhum dos dois; as opções cabem no balão (`boundingBox`) | **PASS pela tela** — Evidência: `evidence/inbox-mensagem-por-modelo/01-modelo-com-selo-e-opcoes.png` |
+| J45.2 | Enviar modelo com botões / sem espelho / texto comum com botões forjados no `metadata` | grava os botões da definição, na ordem / não grava nada e envia / não grava nada (o `metadata` de entrada não fala pelos botões) | **PASS (unit)** — `tests/unit/messages-handler-canal-intermediado.test.ts` |
+| J45.3 | Mensagem por modelo enviada antes desta versão (sem botões gravados) | só o selo, sem lista | **PASS (unit)** — `components/inbox/MessageBubble.test.tsx` |
 
 ---
 
@@ -3429,7 +3429,7 @@ vale o horário, no segundo. Uma inbound sem texto acorda o nó, não é
 classificada, e a carência recomeça desse despertar (comportamento anterior do
 motor, não mexido aqui).
 
-## J42 — Escolher o modelo que escreve o seguimento `[P2]` (2026-10-02)
+## J46 — Escolher o modelo que escreve o seguimento `[P2]` (2026-10-02)
 
 Em Agente de IA › Provedores, grupo "Atender o cliente", o ponto **"Escrever o seguimento"**
 (`followup_turn`) mostra o modelo da versão publicada do agente enquanto ninguém escolheu outro, e
@@ -3438,8 +3438,8 @@ silêncio e retornos acordados) passam a usá-lo; responder ao cliente continua 
 
 | # | Caso | Esperado | Estado |
 |---|---|---|---|
-| J42.1 | Abrir Provedores com o agente publicado e sem escolha | o ponto aparece com o modelo da versão publicada | **PASS** — `prova-painel-provedores.spec.ts`; evidência `evidence/modelo-do-seguimento/01-ponto-no-painel.png` |
-| J42.2 | Escolher outro modelo no ponto e gravar | a escolha fica gravada e o cartão a mostra | **PASS** — evidência `evidence/modelo-do-seguimento/02-escolha-gravada.png` e `evidence/modelo-do-seguimento/03-cartao-do-follow-up.png` |
+| J46.1 | Abrir Provedores com o agente publicado e sem escolha | o ponto aparece com o modelo da versão publicada | **PASS** — `prova-painel-provedores.spec.ts`; evidência `evidence/modelo-do-seguimento/01-ponto-no-painel.png` |
+| J46.2 | Escolher outro modelo no ponto e gravar | a escolha fica gravada e o cartão a mostra | **PASS** — evidência `evidence/modelo-do-seguimento/02-escolha-gravada.png` e `evidence/modelo-do-seguimento/03-cartao-do-follow-up.png` |
 ## J39 — O fluxo de silêncio espera antes de recomeçar para quem já passou por ele `[P1]` (2026-09-27)
 
 Contexto do código: num fluxo de silêncio com `cancel_on_reply`, cada resposta do
