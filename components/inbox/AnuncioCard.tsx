@@ -51,13 +51,13 @@ export function AnuncioCard({
           loading="lazy"
           referrerPolicy="no-referrer"
           onError={() => setSemImagem(true)}
-          className={cn("shrink-0 rounded object-cover", compacto ? "h-10 w-10" : "h-14 w-14")}
+          className={cn("shrink-0 rounded-sm object-cover", compacto ? "h-10 w-10" : "h-14 w-14")}
         />
       ) : (
         <span
           aria-hidden
           className={cn(
-            "flex shrink-0 items-center justify-center rounded bg-current/10",
+            "flex shrink-0 items-center justify-center rounded-sm bg-current/10",
             compacto ? "h-10 w-10" : "h-14 w-14",
           )}
         >
