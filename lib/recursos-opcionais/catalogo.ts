@@ -30,7 +30,7 @@
  * quem desenha passa por `t()`/`traduzir()`.
  */
 import type { Role } from "@/lib/auth/types";
-import { MODULOS_OPCIONAIS, MODULOS_OPCIONAIS_POR_FLAG, type ModuloOpcional } from "@/lib/instalacao/modulos";
+import { MODULOS_OPCIONAIS, MODULOS_OPCIONAIS_POR_FLAG, MODULOS_SO_DA_INSTALACAO, type ModuloOpcional } from "@/lib/instalacao/modulos";
 import { NAV_CATALOG, type NavMetadata } from "@/lib/navigation/catalogo";
 import { vendaPeloCanalLigada } from "@/lib/conversoes/venda-pelo-canal";
 import { lerConfigDoJev } from "@/lib/ai/decisao/config";
@@ -117,6 +117,17 @@ const TEXTO_DO_MODULO: Record<ModuloOpcional, { nome: string; oQueFaz: string }>
   honorarios: {
     nome: "Honorários",
     oQueFaz: "Contratos de honorários com parcelas e o controle do que já foi pago.",
+  },
+  // #1907 item 4 — a linha do catálogo de recursos opcionais (#1876): a
+  // comanda, o caixa e as comissões. Módulo de tabela, então o `href` do mapa
+  // (`MODULOS_OPCIONAIS_POR_FLAG`) já aponta para `/admin/modulos`.
+  financeiro: {
+    nome: "Comandas",
+    oQueFaz: "A comanda do atendimento: itens, forma de pagamento, comissões e fidelidade.",
+  },
+  cobranca: {
+    nome: "Cobrança dos seus clientes",
+    oQueFaz: "Você cria planos e cobra as empresas desta instalação, com teste grátis e suspensão de quem não paga.",
   },
   login_codex: {
     nome: "Login do Codex por assinatura",
@@ -610,6 +621,17 @@ const DA_EMPRESA: RecursoOpcional[] = [
 
 const DE_CADA_AGENTE: RecursoOpcional[] = [
   {
+    id: "passagem_por_assunto_juridico",
+    nome: "Passagem por assunto jurídico",
+    oQueFaz:
+      "Por agente e decidido pelo admin: passar a conversa para uma pessoa quando o cliente falar de assunto jurídico (Procon, advogado, processo). Desligada, assunto jurídico passa a ser o trabalho normal deste agente e não é, sozinho, motivo de passagem — quem pede para falar com uma pessoa continua sendo passado. É OUTRA chave: a \"chamar uma pessoa\" de \"Ajustes de cada agente\" liga e desliga a ferramenta inteira; esta só tira a passagem por assunto jurídico.",
+    nivel: "agente",
+    padrao: "ligado",
+    quemDecide: "admin",
+    href: "/app/ai/agents",
+    ler: varia,
+  },
+  {
     id: "ajustes_do_agente",
     nome: "Ajustes de cada agente",
     oQueFaz:
@@ -640,6 +662,15 @@ export const RECURSOS_OPCIONAIS: readonly RecursoOpcional[] = [
   ...DA_EMPRESA,
   ...DE_CADA_AGENTE,
 ];
+
+/**
+ * Os módulos que a EMPRESA vê em Configurações › Recursos opcionais: todos os da
+ * instalação, menos os que são decisão só de quem administra o servidor
+ * (`MODULOS_SO_DA_INSTALACAO`).
+ */
+export const MODULOS_DA_EMPRESA: readonly RecursoOpcional[] = RECURSOS_OPCIONAIS.filter(
+  (r) => r.nivel === "instalacao" && !!r.modulo && !MODULOS_SO_DA_INSTALACAO.includes(r.modulo),
+);
 
 /**
  * O estado de um recurso. NUNCA lança: leitura que explode vira `nao_lido`,

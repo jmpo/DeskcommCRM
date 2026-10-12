@@ -21,7 +21,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ROLES, type Role } from "@/lib/schemas/team";
+import { rotuloDoPapel } from "@/lib/auth/types";
 import { descreverMotivoDaFalha } from "./motivo-da-falha";
+import { ApiError } from "@/lib/api/types";
 
 interface ResultState {
   sent: Array<{ email: string; accept_url: string; email_dispatched: boolean; expires_at: string }>;
@@ -34,6 +36,7 @@ export function InviteForm() {
   const [settings, setSettings] = useState(INTERFACE_COMPLETA);
   const [role, setRole] = useState<Role>("agent");
   const [result, setResult] = useState<ResultState | null>(null);
+  const [limiteDoPlano, setLimiteDoPlano] = useState<string | null>(null);
   const invite = useInviteMembers();
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -51,6 +54,7 @@ export function InviteForm() {
       toast.error(t("Máximo 20 emails por convite."));
       return;
     }
+    setLimiteDoPlano(null);
     try {
       const res = await invite.mutateAsync({
         invitations: unique.map((email) => ({ email, role, interface_settings: settings })),
@@ -62,8 +66,10 @@ export function InviteForm() {
         `${ok} ${t("convite(s) enviado(s)")}${ko > 0 ? `, ${ko} ${t("falha(s).")}` : "."}`,
       );
       setEmailsRaw("");
-    } catch {
-      /* showApiError handled */
+    } catch (err) {
+      // showApiError já mostrou o toast. O limite do plano FICA na tela: a frase
+      // (já no idioma de quem clicou) é a saída — remover alguém ou pedir a troca.
+      if (err instanceof ApiError && err.code === "plan_limit_reached") setLimiteDoPlano(err.message);
     }
   };
 
@@ -81,7 +87,7 @@ export function InviteForm() {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="role">Role</Label>
+          <Label htmlFor="role">{t("Papel")}</Label>
           <Select value={role} onValueChange={(v) => setRole(v as Role)}>
             <SelectTrigger id="role">
               <SelectValue />
@@ -89,7 +95,7 @@ export function InviteForm() {
             <SelectContent>
               {ROLES.map((r) => (
                 <SelectItem key={r} value={r}>
-                  {r}
+                  {t(rotuloDoPapel(r))}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -111,6 +117,11 @@ export function InviteForm() {
         >
           {invite.isPending ? t("Enviando…") : t("Enviar convites")}
         </Button>
+        {limiteDoPlano && (
+          <p role="alert" data-testid="convite-limite-do-plano" className="rounded-md border p-3 text-sm text-warning-fg">
+            {limiteDoPlano}
+          </p>
+        )}
       </form>
 
       <div className="space-y-4">

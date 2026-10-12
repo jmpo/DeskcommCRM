@@ -4,22 +4,24 @@
  * ## O defeito
  *
  * Numa instalação real (06/10/2026), a equipe assumiu à mão uma conversa que a
- * IA tinha devolvido, e o passo de IA do remarketing — inscrito antes — falou
- * por cima da pessoa uma hora depois. A política de handoff do fluxo
+ * IA tinha devolvido, e uma inscrição de remarketing criada antes seguia viva,
+ * com o próximo passo de IA agendado. A política de handoff do fluxo
  * (`handoff_policy`) só reagia ao EVENTO `ai.handoff_triggered`; assumir pela
  * tela não o emite, e o turno não olhava quem está no comando.
  *
  * ## O que este arquivo prende
  *
  * `aplicarPessoaNoComandoAoTurno` aplica a MESMA política na hora do turno, com
- * a mesma régua da varredura de silêncio (conversa `assignee_kind='user'`,
- * contato `force_human`, IA silenciada agora):
- * - `pause` → `paused_handoff` + evento `handoff_paused`;
- * - `cancel` → `cancelled`, `outcome='handoff'`, motivo `pessoa_no_comando`;
- * - `allow`, ninguém no comando ou inscrição em outro nó → nada muda;
- * - idempotente por ocupação do nó: a segunda chamada não grava nem muda nada.
+ * a régua que barra o envio (`isLeadInHandoff`: `force_human` ou IA silenciada):
+ * - `pause` → o passo é ADIADO (até o silêncio vencer, no máximo 1 h) e nada é
+ *   gravado: nunca `paused_handoff`, que só sai por `ai.handoff_resolved` e
+ *   ficaria preso depois de Liberar ou de um silêncio que vence sozinho;
+ * - `cancel` → `cancelled`, `outcome='handoff'`, motivo `pessoa_no_comando`,
+ *   idempotente por ocupação do nó;
+ * - `allow`, ninguém no comando, rodízio (atribui sem calar a IA) ou inscrição
+ *   em outro nó → nada muda.
  *
- * O SQL (CTE com INSERT + UPDATE condicional) só se prova aqui, no banco.
+ * Assumir e Liberar passam pela RPC de produção (`fn_conversation_assign`).
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
@@ -72,7 +74,16 @@ afterAll(async () => {
   await pool.end();
 });
 
-type Comando = "assumida" | "force_human" | "silenciada" | "ninguem";
+type Comando = "assumida" | "force_human" | "silencio_5min" | "rodizio" | "ninguem";
+
+async function atribuir(conversa: string, para: string | null, motivo: "claim" | "release" | "routing") {
+  await pool.query(`select count(*) from public.fn_conversation_assign($1, $2, $3, $4, null, false)`, [
+    ORG,
+    conversa,
+    para,
+    motivo,
+  ]);
+}
 
 async function cenario(politica: "pause" | "cancel" | "allow", comando: Comando) {
   const { rows: c } = await pool.query<{ id: string }>(
@@ -81,15 +92,12 @@ async function cenario(politica: "pause" | "cancel" | "allow", comando: Comando)
   );
   const contato = c[0]!.id;
   const origem = await criarOrigemDeFollowup(pool, ORG, contato);
-  if (comando === "assumida") {
+  if (comando === "assumida") await atribuir(origem.conversation_id, PESSOA, "claim");
+  if (comando === "rodizio") await atribuir(origem.conversation_id, PESSOA, "routing");
+  if (comando === "silencio_5min") {
+    // O que a resposta pela tela grava (`HUMAN_REPLY_SILENCE_MS`, messages/_handler.ts).
     await pool.query(
-      `update conversations set assignee_kind = 'user', assigned_to_user_id = $3 where organization_id = $1 and id = $2`,
-      [ORG, origem.conversation_id, PESSOA],
-    );
-  }
-  if (comando === "silenciada") {
-    await pool.query(
-      `update conversations set bot_silenced_until = now() + interval '1 hour' where organization_id = $1 and id = $2`,
+      `update conversations set bot_silenced_until = now() + interval '5 minutes' where organization_id = $1 and id = $2`,
       [ORG, origem.conversation_id],
     );
   }
@@ -108,7 +116,7 @@ async function cenario(politica: "pause" | "cancel" | "allow", comando: Comando)
      values ($1, $2, $3, $4, $5, 'active', now() + interval '1 hour', 3, $6, $7::jsonb) returning id`,
     [ORG, p[0]!.id, v[0]!.id, contato, NO, origem.conversation_id, JSON.stringify(origem)],
   );
-  return { inscricao: e[0]!.id, conversa: origem.conversation_id };
+  return { inscricao: e[0]!.id, conversa: origem.conversation_id, contato };
 }
 
 async function inscricao(id: string) {
@@ -127,63 +135,85 @@ async function eventos(id: string) {
   return rows;
 }
 
-const aplicar = (s: { inscricao: string; conversa: string }, no = NO) =>
-  aplicarPessoaNoComandoAoTurno(pool, { organizationId: ORG, enrollmentId: s.inscricao, nodeId: no, conversationId: s.conversa }, new Date());
+const UMA_HORA = 60 * 60 * 1000;
+
+const aplicar = (s: { inscricao: string; contato: string }, agora = new Date(), no = NO) =>
+  aplicarPessoaNoComandoAoTurno(pool, { organizationId: ORG, enrollmentId: s.inscricao, nodeId: no, contactId: s.contato }, agora);
+
+async function semRastro(s: { inscricao: string }) {
+  expect((await inscricao(s.inscricao)).status).toBe("active");
+  expect(await eventos(s.inscricao)).toEqual([]);
+}
 
 describe("a política de handoff do fluxo na hora do turno, com uma pessoa no comando", () => {
-  it("conversa assumida + política pause: a inscrição pausa, com o evento que a retomada lê", async () => {
+  it("⭐ assumida + pause: o passo é adiado e a inscrição NÃO pausa (nada a retomar depois)", async () => {
     const s = await cenario("pause", "assumida");
-    expect(await aplicar(s)).toBe("pausada");
-    const e = await inscricao(s.inscricao);
-    expect(e.status).toBe("paused_handoff");
-    expect(e.next_eval_at, "pausada não pode ter próxima avaliação").toBeNull();
-    const ev = await eventos(s.inscricao);
-    expect(ev.map((x) => x.event_type)).toEqual(["handoff_paused"]);
-    expect(ev[0]!.payload).toMatchObject({ prior_status: "active", reason: "pessoa_no_comando" });
-    expect(ev[0]!.idempotency_key).toBe(`pessoa_no_comando:${NO}:3`);
+    const agora = new Date();
+    expect(await aplicar(s, agora)).toEqual({ kind: "adiada", ate: new Date(agora.getTime() + UMA_HORA) });
+    await semRastro(s);
   });
 
-  it("conversa assumida + política cancel: a inscrição termina como handoff", async () => {
+  it("⭐ assumida → Liberar: a pessoa devolveu, o passo segue", async () => {
+    const s = await cenario("pause", "assumida");
+    expect((await aplicar(s))?.kind).toBe("adiada");
+    await atribuir(s.conversa, null, "release");
+    expect(await aplicar(s), "Liberar devolve o comando à IA e o passo continuou barrado").toBeNull();
+    await semRastro(s);
+  });
+
+  it("⭐ silêncio de 5 min (resposta pela tela): adia até o fim do silêncio, e depois segue", async () => {
+    const s = await cenario("pause", "silencio_5min");
+    const agora = new Date();
+    const r = await aplicar(s, agora);
+    expect(r?.kind).toBe("adiada");
+    const ate = (r as { ate: Date }).ate.getTime();
+    expect(ate).toBeGreaterThan(agora.getTime());
+    expect(ate, "o adiamento passou do fim do silêncio").toBeLessThanOrEqual(agora.getTime() + 5 * 60 * 1000 + 1000);
+    await pool.query(`update conversations set bot_silenced_until = now() - interval '1 second' where id = $1`, [s.conversa]);
+    expect(await aplicar(s)).toBeNull();
+    await semRastro(s);
+  });
+
+  it("force_human: adia pelo teto de 1 h", async () => {
+    const s = await cenario("pause", "force_human");
+    const agora = new Date();
+    expect(await aplicar(s, agora)).toEqual({ kind: "adiada", ate: new Date(agora.getTime() + UMA_HORA) });
+    await semRastro(s);
+  });
+
+  it("assumida + cancel: a inscrição termina como handoff, idempotente por ocupação do nó", async () => {
     const s = await cenario("cancel", "assumida");
-    expect(await aplicar(s)).toBe("cancelada");
+    expect(await aplicar(s)).toEqual({ kind: "cancelada" });
+    expect(await aplicar(s)).toBeNull();
     const e = await inscricao(s.inscricao);
     expect(e).toMatchObject({ status: "cancelled", outcome: "handoff", cancel_reason: "pessoa_no_comando" });
     expect(e.completed_at).not.toBeNull();
-    expect((await eventos(s.inscricao)).map((x) => x.event_type)).toEqual(["reactivity_handoff_cancel"]);
+    const ev = await eventos(s.inscricao);
+    expect(ev.map((x) => x.event_type)).toEqual(["reactivity_handoff_cancel"]);
+    expect(ev[0]!.idempotency_key).toBe(`pessoa_no_comando:${NO}:3`);
   });
 
-  it("contato em force_human e IA silenciada contam como pessoa no comando", async () => {
-    const a = await cenario("pause", "force_human");
-    expect(await aplicar(a)).toBe("pausada");
-    const b = await cenario("pause", "silenciada");
-    expect(await aplicar(b)).toBe("pausada");
+  it("rodízio atribui sem calar a IA: o passo segue, como a IA segue", async () => {
+    const s = await cenario("pause", "rodizio");
+    expect(await aplicar(s)).toBeNull();
+    await semRastro(s);
   });
 
   it("política allow: o fluxo segue, nada muda", async () => {
     const s = await cenario("allow", "assumida");
     expect(await aplicar(s)).toBeNull();
-    expect((await inscricao(s.inscricao)).status).toBe("active");
-    expect(await eventos(s.inscricao)).toEqual([]);
+    await semRastro(s);
   });
 
   it("controle: ninguém no comando, nada muda", async () => {
-    const s = await cenario("pause", "ninguem");
+    const s = await cenario("cancel", "ninguem");
     expect(await aplicar(s)).toBeNull();
-    expect((await inscricao(s.inscricao)).status).toBe("active");
-    expect(await eventos(s.inscricao)).toEqual([]);
+    await semRastro(s);
   });
 
   it("turno de outro nó não mexe na inscrição", async () => {
-    const s = await cenario("pause", "assumida");
-    expect(await aplicar(s, "outro-no")).toBeNull();
-    expect((await inscricao(s.inscricao)).status).toBe("active");
-  });
-
-  it("idempotente: a segunda chamada não grava outro evento nem muda o estado", async () => {
-    const s = await cenario("pause", "assumida");
-    expect(await aplicar(s)).toBe("pausada");
-    expect(await aplicar(s)).toBeNull();
-    expect((await eventos(s.inscricao)).length).toBe(1);
-    expect((await inscricao(s.inscricao)).status).toBe("paused_handoff");
+    const s = await cenario("cancel", "assumida");
+    expect(await aplicar(s, new Date(), "outro-no")).toBeNull();
+    await semRastro(s);
   });
 });

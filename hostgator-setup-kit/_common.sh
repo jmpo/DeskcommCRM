@@ -552,6 +552,69 @@ gravar_modelos_do_gotrue() {  # gravar_modelos_do_gotrue <.env do Supabase> [htt
   return 0
 }
 
+# ── O aviso do Site URL, UMA vez, no update.sh sem token ────────────────────
+# Por topologia, na mesma ordem do marca-emails.sh. O texto da nuvem (painel do
+# Supabase + `export SUPABASE_ACCESS_TOKEN=sbp_...`) saía em TODA instalação —
+# e mandava quem tem o Supabase na própria VPS a outra conta, atrás de uma chave
+# que ali não serve.
+#  - single-server: nada a dizer. O Site URL é do kit: o install-single-server.sh
+#    grava SITE_URL e ADDITIONAL_REDIRECT_URLS com o domínio desde o nascimento.
+#  - Supabase próprio (URL que não é *.supabase.co): o padrão de um Supabase
+#    novo também é localhost:3000, mas a conferência é no .env DELE.
+#  - nuvem, e URL vazia (topologia desconhecida): o texto de sempre.
+# Mora aqui, e não no update.sh, porque o update.sh relê este arquivo depois do
+# checkout: daqui em diante, um texto corrigido chega na própria atualização que
+# o traz. (A atualização que traz ESTA função ainda roda o update.sh anterior,
+# com o texto antigo embutido — o bash segue lendo o arquivo que abriu. No
+# single-server ele não chega a sair: atualizar_supabase_single_server grava o
+# marcador antes. No Supabase próprio sai uma última vez.)
+aviso_do_site_url() {  # aviso_do_site_url <URL do app>
+  local dom="${1%/}"
+  [ "${SINGLE_SERVER:-0}" = "1" ] && return 0
+  printf '\n'
+  c_ylw "  ─── CONFIRA UMA COISA, UMA VEZ SÓ ─────────────────────"
+  case "${NEXT_PUBLIC_SUPABASE_URL:-}" in
+    https://*.supabase.co*|"")
+      cat <<AVISO
+
+  Os e-mails de acesso (esqueci minha senha, confirmação de cadastro,
+  aceite de convite) levam para o endereço que estiver em Authentication
+  → URL Configuration, no painel do Supabase. Instalações feitas antes de
+  o instalador perguntar o token do Supabase ficaram com o padrão de
+  projeto novo, \`http://localhost:3000\`, que só existe na máquina de
+  quem desenvolve — e aí ninguém consegue redefinir a própria senha.
+
+  Vale conferir. Se já estiver com os valores abaixo, não há nada a fazer:
+
+       Site URL:       ${dom}
+       Redirect URLs:  ${dom}/auth/confirm
+
+  Este aviso não se repete — para o instalador cuidar disso sozinho, rode
+  o update com \`export SUPABASE_ACCESS_TOKEN=sbp_...\` no ambiente.
+AVISO
+      ;;
+    *)
+      cat <<AVISO
+
+  Os e-mails de acesso (esqueci minha senha, confirmação de cadastro,
+  aceite de convite) levam para o endereço que o seu Supabase tem em
+  SITE_URL. O padrão de um Supabase novo é \`http://localhost:3000\`, que só
+  existe na máquina de quem desenvolve — e aí ninguém consegue redefinir a
+  própria senha.
+
+  Vale conferir no .env do seu Supabase. Se já estiver assim, não há nada a
+  fazer; se mudar, recrie o contêiner auth dele (docker compose up -d auth,
+  na pasta do Supabase — um restart não relê o .env):
+
+       SITE_URL=${dom}
+       ADDITIONAL_REDIRECT_URLS=${dom}/auth/confirm
+
+  Este aviso não se repete.
+AVISO
+      ;;
+  esac
+}
+
 # ── O update.sh leva o Supabase até a versão pinada ──────────────────────────
 #
 # O `update.sh` oficial do Supabase faz o merge de três vias dos arquivos dele
@@ -560,9 +623,18 @@ gravar_modelos_do_gotrue() {  # gravar_modelos_do_gotrue <.env do Supabase> [htt
 # CRM: o Supabase segue na versão de antes e a próxima rodada tenta de novo.
 atualizar_supabase_single_server() {
   local dir atual
+  # O aviso do Site URL não tem o que dizer aqui: o Site URL é do kit (ver
+  # aviso_do_site_url). O marcador nasce no corpo desta função, e não só no
+  # update.sh, pelo motivo do #1653 lá embaixo: o update.sh ANTIGO, com o texto
+  # da nuvem embutido, chama esta função antes de decidir o aviso pelo marcador.
+  : > "${PROJECT_DIR:-$PWD}/.deskcomm-site-url-avisado" 2>/dev/null || true
   dir="$(dir_do_supabase)"
   [ -f "$dir/.env" ] || { c_red "⛔ $(t "Modo single-server sem {1}/.env — rode install-single-server.sh." "$dir")"; return 1; }
   cp "$KIT_DIR/supabase-single-server.override.yml" "$dir/docker-compose.deskcomm.yml" || return 1
+  # O terceiro arquivo (Traefik em bridge) só existe em quem instalou com ele.
+  if [ -f "$dir/docker-compose.deskcomm-traefik.yml" ]; then
+    cp "$KIT_DIR/supabase-single-server.traefik.yml" "$dir/docker-compose.deskcomm-traefik.yml" || return 1
+  fi
   set_env_var "$dir/.env" COMPOSE_PROJECT_NAME "$(projeto_do_supabase)"
   atual="$(sed -n 's/^ref=//p' "$dir/.supabase-version" 2>/dev/null | tail -1)"
   if [ "$atual" != "$SUPABASE_REF" ]; then
@@ -700,11 +772,16 @@ REGRAS_FALTANDO="${REGRAS_FALTANDO:-}"
 # antes do banco e a volta usa o endereço da imagem NOVA — gravado antes de
 # tentar baixá-la. Sem imagem, ele não volta. O susto virou queda.
 #
-# ⚠️ SÓ A IMAGEM DO APP. O worker e o scheduler têm `build:` ao lado do `image:`
-# no compose, então o `up -d` os constrói localmente quando falta imagem — mais
-# lento, mesmo resultado. O app não tem essa rede de segurança, e essa
-# assimetria já está escrita no update.sh, onde as duas mensagens são
-# diferentes de propósito.
+# ⚠️ SÓ A IMAGEM DO APP, de propósito. Worker, scheduler e voice-agent têm
+# `build:` ao lado do `image:` e o Compose os constrói sozinho em QUALQUER falha
+# de pull (medido); o `app` não tem (#1060), então quando falta a imagem dele o
+# `up -d` FALHA e quem responde é a guarda do update.sh — com o registro
+# respondendo ela constrói aqui (mais lento, mesmo resultado), sem resposta do
+# registro ela recusa. O que não dá para construir é a decisão de OFERECER a
+# atualização, e é isso que este veredito pergunta. As duas mensagens do
+# update.sh sobre pull que falhou continuam diferentes de propósito: a saída é
+# a mesma quando o registro responde, mas o diagnóstico — versão ainda
+# publicando × peça faltando — não é.
 #
 # Ecoa: publicada | ausente | indisponivel
 veredito_da_imagem_do_app() {  # veredito_da_imagem_do_app <versão alvo> <versão instalada>
@@ -848,11 +925,18 @@ restaurar_servicos() {
 # ── Imagem pronta que não serve para esta VPS: constrói a versão aqui ────────
 # Uma VPS cuja arquitetura não é a das imagens publicadas (Oracle Ampere, por
 # exemplo) recebe "no matching manifest for linux/arm64/v8" ao puxá-las. O
-# `up -d` seguinte morre junto: sem imagem no disco e sem `build:` ao lado do
-# `image:` do app, o Compose não tem o que subir. O desfecho visível era o pior
-# possível — a atualização não acontecia, o script terminava como se tivesse
-# dado certo e o dono só descobria pelo CRM velho. Pelo botão "Atualizar" do
-# site, nem isso: o agente roda sozinho no cron e não há ninguém lendo a tela.
+# `up -d` seguinte morre junto: o `app` não tem `build:` ao lado do `image:` no
+# compose de produção, de propósito (#1060) — é a falta da imagem dele que faz
+# o `up -d` falhar e leva quem chamou até esta função. Worker, scheduler e voz,
+# que têm `build:`, o Compose reconstrói sozinho (medido, em qualquer falha de
+# pull) — e é construção barata; o pesado é este. Esta função NÃO decide se
+# pode construir: ela constrói. Quem decide é `build_local_permitido` (o portão
+# da #1955, mais abaixo), e só o update.sh o consulta antes de chamar esta
+# função; o install.sh a chama direto. O
+# desfecho visível antes era o pior possível — a atualização não acontecia, o
+# script terminava como se tivesse dado certo e o dono só descobria pelo CRM
+# velho. Pelo botão "Atualizar" do site, nem isso: o agente roda sozinho no
+# cron e não há ninguém lendo a tela.
 #
 # A saída já existe no repo e é o docker-compose.build.yml: `pull_policy: never`
 # nas três imagens e o build saindo do MESMO commit que o `git checkout` deixou
@@ -2404,6 +2488,27 @@ ensure_encryption_key() {
     >/dev/null 2>&1 \
     && c_grn "$(t "✓ chave de cifra ativa no banco (segredos de webhook são guardados cifrados)")" \
     || c_ylw "$(t "⚠ não consegui semear a chave de cifra no banco — segredos de webhook não poderão ser salvos até rodar update.sh de novo.")"
+
+  # ── Chave do CPF (#2522) ───────────────────────────────────────────────────
+  # `encrypt_cpf`/`decrypt_cpf` (migration 0597) leem `private.app_secrets`
+  # na linha `cpf_key`. SEM esta linha toda gravação de contato COM CPF cai na
+  # degradação: o contato é salvo sem CPF e a busca por CPF não acha ninguém —
+  # exatamente o problema que o reportante do #2522 descreveu.
+  local cpf="${CPF_ENCRYPTION_KEY:-}"
+  if [ -z "$cpf" ] && [ -f "$envfile" ]; then
+    cpf="$(grep -E '^CPF_ENCRYPTION_KEY=' "$envfile" | head -1 | cut -d= -f2- | tr -d "'\"" || true)"
+  fi
+  if [ -z "$cpf" ]; then
+    cpf="$(openssl rand -base64 32)"
+    printf '\nCPF_ENCRYPTION_KEY=%s\n' "$cpf" >> "$envfile"
+    c_grn "$(t "✓ chave de cifra do CPF gerada e gravada no .env")"
+  fi
+  export CPF_ENCRYPTION_KEY="$cpf"
+
+  psql_run -c "insert into private.app_secrets (name, value) values ('cpf_key', '${cpf}') on conflict (name) do update set value = excluded.value, updated_at = now();" \
+    >/dev/null 2>&1 \
+    && c_grn "$(t "✓ chave de cifra do CPF ativa no banco (contato com CPF é salvo cifrado)")" \
+    || c_ylw "$(t "⚠ não consegui semear a chave de cifra do CPF no banco — o contato será salvo sem CPF até rodar update.sh de novo.")"
 }
 
 # ── A ÚLTIMA RELEASE ESTÁVEL PUBLICADA ──────────────────────────────────────

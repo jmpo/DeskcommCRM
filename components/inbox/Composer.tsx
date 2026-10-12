@@ -39,6 +39,8 @@ import {
 import { apiClient } from "@/lib/api/client";
 import { embutirMencoes, podarMencoes, type MencaoEscolhida } from "@/lib/notifications/mentions";
 import { cn } from "@/lib/utils";
+import { resolveSharedContact } from "@/lib/messaging/contact-card";
+import type { Message } from "@/lib/types/messaging";
 
 export interface ComposerHandle {
   focus: () => void;
@@ -92,7 +94,7 @@ interface Props {
    * Vem de fora e não daqui porque quem escolhe é a lista de mensagens: o
    * composer só precisa mostrar o que foi escolhido e mandá-lo junto.
    */
-  respondendo?: { id: string; body: string | null; direction: string } | null;
+  respondendo?: Pick<Message, "id" | "body" | "direction" | "type" | "metadata"> | null;
   /** Desfaz a escolha — o `x` da faixa de citação. */
   onCancelarResposta?: () => void;
   /** Nome do contato da conversa, para interpolar {{nome}}/{{primeiro_nome}} do template escolhido. */
@@ -272,9 +274,12 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
               podarMencoes(restaurado, [...mencoesEnviadas, ...atual.filter((m) => !mencoesEnviadas.includes(m))]),
             );
           },
-          // Só depois de gravar: se falhar, as menções continuam valendo para
-          // o retry — apagá-las aqui faria a segunda tentativa notificar quem?
-          onSuccess: () => setMencoes([]),
+          // Só depois de gravar, e só as escolhas DESTA nota — a lista pode já
+          // ter a menção da PRÓXIMA, escolhida enquanto esta ainda estava no ar
+          // (`mencoesEnviadas`): zerar tudo apagava a escolha dela, e a nota
+          // seguinte sairia como texto puro (com homônimos, avisando os dois).
+          onSuccess: () =>
+            setMencoes((atual) => atual.filter((m) => !mencoesEnviadas.includes(m))),
         },
       );
       return;
@@ -503,7 +508,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
                 {respondendo.direction === "outbound" ? t("Você") : t("Cliente")}
               </div>
               <div className="line-clamp-2 text-xs text-muted-foreground">
-                {respondendo.body?.trim() || t("(sem texto)")}
+                {respondendo.type === "contact"
+                  ? resolveSharedContact(respondendo)?.name || t("Contato")
+                  : respondendo.body?.trim() || t("(sem texto)")}
               </div>
             </div>
             <button

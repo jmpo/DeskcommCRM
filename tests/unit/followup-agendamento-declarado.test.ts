@@ -95,9 +95,9 @@ const ESCRITORES: Record<string, { agenda: "agora" | "futuro" | "nenhum"; nota: 
   "pessoa-no-comando-no-turno.ts": {
     agenda: "nenhum",
     nota:
-      "Só DESAGENDA: pausar (`paused_handoff`) ou cancelar a inscrição quando uma pessoa assumiu a " +
-      "conversa grava `next_eval_at = null`. Quem volta a agendar é a retomada (`ai.handoff_resolved`, " +
-      "`reactivity.ts`), já declarada. `null` não tem relógio para escolher errado.",
+      "Só DESAGENDA: cancelar a inscrição quando uma pessoa está no comando grava `next_eval_at = null`. " +
+      "O adiamento da política `pause` não escreve aqui: volta como `deferred` e quem agenda é " +
+      "`turn-bridge.ts`, já declarado. `null` não tem relógio para escolher errado.",
   },
   "aplicar-inbound.ts": {
     agenda: "nenhum",
