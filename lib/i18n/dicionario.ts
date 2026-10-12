@@ -8609,6 +8609,11 @@ export const DICIONARIO: Traducoes = {
   "Importado (CSV)": { es: "Importado (CSV)" },
   "Anúncio da Meta": { es: "Anuncio de Meta" },
   "Anúncio do Google": { es: "Anuncio de Google" },
+  // ─── Inbox: o anúncio que trouxe a pessoa (bolha e painel) ───
+  "Ver anúncio": { es: "Ver anuncio" },
+  "Anúncio de origem": { es: "Anuncio de origen" },
+  "Clicou em {data}": { es: "Hizo clic el {data}" },
+  "Voltou por outro anúncio": { es: "Volvió por otro anuncio" },
 
   // ─── Settings: painel de atualização — histórico multi-versão (merge upstream) ───
   "Da versão": { es: "De la versión" },

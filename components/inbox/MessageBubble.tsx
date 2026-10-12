@@ -23,6 +23,8 @@ import { LocationCard } from "@/components/inbox/media/LocationCard";
 import { localizacaoDaMensagem } from "@/lib/messaging/localizacao";
 import { lerBotoesDoModelo } from "@/lib/messaging/botoes-do-modelo";
 import { resolveSharedContact } from "@/lib/messaging/contact-card";
+import { lerAnuncioDaMensagem } from "@/lib/leads/atribuicao-de-anuncio";
+import { AnuncioCard } from "@/components/inbox/AnuncioCard";
 import {
   extractCitations,
   isAiGeneratedMessage,
@@ -206,6 +208,10 @@ export function MessageBubble({
   // `lerRemetenteDeGrupo` (Task 2): este componente não conhece o formato de
   // `metadata.group_sender`, só o resultado já validado.
   const remetente = !isOutbound ? lerRemetenteDeGrupo(message.metadata) : null;
+  // O anúncio que gerou ESTA mensagem (a ingestão grava em `metadata.anuncio`
+  // a mensagem nascida de um clique). Só na recebida: é o cliente que chega
+  // pelo anúncio, como o WhatsApp mostra no celular.
+  const anuncio = !isOutbound ? lerAnuncioDaMensagem(message.metadata?.anuncio) : null;
 
   async function salvarEdicao() {
     const novoTexto = texto.trim();
@@ -398,6 +404,8 @@ export function MessageBubble({
           </p>
         ) : (
           <>
+            {anuncio && <AnuncioCard anuncio={anuncio} compacto className="mb-1.5" />}
+
             {hasMedia && (
               <div className={cn(message.body && "mb-1")}>
                 <MediaRenderer message={message} agora={agora} />

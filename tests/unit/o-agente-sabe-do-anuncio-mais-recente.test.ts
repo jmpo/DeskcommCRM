@@ -58,6 +58,8 @@ const ANUNCIO_B = {
   source_url: "https://fb.me/parasol",
   headline: "Parasol para auto",
   body: "Protegé tu tablero del sol. Envío gratis.",
+  thumbnail_url: "https://scontent.example.fbcdn.net/parasol.jpg",
+  media_type: "image",
   ctwa_clid: "ARAk_clique_B",
 };
 
@@ -117,6 +119,9 @@ const ANUNCIO_B_NA_MENSAGEM = {
   titulo: "Parasol para auto",
   texto: "Protegé tu tablero del sol. Envío gratis.",
   ad_id: "120200000000000002",
+  // O link e a imagem, para a inbox MOSTRAR o anúncio na conversa.
+  url: "https://fb.me/parasol",
+  miniatura: "https://scontent.example.fbcdn.net/parasol.jpg",
 };
 
 describe("ingestão — a mensagem nascida de um clique guarda o SEU anúncio", () => {
@@ -153,9 +158,10 @@ describe("ingestão — a mensagem nascida de um clique guarda o SEU anúncio", 
       const metadata = metadataGravada(insertsDeMensagem);
       expect(metadata?.anuncio).toEqual(ANUNCIO_B_NA_MENSAGEM);
       // Compacto de propósito: o clique identifica uma pessoa, e o cru já mora
-      // no contato. Nada disso se repete em cada mensagem.
+      // no contato. Nada disso se repete em cada mensagem — o link e a imagem
+      // entram (a inbox mostra o anúncio), o clique e o resto do payload não.
       expect(JSON.stringify(metadata)).not.toContain("ARAk_clique_B");
-      expect(JSON.stringify(metadata)).not.toContain("fb.me");
+      expect(JSON.stringify(metadata)).not.toContain("media_type");
     });
 
     it("o primeiro toque do contato continua sendo estampado como antes", async () => {
@@ -262,6 +268,8 @@ describe("ingestão — a mensagem nascida de um clique guarda o SEU anúncio", 
           title: "Parasol para auto",
           body: "Protegé tu tablero del sol. Envío gratis.",
           sourceId: "120200000000000002",
+          sourceUrl: "https://fb.me/parasol",
+          thumbnailUrl: "https://scontent.example.fbcdn.net/parasol.jpg",
           ctwaClid: "ARAk_clique_B",
           sourceType: "ad",
         }),
