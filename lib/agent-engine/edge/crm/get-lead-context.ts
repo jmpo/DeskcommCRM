@@ -17,7 +17,7 @@ import { deriveLgpdFromContact, type LgpdInput } from '../../guardrails/lgpd/leg
 import { isoLocalComOffset } from '@/lib/tempo/agora';
 import { logger } from '@/lib/logger';
 import { nomeDoContato } from '@/lib/contacts/rotulo-do-contato';
-import { lerAnuncioDaMensagem, type AnuncioDaMensagem } from '@/lib/leads/atribuicao-de-anuncio';
+import { lerAnuncioDaMensagem, mesmoAnuncio, type AnuncioDaMensagem } from '@/lib/leads/atribuicao-de-anuncio';
 
 /**
  * Heurística conservadora de contagem: ~3,5 chars/token para pt-br (BPE real fica
@@ -472,18 +472,6 @@ async function anuncioMaisRecenteDiferenteDaOrigem(
     });
     return null;
   }
-}
-
-/**
- * O mesmo anúncio: o mesmo `ad_id`, ou — sem id comparável — o mesmo título e
- * texto. Ids diferentes com o MESMO texto também contam como iguais: é o
- * anúncio duplicado em outro conjunto, e o modelo, que só vê título e texto,
- * receberia duas vezes a mesma coisa.
- */
-function mesmoAnuncio(a: AnuncioDaMensagem, b: AnuncioDaMensagem): boolean {
-  if (a.ad_id && b.ad_id && a.ad_id === b.ad_id) return true;
-  const igual = (x: string | null, y: string | null) => (x?.trim() || null) === (y?.trim() || null);
-  return igual(a.titulo, b.titulo) && igual(a.texto, b.texto);
 }
 
 /** As colunas do CRM de que o corpo de UMA mensagem depende. */

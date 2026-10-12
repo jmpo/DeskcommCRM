@@ -9030,5 +9030,9 @@
   "Destino da etiqueta": "Tag destination",
   "Card (comportamento atual)": "Card (current behavior)",
   "Contato do lead": "Lead contact",
-  "Sem contato vinculado, a etiqueta não é aplicada.": "With no linked contact, the tag is not applied."
+  "Sem contato vinculado, a etiqueta não é aplicada.": "With no linked contact, the tag is not applied.",
+  "Ver anúncio": "View ad",
+  "Anúncio de origem": "Source ad",
+  "Clicou em {data}": "Clicked on {data}",
+  "Voltou por outro anúncio": "Came back through another ad"
 }

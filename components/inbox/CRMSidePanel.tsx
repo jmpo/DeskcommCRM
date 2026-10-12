@@ -3,6 +3,7 @@
 import { RoteirosDoContato } from "@/components/contacts/RoteirosDoContato";
 import { AcervoSearch } from "./AcervoSearch";
 import { LeadEnrichment } from "./LeadEnrichment";
+import { AnuncioDoContato, type AnuncioDeOrigem, type AnuncioMaisRecente } from "./AnuncioDoContato";
 import type { ProspectEnrichment } from "@/lib/prospecting/schema";
 import { useAuth } from "@/hooks/auth/AuthProvider";
 import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
@@ -572,6 +573,7 @@ export function CRMSidePanel({ conversation }: Props) {
   const [demandas, setDemandas] = useState<DemandaRow[] | null>(null);
   const [fatos, setFatos] = useState<Array<{ id: string; headline: string; body: string }>>([]);
   const [historico, setHistorico] = useState<Array<{ id: string; desfecho: string; fechada_em: string }>>([]);
+  const [anuncios, setAnuncios] = useState<{ origem: AnuncioDeOrigem | null; recente: AnuncioMaisRecente | null }>({ origem: null, recente: null });
   const [summaryContactId, setSummaryContactId] = useState<string | null>(null);
   /**
    * O TERCEIRO ESTADO. Antes existiam dois — carregando e "tem N itens" — e a
@@ -601,6 +603,7 @@ export function CRMSidePanel({ conversation }: Props) {
       setActivities(null);
       setDemandas(null);
       setFatos([]); setHistorico([]);
+      setAnuncios({ origem: null, recente: null });
       setLeadAtivoId(null);
       return;
     }
@@ -623,6 +626,8 @@ export function CRMSidePanel({ conversation }: Props) {
             demandas: DemandaRow[];
             fatos?: Array<{ id: string; headline: string; body: string }>;
             historico?: Array<{ id: string; desfecho: string; fechada_em: string }>;
+            anuncio_de_origem?: AnuncioDeOrigem | null;
+            anuncio_mais_recente?: AnuncioMaisRecente | null;
           };
         }>(`/api/v1/contacts/${contactId}/crm-summary`);
         if (cancelled) return;
@@ -638,6 +643,7 @@ export function CRMSidePanel({ conversation }: Props) {
         // que é o caso saudável.
         setDemandas(r.data.demandas ?? []);
         setFatos(r.data.fatos ?? []); setHistorico(r.data.historico ?? []);
+        setAnuncios({ origem: r.data.anuncio_de_origem ?? null, recente: r.data.anuncio_mais_recente ?? null });
       } catch {
         if (cancelled) return;
         // Falha NÃO vira lista vazia. Os dados ficam `null` e o painel diz que
@@ -648,6 +654,7 @@ export function CRMSidePanel({ conversation }: Props) {
         setActivities(null);
         setDemandas(null);
         setFatos([]); setHistorico([]);
+        setAnuncios({ origem: null, recente: null });
       }
     }
 
@@ -751,6 +758,10 @@ export function CRMSidePanel({ conversation }: Props) {
           {tagEditorOpen && contactId && <ContactTagsEditor contactId={contactId} orgId={conversation.organization_id} tags={tags} />}
         </Card>
       </section>
+
+      {contactId && summaryContactId === contactId && !erro && (
+        <AnuncioDoContato contactId={contactId} origem={anuncios.origem} recente={anuncios.recente} />
+      )}
 
       <LeadEnrichment
         data={summaryContactId === contactId && !erro && !contact?.is_anonymized ? enrichment : null}
