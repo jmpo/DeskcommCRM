@@ -6101,6 +6101,20 @@ export const DICIONARIO: Traducoes = {
   "Ligado por padrão: quem escreve no domingo espera resposta no domingo. Desligue se você faz prospecção ativa e prefere não incomodar no fim de semana.": {
     es: "Activado por defecto: quien escribe un domingo espera respuesta el domingo. Desactívalo si haces prospección activa y prefieres no molestar el fin de semana.",
   },
+  "Disparos em massa e mensagens que retomam conversa parada só saem nesta janela. A prospecção usa estas horas nos dias próprios abaixo. Fora da janela, o envio fica agendado para a próxima abertura — você vê o motivo na conversa.": {
+    es: "Los envíos masivos y los mensajes que retoman una conversación detenida solo salen dentro de esta ventana. La prospección usa estas horas en sus propios días de abajo. Fuera de la ventana, el envío queda programado para la próxima apertura — ves el motivo en la conversación.",
+  },
+  "Dias da prospecção": { es: "Días de prospección" },
+  "Prospecção no dia {dia}": { es: "Prospección el día {dia}" },
+  "A primeira abordagem da prospecção só sai nestes dias, dentro da janela de disparo acima. Responder a quem escreveu segue a regra própria — desligar o domingo aqui não cala a resposta de domingo.": {
+    es: "El primer acercamiento de la prospección solo sale en estos días, dentro de la ventana de envíos de arriba. Responder a quien escribió sigue su propia regla — apagar el domingo aquí no silencia la respuesta del domingo.",
+  },
+  "Marque pelo menos um dia: sem dia marcado a prospecção não aborda ninguém.": {
+    es: "Marca al menos un día: sin día marcado, la prospección no contacta a nadie.",
+  },
+  "Ligado por padrão: quem escreve no domingo espera resposta no domingo. Desligar cala a resposta e os disparos em massa no domingo — a prospecção segue os dias próprios acima.": {
+    es: "Activado por defecto: quien escribe el domingo espera respuesta el domingo. Apagarlo silencia la respuesta y los envíos masivos del domingo — la prospección sigue sus propios días de arriba.",
+  },
   "Ritmo entre envios (segundos)": { es: "Ritmo entre envíos (segundos)" },
   "Intervalo mínimo entre envios em segundos": {
     es: "Intervalo mínimo entre envíos en segundos",
@@ -6519,6 +6533,7 @@ export const DICIONARIO: Traducoes = {
   "La Paz (Bolívia)": { es: "La Paz (Bolivia)" },
   "Lima (Peru)": { es: "Lima (Perú)" },
   "Bogotá (Colômbia)": { es: "Bogotá (Colombia)" },
+  "Quito e Guayaquil (Equador)": { es: "Quito y Guayaquil (Ecuador)" },
   "Cidade do México (México)": { es: "Ciudad de México (México)" },
   "São Paulo (Brasil)": { es: "São Paulo (Brasil)" },
   "Manaus (Brasil)": { es: "Manaus (Brasil)" },
@@ -12976,6 +12991,7 @@ export const DICIONARIO: Traducoes = {
   "nas listas e nos filtros:": { es: "en las listas y en los filtros:" },
   "Sem cor": { es: "Sin color" },
   "Prévia:": { es: "Vista previa:" },
+  "Confira a etiqueta e a cor.": { es: "Revise la etiqueta y el color." },
   "Cor da etiqueta atualizada.": { es: "Color de la etiqueta actualizado." },
   Amarelo: { es: "Amarillo" },
   Âmbar: { es: "Ámbar" },
@@ -15447,6 +15463,9 @@ export const DICIONARIO: Traducoes = {
   "A pausa começa (hora local)": { es: "La pausa empieza (hora local)" },
   "A pausa termina (hora local)": { es: "La pausa termina (hora local)" },
   "Fuso da organização": { es: "Zona horaria de la organización" },
+  "Sem o fuso da organização não dá para agendar: a janela seria gravada com a hora errada.": {
+    es: "Sin la zona horaria de la organización no se puede agendar: la ventana se grabaría con la hora equivocada.",
+  },
   "Para todas as conexões": { es: "Para todas las conexiones" },
   "Janelas agendadas": { es: "Ventanas programadas" },
   "Cancelar janela": { es: "Cancelar ventana" },
@@ -15461,6 +15480,16 @@ export const DICIONARIO: Traducoes = {
     es: "Ventana cancelada. Lo que ya pausó sigue pausado.",
   },
   "Não foi possível cancelar a janela.": { es: "No se pudo cancelar la ventana." },
+  // #2498 — busca dentro do seletor de etiquetas do Inbox.
+  "Buscar etiqueta": { es: "Buscar etiquetas" },
+  "Nenhuma etiqueta com esse texto": { es: "Ninguna etiqueta con ese texto" },
+  // #2498 — destino opcional da ação add_tag, no editor de automações.
+  "Destino da etiqueta": { es: "Destino de la etiqueta" },
+  "Card (comportamento atual)": { es: "Card (comportamiento actual)" },
+  "Contato do lead": { es: "Contacto del lead" },
+  "Sem contato vinculado, a etiqueta não é aplicada.": {
+    es: "Sin contacto vinculado, la etiqueta no se aplica.",
+  },
 };
 
 /**

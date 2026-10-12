@@ -884,6 +884,7 @@ export async function sendMessageHandler(
     },
   };
 
+  await guardServiceEffect();
   let { data: created, error: insErr } = await supabase
     .from("messages")
     .insert(insertRow)
