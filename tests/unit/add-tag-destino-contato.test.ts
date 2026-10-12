@@ -212,9 +212,10 @@ describe("sem destino — o comportamento de HOJE, byte a byte", () => {
       p_entity_kind: "crm_lead",
       p_entity_id: LEAD,
     });
-    // O default NÃO nasce com leitura nenhuma: é o caminho de sempre, sem
-    // consulta nova por conta da feature.
-    expect(leituras).toHaveLength(0);
+    // O default não ganhou consulta por conta do destino. A única leitura é a
+    // do fork: as etiquetas ATUAIS do card, para duas regras do mesmo evento
+    // não apagarem uma a etiqueta da outra.
+    expect(leituras).toEqual([{ tabela: "crm_leads", filtros: { id: LEAD, organization_id: ORG } }]);
   });
 
   it("`destino: \"card\"` explícito é o mesmo caminho do default", async () => {
