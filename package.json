@@ -45,7 +45,7 @@
     "flywheel:judge": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/flywheel-judge-live.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.16",
+    "@ai-sdk/anthropic": "^4.0.78",
     "@ai-sdk/google": "^4.0.18",
     "@ai-sdk/openai": "^4.0.87",
     "@emoji-mart/data": "^1.2.1",

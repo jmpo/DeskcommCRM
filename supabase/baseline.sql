@@ -54468,3 +54468,56 @@ on conflict (model) do update set
   completion_cents_per_million_tokens = excluded.completion_cents_per_million_tokens,
   notes = excluded.notes,
   superseded_at = null;
+
+-- ---- catálogo: Claude Haiku/Sonnet/Opus 5.5 (migration 0647) ----
+-- O dump --schema-only não traz seed pós-snapshot. Sem este apêndice, clones
+-- novos (install.sh) e clones atualizando (update.sh reaplica baseline.sql)
+-- ficam sem a geração 5.5 da Anthropic em Provedores de IA e no seletor do
+-- agente. As DUAS tabelas com os MESMOS números (invariante catálogo×preço).
+-- Não mexe no padrão (segue claude-sonnet-5). Racional e fonte dos preços no
+-- cabeçalho da migration.
+insert into public.ai_models
+  (provider, model_id, display_name, description, context_window, released_at,
+   input_price_per_million_cents, output_price_per_million_cents, supports_tools)
+values
+  ('anthropic', 'claude-haiku-5-5', 'Claude Haiku 5.5',
+   'O mais rápido e barato da Anthropic, para alto volume e classificação. Acima de 100 mil tokens de entrada numa chamada o preço sobe para $0,50/$2,50 por milhão.',
+   1000000, '2026-10-07', 10, 50, true),
+  ('anthropic', 'claude-sonnet-5-5', 'Claude Sonnet 5.5',
+   'Equilíbrio de velocidade e capacidade; sucessor do Sonnet 5, pelo mesmo preço.',
+   1000000, '2026-09-28', 200, 1000, true),
+  ('anthropic', 'claude-opus-5-5', 'Claude Opus 5.5',
+   'O Opus atual, para trabalho agêntico complexo; custa menos que o Opus 5.',
+   1000000, '2026-09-22', 400, 2000, true)
+on conflict (provider, model_id) do update set
+  display_name = excluded.display_name,
+  description = excluded.description,
+  context_window = excluded.context_window,
+  released_at = excluded.released_at,
+  input_price_per_million_cents = excluded.input_price_per_million_cents,
+  output_price_per_million_cents = excluded.output_price_per_million_cents,
+  supports_tools = excluded.supports_tools,
+  deprecated_at = null;
+
+-- O Opus 5 deixou de ser "o mais capaz", e o Sonnet 5 não volta a $3/$15: a
+-- Anthropic tornou $2/$10 o preço padrão e cancelou o aumento de 01/09/2026.
+update public.ai_models set description = 'Geração anterior do Opus.'
+ where provider = 'anthropic' and model_id = 'claude-opus-5';
+update public.ai_models set description = 'Geração anterior do Sonnet.'
+ where provider = 'anthropic' and model_id = 'claude-sonnet-5';
+
+-- ---------------------------------------------------------------------------
+-- 2. contabilidade de custo — a MESMA lista, mesmos números (senão o gasto é
+--    somado com preço de outro modelo, ou não é somado e some do orçamento).
+-- ---------------------------------------------------------------------------
+insert into public.ai_pricing
+  (model, prompt_cents_per_million_tokens, completion_cents_per_million_tokens, notes)
+values
+  ('claude-haiku-5-5',   10,   50, 'catálogo 0647 — acima de 100k tokens de entrada, 50/250'),
+  ('claude-sonnet-5-5', 200, 1000, 'catálogo 0647'),
+  ('claude-opus-5-5',   400, 2000, 'catálogo 0647')
+on conflict (model) do update set
+  prompt_cents_per_million_tokens = excluded.prompt_cents_per_million_tokens,
+  completion_cents_per_million_tokens = excluded.completion_cents_per_million_tokens,
+  notes = excluded.notes,
+  superseded_at = null;
