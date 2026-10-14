@@ -263,7 +263,15 @@ function esforcoAceitoPeloModelo(
   return aceitaNone ? 'none' : 'low';
 }
 
-/** Injeta `reasoning.effort` no corpo, preservando o resto de `reasoning` e da chamada. */
+/**
+ * Injeta `reasoning.effort` no corpo, preservando o resto de `reasoning` e da chamada.
+ *
+ * O knob é o padrão da INSTALAÇÃO, não uma ordem por cima de quem pediu: a
+ * chamada que já traz `reasoning.effort` (a opção `reasoning` de `runModelCall`,
+ * que o SDK só escreve quando alguém pede) fica com o seu. Sem isso, um
+ * `OPENAI_REASONING_EFFORT=high` faria as classificações, que pedem `none`,
+ * voltarem a pensar antes de devolver uma palavra.
+ */
 function comEsforcoDeRaciocinio(inner: typeof fetch, esforco: EsforcoDeRaciocinioOpenAI): typeof fetch {
   return (input, init) => {
     const corpo = init?.body;
@@ -272,6 +280,7 @@ function comEsforcoDeRaciocinio(inner: typeof fetch, esforco: EsforcoDeRaciocini
         const json = JSON.parse(corpo) as Record<string, unknown>;
         const bruto = json['reasoning'];
         const reasoning = bruto !== null && typeof bruto === 'object' ? (bruto as Record<string, unknown>) : {};
+        if (typeof reasoning['effort'] === 'string') return inner(input, init);
         return inner(input, { ...init, body: JSON.stringify({ ...json, reasoning: { ...reasoning, effort: esforco } }) });
       } catch {
         // Corpo não-JSON: repassa intacto — um ajuste de tuning nunca derruba a chamada.
