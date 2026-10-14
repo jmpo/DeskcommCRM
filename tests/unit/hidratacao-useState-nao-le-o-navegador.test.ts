@@ -106,10 +106,7 @@ function resolverModulo(especificador: string, deArquivo: string, fontes: Map<st
   return null;
 }
 
-type Indice = {
-  funcoes: Map<string, Map<string, ts.Node>>;
-  imports: Map<string, Map<string, string>>;
-};
+type Indice = (rel: string) => { funcoes: Map<string, ts.Node>; imports: Map<string, string> } | undefined;
 
 /**
  * O arquivo sob varredura pode não estar no mapa — os controles abaixo passam
@@ -162,16 +159,18 @@ function importsDoArquivo(sf: ts.SourceFile, fontes: Map<string, string>): Map<s
 function indice(fontes: Map<string, string>): Indice {
   const existente = cacheDeIndice.get(fontes);
   if (existente) return existente;
-  const fns = new Map<string, Map<string, ts.Node>>();
-  const imp = new Map<string, Map<string, string>>();
-  for (const [rel, fonte] of fontes) {
-    // `fileName` é o caminho relativo POSIX de propósito: é a chave de
-    // resolução de `./x` e `@/x`, e mantém a sonda igual em Windows e Linux.
+  // Preguiçoso: só o arquivo que a busca alcança é parseado.
+  const porArquivo = new Map<string, { funcoes: Map<string, ts.Node>; imports: Map<string, string> }>();
+  const novo: Indice = (rel) => {
+    const pronto = porArquivo.get(rel);
+    if (pronto) return pronto;
+    const fonte = fontes.get(rel);
+    if (fonte === undefined) return undefined;
     const arquivo = ts.createSourceFile(rel, fonte, ts.ScriptTarget.Latest, true);
-    fns.set(rel, funcoesDoArquivo(arquivo));
-    imp.set(rel, importsDoArquivo(arquivo, fontes));
-  }
-  const novo = { funcoes: fns, imports: imp };
+    const item = { funcoes: funcoesDoArquivo(arquivo), imports: importsDoArquivo(arquivo, fontes) };
+    porArquivo.set(rel, item);
+    return item;
+  };
   cacheDeIndice.set(fontes, novo);
   return novo;
 }
@@ -183,8 +182,8 @@ function buscaCom(fontes: Map<string, string>, nomeDoArquivo: string, fonte: str
   const fns = funcoesDoArquivo(arquivo);
   const imp = importsDoArquivo(arquivo, fontes);
   return {
-    funcoes: (rel) => (rel === nomeDoArquivo ? fns : idx.funcoes.get(rel)),
-    imports: (rel) => (rel === nomeDoArquivo ? imp : idx.imports.get(rel)),
+    funcoes: (rel) => (rel === nomeDoArquivo ? fns : idx(rel)?.funcoes),
+    imports: (rel) => (rel === nomeDoArquivo ? imp : idx(rel)?.imports),
   };
 }
 
@@ -273,27 +272,17 @@ describe("o inicializador de useState não lê o navegador", () => {
     expect(fontes.has("lib/notifications/prefs.ts")).toBe(true);
   });
 
-  // ⏱️ TETO EXPLÍCITO, e o motivo é medido.
-  //
-  // Este caso VARRE o repositório — 2.212 arquivos de `app|components|lib|hooks`
-  // hoje. Sozinho ele leva ~4 s; dentro da suíte inteira, com os workers
-  // disputando CPU, chegou a 15,3 s e estourou o teto DEFAULT de 15 s do
-  // vitest. Reprovou por relógio, sem nenhuma violação encontrada — o vermelho
-  // mais caro que existe, porque parece defeito de produto e não é.
-  //
-  // O teto default serve para caso unitário; varredura de repositório inteiro
-  // é outra categoria, e ela só cresce. 60 s dá folga de 4× sobre o pior
-  // tempo observado e segue barrando um caso que trave de verdade.
-  //
-  // ⚠️ O CI NÃO VÊ ISTO, e saber disso é metade do achado: lá o `verify` roda
-  // em duas partes (`--shard=N/2`), então nenhum processo carrega a suíte
-  // inteira. Reproduzindo o modo do CI nesta mesma máquina — `vitest run
-  // --shard=1/2` e `2/2` — os 11.725 casos passam. O teto abaixo protege quem
-  // roda `pnpm test:unit` de uma vez, que é o que um humano faz antes de abrir
-  // PR, e é onde o vermelho por relógio aparece.
+  // CUSTO: este caso varre o repositório inteiro, e o tempo dele crescia com o
+  // código, não com o defeito — sob a suíte inteira chegou a 16 s e estourou o
+  // `testTimeout` global de 15 s sem vermelho de verdade (medição de
+  // @FabioMundoDigital no PR #2792). A causa era parsear cada arquivo três
+  // vezes. Agora só o arquivo que contém `useState` é examinado, e o índice só
+  // parseia o que a busca alcança: 7,1 s → 1,3 s no mesmo Mac. Não suba o teto
+  // deste caso — se ele voltar a ficar lento, a varredura regrediu.
   it("nenhum arquivo de `app|components|lib|hooks` tem inicializador que lê o navegador", () => {
     const violacoes: string[] = [];
     for (const [rel, fonte] of fontes) {
+      if (!fonte.includes("useState")) continue;
       for (const linha of inicializadoresQueLeemONavegador(fonte, rel, fontes)) {
         violacoes.push(`${rel}:${linha}`);
       }
@@ -305,7 +294,7 @@ describe("o inicializador de useState não lê o navegador", () => {
         "o servidor mandou. Use `useSyncExternalStore` com um " +
         "`getServerSnapshot` determinístico — ver `lib/theme.tsx`.",
     ).toEqual([]);
-  }, 60_000);
+  });
 
   it("CONTROLE POSITIVO: a sonda reprova o padrão do defeito, inclusive através de um import", () => {
     // `lerPrefs()` mora em outro módulo e só lá dentro toca `window`. Se a

@@ -240,6 +240,29 @@ export function modeloOpenAIRaciocina(modelId: string): boolean {
   return /^(o\d|gpt-5|gpt-6)/.test(id) && !id.includes('chat');
 }
 
+/**
+ * Da linha 6 em diante nenhum modelo lista `minimal`, e só `gpt-6-luna` e `gpt-6-sol`
+ * listam `none` (doc oficial de cada id em 11/10/2026: o gpt-6.1-sol diz "`none` and
+ * `minimal` reasoning efforts are not supported", o gpt-6-astra lista low…max, o
+ * gpt-6-luna lista none, low…max; o @ai-sdk/openai declara as mesmas listas em
+ * `supportedReasoningEfforts`). Mandar o knob como está seria 400 em toda resposta.
+ *
+ * `none`/`minimal` é pedido de velocidade, então vira `none` onde ele existe e `low`
+ * onde não existe. `minimal` NÃO vira `low` no Luna: medido acima, lá `low` é mais
+ * lento até que o padrão, e `none` é o único que entrega o que o operador pediu.
+ */
+function esforcoAceitoPeloModelo(
+  modelId: string,
+  esforco: EsforcoDeRaciocinioOpenAI,
+): EsforcoDeRaciocinioOpenAI {
+  if (esforco !== 'none' && esforco !== 'minimal') return esforco;
+  const id = modelId.toLowerCase();
+  const major = /^gpt-(\d+)/.exec(id)?.[1];
+  if (major === undefined || Number(major) < 6) return esforco;
+  const aceitaNone = id === 'gpt-6-luna' || id === 'gpt-6-sol';
+  return aceitaNone ? 'none' : 'low';
+}
+
 /** Injeta `reasoning.effort` no corpo, preservando o resto de `reasoning` e da chamada. */
 function comEsforcoDeRaciocinio(inner: typeof fetch, esforco: EsforcoDeRaciocinioOpenAI): typeof fetch {
   return (input, init) => {
@@ -296,7 +319,7 @@ export function createDefaultRegistry(opts?: {
       const contido = contain(OPENAI_ENDPOINT);
       const fetchFinal =
         esforcoOpenAI && modeloOpenAIRaciocina(modelId)
-          ? comEsforcoDeRaciocinio(contido, esforcoOpenAI)
+          ? comEsforcoDeRaciocinio(contido, esforcoAceitoPeloModelo(modelId, esforcoOpenAI))
           : contido;
       return createOpenAI({ apiKey, fetch: fetchFinal })(modelId);
     },

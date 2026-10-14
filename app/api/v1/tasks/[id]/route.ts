@@ -17,17 +17,19 @@ import { type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ok, fail } from "@/lib/api/wrappers";
-import { audit } from "@/lib/audit";
+import { audit, isServiceRoleConfigured } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { traduzir } from "@/lib/i18n/dicionario";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { registraAtividadeDaTarefa } from "@/lib/tarefas/atividade";
+import { conferirResponsavel } from "@/lib/tarefas/responsavel";
 import { PRIORIDADES_DA_TAREFA, SITUACOES_DA_TAREFA, type Tarefa } from "@/lib/tarefas/tipos";
 
 export const dynamic = "force-dynamic";
 
 const COLUNAS =
-  "id, organization_id, title, description, due_date, priority, status, lead_id, contact_id, assigned_to, created_by, created_at, updated_at";
+  "id, organization_id, title, description, due_date, priority, status, lead_id, contact_id, assigned_to, created_by, created_at, updated_at, lead:crm_leads(id, title)";
 
 const edicaoSchema = z
   .object({
@@ -65,6 +67,22 @@ export async function PATCH(req: NextRequest, ctx: Contexto): Promise<Response> 
       requestId,
       details: parsed.error.flatten().fieldErrors as Record<string, unknown>,
     });
+  }
+
+  if (parsed.data.assigned_to) {
+    // A chave estrangeira de `assigned_to` é só para `auth.users`: sem esta conferência, um id de
+    // outra organização (ou de quem saiu da equipe) gravaria sem erro. A régua
+    // e o porquê do admin client estão em `lib/tarefas/responsavel.ts`.
+    const equipe = isServiceRoleConfigured() ? createAdminClient() : await createClient();
+    const veredito = await conferirResponsavel(equipe, authz.org.orgId, parsed.data.assigned_to);
+    if (veredito === "falha_na_consulta") {
+      return fail("internal_error", t("Erro ao salvar a tarefa."), 500, { requestId });
+    }
+    if (veredito === "fora_da_equipe") {
+      return fail("validation_failed", t("O responsável escolhido não faz parte da equipe."), 422, {
+        requestId,
+      });
+    }
   }
 
   const supabase = await createClient();

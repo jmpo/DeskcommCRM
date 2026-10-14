@@ -20,7 +20,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useUser } from "@/hooks/auth/AuthProvider";
 import { useT } from "@/hooks/i18n/useT";
+import { useAssignableMembers } from "@/hooks/inbox/useAssignableMembers";
 import type {
   NovaTarefa,
   PrioridadeDaTarefa,
@@ -38,7 +40,16 @@ interface Props {
   aoSalvar: (entrada: NovaTarefa) => Promise<unknown>;
   leadId?: string | null;
   contactId?: string | null;
+  /**
+   * Quem nasce como responsável numa tarefa NOVA. O dossiê do negócio passa o
+   * próprio usuário: quem anota "ligar sexta" no card quase sempre é quem vai
+   * ligar. Ausente = ninguém, como antes.
+   */
+  responsavelPadrao?: string | null;
 }
+
+/** O valor do "ninguém" no Select — o Radix não aceita item com valor vazio. */
+const NINGUEM = "__ninguem__";
 
 /**
  * ISO → os dois campos que a pessoa preenche, no fuso DELA.
@@ -65,9 +76,14 @@ export function FormularioDeTarefa({
   aoSalvar,
   leadId,
   contactId,
+  responsavelPadrao,
 }: Props) {
   const t = useT();
+  const usuario = useUser();
   const editando = Boolean(tarefa);
+  // As opções vêm da MESMA régua que a rota usa para aceitar o responsável
+  // (`lib/tarefas/responsavel.ts`): o que a lista oferece, o servidor grava.
+  const membros = useAssignableMembers(aberto);
 
   // ⚠️ O ESTADO NASCE DAS PROPS, e não de um `useEffect` que dá setState no
   // corpo — que era o do original e o que o `react-hooks/set-state-in-effect`
@@ -82,6 +98,8 @@ export function FormularioDeTarefa({
   const [hora, setHora] = useState(tarefa?.due_date ? prazo.hora : "09:00");
   const [prioridade, setPrioridade] = useState<PrioridadeDaTarefa>(tarefa?.priority ?? "medium");
   const [situacao, setSituacao] = useState<SituacaoDaTarefa>(tarefa?.status ?? "pending");
+  const responsavelInicial = (editando ? tarefa?.assigned_to : responsavelPadrao) ?? NINGUEM;
+  const [responsavel, setResponsavel] = useState<string>(responsavelInicial);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -107,6 +125,12 @@ export function FormularioDeTarefa({
         status: situacao,
         lead_id: tarefa?.lead_id ?? leadId ?? null,
         contact_id: tarefa?.contact_id ?? contactId ?? null,
+        // Só vai quando MUDOU. Uma tarefa antiga pode ter como responsável
+        // alguém que saiu da equipe: reenviar o mesmo id faria a rota recusar a
+        // edição do título por causa de um campo em que ninguém mexeu.
+        ...(responsavel !== responsavelInicial || !editando
+          ? { assigned_to: responsavel === NINGUEM ? null : responsavel }
+          : {}),
       });
       aoMudarAbertura(false);
     } catch (falha) {
@@ -203,6 +227,38 @@ export function FormularioDeTarefa({
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="tarefa-responsavel">{t("Responsável")}</Label>
+            <Select value={responsavel} onValueChange={setResponsavel}>
+              <SelectTrigger id="tarefa-responsavel">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NINGUEM}>{t("Ninguém")}</SelectItem>
+                {(membros.data ?? []).map((membro) => (
+                  <SelectItem key={membro.user_id} value={membro.user_id}>
+                    {membro.user_id === usuario.id
+                      ? t("Eu")
+                      : (membro.full_name ?? t("Membro sem nome"))}
+                  </SelectItem>
+                ))}
+                {/* O responsável de hoje pode não estar mais na lista (saiu da
+                    equipe): ele continua como opção para o Select não ficar em
+                    branco, e quem abre vê que a tarefa tem dono. */}
+                {responsavelInicial !== NINGUEM &&
+                !(membros.data ?? []).some((m) => m.user_id === responsavelInicial) ? (
+                  <SelectItem value={responsavelInicial}>
+                    {responsavelInicial === usuario.id
+                      ? t("Eu")
+                      : membros.isSuccess
+                        ? t("Fora da equipe")
+                        : t("Carregando…")}
+                  </SelectItem>
+                ) : null}
+              </SelectContent>
+            </Select>
           </div>
 
           {erro ? (
