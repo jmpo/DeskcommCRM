@@ -528,23 +528,37 @@ sincronizar_signup_mode_do_gotrue() {
 # vezes: no .env do Supabase, que o compose interpola, e no
 # `supabase-single-server.override.yml`, que as entrega ao contêiner.
 #
-# Chamada pelo install-single-server.sh (com o domínio que ele recebeu) e por
-# atualizar_supabase_single_server (sem domínio: sai do SITE_URL que o
-# instalador gravou como https://DOMINIO). Valor já presente — no .env do
-# Supabase ou no ambiente — manda: nada sobrescreve um molde que o operador já
-# apontou. Sem URL https para montar o caminho, não grava nada: um molde
-# apontado para `localhost` seria pior que o padrão.
-gravar_modelos_do_gotrue() {  # gravar_modelos_do_gotrue <.env do Supabase> [https://DOMINIO]
-  local env_sb="$1" base="${2:-}" chave caminho valor
+# Chamada pelo install-single-server.sh e por atualizar_supabase_single_server,
+# os dois com BASE_INTERNA_DO_APP (#2587): no single-server o auth está na rede
+# privada `deskcomm_private`, onde o app atende pelo nome do serviço. Pelo
+# domínio público a busca sai pelo IP da própria VPS, e atrás de um Traefik
+# externo esse retorno (hairpin) não existe: o GoTrue dá timeout e o e-mail de
+# recuperação não sai.
+#
+# A guarda aceita https:// e EXATAMENTE a base interna — nunca outro http. Um
+# molde apontado para `localhost` seria pior que o padrão: dentro do contêiner
+# do auth, localhost é o próprio auth.
+#
+# Valor já presente — no .env do Supabase ou no ambiente — manda: nada
+# sobrescreve um molde que o operador apontou. A exceção é o padrão ANTIGO do
+# kit, `SITE_URL` + caminho, que o próprio kit gravou antes do #2587: esse é
+# reescrito para a base nova, e é assim que quem já instalou recebe o conserto.
+BASE_INTERNA_DO_APP="http://app:3000"
+gravar_modelos_do_gotrue() {  # gravar_modelos_do_gotrue <.env do Supabase> <https://DOMINIO | BASE_INTERNA_DO_APP>
+  local env_sb="$1" base="${2:-}" site chave caminho valor atual
   [ -f "$env_sb" ] || return 0
-  [ -n "$base" ] || base="$(valor_do_env "$env_sb" SITE_URL)"
-  case "$base" in https://?*) base="${base%/}" ;; *) return 0 ;; esac
+  case "$base" in https://?*|"$BASE_INTERNA_DO_APP") base="${base%/}" ;; *) return 0 ;; esac
+  site="$(valor_do_env "$env_sb" SITE_URL)"; site="${site%/}"
   for chave in GOTRUE_MAILER_TEMPLATES_CONFIRMATION GOTRUE_MAILER_TEMPLATES_RECOVERY; do
-    [ -n "$(valor_do_env "$env_sb" "$chave")" ] && continue
     case "$chave" in
       *CONFIRMATION) caminho=/email-templates/confirmation ;;
       *) caminho=/email-templates/recovery ;;
     esac
+    atual="$(valor_do_env "$env_sb" "$chave")"
+    if [ -n "$atual" ]; then
+      case "$site" in https://?*) ;; *) continue ;; esac
+      [ "$atual" = "${site}${caminho}" ] || continue
+    fi
     valor="${!chave:-}"
     [ -n "$valor" ] || valor="${base}${caminho}"
     set_env_var "$env_sb" "$chave" "$valor"
@@ -646,7 +660,7 @@ atualizar_supabase_single_server() {
   # #2109 — no corpo desta função, e não numa linha do update.sh, pelo mesmo
   # motivo do #1653 logo abaixo. Antes do `up -d --wait`: o compose recria o
   # auth com o ambiente novo, sem reinício à parte.
-  gravar_modelos_do_gotrue "$dir/.env"
+  gravar_modelos_do_gotrue "$dir/.env" "$BASE_INTERNA_DO_APP"
   dc_supabase up -d --wait || return 1
   # #1653 — a sincronização do modo de cadastro mora AQUI, no corpo desta
   # função, e não numa linha do update.sh. Na atualização que traz este
@@ -1038,6 +1052,40 @@ veredito_das_imagens_da_release() {  # veredito_das_imagens_da_release <versão>
   fi
 }
 
+# Qual nome de pacote ESTA máquina usa para o plugin buildx (#2754)?
+#
+# Medido numa VPS Ubuntu com Docker do repositório do próprio Ubuntu: mandar
+# instalar `docker-buildx-plugin` devolve "E: Não é possível encontrar o
+# pacote", porque o Ubuntu publica o plugin como `docker-buildx` — o nome
+# `docker-buildx-plugin` é do repositório oficial do Docker
+# (download.docker.com), que nem precisa estar habilitado aqui. Um preflight
+# que só AVISA virava remediação inútil: o dono rodava o comando errado,
+# levava o erro do apt e voltava pra tela sem saber o que fazer.
+#
+# O nome sai do cache LOCAL do apt (`apt-cache show` não usa rede, só o índice
+# já em disco): é exatamente o que o `apt-get install` desta VPS encontra.
+# Sem apt, ou com os dois nomes fora do cache, devolve os DOIS nomes com a
+# origem de cada um — nunca uma ordem que não se possa executar.
+#
+# A ORDEM importa: `docker-buildx-plugin` é testado PRIMEIRO. Se o repositório
+# do Docker está no índice, o engine quase sempre é `docker-ce` — e, com o
+# universe ligado, o `docker-buildx` do Ubuntu também aparece, mas ele depende
+# de `docker.io`, que conflita com `docker-ce`: o apt recusa a instalação.
+# Medido numa VPS Ubuntu 22.04 com docker-ce 29.8.2 (os dois nomes no índice).
+pacote_do_buildx() {  # → nome do pacote (ou os dois nomes, com a origem)
+  if command -v apt-cache >/dev/null 2>&1; then
+    if apt-cache show docker-buildx-plugin >/dev/null 2>&1; then
+      printf 'docker-buildx-plugin'
+      return 0
+    fi
+    if apt-cache show docker-buildx >/dev/null 2>&1; then
+      printf 'docker-buildx'
+      return 0
+    fi
+  fi
+  printf 'docker-buildx (Ubuntu/Debian) ou docker-buildx-plugin (repositório oficial do Docker)'
+}
+
 # O preflight: dá para atualizar sem derrubar o que está no ar?
 # → 0 = pode seguir; 1 = NÃO pode, com o motivo na stdout.
 #
@@ -1046,7 +1094,7 @@ veredito_das_imagens_da_release() {  # veredito_das_imagens_da_release <versão>
 # qualquer `docker stop` — o `refuse` devolve RC 3, que o agent.sh lê como
 # "esta atualização nunca começou" e não tenta desfazer nada.
 preflight_atualizacao() {  # preflight_atualizacao <versão alvo>
-  local versao="${1:-}" veredito
+  local versao="${1:-}" veredito pacote_buildx
   versao="${versao#v}"
   if ! com_prazo 30 docker info >/dev/null 2>&1; then
     printf '%s' "o Docker não respondeu em 30s (daemon parado ou travado — veja 'systemctl status docker' e 'journalctl -u docker -n 100')."
@@ -1060,7 +1108,8 @@ preflight_atualizacao() {  # preflight_atualizacao <versão alvo>
   # sairia como "registro fora (DNS/rede)" — diagnóstico errado, e o dono iria
   # mexer na rede de uma VPS cuja rede está boa.
   if ! com_prazo 20 docker buildx version >/dev/null 2>&1; then
-    printf '%s' "o plugin buildx do Docker não está instalado nesta VPS, e é com ele que confiro se a versão $versao está publicada. Instale o pacote docker-buildx-plugin. Nada foi parado nem baixado."
+    pacote_buildx="$(pacote_do_buildx)"
+    printf '%s' "o plugin buildx do Docker não está instalado nesta VPS, e é com ele que confiro se a versão $versao está publicada. Instale o pacote $pacote_buildx. Nada foi parado nem baixado."
     return 1
   fi
   veredito="$(veredito_das_imagens_da_release "$versao")"
