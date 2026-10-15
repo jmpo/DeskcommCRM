@@ -1195,6 +1195,7 @@ jobs:
         i18n-espanhol-na-tela.spec.ts
         marca-logo.spec.ts
         suporte-temporario.spec.ts
+        campanha-com-modelo-aprovado.spec.ts
 
       # ─── PARTE 7 — a "parte 6" que o fork criou em 2026-09-19 ───
       # Na sincronização de 29/09 a upstream também criou uma PARTE_6 (acima
