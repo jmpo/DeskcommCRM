@@ -14457,7 +14457,7 @@ export const DICIONARIO: Traducoes = {
   },
   "Nome da campanha": { es: "Nombre de la campaña" },
   "Nova campanha": { es: "Nueva campaña" },
-  // Campanha com modelo aprovado (migration 0679, #1330 fatia 4).
+  // Campanha com modelo aprovado (migration 0680, #1330 fatia 4).
   "Número oficial só aceita texto livre para quem escreveu nas últimas 24 horas. Para falar com quem não escreveu, a campanha manda um modelo aprovado.": { es: "El número oficial solo acepta texto libre para quien escribió en las últimas 24 horas. Para hablarle a quien no escribió, la campaña envía una plantilla aprobada." },
   "Carregando modelos…": { es: "Cargando plantillas…" },
   "Não achou o modelo?": { es: "¿No encuentras la plantilla?" },

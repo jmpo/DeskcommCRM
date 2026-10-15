@@ -94,7 +94,7 @@ interface CampanhaRow {
   janela_fim_hora: number | null;
   teto_diario: number | null;
   teto_horario: number | null;
-  /** Migration 0679: `template` = modelo aprovado pelo número oficial. */
+  /** Migration 0680: `template` = modelo aprovado pelo número oficial. */
   message_mode: string;
   provider_template_name: string | null;
   provider_template_language: string | null;

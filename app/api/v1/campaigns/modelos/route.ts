@@ -1,6 +1,6 @@
 /**
  * GET /api/v1/campaigns/modelos?channel_session_id=… — o que uma campanha pode
- * mandar por ESTE número (migration 0679, issue #1330 fatia 4).
+ * mandar por ESTE número (migration 0680, issue #1330 fatia 4).
  *
  * Devolve o modo do número (`text` = texto livre, número por QR; `template` =
  * modelo aprovado, número oficial; `null` = canal que não faz campanha) e, no

@@ -1,5 +1,5 @@
 /**
- * CAMPANHA PELO NÚMERO OFICIAL, COM MODELO APROVADO (#1330, fatia 4; migration 0679).
+ * CAMPANHA PELO NÚMERO OFICIAL, COM MODELO APROVADO (#1330, fatia 4; migration 0680).
  *
  * Pela tela, como quem opera faria: escolhe o número oficial, o campo de texto
  * dá lugar aos modelos aprovados daquele número; escolhe o modelo, diz de onde

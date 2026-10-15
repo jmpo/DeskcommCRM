@@ -52888,7 +52888,7 @@ end;$$;
 revoke all on function public.fn_meet_delivery_settle(uuid,uuid,text,timestamptz,text,timestamptz) from public,anon,authenticated;
 grant execute on function public.fn_meet_delivery_settle(uuid,uuid,text,timestamptz,text,timestamptz) to service_role;
 
--- ---- campanha com modelo aprovado + ack pelos carimbos (migration 0679) ----
+-- ---- campanha com modelo aprovado + ack pelos carimbos (migration 0680) ----
 -- ═══ Por que a campanha precisa de modelo ═══
 --
 -- Número oficial (API da plataforma, direto ou por provedor parceiro) só aceita
@@ -52940,7 +52940,7 @@ alter table public.campaigns
   );
 
 comment on column public.campaigns.message_mode is
-  'text = corpo livre em message_body (número por QR); template = modelo aprovado (número oficial). Migration 0679.';
+  'text = corpo livre em message_body (número por QR); template = modelo aprovado (número oficial). Migration 0680.';
 comment on column public.campaigns.provider_template_name is
   'Nome do modelo aprovado na plataforma, quando message_mode = template.';
 comment on column public.campaigns.provider_template_language is
@@ -53004,7 +53004,7 @@ end
 $$;
 
 comment on function public.fn_campanha_sincroniza_ack() is
-  'Trigger de messages: leva o ack do canal (sent/delivered/read/failed, pelo status ou pelos carimbos delivered_at/read_at) ao campaign_recipients daquela mensagem. Status analítico nunca retrocede. Migration 0679.';
+  'Trigger de messages: leva o ack do canal (sent/delivered/read/failed, pelo status ou pelos carimbos delivered_at/read_at) ao campaign_recipients daquela mensagem. Status analítico nunca retrocede. Migration 0680.';
 
 revoke execute on function public.fn_campanha_sincroniza_ack() from public, anon, authenticated;
 grant execute on function public.fn_campanha_sincroniza_ack() to service_role;

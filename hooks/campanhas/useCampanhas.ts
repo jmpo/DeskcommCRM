@@ -28,7 +28,7 @@ export interface CampanhaDaLista {
   cancelled_at: string | null;
   created_at: string;
   created_by: string | null;
-  /** Migration 0679: `template` = modelo aprovado pelo número oficial. */
+  /** Migration 0680: `template` = modelo aprovado pelo número oficial. */
   message_mode?: "text" | "template";
   provider_template_name?: string | null;
 }

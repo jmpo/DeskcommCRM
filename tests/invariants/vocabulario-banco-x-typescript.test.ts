@@ -505,7 +505,7 @@ const PARES: Array<{
   {
     tabela: "campaigns",
     coluna: "message_mode",
-    // lib/campanhas/tipos.ts → MODOS_DA_MENSAGEM. Migration 0679 (#1330, fatia
+    // lib/campanhas/tipos.ts → MODOS_DA_MENSAGEM. Migration 0680 (#1330, fatia
     // 4): o número oficial manda modelo aprovado, e o despacho escolhe o
     // caminho por esta coluna. Um modo só no TypeScript viraria `23514` ao
     // salvar a campanha; só no CHECK, campanha que o despacho não sabe mandar.

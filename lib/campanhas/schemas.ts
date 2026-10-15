@@ -31,7 +31,7 @@ const baseDaCampanha = {
   channel_session_id: z.string().uuid(),
   message_body: z.string().trim().max(4096).nullable().optional(),
   /**
-   * Migration 0679 (#1330, fatia 4). Ausente = `text`, que é o que toda campanha
+   * Migration 0680 (#1330, fatia 4). Ausente = `text`, que é o que toda campanha
    * anterior é. A rota confere contra o número: o modo é o que o canal aceita
    * (`modoDeCampanhaDoCanal`), nunca uma escolha solta do corpo.
    */

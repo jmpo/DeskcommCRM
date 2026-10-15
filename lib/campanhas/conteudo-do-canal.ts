@@ -1,5 +1,5 @@
 /**
- * O CONTEÚDO DA CAMPANHA SEGUE O QUE O NÚMERO ACEITA (migration 0679).
+ * O CONTEÚDO DA CAMPANHA SEGUE O QUE O NÚMERO ACEITA (migration 0680).
  *
  * Número por QR manda texto livre; número oficial manda modelo aprovado — a
  * pergunta é da capability do canal (`modoDeCampanhaDoCanal`), nunca uma escolha

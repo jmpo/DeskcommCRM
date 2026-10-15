@@ -528,7 +528,7 @@ a campanha de texto num número oficial falhava em cada envio. Agora, no número
 oficial, o formulário oferece os modelos aprovados DAQUELE número
 (`GET /api/v1/campaigns/modelos`), o mapa de onde sai cada variável
 (`lib/campanhas/modelo.ts`) e a prévia (`components/channels/PreviaDoModelo.tsx`,
-a mesma do inbox). Migration 0679.
+a mesma do inbox). Migration 0680.
 
 Spec: `tests/e2e/campanha-com-modelo-aprovado.spec.ts`, na `SPECS_PARTE_5`. Os
 casos 1 e 2 rodam no CI; o 3 precisa do dublê do provedor (ambiente do

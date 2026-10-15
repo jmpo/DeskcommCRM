@@ -90,7 +90,7 @@ export async function buscarCandidatos(
     corpo?: string;
     /**
      * Campanha com modelo aprovado não tem texto para varrer: quem diz que os
-     * campos do negócio valem a consulta é o mapa de variáveis (migration 0679).
+     * campos do negócio valem a consulta é o mapa de variáveis (migration 0680).
      */
     lerCamposDoNegocio?: boolean;
   },

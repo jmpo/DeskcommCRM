@@ -332,7 +332,7 @@ describe("sendTemplate — o contrato conferido decide onde cada valor vai", () 
     await zernioAdapter.sendTemplate!({
       organizationId: ORG,
       sessionRef: CREDS.accountId,
-      to: "595981000679",
+      to: "595981000680",
       name: "oferta_pico",
       language: "es",
       values: { "button0:1": "pico", "2": "pedido", "1": "Ana", "header:1": "https://cdn.x/p.jpg" },
@@ -358,7 +358,7 @@ describe("sendTemplate — o contrato conferido decide onde cada valor vai", () 
       zernioAdapter.sendTemplate!({
         organizationId: ORG,
         sessionRef: CREDS.accountId,
-        to: "595981000679",
+        to: "595981000680",
         name: "oferta_pico",
         language: "es",
         values: { "1": "Ana", "2": "x", "button0:1": "pico" },

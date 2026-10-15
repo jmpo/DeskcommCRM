@@ -1,5 +1,5 @@
 /**
- * Como uma CAMPANHA fala por cada canal (migration 0679). A pergunta é se o
+ * Como uma CAMPANHA fala por cada canal (migration 0680). A pergunta é se o
  * canal manda texto livre FORA da janela de 24 horas — campanha fala com quem
  * não escreveu —, não se ele "aceita texto".
  */

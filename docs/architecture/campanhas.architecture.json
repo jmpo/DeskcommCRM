@@ -200,7 +200,7 @@
       "lane": "api",
       "col": 5,
       "type": "service",
-      "label": "GET /api/v1/campaigns/modelos — o modo do número e os modelos DESTA conexão, com as variáveis (0679)"
+      "label": "GET /api/v1/campaigns/modelos — o modo do número e os modelos DESTA conexão, com as variáveis (0680)"
     },
     {
       "id": "modelo-da-campanha",

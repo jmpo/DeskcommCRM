@@ -168,7 +168,7 @@ export async function PATCH(
     mudanca.content_version = campanha.content_version + 1;
   }
 
-  // ═══ O conteúdo segue o que o número aceita (migration 0679) ═══
+  // ═══ O conteúdo segue o que o número aceita (migration 0680) ═══
   //
   // Trocar o número, o modelo, o mapa de variáveis ou os números extras passa
   // pela MESMA decisão da criação: texto livre no QR, modelo aprovado e

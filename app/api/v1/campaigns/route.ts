@@ -124,7 +124,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
   // O conteúdo segue o que o número aceita: texto livre no QR, modelo aprovado
-  // no oficial (migration 0679). O modelo escolhido é conferido inteiro aqui.
+  // no oficial (migration 0680). O modelo escolhido é conferido inteiro aqui.
   const conteudo = await decidirConteudo(supabase, {
     organizationId: org.orgId,
     channelSessionId: entrada.channel_session_id,
