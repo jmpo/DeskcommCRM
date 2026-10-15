@@ -523,9 +523,29 @@ TMP3="$(mktemp -d)"
 (
   MARCA="$TMP3/executou"
   mkdir -p "$TMP3/bin" "$TMP3/proj"
-  cp install.sh _common.sh _i18n.sh "$TMP3/"
+  cp install.sh _common.sh _manifestos.sh _i18n.sh "$TMP3/"
   : > "$TMP3/proj/docker-compose.prod.yml"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP3/bin/docker"; chmod +x "$TMP3/bin/docker"
+  cat > "$TMP3/bin/docker" <<'STUBDOCKER'
+#!/usr/bin/env bash
+if [ "${1:-}" = buildx ] && [ "${2:-}" = imagetools ] && [ "${3:-}" = inspect ]; then
+  case " $* " in
+    *' --raw '*) printf '%s' '{"schemaVersion":2,"manifests":[{"platform":{"os":"linux","architecture":"amd64"}}]';;
+    *) printf 'linux/amd64\n';;
+  esac
+fi
+exit 0
+STUBDOCKER
+  chmod +x "$TMP3/bin/docker"
+  cat > "$TMP3/bin/curl" <<'STUBCURL'
+#!/usr/bin/env bash
+case "$*" in
+  *releases/latest*) printf '%s' '{"tag_name":"v1.66.1"}' ;;
+  *ghcr.io/token*) printf '%s' '{"token":"teste"}' ;;
+  *ghcr.io/v2/*) printf 200 ;;
+  *) printf 200 ;;
+esac
+STUBCURL
+  chmod +x "$TMP3/bin/curl"
   dublar_uname_amd64 "$TMP3/bin"
   cat > "$TMP3/supabase-provision.sh" <<'PROV'
 #!/usr/bin/env bash
@@ -540,13 +560,16 @@ PROV
 
   saida="$(cd "$TMP3/proj" && env PATH="$TMP3/bin:$PATH" MARCA="$MARCA" \
     SUPABASE_ACCESS_TOKEN=fake NEXT_PUBLIC_SUPABASE_URL= \
+    DESKCOMM_RELEASES_LATEST_URL=https://example.invalid/releases/latest \
     bash "$TMP3/install.sh" --yes 2>&1 || true)"
 
   # Sem esta checagem o teste passaria por VACUIDADE: se o install.sh morresse
   # antes do bloco (stub quebrado, refactor movendo o trecho), nada executaria o
   # veneno e o silêncio seria lido como aprovação.
   if ! grep -q "credenciais entraram sozinhas" <<<"$saida"; then
-    printf '  ✗ o install.sh não chegou ao bloco do Supabase — teste inconclusivo, não verde\n'; exit 1
+    printf '  ✗ o install.sh não chegou ao bloco do Supabase — teste inconclusivo, não verde\n'
+    printf '%s\n' "$saida" | tail -12
+    exit 1
   fi
   if [ -e "$MARCA" ]; then
     printf '  ✗ o install.sh INTERPRETOU a saída do provisionamento (eval/source no ponto de chamada?)\n'; exit 1
@@ -1773,6 +1796,45 @@ STUB
 npm_rede_e2e "rede do NPM presente: install/update seguem"        segue 0
 npm_rede_e2e "rede do NPM sumiu (prune/down -v): morre explicando" morre 1
 
+echo "proxy reverso: Cloudflare Tunnel (atrás de NAT)"
+# Como o NPM, o cloudflared é sempre declarado à mão no .env — não há nada para
+# detectar. O que se prova é o CALL SITE (dc()/dc_files() entram o override) e
+# que garantir_rede_do_proxy NÃO exige rede externa: o cloudflared sobe na rede
+# interna do próprio compose.
+if REVERSE_PROXY=cloudflared dc_files | grep -q 'docker-compose.cloudflared.yml'; then
+  printf '  ✓ dc_files() entra o docker-compose.cloudflared.yml com REVERSE_PROXY=cloudflared\n'
+else
+  printf '  ✗ dc_files() não entrou o docker-compose.cloudflared.yml (deu: %s)\n' \
+    "$(REVERSE_PROXY=cloudflared dc_files)"; fail=1
+fi
+if REVERSE_PROXY=caddy dc_files | grep -q 'docker-compose.cloudflared.yml'; then
+  printf '  ✗ dc_files() entrou o override do Cloudflare SEM REVERSE_PROXY=cloudflared (vacuidade)\n'; fail=1
+else
+  printf '  ✓ REVERSE_PROXY=caddy (default): dc_files() não menciona o override do Cloudflare\n'
+fi
+# garantir_rede_do_proxy com cloudflared não pode nem olhar rede externa: não há
+# nenhuma. O dublê responde "inexistente" para qualquer inspect — se a função
+# tentasse conferir, morreria pedindo TRAEFIK_NETWORK.
+_cloudflared_rede() {  # → segue | morre
+  local dir real kit="$PWD"
+  dir="$(mktemp -d)"; mkdir -p "$dir/bin"
+  cat > "$dir/bin/docker" <<STUB
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$dir/bin/docker"
+  if (cd "$dir" && env PATH="$dir/bin:$PATH" REVERSE_PROXY=cloudflared PROJECT_DIR="$dir" \
+        bash -c '. "$1/_common.sh"; garantir_rede_do_proxy' _ "$kit") >/dev/null 2>&1
+  then real=segue; else real=morre; fi
+  rm -rf "$dir"
+  printf '%s' "$real"
+}
+if [ "$(_cloudflared_rede)" = segue ]; then
+  printf '  ✓ cloudflared não exige rede externa: garantir_rede_do_proxy segue sem tocar o Docker\n'
+else
+  printf '  ✗ cloudflared tentou conferir rede externa e morreu (não usa nenhuma)\n'; fail=1
+fi
+
 echo "proxy reverso: quanta confiança a eleição merece"
 # A eleição por porta publicada traz a evidência (a coluna Ports diz ':80->'); a
 # varredura por modo host não traz nenhuma — em modo host a coluna é vazia para
@@ -1830,10 +1892,28 @@ montar_vps() {
   # topo, igual ao `_common.sh`. Sem eles aqui, o script morre na LINHA 21 — antes
   # de qualquer mensagem — e todo cenario reporta "o update.sh nao chegou ao
   # banco / ao fim / ao up -d", que le como defeito do produto e e cenario faltando.
-  cp install.sh update.sh backup.sh _common.sh _i18n.sh marca-emails.sh manutencao.sh "$raiz/"
+  cp install.sh update.sh backup.sh _common.sh _manifestos.sh _i18n.sh marca-emails.sh manutencao.sh "$raiz/"
   cp -R manutencao "$raiz/"
   : > "$VPS_PROJ/docker-compose.prod.yml"
   cat > "$raiz/bin/docker"
+  # O corpo fornecido por cada cenário continua cuidando de compose/exec.
+  # O wrapper só dublê o registry OCI que o preflight novo consulta.
+  mv "$raiz/bin/docker" "$raiz/bin/docker-inner"
+  cat > "$raiz/bin/docker" <<'STUBOCI'
+#!/usr/bin/env bash
+if [ "${1:-}" = buildx ] && [ "${2:-}" = imagetools ] && [ "${3:-}" = inspect ]; then
+  case " $* " in
+    *' --raw '*)
+      if [ -n "${DUBLE_MANIFEST:-}" ]; then printf '%s' "$DUBLE_MANIFEST"
+      else printf '%s' '{"schemaVersion":2,"manifests":[{"platform":{"os":"linux","architecture":"amd64"}},{"platform":{"os":"linux","architecture":"arm64"}}]}'
+      fi ;;
+    *) printf 'linux/amd64\nlinux/arm64\n' ;;
+  esac
+  exit 0
+fi
+exec "$(dirname "$0")/docker-inner" "$@"
+STUBOCI
+  chmod +x "$raiz/bin/docker-inner"
   # Só o v_supabase_url exige resposta online (000 reprova, e quem responde tem
   # de ser o GoTrue — o ramo `*auth/v1/verify*`); os outros toleram.
   #
@@ -1849,6 +1929,7 @@ montar_vps() {
   cat > "$raiz/bin/curl" <<'STUBCURL'
 #!/usr/bin/env bash
 case "$*" in
+  *releases/latest*) printf '{"tag_name":"%s"}' "${DUBLE_RELEASE_TAG:-v1.66.1}" ;;
   *ghcr.io/token*) printf '{"token":"dublê"}' ;;
   *ghcr.io/v2/*)   printf '%s' "${DUBLE_GHCR:-200}" ;;
   # O v_supabase_url exige o GoTrue: o JSON de /auth/v1/verify sem parâmetros.
@@ -1908,16 +1989,18 @@ STUB
 # partir de um .env de mentira. O cenário declara o próprio ambiente.
 rodar() {
   local script="$1" flags="$2"
+  local -a release_env=()
+  [ "$script" = install.sh ] && release_env=(DESKCOMM_RELEASES_LATEST_URL=https://api.github.com/repos/exemplo/releases/latest)
   printf '%s\n%s\n' "$BASE_ENV" "${3-}" > "$VPS_PROJ/.env"
   : > "$VPS_LOG"
   if [ $# -ge 4 ]; then
     printf '%s' "$4" > "$VPS_RAIZ/respostas.txt"
     (cd "$VPS_PROJ" && env PATH="$VPS_RAIZ/bin:$PATH" DOCKER_LOG="$VPS_LOG" CRONTAB_SANDBOX="$CRONTAB_SANDBOX" \
-      SUPABASE_ACCESS_TOKEN= \
+      SUPABASE_ACCESS_TOKEN= "${release_env[@]}" \
       bash "$VPS_RAIZ/$script" $flags <"$VPS_RAIZ/respostas.txt" 2>&1 || true) | sed -E 's/\x1b\[[0-9;]*m//g'
   else
     (cd "$VPS_PROJ" && env PATH="$VPS_RAIZ/bin:$PATH" DOCKER_LOG="$VPS_LOG" CRONTAB_SANDBOX="$CRONTAB_SANDBOX" \
-      SUPABASE_ACCESS_TOKEN= \
+      SUPABASE_ACCESS_TOKEN= "${release_env[@]}" \
       bash "$VPS_RAIZ/$script" $flags 2>&1 || true) | sed -E 's/\x1b\[[0-9;]*m//g'
   fi
 }
@@ -1928,6 +2011,7 @@ rodar() {
 chegou_na_deteccao() {
   grep -q -- '-p 80:80' "$VPS_LOG" && return 0
   printf '  ✗ o install.sh não chegou a testar a porta 80 — teste inconclusivo, não verde\n'
+  printf '     causas: %s\n' "$(printf '%s\n' "${saida:-}" | grep -E '✖|Manifesto|Registro|WAHA_IMAGE|release' | head -5 | tr '\n' ' ')"
   return 1
 }
 # As RESPOSTAS do modo interativo, na ordem em que o instalador pergunta: o
@@ -2219,8 +2303,9 @@ esac
 exit 0
 STUB
   export REPO_URL="$origem"
+  export DUBLE_RELEASE_TAG=v1.10.0
   rodar install.sh --yes >/dev/null
-  unset REPO_URL
+  unset REPO_URL DUBLE_RELEASE_TAG
 
   for par in "APP_IMAGE:deskcommcrm" "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
     chave="${par%%:*}"; repo="${par##*:}"
@@ -2762,7 +2847,7 @@ STUB
   # da árvore que É a dona. Isto é re-execução legítima — o caminho que o kit
   # ensina para corrigir uma resposta — e tem de seguir. Sem este par, bastaria
   # bloquear tudo para o teste acima ficar verde.
-  cat > "$VPS_RAIZ/bin/docker" <<STUB2
+  cat > "$VPS_RAIZ/bin/docker-inner" <<STUB2
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "\$DOCKER_LOG"
 case "\$1" in
@@ -2777,7 +2862,7 @@ case "\$1" in
 esac
 exit 0
 STUB2
-  chmod +x "$VPS_RAIZ/bin/docker"
+  chmod +x "$VPS_RAIZ/bin/docker-inner"
   saida="$(rodar install.sh --yes)"
   chegou_na_deteccao || exit 1
   if grep -q 'Já existe um DeskcommCRM NO AR' <<<"$saida"; then
@@ -3504,6 +3589,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'" >/dev/null
 caddy_skip_e2e "caddy (default): recria o próprio proxy"       caddy   ""                                          sim
 caddy_skip_e2e "traefik: nunca recria o Caddy"                  traefik "TRAEFIK_NETWORK='crmcaddyskip_proxy'"      nao
 caddy_skip_e2e "npm: nunca recria o Caddy"                      npm     "PROXY_NETWORK_NAME='proxy_network'"       nao
+caddy_skip_e2e "cloudflared: nunca recria o Caddy"              cloudflared "CLOUDFLARE_TUNNEL_TOKEN='token'"     nao
 
 echo "nome do projeto que o docker compose usa"
 # O compose faz TrimLeft("_-") no basename. Sem isso, uma pasta /root/_deskcomm
@@ -3740,11 +3826,11 @@ fi
 TMP_SITEURL="$(mktemp -d)"
 (
   KIT_AQUI="$PWD"
-  cp "$KIT_AQUI/marca-emails.sh" "$KIT_AQUI/_common.sh" "$TMP_SITEURL/" || exit 1
+  cp "$KIT_AQUI/marca-emails.sh" "$KIT_AQUI/_common.sh" "$KIT_AQUI/_manifestos.sh" "$TMP_SITEURL/" || exit 1
   mkdir -p "$TMP_SITEURL/../supabase/templates" 2>/dev/null
   # Os modelos moram em ../supabase/templates relativo ao script.
   mkdir -p "$TMP_SITEURL/kit" "$TMP_SITEURL/supabase/templates"
-  cp "$KIT_AQUI/marca-emails.sh" "$KIT_AQUI/_common.sh" "$KIT_AQUI/_i18n.sh" "$TMP_SITEURL/kit/"
+  cp "$KIT_AQUI/marca-emails.sh" "$KIT_AQUI/_common.sh" "$KIT_AQUI/_manifestos.sh" "$KIT_AQUI/_i18n.sh" "$TMP_SITEURL/kit/"
   cp "$KIT_AQUI/../supabase/templates/confirmation.html" \
      "$KIT_AQUI/../supabase/templates/recovery.html" "$TMP_SITEURL/supabase/templates/" || exit 1
 
@@ -3833,7 +3919,7 @@ TMP_RASCUNHO="$(mktemp -d)"
 (
   KIT_AQUI="$PWD"
   cd "$TMP_RASCUNHO" || exit 1
-  cp "$KIT_AQUI/install.sh" "$KIT_AQUI/_common.sh" "$KIT_AQUI/_i18n.sh" . || exit 1
+  cp "$KIT_AQUI/install.sh" "$KIT_AQUI/_common.sh" "$KIT_AQUI/_manifestos.sh" "$KIT_AQUI/_i18n.sh" . || exit 1
   INSTALL_SH_LIB=1 . ./install.sh >/dev/null 2>&1
   set +e   # o install.sh liga `set -e`; aqui as sondas precisam poder sair != 0
 

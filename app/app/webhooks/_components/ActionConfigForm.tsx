@@ -29,6 +29,19 @@ import type { PlanoDeTarefas } from "@/lib/tarefas/plano";
 export type ActionItem =
   | { type: "create_or_move_lead"; config: { pipeline_id: string; stage_id: string } }
   | { type: "send_whatsapp_message"; config: { channel_session_id: string; template: string } }
+  // #2726 — o e-mail de saída: mesmo campo que a irmã de WhatsApp (`assunto`/
+  // `corpo` no lugar do `template`), e `email_fixo` só preenche quando o
+  // destinatário é o endereço gravado na regra.
+  | {
+      type: "send_email";
+      config: {
+        destinatario: "contato" | "dono_do_lead" | "fixo";
+        email_fixo: string;
+        assunto: string;
+        corpo: string;
+        formato: string;
+      };
+    }
   | {
       type: "send_ai_message";
       config: { agent_id: string; channel_session_id: string; instruction: string };
@@ -61,6 +74,13 @@ export function defaultActionConfig(type: ActionItem["type"]): ActionItem {
       return { type, config: { pipeline_id: "", stage_id: "" } };
     case "send_whatsapp_message":
       return { type, config: { channel_session_id: "", template: "" } };
+    // #2726 — o e-mail de saída: a MESMA forma que o schema da API exige
+    // (`formato` sempre presente, porque a tela desenha a escolha).
+    case "send_email":
+      return {
+        type,
+        config: { destinatario: "contato", email_fixo: "", assunto: "", corpo: "", formato: "texto" },
+      };
     case "send_ai_message":
       return { type, config: { agent_id: "", channel_session_id: "", instruction: "" } };
     case "add_tag":
@@ -233,6 +253,138 @@ function SendWhatsappForm({
           {t("Respeitamos a janela de envio e o limite diário configurados para esse número em Conexões — fora da janela, a mensagem espera a próxima.")}
         </p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * "Enviar e-mail" (#2726) — quem recebe, o assunto e o corpo.
+ *
+ * O corpo usa o MESMO jogo de variáveis da irmã de WhatsApp (`TEMPLATE_VARS`
+ * + os campos do funil), porque quem montou a regra já escreveu aquela
+ * mensagem e não deve recomeçar: `{{destino}}` resolve igual nos dois canais.
+ *
+ * O que NÃO está aqui de propósito: transporte, credencial e remetente. O
+ * envio sai pelo que já foi configurado em Admin › E-mail (SMTP ou Resend) —
+ * e o aviso embaixo do corpo diz isso, porque sem ele a pessoa procura uma
+ * chave nova que não existe e conclui que a ação não funciona.
+ */
+function SendEmailForm({
+  config,
+  onChange,
+}: FormProps<{
+  destinatario: "contato" | "dono_do_lead" | "fixo";
+  email_fixo: string;
+  assunto: string;
+  corpo: string;
+  formato: string;
+}>) {
+  const t = useT();
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const pipeline = useDefaultPipeline(true);
+  const camposDoFormulario = camposDoFunil(pipeline.data?.pipeline.settings ?? null)
+    .filter((f) => !TEMPLATE_VARS.some((v) => v.token === `{{${f.key}}}`))
+    .map((f) => ({ token: `{{${f.key}}}`, label: f.label }));
+
+  const insertVar = (token: string) => {
+    const el = textareaRef.current;
+    const current = config.corpo;
+    const start = el?.selectionStart ?? current.length;
+    const end = el?.selectionEnd ?? current.length;
+    const next = current.slice(0, start) + token + current.slice(end);
+    onChange({ ...config, corpo: next });
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(start + token.length, start + token.length);
+    });
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label>{t("Destinatário")}</Label>
+          <Select
+            value={config.destinatario}
+            onValueChange={(v) =>
+              onChange({ ...config, destinatario: v as "contato" | "dono_do_lead" | "fixo" })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={t("Escolha quem recebe")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="contato">{t("E-mail do contato")}</SelectItem>
+              <SelectItem value="dono_do_lead">{t("E-mail do responsável do negócio")}</SelectItem>
+              <SelectItem value="fixo">{t("Endereço fixo")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>{t("Assunto")}</Label>
+          <Input
+            value={config.assunto}
+            onChange={(e) => onChange({ ...config, assunto: e.target.value })}
+            placeholder={t("Sua viagem para {{destino}}")}
+          />
+        </div>
+      </div>
+      {config.destinatario === "fixo" ? (
+        <div className="space-y-1">
+          <Label>{t("Endereço de e-mail")}</Label>
+          <Input
+            value={config.email_fixo}
+            onChange={(e) => onChange({ ...config, email_fixo: e.target.value })}
+            placeholder="nome@empresa.com"
+          />
+          <p className="text-xs text-muted-foreground">
+            {t("Um endereço fixo recebe todos os envios desta regra.")}
+          </p>
+        </div>
+      ) : null}
+      <div className="space-y-1">
+        <Label>{t("Corpo do e-mail")}</Label>
+        <div className="flex flex-wrap gap-1">
+          {[...TEMPLATE_VARS, ...camposDoFormulario].map((v) => (
+            <Button
+              key={v.token}
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => insertVar(v.token)}
+            >
+              {v.label}
+            </Button>
+          ))}
+        </div>
+        <Textarea
+          ref={textareaRef}
+          rows={5}
+          value={config.corpo}
+          onChange={(e) => onChange({ ...config, corpo: e.target.value })}
+          placeholder="Oi {{nome}}, tudo bem?"
+        />
+      </div>
+      <div className="space-y-1">
+        <Label>{t("Formato do corpo")}</Label>
+        <Select value={config.formato || "texto"} onValueChange={(v) => onChange({ ...config, formato: v })}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="texto">{t("Texto simples")}</SelectItem>
+            <SelectItem value="html">{t("HTML simples")}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t(
+          "As variáveis do WhatsApp valem aqui: {{nome}}, {{primeiro_nome}}, {{lead.title}} e os campos do formulário como {{destino}}.",
+        )}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        {t("O envio usa o e-mail configurado em Admin › E-mail (SMTP ou Resend).")}
+      </p>
     </div>
   );
 }
@@ -696,6 +848,13 @@ export function ActionConfigForm({
     case "send_whatsapp_message":
       return (
         <SendWhatsappForm
+          config={action.config}
+          onChange={(config) => onChange({ type: action.type, config })}
+        />
+      );
+    case "send_email":
+      return (
+        <SendEmailForm
           config={action.config}
           onChange={(config) => onChange({ type: action.type, config })}
         />

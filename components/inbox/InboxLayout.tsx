@@ -21,6 +21,7 @@ import { InboxFilters, type InboxFiltersValue, type InboxTab } from "./InboxFilt
 import { ChatThread } from "./ChatThread";
 import { Composer, type ComposerHandle } from "./Composer";
 import { ConversationHeader } from "./ConversationHeader";
+import { BotaoIniciarConversa } from "./PainelIniciarConversa";
 import { RetentionNotice } from "./RetentionNotice";
 import { CRMSidePanel } from "./CRMSidePanel";
 import type { Message as ConversationMensagem } from "@/lib/types/messaging";
@@ -628,6 +629,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
           colunas.lista,
         )}
       >
+        <BotaoIniciarConversa />
         <InboxFilters value={filterValue} onChange={setFilterValue} />
         <div className="min-h-0 flex-1 overflow-hidden">
           <ConversationList

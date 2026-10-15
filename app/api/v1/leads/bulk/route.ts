@@ -21,6 +21,8 @@ import { registraFalhaDeAtividade } from "@/lib/leads/activity-write-failure";
 import { bulkLeadActionSchema, validateRequest } from "@/lib/schemas";
 import {
   decideMotivoDaPerda,
+  etapaDePerda,
+  razaoDaPerdaNaTimeline,
   recusaDeMotivoDaPerdaPeloBanco,
 } from "@/lib/leads/motivo-da-perda";
 import {
@@ -348,6 +350,16 @@ export async function POST(req: NextRequest): Promise<Response> {
         nomesEstagio.set(s.id, s.name);
       }
 
+      // Perder em lote COM motivo é a mesma perda do card: a linha da timeline
+      // diz "Perdido — <motivo>", como a `/lose`. Sem isto o dossiê contava só
+      // "Movido de X para Perdido" e o motivo existia apenas na coluna (#2868).
+      // Sem motivo no lote (troca entre etapas de perda de quem já tinha um), a
+      // linha segue sendo a da transição.
+      const motivoNaTimeline =
+        etapaDePerda(etapaDeDestino) && motivoDoLote?.trim()
+          ? razaoDaPerdaNaTimeline(motivoDoLote.trim())
+          : null;
+
       await Promise.all(
         movidos.map(async (row) => {
           const r = await emitLeadActivity(supabase, {
@@ -357,10 +369,12 @@ export async function POST(req: NextRequest): Promise<Response> {
             sourceModule: "crm",
             sourceId: row.lead_id,
             actor: { type: "user", id: user.id },
-            reason: stageChangeReason(
-              nomesEstagio.get(row.from_stage_id) ?? null,
-              nomesEstagio.get(input.params.stage_id) ?? null,
-            ),
+            reason:
+              motivoNaTimeline ??
+              stageChangeReason(
+                nomesEstagio.get(row.from_stage_id) ?? null,
+                nomesEstagio.get(input.params.stage_id) ?? null,
+              ),
             payload: {
               from_stage_id: row.from_stage_id,
               to_stage_id: input.params.stage_id,

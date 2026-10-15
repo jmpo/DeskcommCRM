@@ -8,6 +8,229 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
 ## [Não lançado]
 
+## [1.81.0] — 2026-10-15
+
+### ⚠️ Requer atenção
+
+- **O pedido de dados que chega pela Nuvemshop passa a esperar o clique em Aprovar** Depois de atualizar, alguém com papel de administrador precisa aprovar cada pedido de dados que chegar pela Nuvemshop em Organização › LGPD. Sem a aprovação, o arquivo não é enviado e o prazo legal de 7 dias úteis corre. Confira também os pedidos que chegaram pouco antes da atualização e ainda aparecem como "Recebido": eles esperam a mesma aprovação.
+- **Lembretes da agenda deixam de escolher arbitrariamente entre números da organização** Depois de atualizar, abra Configurações › Tipos de agendamento se a organização tem mais de um número. Escolha o canal do lembrete nos serviços que recebem reserva manual sem conversa; sem isso, o lembrete fica pendente com aviso na Central em vez de sair por um número qualquer. O mesmo vale para a reserva cuja conversa está num número desconectado ou arquivado: ela deixa de sair pelo número novo e fica pendente, o que atinge também quem trocou de número. Lembrete com a janela de 24 horas fechada passa a abrir aviso na Central.
+
+### Adicionado
+
+- **O histórico de uma conversa pode ser baixado em PDF, pelo endereço da rota e com a sessão logada** `GET /api/v1/conversations/[id]/export?formato=pdf` devolve o fio de mensagens em ordem cronológica, com até as 500 mais recentes. O papel `agent` baixa; `viewer` não leva o arquivo. Limite de 5 exportações por minuto por pessoa e 20 por organização. O botão na tela da conversa ainda não existe. Nenhuma mudança de banco.
+
+  Contribuição de @webtecnica (refs #1982).
+
+- **A automação ganha a ação Enviar e-mail, pelo e-mail que já está configurado** Dentro de um "ENTÃO", a regra manda um e-mail para o contato do negócio, para o responsável ou para um endereço fixo, pelo que já está configurado em Admin › E-mail (SMTP ou Resend). Sem e-mail configurado, ou com contato sem e-mail ou com recusa registrada, a aba Atividade mostra o motivo. Cada empresa envia até 200 e-mails de automação por hora; o excedente espera a hora seguinte.
+
+  Contribuição de @webtecnica (#2794), a partir da issue #2726.
+
+- **O funil ganha a visão Calendário por campo de data, com mês e semana** Ao lado do quadro, a aba Calendário mostra os negócios no dia de um campo de data do funil, ou como intervalo entre dois campos, por mês ou semana. Você não precisa fazer nada.
+
+  Contribuição de @webtecnica (#2790), a partir da issue #2770.
+
+- **Campos personalizados condicionais — o campo aparece só quando outro tem o valor certo** Em Configurações, cada campo do funil ganha a caixa "Mostrar só quando". Esconder não apaga o valor gravado, e o campo oculto não é validado como obrigatório. Sem condição, todos os campos continuam aparecendo, como hoje.
+
+  Contribuição de @webtecnica, a partir da issue #2728.
+
+- **VPS atrás de NAT publica o CRM pelo Cloudflare Tunnel, com o Caddy desligado** Com `REVERSE_PROXY=cloudflared` e `CLOUDFLARE_TUNNEL_TOKEN` no `.env`, o Caddy fica desligado e um contêiner `cloudflared` publica o CRM sem porta de entrada. É opcional, e não é suportado no single-server: o instalador recusa com instrução.
+
+  Contribuição de @caiofacchinato.
+
+- **Contato ganha a marca "Sempre atendimento humano", que a devolução automática não desfaz** Marcada na ficha do contato, a IA para de atendê-lo de imediato, e nenhuma devolução, manual ou automática, a desfaz; só a ficha desliga. Nada precisa ser feito ao atualizar: a marca nasce desligada.
+
+  Contribuição de @webtecnica (#2671, issue #2379).
+
+- **Negócio ganho pode abrir um card de continuação no funil de pós-venda** Uma regra com o gatilho "negócio ganho" e a ação "criar ou mover lead" para outro funil cria lá um card com os dados do negócio ganho, que fica como está. Cada venda gera uma continuação só. Você não precisa fazer nada; a regra só age em quem a configurar.
+
+  Contribuição de @webtecnica (#2787), a partir da issue #2769 de @aerosuiteapp.
+
+- **Automações também podem ser montadas num designer de caixas ligadas, no mesmo formato do construtor de follow-up** Em Webhooks › Automações, "Montar no designer" abre a automação num canvas que grava a mesma automação do editor em lista, que continua disponível. Nada precisa ser feito ao atualizar. Contribuição de @Wyllams.
+
+- **Automações podem disparar quando um contato ganha um telefone** O gatilho "Quando um contato ganhar um telefone" dispara quando a ficha sem número passa a ter um, pela edição da ficha ou ao aceitar a proposta de dado da conversa. Ainda não disparam, por exemplo: o contato criado já com telefone, a importação de planilha e a junção de duplicados.
+
+  Contribuição de @webtecnica (refs #2812).
+
+- **GPT-6 Luna, GPT-6.1 Sol e GPT-6 Astra entram na lista de modelos** Aparecem em Provedores de IA e no seletor do agente, com o custo contado em Uso e orçamento. O modelo padrão não muda. Se o seu `.env` tem `OPENAI_REASONING_EFFORT` em `none` ou `minimal`: o GPT-6.1 Sol e o GPT-6 Astra passam a receber `low` (antes recusavam a resposta), e o GPT-6 Luna com `minimal` passa a usar `none`. Crédito: @rafaelcesardev.
+
+- **O guia de uso diário do CRM passa a conhecer todas as telas e todos os recursos lançados** O guia (a skill `deskcomm-operacao`) passa a conhecer os recursos da 1.79.0. Nada precisa ser feito ao atualizar. Contribuição de @paulolimajr77.
+
+- **O Inbox ganha o botão Iniciar conversa, para número novo ou contato existente** No topo da lista do Inbox, o botão abre um painel: digite o telefone ou busque o contato, escolha o número de saída e escreva a primeira mensagem ou use um modelo. A conversa abre atribuída a quem a iniciou, e a IA não assume. Se ela já está com outro atendente, o painel diz com quem e a primeira mensagem não é enviada. Aparece para atendente ou acima. Você não precisa fazer nada.
+
+  Contribuição de @webtecnica (#2838), a partir da issue #2813 de @aerosuiteapp.
+
+- **Guias para revender o CRM como SaaS, com cobrança, contrato e roteiros de aula, e o guia de assistente deskcomm-saas** `docs/saas/` ganha guias da jornada do dono, da cobrança (Stripe × Asaas), do contrato e da LGPD, e roteiros de aula; o guia de assistente `deskcomm-saas` conduz esse caminho pela conversa. Nada muda no sistema instalado.
+
+- **Opção por organização para criar o Google Meet da reunião já com acesso aberto** Nova opção na Agenda, desligada por padrão: ligada, qualquer pessoa com o link entra sem pedir. Requer a API do Meet habilitada e o escopo de criação de espaços concedido na conexão do Google; no self-host, os passos estão na tela da opção. Desligada, nada muda.
+
+  Contribuição de @webtecnica (#2089).
+
+- **Conexões podem receber um nome interno fácil de reconhecer** O nome aparece nos cartões e seletores do CRM, sem alterar o nome público do perfil. Você não precisa fazer nada. Em Conexões, use **Renomear** no cartão desejado.
+
+  Contribuição de @michelminato (#2802).
+
+- **Marcar vários negócios como perdidos de uma vez, com um motivo, no quadro do funil** A barra de ações em lote ganha "Marcar como perdido…", com um motivo obrigatório aplicado a todos os selecionados e registrado na linha do tempo de cada um. Aparece quando o funil tem etapa de perda.
+
+  Contribuição de @webtecnica (#2868).
+
+- **Botão "Ressincronizar webhook" nas redes sociais depois de trocar o domínio** Em Conexões › Redes sociais, o botão aponta a assinatura para o domínio atual sem arquivar o canal nem mexer nos agentes. Se o provedor não confirmar, a tela avisa o erro.
+
+  Contribuição de @webtecnica (#2867), a partir da issue #2863.
+
+- **A tarefa combinada na conversa nasce presa à demanda, sem sair do Inbox** O painel lateral da conversa ganha "Tarefas desta demanda", com prazo, responsável e situação; a tarefa fica ligada à demanda, ao contato e ao negócio, e aparece também na aba Tarefas. Você não precisa fazer nada.
+
+  Contribuição de @webtecnica (#2842), a partir da issue #2818.
+
+- **Tarefas dentro do card do negócio, com responsável, e o selo de pendências no quadro** O dossiê do negócio ganha a seção Tarefas, o formulário ganha o campo Responsável, e o card mostra as tarefas em aberto, em vermelho se alguma passou do prazo. O servidor passa a recusar responsável fora da equipe. Nenhuma mudança de banco.
+
+  Contribuição de @profpeque.
+
+- **Troca rápida de funil dentro do quadro** O nome do funil no topo do quadro virou um seletor: dá para pular para outro funil sem voltar à lista de Funis. Com um funil só, nada muda. Crédito: @paulolimajr77.
+
+### Alterado
+
+- **O uso das ferramentas passa a saber QUAL termo não foi encontrado** A auditoria passa a guardar também o termo buscado. Nada muda para quem opera a VPS: a migration entra sozinha na atualização e nenhuma tela nova aparece.
+
+  Contribuição de @webtecnica (#2875).
+
+- **O pedido de dados que chega pela Nuvemshop passa a esperar o clique em Aprovar** Nada é montado nem enviado ao cliente antes de alguém da equipe aprovar em Organização › LGPD; antes, o arquivo saía sozinho. A confirmação mostra o nome do titular e o e-mail de destino.
+
+- **O botão de recolher a barra lateral sai do rodapé e vai para o alto** O botão fica agora na linha da logo, ou logo abaixo do símbolo com a barra recolhida. No celular nada muda. Você não precisa fazer nada.
+
+  Contribuição de @webtecnica (#2723), a partir da issue #2722.
+
+### Corrigido
+
+- **A auditoria e o veto do agente saem da janela que travava atrás de uma mudança na tabela de contatos** Durante uma atualização, o worker do agente podia parar sem erro nenhum ao gravar a auditoria da decisão; isso foi fechado para a auditoria e o veto, e o envio em si segue na issue #2426. Nada muda para quem opera a VPS: nenhuma configuração nova, nenhum passo manual.
+
+  Contribuição de @webtecnica (#2827), a partir da issue #2426.
+
+- **Evento de etapa que o canal não repassa avisa na hora da escolha** Em Configurações › Conversões, escolher um evento que o canal não repassa, sem conexão direta com a Meta, mostra um aviso ao lado do seletor, em vez de o problema aparecer dias depois no Histórico. Você não precisa fazer nada.
+
+  Contribuição de @webtecnica (#2839), a partir da issue #2457.
+
+- **Inbox, contadores e fila param de resolver o contato por linha** A lista do Inbox, os números das abas e a fila de atendimento leem as travas do contato guardadas na própria conversa, com o mesmo resultado de antes e bem menos leitura no banco.
+
+  Contribuição de @Tong-bit-art (#2748), a partir da issue #2739 e do diagnóstico de @mrmateussiilva (#1921).
+
+- **A conversa que nasce durante uma trava do contato nasce no estado certo** A conversa criada no instante em que o contato recebia "atender humano" ou descadastro aparecia em Automático; agora nasce no estado certo.
+
+  Contribuição de @Tong-bit-art (#2820), a partir da sugestão no #2748.
+
+- **Criar um negócio direto numa etapa de perda sem motivo responde 422, não erro interno** Pela API (`POST /api/v1/leads`) e pelas fontes de captação, a resposta passa a ser 422 `lost_reason_required` em vez de 500; a importação de planilha para na primeira linha e desfaz os contatos que tinha criado. Você não precisa fazer nada.
+
+  Contribuição de @webtecnica (#2762), a partir da issue #2743.
+
+- **Resposta com {{nome}} literal não sai mais para o cliente** Se o contato não tem nome, o compositor barra a resposta com {{nome}} ou {{primeiro_nome}} e explica o motivo; basta editar o texto. A legenda de anexo ainda não tem essa trava.
+
+  Contribuição de @webtecnica (#2844), a partir da issue #2744.
+
+- **O "digitando…" fica aceso no WhatsApp do cliente até a resposta do agente sair** O indicador acende quando o agente começa a trabalhar e é renovado a cada 10 segundos até a primeira bolha sair, por até 2 minutos. Nada muda na configuração, no banco ou no ritmo de envio.
+
+  Contribuição de @KleberCoelho (#2843), com os commits de @rabbitkleber.
+
+- **Editar o funil e o material de um agente pela API agora grava** O `PATCH /api/v1/ai/agents/:id/versions/:vid` com `pipeline_ids` ou `knowledge_source_ids` respondia 200 sem gravar; agora grava, e recusa material arquivado ou de outra organização. A tela do agente não era afetada.
+
+  Contribuição de @ygorl.
+
+- **Teste da paleta da Agenda espera o estilo do tema, não só o atributo** O teste intermitente da paleta da Agenda passa a esperar o estilo do tema mudar antes de medir. A régua não mudou.
+
+  Contribuição de @Tong-bit-art (#2859), a partir da issue #2516.
+
+- **Sem SMTP, o "esqueci a senha" diz o motivo em vez de mandar tentar de novo** No servidor único sem SMTP, a tela diz que a recuperação de senha não está disponível e que o administrador configura em /admin/email. Quem pôs o SMTP direto no `.env` do Supabase passa a ver essa mensagem: configure o mesmo servidor em /admin/email e rode o `update.sh`.
+
+  Contribuição de @webtecnica (#2767), a partir da issue #2755.
+
+- **Renomear uma etiqueta colorida não a deixa mais cinza para quem renomeou, e a cor se troca direto no Inbox** O nome novo aparece já com a cor, sem recarregar a página. Gerentes podem trocar a cor no editor de etiquetas do contato e da conversa. Você não precisa fazer nada.
+
+  Contribuição de @webtecnica (#2784), a partir da issue #2771.
+
+- **Duas regras do mesmo evento que adicionam etiquetas não apagam mais a etiqueta uma da outra** A ação passa a ler as etiquetas atuais do negócio antes de juntar as novas. Dois eventos diferentes ao mesmo tempo ainda podem disputar a mesma lista. Nenhuma mudança de banco.
+
+  Contribuição de @andersontomazi-ctrl (#2864), adaptada de jmpo/DeskcommCRM#89, de @jmpo.
+
+- **Excluir uma etiqueta não apaga mais as outras etiquetas dos contatos, negócios e conversas** Agora sai só a etiqueta excluída. O que já foi apagado antes desta versão não volta sozinho; as etiquetas perdidas precisam ser colocadas de novo. Nada a fazer para atualizar.
+
+  Corrige a issue #2895.
+
+- **O guia do Coolify instala a versão atual do Coolify e já mostra a atualização pelo botão da tela** O comando do guia deixa de fixar o Coolify na 4.3.23, com a qual o painel terminava "not healthy" desde a 4.4. As conferências de "está no ar" passam a usar `/app` (`307`), porque a raiz do domínio responde `200`.
+
+- **As seis abas do Inbox cabem na coluna da lista em qualquer largura** A faixa de abas quebra em duas linhas quando falta espaço, e as seis ficam sempre à vista. Você não precisa fazer nada.
+
+  Contribuição de @webtecnica (#2766), a partir da issue #2745.
+
+- **No celular, a barra de ações da conversa fica em uma fileira e devolve a tela às mensagens** Abaixo de 768px, os botões do cabeçalho da conversa ficam numa fileira que rola na horizontal, sem esconder ação. No computador nada muda.
+
+  Contribuição de @carloshmlima (#2810).
+
+- **A prévia do vCard na lista do Inbox mostra o nome do contato** Em vez de `[contact]` ou `BEGIN:VCARD`, a linha mostra `Contato: <nome>`. Você não precisa fazer nada.
+
+  Contribuição de @webtecnica (#2765), a partir da issue #2742.
+
+- **Quando o cadeado do domínio ainda não saiu, o fim da instalação diz isso, e não manda procurar erro no .env** A tela final passa a ser "Quase lá — falta o cadeado (HTTPS) do seu domínio": confira com `curl -sSI https://SEU_DOMINIO/app | head -1` e, quando der `307`, rode de novo o mesmo comando de instalação.
+
+- **A instalação nova deixa de construir o CRM na VPS quando o registro de imagens não responde** Com o registro fora do ar, a instalação para e pede para rodar de novo em alguns minutos, em vez de construir na VPS e gastar a memória da máquina; para construir de propósito, use `DESKCOMM_BUILD_LOCAL=1`. Quem já tem o CRM instalado não precisa fazer nada ao atualizar.
+
+  Contribuição de @webtecnica (#2644, fecha #2631).
+
+- **A instalação nova diz por que não construiu o CRM na VPS, em vez de culpar sempre o registro de imagens** A mensagem separa três casos: falta o buildx (com o pacote que esta VPS tem), o registro não respondeu, ou a construção foi desligada com `DESKCOMM_BUILD_LOCAL=0`. Quem já tem o CRM instalado não precisa fazer nada ao atualizar.
+
+  Contribuição de @webtecnica (#2693, fecha #2648).
+
+- **Atrás do túnel da Cloudflare, o endereço de quem acessa passa a ser lido do cabeçalho que a Cloudflare escreve** Com o Cloudflare Tunnel, o app lê o IP de quem acessa do `cf-connecting-ip`. Sem o túnel, nada muda. Quem usa o túnel recebe a variável pelo próprio override na atualização; não há arquivo para editar.
+
+  Construído sobre o Cloudflare Tunnel de @caiofacchinato (#2611).
+
+- **Depois de gravar a marca, uma leitura feita no meio da troca não traz mais de volta a marca anterior** Antes, a marca anterior podia voltar por até 30 segundos; o mesmo foi fechado no CSS personalizado, no modo de cadastro, em /admin/sistema e nas credenciais do Google Agenda e do app da Meta. Nenhuma mudança de banco nem de configuração.
+
+  Refs #1218.
+
+- **Um pedido de dados do titular gera uma exportação, não duas** O webhook da Nuvemshop e a aprovação manual podiam exportar em dobro, com dois e-mails; agora só uma execução exporta.
+
+  Contribuição de @Tong-bit-art (#2752), a partir da issue #2751.
+
+- **O opt-out passa a reconhecer o vocabulário de Portugal** "remova-me da lista" passa a bloquear o contato, como a forma brasileira. "cancelar a subscrição" faz a IA parar e chamar a equipe, sem bloquear o contato. As formas brasileiras continuam valendo.
+
+  Contribuição de @webtecnica (#2343).
+
+- **Pedido de dados LGPD numa instalação sem e-mail passa a "Revisão pendente", com o PDF para você entregar, em vez de ficar em "Processando" para sempre** A página do pedido, em Configurações › Dados e acesso › LGPD, mostra "Baixar PDF" para você entregar por um canal seu. Pedidos já presos são corrigidos na atualização. Se algum continuar em "Processando", confira na "Trilha de auditoria": sem a linha `lgpd.export_generated`, não há como reprocessar o pedido pela tela.
+
+- **O Gemini 3.6, 3.7 e 3.8 Flash passam a custar o dobro em 1º de janeiro de 2027** A partir dessa data (UTC), Uso e orçamento grava US$ 1,50 de entrada e US$ 7,50 de saída por milhão de tokens. Não é preciso fazer nada.
+
+  Contribuição de @Frank-zhu2000 (#2781).
+
+- **O aviso de buildx ausente do update manda instalar o pacote que esta VPS tem** O aviso cita `docker-buildx-plugin` ou `docker-buildx`, conforme o que o apt desta VPS oferece. Você não precisa fazer nada.
+
+  Contribuição de @webtecnica (#2763), a partir da issue #2754.
+
+- **E-mails de recuperação de senha e de confirmação voltam a usar o modelo da instalação no single-server atrás de um proxy externo** Antes, podiam sair no modelo padrão do Supabase, em inglês. Você não precisa fazer nada: o `update.sh` ajusta o endereço que o próprio kit tinha gravado, e um modelo apontado para outro lugar continua como está.
+
+  Crédito: @daviguerreiroa.
+
+- **Recusa permanente do atendimento e da agenda para de travar o PostgREST (PT409, não 40001)** Numa instalação self-hosted, uma única recusa podia esgotar as conexões do banco e deixar o CRM inteiro em "Algo deu errado". A migration 0654 troca o código dessas recusas, e o PostgREST responde 409 sem repetir.
+
+  Contribuição de @paulolimajr77 (#2805).
+
+- **Aba oculta para de refazer as telas de atendimento a cada 45 segundos** O refetch do Inbox, do quadro e do dossiê pausa com a aba oculta e confere ao voltar, poupando a cota de tráfego do plano gratuito do Supabase.
+
+  Contribuição de @Tong-bit-art (#2821), a partir da issue #2235.
+
+- **Lembretes da agenda deixam de escolher arbitrariamente entre números da organização** Em Configurações › Tipos de agendamento, escolha o canal dos lembretes de cada serviço. Sem remetente seguro ou com a janela fechada, o lembrete fica pendente e a Central de avisos mostra como corrigir.
+
+  Relacionado à issue #2594; preserva a proteção de janela introduzida no PR #2620. Contribuição de @ozzure (#2669).
+
+- **Resposta rápida com {{nome}} usa o display_name quando o contato não tem nome** O contato que nasce pelo WhatsApp sem `name` passa a ter o `display_name` no lugar da variável. Sem nenhum dos dois, o compositor avisa para editar antes de enviar. Você não precisa fazer nada.
+
+  Contribuição de @webtecnica (#2764), a partir da issue #2744.
+
+- **O pedido para parar de receber mensagens encerra também o follow-up pausado à mão** Antes, o follow-up pausado pela equipe ficava vivo e fazia falhar todo follow-up novo para o contato. Nenhuma mudança de banco.
+
+  Contribuição de @FabioMundoDigital.
+
+- **O submenu Responsável do card do funil abre inteiro, por cima do menu** A lista de membros e agentes deixa de abrir cortada atrás do menu "⋯". Você não precisa fazer nada.
+
+  Contribuição de @webtecnica (#2713), a partir da issue #2702 relatada por @DPalmercs.
+
 ## [1.80.0] — 2026-10-11
 
 ### Adicionado
@@ -134,7 +357,7 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
   Contribuição de @webtecnica (#2661), a partir da issue #2641 de @carloshmlima.
 
-- **Você pode cobrar as empresas que atende pelo Asaas, com Pix e boleto todo mês** Opcional: em Admin › Cobrança › Conexão, escolha Asaas e cole a chave de API. Pix e boleto são pagos a cada cobrança (não é débito automático); atraso, suspensão e reativação funcionam como na Stripe. Assinaturas existentes ficam no provedor em que nasceram. Nada muda para quem não usa a cobrança.
+- **Você pode cobrar as empresas que atende pelo Asaas, com Pix e boleto todo mês** Opcional: ligue "Cobrança dos seus clientes" em Admin › Recursos opcionais (desligada, o menu Cobrança não aparece); depois, em Admin › Cobrança › Conexão, escolha Asaas e cole a chave de API. Pix e boleto são pagos a cada cobrança (não é débito automático); atraso, suspensão e reativação funcionam como na Stripe. Assinaturas existentes ficam no provedor em que nasceram. Nada muda para quem não usa a cobrança.
 
 - **A marca própria ganha uma cor opcional para o tema escuro, ao lado da cor principal, como o logo já tinha** Em Marca e em Configurações › Marca, o campo "Cor da marca no tema escuro". Vazio, nada muda; preenchido, só o tema escuro usa essa cor (e-mails e tema claro seguem na principal).
 
@@ -11399,7 +11622,8 @@ Primeira versão marcada do DeskcommCRM. O projeto vinha sendo desenvolvido publ
 
 - **Node 22 é obrigatório para desenvolvimento.** A suíte de invariantes instancia o cliente do Supabase, que exige o `WebSocket` global — nativo apenas a partir do Node 22. Isso não afeta quem apenas hospeda: a VPS roda a imagem pronta.
 
-[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.80.0...HEAD
+[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.81.0...HEAD
+[1.81.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.80.0...v1.81.0
 [1.80.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.79.0...v1.80.0
 [1.79.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.78.0...v1.79.0
 [1.78.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.77.0...v1.78.0
