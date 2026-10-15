@@ -260,7 +260,7 @@ export function ModeloDaCampanha({
                   ) : (
                     <>
                       <select
-                        aria-label={`${t("Origem de")} ${v.rotulo}`}
+                        aria-label={`${t("Origem")}: ${v.rotulo}`}
                         className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
                         value={f?.kind ?? ""}
                         onChange={(e) =>
@@ -276,7 +276,7 @@ export function ModeloDaCampanha({
                       </select>
                       {f?.kind === "fixed" && (
                         <Input
-                          aria-label={`${t("Texto fixo de")} ${v.rotulo}`}
+                          aria-label={`${t("Texto fixo")}: ${v.rotulo}`}
                           value={f.value}
                           onChange={(e) => trocarTexto(v, e.target.value)}
                           placeholder={
@@ -286,7 +286,7 @@ export function ModeloDaCampanha({
                       )}
                       {f?.kind === "lead_custom" && (
                         <Input
-                          aria-label={`${t("Campo do negócio de")} ${v.rotulo}`}
+                          aria-label={`${t("Campo do negócio")}: ${v.rotulo}`}
                           value={f.key}
                           onChange={(e) => trocarTexto(v, e.target.value)}
                           placeholder={t("Chave do campo, ex.: produto")}
