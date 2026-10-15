@@ -6,7 +6,7 @@
  *
  * ─── #2498 — `config.destino` é OPCIONAL ────────────────────────────────────
  *
- * `card` é o PADRÃO e é o caminho de sempre, byte a byte: lead manda, e sem
+ * `card` é o PADRÃO e é o alvo de sempre: lead manda, e sem
  * lead o contato do contexto. `contato` é a escolha nova, para a regra que
  * etiqueta no `lead.created` e quer a marca na CAIXA que o Inbox consulta —
  * ali as duas fontes divergiam: a ação marcava o card, a tela lia o contato.
@@ -77,26 +77,18 @@ async function execute(ctx: ActionCtx, config: Record<string, unknown>): Promise
         ? { table: "contacts", row: contact, event: "contact.tag_added", kind: "contact" }
         : null;
     if (!target) return { type: "add_tag", status: "skipped", detail: { reason: "no_target" } };
+    // Adaptado da correção pública jmpo/DeskcommCRM#89: regras do mesmo
+    // evento recebem contexto antigo. Ler a linha atual antes do merge,
+    // preservando também o destino explícito de contato já existente aqui.
+    const { data: atual, error: erroDaLeitura } = await ctx.admin
+      .from(target.table).select("tags")
+      .eq("id", target.row.id).eq("organization_id", ctx.organizationId).maybeSingle();
+    if (erroDaLeitura) return { type: "add_tag", status: "failed", error: erroDaLeitura.message };
+    if (!atual) return { type: "add_tag", status: "skipped", detail: { reason: "no_target" } };
+    target.row.tags = (atual as { tags?: string[] | null }).tags ?? [];
   }
 
-  // As etiquetas ATUAIS, e não as do contexto: o contexto é a foto de quando o
-  // evento nasceu, e todas as regras do mesmo evento recebem a mesma foto. Duas
-  // regras que etiquetam o mesmo negócio gravavam cada uma a SUA lista inteira,
-  // e a segunda apagava o que a primeira tinha acabado de gravar — medido em
-  // 02/10/2026: "etiqueta do produto" + "confirmação" no mesmo `lead.created`,
-  // e o negócio ficava só com as etiquetas da segunda.
-  // Com destino "contato" a linha acabou de vir do banco: não há o que reler.
-  let prev = target.row.tags ?? [];
-  if (destino === "card") {
-    const { data: atual, error: erroDaLeitura } = await ctx.admin
-      .from(target.table)
-      .select("tags")
-      .eq("id", target.row.id)
-      .eq("organization_id", ctx.organizationId)
-      .maybeSingle();
-    if (erroDaLeitura) return { type: "add_tag", status: "failed", error: erroDaLeitura.message };
-    prev = (atual as { tags?: string[] | null } | null)?.tags ?? prev;
-  }
+  const prev = target.row.tags ?? [];
   const added = tags.filter((t) => !prev.includes(t));
   if (!added.length) return { type: "add_tag", status: "success", detail: { added: [] } };
 
@@ -112,7 +104,6 @@ async function execute(ctx: ActionCtx, config: Record<string, unknown>): Promise
     .eq("id", target.row.id)
     .eq("organization_id", ctx.organizationId);
   if (error) return { type: "add_tag", status: "failed", error: error.message };
-  // A próxima regra deste evento parte do que ficou gravado.
   target.row.tags = merged;
 
   await ctx.admin.rpc("emit_event", {

@@ -1301,6 +1301,15 @@ export async function runBeforeSend(args: RunBeforeSendArgs): Promise<BeforeSend
   // antiga aberta, e o pool o reempresta nela — o envio seguinte rodaria dentro
   // da transação de quem falhou. O finally lê desta marcação.
   let erroNaTransacao: Error | undefined;
+  // #2426: marca que a transação já foi commitada/rollbackada à mão. Nada pode ser
+  // rollbackado de novo depois disso (um `rollback` tardio só geraria WARNING no pg e
+  // esconderia o erro real). O finally continua lendo `erroNaTransacao`.
+  let transacaoFechada = false;
+  // #2426: trace capturado assim que a cadeia evalua, para a auditoria DURÁVEL ser gravada
+  // FORA da janela da transação (commit no caminho enviado, rollback no veto/erro) — nunca
+  // enquanto a tx aberta segura o `contacts` (readStopFlags). `undefined` = a cadeia ainda
+  // não avaliou (falha numa leitura sob o lock) → nada a persistir.
+  let traceDaAuditoria: GateTraceEntry[] | undefined;
   try {
     await client.query('begin');
     // Serialização por número: dois workers no MESMO channel_session esperam a vez.
@@ -1433,57 +1442,71 @@ export async function runBeforeSend(args: RunBeforeSendArgs): Promise<BeforeSend
     // sem ninguém poder auditar depois. A linha entra ANTES da cadeia porque a
     // reescrita acontece antes dela, e leva só rótulos — nunca o corpo (sem PII).
     const trace: GateTraceEntry[] = [...rastroDoEstilo(estilo, args.body, bodyDoModelo), ...traceDaCadeia];
+    traceDaAuditoria = trace;
     ctx.body = evaluatedBody;
     emitTrace(args.log, args.channelSessionId, trace);
-    // Auditoria DURÁVEL por run (F4-08 acceptance 3): escrita autônoma (pool, fora da tx
-    // serializada) — o trace do VETO tem de sobreviver ao rollback abaixo. Nunca bloqueia
-    // o message-plane: falha aqui vira log.error (o trace do logger já é o backup), não
-    // exceção. ponytail: 1 insert por tentativa; se virar gargalo, batelar por run.
-    const traceId = await persistTrace(args, trace, veto);
 
-    // Wave 3 (CORE 2), cenário 11: o agente decidir NÃO falar é evento. Silêncio
-    // com motivo é informação; silêncio sem registro é abandono. Só o VETO entra
-    // — gate que passou é telemetria e fica na tabela de origem.
-    if (veto && traceId) {
-      try {
-        const r = await emitVetoActivity({
-          pool: args.pool,
-          organizationId: args.tenantId,
-          contactId: args.leadId,
-          traceId,
-          gate: veto.gate,
-          code: veto.code,
-          agentId: args.agentId ?? null,
-        });
-        if (!r.routed) {
-          args.log.info('veto sem negócio para pendurar: registrado no event_log', {
-            channel_session_id: args.channelSessionId,
-            reason: r.reason,
-          });
-        }
-      } catch (err) {
-        // A timeline do veto não pode derrubar o veto.
-        args.log.error('falha ao registrar atividade de veto (segue)', {
-          channel_session_id: args.channelSessionId,
-          error: err instanceof Error ? err.name : 'unknown',
-        });
-      }
-    }
-
-    // Veto de LGPD (F4-09): escala à inbox do runtime (regra dura nº 13) para o DPO/comercial
-    // regularizar. Escrita autônoma no pool (fora da tx serializada), como o trace — sobrevive
-    // ao rollback do veto e nunca derruba o message-plane (o gate já barrou o envio).
-    if (veto !== null && veto.code.startsWith('lgpd_')) {
-      await escalateLgpdVeto(
-        args.pool,
-        { tenantId: args.tenantId, leadId: args.leadId, code: veto.code },
-        args.log,
-      );
-    }
+    // #2426 — as escritas DURÁVEIS (trace de auditoria, timeline do veto, escalação LGPD)
+    // saem da JANELA da transação. `before_send_traces` (e a timeline do veto) têm FK para
+    // `contacts`: feitas pelo `args.pool` ENQUANTO esta tx aberta segura o `contacts`
+    // (readStopFlags), enfileiravam atrás de um DDL pendente de `ALTER TABLE contacts` — o
+    // insert esperava o DDL, o DDL esperava a tx (ACCESS SHARE) e a tx esperava o insert.
+    // Mesmo ciclo medido no #2363 (8m47s idle in transaction); a aresta que o #2121 não
+    // encerrou, porque uma das bordas mora no Node e o Postgres não a detecta. Autônomas no
+    // pool, sobrevivem ao rollback por natureza — gravá-las DEPOIS do commit/rollback as tira
+    // da janela sem mudar o desfecho.
+    //
+    // O envio (`args.send`) continua DENTRO da tx, sob o advisory lock do número: tirá-lo
+    // derrubaria a serialização anti-ban (a vez por número e a gravação do pacing no mesmo
+    // commit). Fechar essa outra aresta (o `send_ledger` e a `messages`, gravados noutra
+    // conexão/Supabase dentro do handler) exige o advisory lock de SESSÃO proposto no #2426 —
+    // redesign que precisa de prova com 2 conexões (job `invariants`), fora desta fatia.
 
     if (veto !== null) {
-      // Nada foi escrito: rollback fecha a tx e solta o lock. O envio NÃO acontece.
+      // Nada foi escrito na tx: rollback fecha a transação e solta o lock. O envio NÃO acontece.
       await client.query('rollback');
+      transacaoFechada = true;
+      // Auditoria DURÁVEL por run (F4-08 acc 3): escrita autônoma no pool — o trace do VETO
+      // tem de sobreviver ao rollback ACIMA. Nunca bloqueia o message-plane: falha aqui vira
+      // log.error (o trace do logger já é o backup), não exceção.
+      const traceId = await persistTrace(args, trace, veto);
+      // Wave 3 (CORE 2), cenário 11: o agente decidir NÃO falar é evento. Silêncio com motivo
+      // é informação; silêncio sem registro é abandono. Só o VETO entra na timeline.
+      if (traceId) {
+        try {
+          const r = await emitVetoActivity({
+            pool: args.pool,
+            organizationId: args.tenantId,
+            contactId: args.leadId,
+            traceId,
+            gate: veto.gate,
+            code: veto.code,
+            agentId: args.agentId ?? null,
+          });
+          if (!r.routed) {
+            args.log.info('veto sem negócio para pendurar: registrado no event_log', {
+              channel_session_id: args.channelSessionId,
+              reason: r.reason,
+            });
+          }
+        } catch (err) {
+          // A timeline do veto não pode derrubar o veto.
+          args.log.error('falha ao registrar atividade de veto (segue)', {
+            channel_session_id: args.channelSessionId,
+            error: err instanceof Error ? err.name : 'unknown',
+          });
+        }
+      }
+      // Veto de LGPD (F4-09): escala à inbox do runtime (regra dura nº 13) para o DPO/comercial
+      // regularizar. Escrita autônoma no pool, como o trace — sobrevive ao rollback e nunca
+      // derruba o message-plane (o gate já barrou o envio).
+      if (veto.code.startsWith('lgpd_')) {
+        await escalateLgpdVeto(
+          args.pool,
+          { tenantId: args.tenantId, leadId: args.leadId, code: veto.code },
+          args.log,
+        );
+      }
       return { status: 'vetoed', trace, ...veto };
     }
 
@@ -1507,10 +1530,23 @@ export async function runBeforeSend(args: RunBeforeSendArgs): Promise<BeforeSend
       }
     }
     await client.query('commit');
+    transacaoFechada = true;
+    // Auditoria DURÁVEL por run (F4-08 acc 3): gravada DEPOIS do commit — antes, o insert em
+    // `before_send_traces` (FK `contacts`) saía pelo pool enquanto a tx aberta segurava o
+    // `contacts` e podia enfileirar atrás de um DDL (#2426). Autônoma no pool; falha vira
+    // log.error (o logger é o backup).
+    await persistTrace(args, trace, null);
     return { status: 'sent', outcome, trace };
   } catch (err) {
     erroNaTransacao = err instanceof Error ? err : new Error(String(err));
-    await rollback(client, err);
+    // Uma tx já fechada (commit/rollback explícito acima) não pode ser rollback de novo.
+    if (!transacaoFechada) {
+      await rollback(client, err);
+      // Auditoria da tentativa que ERROU (ex.: envio com o transporte fora): o rollback desfaz
+      // a tx, mas a linha de auditoria é autônoma no pool e sobrevive — gravada AQUI, fora da
+      // janela, para não reabrir o ciclo do #2426. O veto já gravou o seu no ramo dele.
+      if (traceDaAuditoria !== undefined) await persistTrace(args, traceDaAuditoria, null);
+    }
     throw err;
   } finally {
     client.release(erroNaTransacao);
@@ -1519,7 +1555,12 @@ export async function runBeforeSend(args: RunBeforeSendArgs): Promise<BeforeSend
 
 /**
  * STOP direto da fonte (pós-fusão, mesmo banco): `contacts.is_blocked` OR
- * `contacts.force_human`, lidos sob o lock — não existe mais cache no harness.
+ * `contacts.force_human` OR `contacts.is_personal` OR `contacts.ai_opt_out`,
+ * lidos sob o lock — não existe mais cache no harness.
+ *
+ * `ai_opt_out` é a marca PERMANENTE "sempre atendimento humano" (issue 2379):
+ * `force_human` é a trava de handoff, que a devolução limpa; esta é a que ela
+ * não alcança, e por isso as duas estão no mesmo predicado.
  */
 /**
  * O canal desta sessão, do banco (migration 0087) — nunca suposto.
@@ -1559,7 +1600,11 @@ async function readStopFlags(
   const { rows } = await db.query<{ stopped: boolean }>(
     humanMeetingCommand
       ? 'select (is_blocked or is_personal) as stopped from contacts where organization_id = $1 and id = $2'
-      : 'select (is_blocked or force_human or is_personal) as stopped from contacts where organization_id = $1 and id = $2',
+      // `ai_opt_out` (issue 2379): a marca permanente "sempre atendimento
+      // humano" entra no MESMO stop, e não numa nova consulta — o custo é
+      // nulo e a garantia é que nenhum escritor futuro de `force_human` consegue
+      // devolver a IA para um contato que a operação trancou.
+      : 'select (is_blocked or force_human or is_personal or ai_opt_out) as stopped from contacts where organization_id = $1 and id = $2',
     [organizationId, contactId],
   );
   return rows[0]?.stopped === true;
