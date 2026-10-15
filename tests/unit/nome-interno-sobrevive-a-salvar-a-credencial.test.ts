@@ -74,13 +74,17 @@ function dubleDoBanco() {
   return {
     from() {
       const filtros: Array<[string, unknown]> = [];
-      let op: "select" | "update" | "insert" = "select";
+      let op: "select" | "update" | "insert" | "delete" = "select";
       let corpo: Record<string, unknown> = {};
       let unica = false;
       let comRetorno = false;
       const casam = () =>
         h.linhas.filter((l) => filtros.every(([c, v]) => (l[c] ?? null) === v));
       const executar = () => {
+        // Fork: ao reconectar, `savePartnerSession` apaga os modelos da conta
+        // anterior (`meta_templates`). Este dublê só guarda `channel_sessions`,
+        // então o delete não tem linha a alcançar aqui.
+        if (op === "delete") return { data: null, error: null };
         if (op === "insert") {
           const nova = { id: CANAL, archived_at: null, ...corpo };
           h.linhas.push(nova);
@@ -97,12 +101,14 @@ function dubleDoBanco() {
         select: () => ((comRetorno = true), q),
         eq: (c: string, v: unknown) => (filtros.push([c, v]), q),
         is: (c: string, v: unknown) => (filtros.push([c, v]), q),
+        neq: () => q,
         order: () => q,
         limit: () => q,
         maybeSingle: () => ((unica = true), q),
         single: () => ((unica = true), q),
         update: (p: Record<string, unknown>) => ((op = "update"), (corpo = p), (comRetorno = false), q),
         insert: (p: Record<string, unknown>) => ((op = "insert"), (corpo = p), q),
+        delete: () => ((op = "delete"), q),
         then: (ok: (r: unknown) => unknown, erro?: (e: unknown) => unknown) =>
           Promise.resolve(executar()).then(ok, erro),
       };
