@@ -53016,7 +53016,7 @@ create trigger trg_messages_sincroniza_campanha
   when (new.direction = 'outbound')
   execute function public.fn_campanha_sincroniza_ack();
 
--- ---- campanha com envio rápido (migration 0681) ----
+-- ---- campanha com envio rápido (migration 0687) ----
 -- ═══ Por que a campanha precisa de duas velocidades ═══
 --
 -- O despacho manda uma mensagem por número a cada rodada do cron. Para o número
@@ -53053,7 +53053,7 @@ alter table public.campaigns
   add constraint campaigns_rapida_so_com_modelo check (velocidade = 'gradual' or message_mode = 'template');
 
 comment on column public.campaigns.velocidade is
-  'gradual = uma mensagem por número a cada rodada (uma por minuto); rapida = rajada de várias por segundo, só com modelo aprovado (número oficial). Migration 0681.';
+  'gradual = uma mensagem por número a cada rodada (uma por minuto); rapida = rajada de várias por segundo, só com modelo aprovado (número oficial). Migration 0687.';
 
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --

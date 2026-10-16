@@ -104,7 +104,7 @@ interface CampanhaRow {
   message_mode: string;
   provider_template_name: string | null;
   provider_template_language: string | null;
-  /** Migration 0681: `rapida` = rajada na rodada (só com modelo); `gradual` = uma por rodada. */
+  /** Migration 0687: `rapida` = rajada na rodada (só com modelo); `gradual` = uma por rodada. */
   velocidade: string;
   started_at: string | null;
   paused_at: string | null;
@@ -278,7 +278,7 @@ async function pendentesDaCampanha(
   return (data ?? []) as unknown as DestinatarioRow[];
 }
 
-/** Velocidade rápida só com modelo: o CHECK da 0681 garante, e o despacho confere de novo. */
+/** Velocidade rápida só com modelo: o CHECK da 0687 garante, e o despacho confere de novo. */
 function emRajada(campanha: CampanhaRow): boolean {
   return campanha.velocidade === "rapida" && campanha.message_mode === "template";
 }

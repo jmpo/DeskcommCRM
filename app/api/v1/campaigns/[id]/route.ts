@@ -230,7 +230,7 @@ export async function PATCH(
     }
   }
 
-  // ═══ A velocidade segue o conteúdo (migration 0681) ═══
+  // ═══ A velocidade segue o conteúdo (migration 0687) ═══
   // Rápida só com modelo. Pedida num número por QR, recusa; uma campanha rápida
   // que trocou para um número por QR volta a gradual (a única que ali existe).
   if (entrada.velocidade !== undefined || mudanca.message_mode !== undefined) {

@@ -515,7 +515,7 @@ const PARES: Array<{
   {
     tabela: "campaigns",
     coluna: "velocidade",
-    // lib/campanhas/tipos.ts → VELOCIDADES_DA_CAMPANHA. Migration 0681: o
+    // lib/campanhas/tipos.ts → VELOCIDADES_DA_CAMPANHA. Migration 0687: o
     // despacho escolhe rajada ou uma-por-rodada por esta coluna.
     arquivo: "lib/campanhas/tipos.ts",
     simbolo: "VELOCIDADES_DA_CAMPANHA",

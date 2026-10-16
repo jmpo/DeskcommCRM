@@ -14457,7 +14457,7 @@ export const DICIONARIO: Traducoes = {
   },
   "Nome da campanha": { es: "Nombre de la campaña" },
   "Nova campanha": { es: "Nueva campaña" },
-  // Campanha com envio rápido (migration 0681).
+  // Campanha com envio rápido (migration 0687).
   "Velocidade de envio": { es: "Velocidad de envío" },
   "Gradual": { es: "Gradual" },
   "Rápido": { es: "Rápido" },

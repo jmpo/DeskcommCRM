@@ -1,5 +1,5 @@
 /**
- * MIGRATION 0681 — campanha com envio rápido.
+ * MIGRATION 0687 — campanha com envio rápido.
  *
  * O que só o banco prova: `velocidade` é vocabulário FECHADO, toda campanha
  * que já existia fica `gradual`, e rápida só existe com modelo aprovado — a
@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { GOV_ORG, GOV_SESSION, seedGov, sql } from "./gov-helpers";
 
-describe("0681: campanha com envio rápido", () => {
+describe("0687: campanha com envio rápido", () => {
   it("velocidade nasce `gradual` para toda campanha que já existia", () => {
     const def = sql(
       `select column_default || '|' || is_nullable from information_schema.columns

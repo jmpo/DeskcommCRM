@@ -32,7 +32,7 @@ export const MODOS_DA_MENSAGEM = ["text", "template"] as const;
 export type ModoDaMensagem = (typeof MODOS_DA_MENSAGEM)[number];
 
 /**
- * Em que velocidade a campanha sai (migration 0681). `gradual` = uma mensagem
+ * Em que velocidade a campanha sai (migration 0687). `gradual` = uma mensagem
  * por número a cada rodada do cron (uma por minuto) — a proteção do número por
  * QR e o mais seguro para a qualidade de qualquer número. `rapida` = rajada de
  * várias por segundo, só com modelo aprovado: o número oficial não é banido por

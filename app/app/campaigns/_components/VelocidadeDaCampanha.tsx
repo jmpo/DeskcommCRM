@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * A VELOCIDADE DA CAMPANHA (migration 0681): gradual ou rápida.
+ * A VELOCIDADE DA CAMPANHA (migration 0687): gradual ou rápida.
  *
  * Só o número oficial oferece a escolha — por QR, rajada é banimento, e a tela
  * diz isso em vez de esconder a opção sem explicar. Os números da frase saem do

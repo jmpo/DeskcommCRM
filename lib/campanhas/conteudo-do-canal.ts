@@ -152,7 +152,7 @@ export type DecisaoDaVelocidade =
   | { ok: false; codigo: ApiErrorCode; mensagem: string; status: number };
 
 /**
- * A VELOCIDADE SEGUE O CONTEÚDO (migration 0681): rápida só com modelo
+ * A VELOCIDADE SEGUE O CONTEÚDO (migration 0687): rápida só com modelo
  * aprovado, que é o número oficial. Pedir rápida num número por QR é recusado
  * com a frase; trocar uma campanha rápida para um número por QR a devolve a
  * gradual — a única que ali existe —, em vez de travar a edição no CHECK.

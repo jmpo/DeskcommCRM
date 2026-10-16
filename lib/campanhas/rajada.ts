@@ -1,5 +1,5 @@
 /**
- * O ENVIO RÁPIDO DE UMA CAMPANHA: a rodada manda em RAJADA (migration 0681).
+ * O ENVIO RÁPIDO DE UMA CAMPANHA: a rodada manda em RAJADA (migration 0687).
  *
  * ═══ O que muda em relação ao gradual ═══
  *

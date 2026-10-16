@@ -16,7 +16,7 @@
  * O dublê recebe o pedido e a spec confere o que chegou: o nome e o idioma do
  * modelo, a lista de valores na ordem do contrato e a imagem do cabeçalho.
  *
- * ENVIO RÁPIDO (migration 0681): o número oficial oferece "Rápido" no ritmo; a
+ * ENVIO RÁPIDO (migration 0687): o número oficial oferece "Rápido" no ritmo; a
  * confirmação diz em quantos minutos sai; e — com o dublê — UMA rodada do cron
  * manda a lista inteira, cada um com o próprio nome, e conclui a campanha.
  */

@@ -62,7 +62,7 @@ export interface CampanhaCarregada {
   provider_template_name: string | null;
   provider_template_language: string | null;
   provider_template_variables: unknown;
-  /** Migration 0681: `rapida` = rajada na rodada (só com modelo). */
+  /** Migration 0687: `rapida` = rajada na rodada (só com modelo). */
   velocidade: VelocidadeDaCampanha;
 }
 
