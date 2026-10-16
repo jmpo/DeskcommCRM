@@ -22,8 +22,13 @@ describe("0687: campanha com envio rápido", () => {
   it("velocidade fora do vocabulário é recusada pelo CHECK", () => {
     seedGov();
     expect(() =>
-      sql(`insert into public.campaigns (organization_id, name, channel_session_id, base_legal, velocidade)
-             values ('${GOV_ORG}', 'velocidade inventada', '${GOV_SESSION}', 'consent', 'turbo');`),
+      // Com modelo, para só o CHECK do vocabulário poder recusar (com texto
+      // livre, o de "rápida só com modelo" recusaria antes).
+      sql(`insert into public.campaigns
+             (organization_id, name, channel_session_id, base_legal, message_mode,
+              provider_template_name, provider_template_language, velocidade)
+             values ('${GOV_ORG}', 'velocidade inventada', '${GOV_SESSION}', 'consent', 'template',
+                     'oferta', 'es', 'turbo');`),
     ).toThrow(/campaigns_velocidade_check/);
   });
 
@@ -37,13 +42,11 @@ describe("0687: campanha com envio rápido", () => {
 
   it("rápida com modelo aprovado passa", () => {
     seedGov();
-    expect(
-      sql(`insert into public.campaigns
-             (organization_id, name, channel_session_id, base_legal, message_mode,
-              provider_template_name, provider_template_language, velocidade)
-             values ('${GOV_ORG}', 'rajada oficial', '${GOV_SESSION}', 'consent', 'template',
-                     'oferta', 'es', 'rapida')
-           returning velocidade;`),
-    ).toBe("rapida");
+    sql(`insert into public.campaigns
+           (organization_id, name, channel_session_id, base_legal, message_mode,
+            provider_template_name, provider_template_language, velocidade)
+           values ('${GOV_ORG}', 'rajada oficial', '${GOV_SESSION}', 'consent', 'template',
+                   'oferta', 'es', 'rapida');`);
+    expect(sql(`select velocidade from public.campaigns where name = 'rajada oficial';`)).toBe("rapida");
   });
 });
