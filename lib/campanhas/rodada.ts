@@ -42,7 +42,12 @@ import { decidePacing, dayStartInTz } from "@/lib/agent-engine/pacing/engine";
 import { loadChannelKnobs, loadPacingState, recordSend } from "@/lib/agent-engine/pacing/store";
 import { beginServiceAtOrigin } from "@/lib/atendimento/origem";
 import { canalTemRiscoDeBanimento } from "@/lib/channels/capabilities";
-import { codigoDaPlataforma, falhaDoEnvioInteiro, fraseDaFalha } from "@/lib/channels/erro-da-plataforma";
+import {
+  codigoDaPlataforma,
+  ehLimiteDeVelocidade,
+  falhaDoEnvioInteiro,
+  fraseDaFalha,
+} from "@/lib/channels/erro-da-plataforma";
 import { logger } from "@/lib/logger";
 import { OrgNaoOperanteError, STATUS_OPERANTE, ehOperante, statusDaOrgEmbutida } from "@/lib/organizacao/operante";
 
@@ -50,6 +55,7 @@ import { motivoParaExcluir, recusouMarketing, statusDaSaida } from "./elegibilid
 import { hashDoEndereco } from "./exclusoes";
 import type { ConteudoDoEnvio } from "./modelo";
 import { renderizar } from "./renderizador";
+import { RAJADA, rodarEmRajada } from "./rajada";
 import { escolherNumero, poolDaCampanha, type NumeroDisponivel } from "./rodizio";
 import { podeMandarAgora, proximaTentativa, type RitmoDaCampanha } from "./ritmo";
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
@@ -98,6 +104,8 @@ interface CampanhaRow {
   message_mode: string;
   provider_template_name: string | null;
   provider_template_language: string | null;
+  /** Migration 0681: `rapida` = rajada na rodada (só com modelo); `gradual` = uma por rodada. */
+  velocidade: string;
   started_at: string | null;
   paused_at: string | null;
 }
@@ -105,7 +113,7 @@ interface CampanhaRow {
 const COLUNAS_DA_CAMPANHA =
   "id, organization_id, channel_session_id, name, message_body, content_version, " +
   "intervalo_segundos, janela_inicio_hora, janela_fim_hora, teto_diario, teto_horario, " +
-  "message_mode, provider_template_name, provider_template_language, started_at, paused_at";
+  "message_mode, provider_template_name, provider_template_language, velocidade, started_at, paused_at";
 
 /**
  * O status da organização embutido com `!inner` no `select`, e filtrado na
@@ -165,7 +173,9 @@ export async function rodarUmaRodadaDeCampanha(
     if (numerosAtendidos.size >= NUMEROS_POR_RODADA) break;
 
     try {
-      const r = await rodarUmaCampanha(admin, campanha, agora);
+      const r = emRajada(campanha)
+        ? await rodarCampanhaEmRajada(admin, campanha)
+        : await rodarUmaCampanha(admin, campanha, agora);
       total.enviadas += r.enviadas;
       total.pulados += r.pulados;
       total.concluidas += r.concluidas;
@@ -247,10 +257,62 @@ interface DestinatarioRow {
   } | null;
 }
 
+/** Os próximos pendentes da campanha cuja vez chegou, na ordem da fila. */
+async function pendentesDaCampanha(
+  admin: SupabaseClient,
+  campanhaId: string,
+  agora: Date,
+  quantos: number,
+): Promise<DestinatarioRow[]> {
+  const { data } = await admin
+    .from("campaign_recipients")
+    .select(
+      "id, contact_id, recipient_address, rendered_body, variables, " +
+        "contacts(id, name, display_name, phone_number, is_blocked, is_personal, is_anonymized, consent)",
+    )
+    .eq("campaign_id", campanhaId)
+    .eq("status", "pending")
+    .or(`next_attempt_at.is.null,next_attempt_at.lte.${agora.toISOString()}`)
+    .order("created_at", { ascending: true })
+    .limit(quantos);
+  return (data ?? []) as unknown as DestinatarioRow[];
+}
+
+/** Velocidade rápida só com modelo: o CHECK da 0681 garante, e o despacho confere de novo. */
+function emRajada(campanha: CampanhaRow): boolean {
+  return campanha.velocidade === "rapida" && campanha.message_mode === "template";
+}
+
+/**
+ * A rodada de uma campanha RÁPIDA: o envio de sempre, repetido em rajada no
+ * prazo da rodada. As regras (ritmo, lotes, quando parar) estão em `rajada.ts`.
+ */
+async function rodarCampanhaEmRajada(
+  admin: SupabaseClient,
+  campanha: CampanhaRow,
+): Promise<{ enviadas: number; pulados: number; concluidas: number; detalhe: string }> {
+  return rodarEmRajada<DestinatarioRow>(
+    {
+      buscarLote: (quantos) => pendentesDaCampanha(admin, campanha.id, new Date(), quantos),
+      enviarUm: (alvo) => rodarUmaCampanha(admin, campanha, new Date(), alvo),
+      aindaEmAndamento: async () => {
+        const { data } = await admin.from("campaigns").select("status").eq("id", campanha.id).maybeSingle();
+        return (data as { status?: string } | null)?.status === "running";
+      },
+      concluirSeAcabou: () => rodarUmaCampanha(admin, campanha, new Date()),
+      agora: () => Date.now(),
+      esperar: (ms) => new Promise((ok) => setTimeout(ok, ms)),
+    },
+    RAJADA,
+  );
+}
+
 async function rodarUmaCampanha(
   admin: SupabaseClient,
   campanha: CampanhaRow,
   agora: Date,
+  /** A rajada escolhe o destinatário do lote; sem ele, o primeiro da fila. */
+  escolhido?: DestinatarioRow,
 ): Promise<{ enviadas: number; pulados: number; concluidas: number; detalhe: string }> {
   // Campanha com modelo: uma falha que vale para o ENVIO INTEIRO (modelo
   // pausado, número restringido, pagamento) chega pelo webhook, depois do envio.
@@ -264,18 +326,7 @@ async function rodarUmaCampanha(
     }
   }
 
-  const { data: fila } = await admin
-    .from("campaign_recipients")
-    .select(
-      "id, contact_id, recipient_address, rendered_body, variables, " +
-        "contacts(id, name, display_name, phone_number, is_blocked, is_personal, is_anonymized, consent)",
-    )
-    .eq("campaign_id", campanha.id)
-    .eq("status", "pending")
-    .or(`next_attempt_at.is.null,next_attempt_at.lte.${agora.toISOString()}`)
-    .order("created_at", { ascending: true })
-    .limit(1);
-  const alvo = (fila ?? [])[0] as DestinatarioRow | undefined;
+  const alvo = escolhido ?? (await pendentesDaCampanha(admin, campanha.id, agora, 1))[0];
 
   if (!alvo) {
     // Nada pendente AGORA não é o mesmo que nada pendente: pode haver gente
@@ -361,7 +412,9 @@ async function rodarUmaCampanha(
   // cada 60s no total, com um número ou com cinco.
   const pool = getRequestPool();
   const ritmo: RitmoDaCampanha = {
-    intervaloSegundos: campanha.intervalo_segundos,
+    // Na rápida o intervalo não vale: a rajada tem o próprio espaçamento, e um
+    // intervalo de campanha a reduziria a uma mensagem por rodada.
+    intervaloSegundos: emRajada(campanha) ? null : campanha.intervalo_segundos,
     janelaInicioHora: campanha.janela_inicio_hora,
     janelaFimHora: campanha.janela_fim_hora,
     tetoDiario: campanha.teto_diario,
@@ -376,7 +429,12 @@ async function rodarUmaCampanha(
   // que a janela usa. Com `setUTCHours`, o "dia" virava 21h no horário de
   // Brasília — DENTRO da janela de envio —, e uma campanha que já tinha batido
   // o teto diário voltava a enviar com uma hora de janela pela frente.
-  const estado = await estadoDeEnvio(admin, campanha.id, agora, knobsDoPrincipal.knobs.timezone);
+  // Sem intervalo nem teto, o estado não decide nada — e na rajada lê-lo seria
+  // reler todos os enviados do dia a cada mensagem.
+  const usaEstado = ritmo.intervaloSegundos !== null || ritmo.tetoDiario !== null || ritmo.tetoHorario !== null;
+  const estado = usaEstado
+    ? await estadoDeEnvio(admin, campanha.id, agora, knobsDoPrincipal.knobs.timezone)
+    : { ultimoEnvio: null, enviadasHoje: 0, enviadasNaUltimaHora: 0 };
   const doRitmo = podeMandarAgora(ritmo, estado, agora, knobsDoPrincipal.knobs.timezone);
   if (!doRitmo.pode) {
     // Espera não é falha: grava QUANDO tentar de novo para a fila não ser varrida
@@ -537,6 +595,25 @@ async function rodarUmaCampanha(
     const falhou = status === "failed";
     const erro = mensagem as { error_code?: string | null; error_message?: string | null };
     const codigoDaFalha = falhou ? codigoDaPlataforma(erro.error_code, erro.error_message) : null;
+
+    // O provedor ou a plataforma pediram para DESACELERAR (429 do parceiro,
+    // 130429 da plataforma). A mensagem não saiu e não tem nada de errado: o
+    // destinatário volta para a fila e sai na próxima rodada. Falhá-lo tiraria
+    // a pessoa da campanha por pressa nossa — o risco que a rajada cria.
+    if (falhou && ehLimiteDeVelocidade(codigoDaFalha, erro.error_message)) {
+      await admin
+        .from("campaign_recipients")
+        .update({
+          status: "pending",
+          sending_at: null,
+          next_attempt_at: new Date(agora.getTime() + 60_000).toISOString(),
+          last_error_code: "limite_de_velocidade",
+          last_error_detail: (erro.error_message ?? "").slice(0, 300) || null,
+        })
+        .eq("id", alvo.id)
+        .eq("status", "sending");
+      return { enviadas: 0, pulados: 0, concluidas: 0, detalhe: `limite:${codigoDaFalha ?? "429"}` };
+    }
     // `.eq("status","sending")` porque o ack pode ter chegado ANTES desta linha:
     // o trigger já teria avançado o destinatário para `sent`/`delivered`, e
     // escrever por cima o rebaixaria.

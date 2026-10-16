@@ -513,6 +513,14 @@ const PARES: Array<{
     simbolo: "MODOS_DA_MENSAGEM",
   },
   {
+    tabela: "campaigns",
+    coluna: "velocidade",
+    // lib/campanhas/tipos.ts → VELOCIDADES_DA_CAMPANHA. Migration 0681: o
+    // despacho escolhe rajada ou uma-por-rodada por esta coluna.
+    arquivo: "lib/campanhas/tipos.ts",
+    simbolo: "VELOCIDADES_DA_CAMPANHA",
+  },
+  {
     tabela: "external_db_connections",
     coluna: "source_mode",
     arquivo: "lib/external-db/types.ts",
