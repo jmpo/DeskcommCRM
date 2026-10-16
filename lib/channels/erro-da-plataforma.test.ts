@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { codigoDaPlataforma, falhaDoEnvioInteiro, fraseDaFalha } from "./erro-da-plataforma";
+import { codigoDaPlataforma, ehLimiteDeVelocidade, falhaDoEnvioInteiro, fraseDaFalha } from "./erro-da-plataforma";
 
 describe("codigoDaPlataforma", () => {
   it("oficial direto: o número vem em error_code", () => {
@@ -55,5 +55,23 @@ describe("fraseDaFalha", () => {
     expect(fraseDaFalha("131050", "x")).toMatch(/desligou as mensagens de marketing/);
     expect(fraseDaFalha("999999", "Algo raro")).toBe("Algo raro");
     expect(fraseDaFalha(null, "  ")).toBeNull();
+  });
+});
+
+describe("ehLimiteDeVelocidade", () => {
+  it("o provedor e a plataforma pedindo para desacelerar: a mensagem volta para a fila", () => {
+    expect(ehLimiteDeVelocidade("130429", "130429 Rate limit hit")).toBe(true);
+    expect(ehLimiteDeVelocidade(null, "zernio_template_failed: 429 rate_limited: Rate limit exceeded")).toBe(true);
+    expect(ehLimiteDeVelocidade(null, "zernio_template_failed: 429 Too Many Requests")).toBe(true);
+  });
+
+  it("falha de verdade não é confundida com pressa", () => {
+    // 131056 é por destinatário e o adaptador já o devolve como fila; 131050 e
+    // 132015 são desfechos — reenviar repetiria a mesma recusa.
+    expect(ehLimiteDeVelocidade("131056", "131056 Too many messages")).toBe(false);
+    expect(ehLimiteDeVelocidade("131050", "zernio_template_failed: 400 [plataforma:131050]")).toBe(false);
+    expect(ehLimiteDeVelocidade("132015", "zernio_template_failed: 400 [plataforma:132015]")).toBe(false);
+    // Um telefone com 429 no meio não é o status HTTP.
+    expect(ehLimiteDeVelocidade(null, "zernio_template_failed: 400 número +595981429000 inválido")).toBe(false);
   });
 });

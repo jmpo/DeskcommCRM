@@ -93,6 +93,23 @@ export function falhaDoEnvioInteiro(codigo: string | null): boolean {
 }
 
 /**
+ * O provedor ou a plataforma pediram para DESACELERAR: a mensagem não saiu e
+ * não tem defeito nenhum — sai de novo daqui a pouco.
+ *
+ *   - `130429`: a plataforma, no limite de mensagens por segundo do número;
+ *   - `429` do provedor intermediado (`rate_limited`): a janela de requisições
+ *     por minuto da equipe (60, 600 ou 1.200, pelo número de contas).
+ *
+ * `131056` (muitas para a MESMA pessoa) não entra: é por destinatário, e o
+ * adaptador já o devolve como fila (`zernio_throttled`).
+ */
+export function ehLimiteDeVelocidade(codigo: string | null, mensagem: string | null | undefined): boolean {
+  if (codigo === "130429") return true;
+  const texto = mensagem ?? "";
+  return /\brate_limited\b/i.test(texto) || /^zernio_[a-z_]+: 429\b/.test(texto);
+}
+
+/**
  * A frase para quem opera, por código. Em português: a tela traduz na borda
  * (`t()`), como todo texto do produto. Código sem frase própria cai no texto
  * cru que a plataforma mandou — melhor que um "erro desconhecido".

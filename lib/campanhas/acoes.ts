@@ -36,7 +36,7 @@ import {
 import { conferirModeloDaCampanha } from "./modelo-da-conexao";
 import type { ModeloPreparado } from "./preparacao";
 import { renderizar } from "./renderizador";
-import type { ModoDaMensagem, StatusDaCampanha } from "./tipos";
+import type { ModoDaMensagem, StatusDaCampanha, VelocidadeDaCampanha } from "./tipos";
 
 export interface CampanhaCarregada {
   id: string;
@@ -62,6 +62,8 @@ export interface CampanhaCarregada {
   provider_template_name: string | null;
   provider_template_language: string | null;
   provider_template_variables: unknown;
+  /** Migration 0687: `rapida` = rajada na rodada (só com modelo). */
+  velocidade: VelocidadeDaCampanha;
 }
 
 export type Recusa = { ok: false; codigo: ApiErrorCode; mensagem: string; status: number };
@@ -71,7 +73,7 @@ const COLUNAS =
   "id, organization_id, name, status, channel_session_id, message_body, base_legal, lia_ref, " +
   "audience_filter, audience_version, content_version, scheduled_at, description, " +
   "intervalo_segundos, janela_inicio_hora, janela_fim_hora, teto_diario, teto_horario, " +
-  "message_mode, provider_template_name, provider_template_language, provider_template_variables";
+  "message_mode, provider_template_name, provider_template_language, provider_template_variables, velocidade";
 
 export async function carregarCampanha(
   admin: SupabaseClient,
@@ -431,6 +433,7 @@ export async function duplicarAcao(
       janela_fim_hora: c.janela_fim_hora,
       teto_diario: c.teto_diario,
       teto_horario: c.teto_horario,
+      velocidade: c.velocidade,
       created_by: autorId,
       // Nada de destinatário, resultado, agenda ou carimbo de execução: a cópia
       // é uma INTENÇÃO nova, e herdar números faria a tela mostrar entrega de

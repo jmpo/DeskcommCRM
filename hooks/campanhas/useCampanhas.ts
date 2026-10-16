@@ -58,6 +58,8 @@ export interface CampanhaDetalhada extends CampanhaDaLista {
   janela_fim_hora: number | null;
   teto_diario: number | null;
   teto_horario: number | null;
+  /** Migration 0687: `rapida` = tudo de uma vez pelo número oficial; `gradual` = uma por minuto. */
+  velocidade?: "gradual" | "rapida";
 }
 
 export interface Destinatario {
