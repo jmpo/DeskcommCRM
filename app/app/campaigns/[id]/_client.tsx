@@ -464,9 +464,7 @@ function RitmoDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
       </div>
       <VelocidadeDaCampanha valor={velocidade} onChange={setVelocidade} ehOficial={ehOficial} nome="r-velocidade" />
       <div className="grid gap-4 sm:grid-cols-2">
-        {rapida ? (
-          <div />
-        ) : (
+        {!rapida && (
           <CampoDeRitmo
             id="r-intervalo"
             rotulo={t("Intervalo mínimo entre mensagens (segundos)")}
@@ -486,7 +484,8 @@ function RitmoDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
           valor={tetoHora}
           onChange={setTetoHora}
         />
-        <div />
+        {/* Na rápida, sem o intervalo, os tetos já ocupam a linha inteira. */}
+        {!rapida && <div />}
         <CampoDeRitmo
           id="r-inicio"
           rotulo={t("Enviar só a partir das (hora)")}

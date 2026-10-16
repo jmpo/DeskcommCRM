@@ -14,7 +14,7 @@ import { RAJADA } from "@/lib/campanhas/rajada";
 export type Velocidade = "gradual" | "rapida";
 
 /** Mensagens por segundo da rajada, para a frase da tela. */
-export const POR_SEGUNDO_NA_RAPIDA = Math.floor(1000 / RAJADA.intervaloEntreIniciosMs);
+export const POR_SEGUNDO_NA_RAPIDA = Math.round(1000 / RAJADA.intervaloEntreIniciosMs);
 
 /**
  * Quanto tempo a lista leva, em minutos inteiros (no mínimo 1): na rápida, o
