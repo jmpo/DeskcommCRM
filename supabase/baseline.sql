@@ -53039,9 +53039,12 @@ create trigger trg_messages_sincroniza_campanha
 alter table public.campaigns
   add column if not exists velocidade text not null default 'gradual';
 
+-- O vocabulário FINAL vive aqui, no bloco único da constraint: `transmissao`
+-- (migration 0694) foi acrescentado a esta lista, e o bloco da 0694 não a recria
+-- (`tests/unit/baseline-constraint-reconstruida.test.ts`).
 alter table public.campaigns drop constraint if exists campaigns_velocidade_check;
 alter table public.campaigns
-  add constraint campaigns_velocidade_check check (velocidade in ('gradual', 'rapida'));
+  add constraint campaigns_velocidade_check check (velocidade in ('gradual', 'rapida', 'transmissao'));
 
 update public.campaigns
    set velocidade = 'gradual'
@@ -53082,9 +53085,9 @@ comment on column public.campaigns.velocidade is
 alter table public.campaigns
   add column if not exists provider_broadcast_id text;
 
-alter table public.campaigns drop constraint if exists campaigns_velocidade_check;
-alter table public.campaigns
-  add constraint campaigns_velocidade_check check (velocidade in ('gradual', 'rapida', 'transmissao'));
+-- `transmissao` entra no CHECK `campaigns_velocidade_check` no bloco único da
+-- constraint (o da migration 0687, acima): reconstruí-la aqui faria o bloco
+-- antigo falhar ao re-aplicar num banco que já tem campanha por transmissão.
 
 create unique index if not exists campaigns_provider_broadcast_id_uidx
   on public.campaigns (organization_id, provider_broadcast_id)
