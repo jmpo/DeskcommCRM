@@ -147,6 +147,8 @@ describe("o eco de uma transmissão de campanha", () => {
       organizationId: "org-1",
       transmissaoId: "6ad297966c6c507b49d6069a",
       contactId: "contact-1",
+      // O outro lado da saída (`conversation.participantId`), para achar pela lista.
+      telefone: "+595982461017",
     });
     const ins = insertDaMensagem();
     expect(ins.body).toBe(ECO.corpo);

@@ -518,6 +518,7 @@ interface Nosso {
   delivered_at: string | null;
   read_at: string | null;
   message_id: string | null;
+  rendered_body: string | null;
   telefone: string;
 }
 
@@ -596,7 +597,7 @@ export async function sincronizarTransmissao(
 
   const nossos = await destinatariosEntregues(admin, campanha.id);
   let mudancas = 0;
-  const semMensagem: Array<{ id: string; wamid: string }> = [];
+  const semMensagem: Array<{ id: string; wamid: string; corpo: string | null }> = [];
   for (const n of nossos) {
     const item = porTelefone.get(digitosDoTelefone(n.telefone));
     const patch = desfechoDaTransmissao(n, item);
@@ -609,7 +610,9 @@ export async function sincronizarTransmissao(
         .select("id");
       mudancas += (data ?? []).length;
     }
-    if (item?.idDaMensagem && !n.message_id) semMensagem.push({ id: n.id, wamid: item.idDaMensagem });
+    if (item?.idDaMensagem && !n.message_id) {
+      semMensagem.push({ id: n.id, wamid: item.idDaMensagem, corpo: n.rendered_body });
+    }
   }
   await ligarAsMensagens(admin, campanha.organization_id, semMensagem);
   return { mudancas, pendentesNoProvedor };
@@ -620,7 +623,9 @@ async function destinatariosEntregues(admin: SupabaseClient, campanhaId: string)
   for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
     const { data, error } = await admin
       .from("campaign_recipients")
-      .select("id, status, sent_at, delivered_at, read_at, message_id, recipient_address, contacts(phone_number)")
+      .select(
+        "id, status, sent_at, delivered_at, read_at, message_id, rendered_body, recipient_address, contacts(phone_number)",
+      )
       .eq("campaign_id", campanhaId)
       .in("status", ["pending", "queued", "sending", "sent", "delivered", "read", "failed"])
       .order("id", { ascending: true })
@@ -637,6 +642,7 @@ async function destinatariosEntregues(admin: SupabaseClient, campanhaId: string)
         delivered_at: l.delivered_at,
         read_at: l.read_at,
         message_id: l.message_id,
+        rendered_body: l.rendered_body,
         telefone: l.contacts?.phone_number ?? l.recipient_address ?? "",
       });
     }
@@ -647,14 +653,15 @@ async function destinatariosEntregues(admin: SupabaseClient, campanhaId: string)
 
 /**
  * O destinatário aponta para a linha da conversa quando o eco já chegou e a
- * ingestão não conseguiu ligar (mensagem que chegou antes do id da transmissão
- * estar gravado, por exemplo). Com a ligação, entrega e leitura passam a vir
- * também pelo gatilho de ack.
+ * ingestão não conseguiu ligar (o contato resolvido não era o da lista, por
+ * exemplo). Com a ligação, entrega e leitura passam a vir também pelo gatilho de
+ * ack — e a linha que nasceu com "[Template: nome]" ganha o texto que a pessoa
+ * leu, que é o que o agente precisa quando ela responder.
  */
 async function ligarAsMensagens(
   admin: SupabaseClient,
   organizationId: string,
-  pares: Array<{ id: string; wamid: string }>,
+  pares: Array<{ id: string; wamid: string; corpo: string | null }>,
 ): Promise<void> {
   for (let i = 0; i < pares.length; i += IDS_POR_FILTRO) {
     const lote = pares.slice(i, i + IDS_POR_FILTRO);
@@ -677,6 +684,14 @@ async function ligarAsMensagens(
         .update({ message_id: m.id, conversation_id: m.conversation_id })
         .eq("id", p.id)
         .is("message_id", null);
+      if (p.corpo) {
+        await admin
+          .from("messages")
+          .update({ body: p.corpo })
+          .eq("organization_id", organizationId)
+          .eq("id", m.id)
+          .like("body", "[Template:%");
+      }
     }
   }
 }
@@ -785,7 +800,13 @@ export interface EcoDaTransmissao {
  */
 export async function ecoDaTransmissao(
   admin: SupabaseClient,
-  entrada: { organizationId: string; transmissaoId: string; contactId: string },
+  entrada: {
+    organizationId: string;
+    transmissaoId: string;
+    contactId: string;
+    /** O telefone do outro lado, em E.164 — para quando o contato resolvido não é o da lista. */
+    telefone?: string | null;
+  },
 ): Promise<EcoDaTransmissao | null> {
   const { data: campanha } = await admin
     .from("campaigns")
@@ -800,13 +821,28 @@ export async function ecoDaTransmissao(
     provider_template_name: string | null;
     provider_template_language: string | null;
   };
-  const { data: destinatario } = await admin
+  const porContato = await admin
     .from("campaign_recipients")
     .select("id, rendered_body")
     .eq("campaign_id", c.id)
     .eq("contact_id", entrada.contactId)
     .limit(1)
     .maybeSingle();
+  // O contato que a ingestão resolveu pode não ser o da lista (o mesmo número
+  // gravado de outro jeito): o telefone para que a pessoa foi é a outra chave.
+  const destinatario =
+    porContato.data ??
+    (entrada.telefone
+      ? (
+          await admin
+            .from("campaign_recipients")
+            .select("id, rendered_body")
+            .eq("campaign_id", c.id)
+            .eq("recipient_address", entrada.telefone)
+            .limit(1)
+            .maybeSingle()
+        ).data
+      : null);
   if (!destinatario) return null;
   const d = destinatario as { id: string; rendered_body: string | null };
   return {

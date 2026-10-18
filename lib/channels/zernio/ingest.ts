@@ -698,7 +698,12 @@ async function ecoDeTransmissao(
   contactId: string,
 ): Promise<EcoDaTransmissao | null> {
   if (msg.direction !== "outbound" || msg.kind !== "message" || !msg.broadcastId) return null;
-  return ecoDaTransmissao(admin, { organizationId, transmissaoId: msg.broadcastId, contactId });
+  return ecoDaTransmissao(admin, {
+    organizationId,
+    transmissaoId: msg.broadcastId,
+    contactId,
+    telefone: msg.identity.phone,
+  });
 }
 
 /**
