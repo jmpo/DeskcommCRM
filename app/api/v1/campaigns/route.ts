@@ -17,7 +17,12 @@ import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { FILTRO_VAZIO } from "@/lib/campanhas/audiencia";
-import { decidirConteudo, decidirVelocidade, lerModoDoCanal } from "@/lib/campanhas/conteudo-do-canal";
+import {
+  decidirConteudo,
+  decidirVelocidade,
+  fraseDaRecusa,
+  lerModoDoCanal,
+} from "@/lib/campanhas/conteudo-do-canal";
 import { gravarPool } from "@/lib/campanhas/pool-de-numeros";
 import {
   codificarCursor,
@@ -145,7 +150,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     variaveis: conteudo.colunas.provider_template_variables,
   });
   if (!velocidade.ok) {
-    return fail(velocidade.codigo, t(velocidade.mensagem), velocidade.status, { requestId });
+    return fail(velocidade.codigo, fraseDaRecusa(velocidade, t), velocidade.status, { requestId });
   }
 
   const { data, error } = await supabase

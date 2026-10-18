@@ -16,7 +16,12 @@ import { requireRole } from "@/lib/auth/require-role";
 import { carregarCampanha } from "@/lib/campanhas/acoes";
 import { ehEditavel, ehTerminal } from "@/lib/campanhas/maquina-de-estados";
 import { gravarPool, lerPoolExtra } from "@/lib/campanhas/pool-de-numeros";
-import { decidirConteudo, decidirVelocidade, lerModoDoCanal } from "@/lib/campanhas/conteudo-do-canal";
+import {
+  decidirConteudo,
+  decidirVelocidade,
+  fraseDaRecusa,
+  lerModoDoCanal,
+} from "@/lib/campanhas/conteudo-do-canal";
 import { variaveisDaCampanhaSchema } from "@/lib/campanhas/modelo";
 import { editarCampanhaSchema } from "@/lib/campanhas/schemas";
 import { ehVelocidadeDaCampanha } from "@/lib/campanhas/tipos";
@@ -251,7 +256,7 @@ export async function PATCH(
       variaveis: variaveis.success ? variaveis.data : {},
     });
     if (!velocidade.ok) {
-      return fail(velocidade.codigo, t(velocidade.mensagem), velocidade.status, { requestId });
+      return fail(velocidade.codigo, fraseDaRecusa(velocidade, t), velocidade.status, { requestId });
     }
     // A lista já está com o provedor: trocar a velocidade agora deixaria quem
     // está nela sem ninguém acompanhando o relatório. Para parar, cancele.

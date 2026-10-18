@@ -30,9 +30,6 @@ import {
 } from "../transmissao-tipos";
 import { resolveZernioCreds, type ZernioCredentials } from "./credentials";
 
-/** O `profileId` de cada conta, por processo: ele não muda enquanto a conta existe. */
-const perfilDaConta = new Map<string, string>();
-
 /** A especificação aceita até 20.000 telefones por chamada; o lote fica abaixo. */
 const TELEFONES_POR_CHAMADA = 5_000;
 
@@ -83,6 +80,8 @@ export async function transmissaoDoParceiro(
   if (!accountId) return null;
 
   let credenciais: ZernioCredentials | null = null;
+  /** Lido uma vez por rodada: a mesma conta, a mesma resposta. */
+  let perfilDaConta: string | null = null;
   async function creds(): Promise<ZernioCredentials> {
     credenciais ??= await resolveZernioCreds(admin, { organizationId: escopo.organizationId, accountId: accountId! });
     if (!credenciais) throw new ErroDaTransmissao(401, "sem_credencial", "a conexão não tem credencial do provedor");
@@ -116,14 +115,13 @@ export async function transmissaoDoParceiro(
   }
 
   async function perfil(): Promise<string> {
-    const guardado = perfilDaConta.get(accountId!);
-    if (guardado) return guardado;
+    if (perfilDaConta) return perfilDaConta;
     const j = await chamar<{ accounts?: Bruto[] }>("GET", "/v1/accounts");
     const conta = (j.accounts ?? []).find((a) => a._id === accountId || a.id === accountId);
     const p = conta?.profileId;
     const id = typeof p === "string" ? p : texto((p as Bruto | null | undefined)?._id) ?? texto((p as Bruto | null | undefined)?.id);
     if (!id) throw new ErroDaTransmissao(404, "sem_perfil", "a conta do provedor não tem perfil para a transmissão");
-    perfilDaConta.set(accountId!, id);
+    perfilDaConta = id;
     return id;
   }
 

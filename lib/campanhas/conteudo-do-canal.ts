@@ -150,7 +150,25 @@ export async function decidirConteudo(
 
 export type DecisaoDaVelocidade =
   | { ok: true; velocidade: VelocidadeDaCampanha }
-  | { ok: false; codigo: ApiErrorCode; mensagem: string; status: number };
+  | {
+      ok: false;
+      codigo: ApiErrorCode;
+      /** Com marcadores (`{variaveis}`) para a frase ser traduzida inteira; os valores vêm em `valores`. */
+      mensagem: string;
+      status: number;
+      valores?: Record<string, string>;
+    };
+
+/** A frase da recusa já traduzida, com os marcadores trocados pelos valores. */
+export function fraseDaRecusa(
+  recusa: { mensagem: string; valores?: Record<string, string> },
+  traduzir: (texto: string) => string,
+): string {
+  return Object.entries(recusa.valores ?? {}).reduce(
+    (frase, [chave, valor]) => frase.replaceAll(`{${chave}}`, valor),
+    traduzir(recusa.mensagem),
+  );
+}
 
 /**
  * As variáveis que mudam de pessoa para pessoa (nome, campo do negócio) — as que
@@ -217,10 +235,10 @@ export function decidirVelocidade(entrada: {
       ok: false,
       codigo: "campanha_transmissao_variavel",
       mensagem:
-        `O broadcast manda o mesmo texto a todos, e este modelo usa dados de cada pessoa (${porPessoa
-          .map((k) => `{{${k}}}`)
-          .join(", ")}). Escreva um texto fixo nessas variáveis ou use o envio rápido.`,
+        "O broadcast manda o mesmo texto a todos, e este modelo usa dados de cada pessoa ({variaveis}). " +
+        "Escreva um texto fixo nessas variáveis ou use o envio rápido.",
       status: 422,
+      valores: { variaveis: porPessoa.map((k) => `{{${k}}}`).join(", ") },
     };
   }
   return { ok: true, velocidade };

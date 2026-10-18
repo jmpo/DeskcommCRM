@@ -6,7 +6,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 
-import { decidirConteudo, decidirVelocidade } from "./conteudo-do-canal";
+import { decidirConteudo, decidirVelocidade, fraseDaRecusa } from "./conteudo-do-canal";
 
 const SEM_BANCO = new Proxy({} as SupabaseClient, {
   get() {
@@ -118,8 +118,10 @@ describe("decidirVelocidade", () => {
       variaveis: { "1": { kind: "contact_first_name" }, "2": { kind: "fixed", value: "Pico" } },
     });
     expect(r).toMatchObject({ ok: false, codigo: "campanha_transmissao_variavel", status: 422 });
-    expect(!r.ok && r.mensagem).toContain("{{1}}");
-    expect(!r.ok && r.mensagem).not.toContain("{{2}}");
+    const frase = r.ok ? "" : fraseDaRecusa(r, (x) => x);
+    expect(frase).toContain("({{1}})");
+    expect(frase).not.toContain("{{2}}");
+    expect(frase).not.toContain("{variaveis}");
   });
 
   it("trocar o modelo de uma campanha por broadcast para um com nome também é recusado", () => {
