@@ -30,6 +30,7 @@ export const CHANNEL_CAPABILITIES: Record<ProviderDeMensagem, ChannelCapabilitie
     groups: "full",
     costPerMessage: false,
     alteraMensagemEnviada: true,
+    transmissao: false,
   },
   // Hetero-restrição: não me banem, mas a Meta me proíbe e me cobra.
   meta_cloud: {
@@ -44,6 +45,7 @@ export const CHANNEL_CAPABILITIES: Record<ProviderDeMensagem, ChannelCapabilitie
     groups: "limited",
     costPerMessage: true,
     alteraMensagemEnviada: false,
+    transmissao: false,
   },
   // Mesma hetero-restrição do canal oficial, por baixo: é um BSP: a WABA é da
   // Meta, os templates são aprovados pela Meta e a janela de 24h é da Meta. O
@@ -78,6 +80,7 @@ export const CHANNEL_CAPABILITIES: Record<ProviderDeMensagem, ChannelCapabilitie
     groups: "none",
     costPerMessage: true,
     alteraMensagemEnviada: false,
+    transmissao: false,
   },
   zernio: {
     freeformOutsideWindow: false,
@@ -89,6 +92,11 @@ export const CHANNEL_CAPABILITIES: Record<ProviderDeMensagem, ChannelCapabilitie
     groups: "limited",
     costPerMessage: true,
     alteraMensagemEnviada: false,
+    // MEDIDO em 16/10/2026 (2 destinatários, entregues em 1 a 3 s): o provedor
+    // cria a transmissão, recebe os telefones e manda a todos. O valor de cada
+    // variável sai LITERAL do `components` — o `variableMapping` documentado
+    // chegou ao destinatário como "{{1}}", e o nome que ele guarda é o número.
+    transmissao: true,
   },
   // Parceiro homologado pela Meta que espelha a Cloud API (recorte do #1130):
   // a WABA, a janela de 24h e o custo são da Meta. O parceiro muda o TRANSPORTE
@@ -109,6 +117,7 @@ export const CHANNEL_CAPABILITIES: Record<ProviderDeMensagem, ChannelCapabilitie
     groups: "limited",
     costPerMessage: true,
     alteraMensagemEnviada: false,
+    transmissao: false,
   },
 };
 
@@ -247,6 +256,21 @@ export function canalTemRiscoDeBanimento(provider: string | null | undefined): b
     return capabilitiesOf(provider as ProviderDeMensagem).banRisk;
   } catch {
     return true;
+  }
+}
+
+/**
+ * O provedor deste número faz a transmissão (a lista inteira de uma vez, com o
+ * relatório por destinatário)? Liga a terceira velocidade da campanha.
+ * Desconhecido responde `false`: sem a certeza, a campanha fica no envio que o
+ * próprio sistema controla.
+ */
+export function canalTemTransmissao(provider: string | null | undefined): boolean {
+  if (!transportaMensagem(provider)) return false;
+  try {
+    return capabilitiesOf(provider as ProviderDeMensagem).transmissao;
+  } catch {
+    return false;
   }
 }
 

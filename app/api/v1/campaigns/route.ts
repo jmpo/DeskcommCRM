@@ -135,8 +135,15 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!conteudo.ok) {
     return fail(conteudo.codigo, t(conteudo.mensagem), conteudo.status, { requestId });
   }
-  // Rápida só com modelo aprovado (migration 0687).
-  const velocidade = decidirVelocidade({ pedida: entrada.velocidade, atual: "gradual", modo: conteudo.modo });
+  // Rápida e broadcast só com modelo aprovado (migrations 0687 e 0694); o
+  // broadcast, só no número que o faz e com variáveis de texto fixo.
+  const velocidade = decidirVelocidade({
+    pedida: entrada.velocidade,
+    atual: "gradual",
+    modo: conteudo.modo,
+    transmissao: canal.transmissao,
+    variaveis: conteudo.colunas.provider_template_variables,
+  });
   if (!velocidade.ok) {
     return fail(velocidade.codigo, t(velocidade.mensagem), velocidade.status, { requestId });
   }
