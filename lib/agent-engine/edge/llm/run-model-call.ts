@@ -56,7 +56,7 @@ import {
   SQL_ORCAMENTO,
   type ChaveDeOrcamento,
 } from './orcamento';
-import { costCents } from './pricing';
+import { costCents, gravacaoDeUmaHora } from './pricing';
 import { chaveDeOrcamentoDaInstalacao } from '../../../instalacao/comportamento';
 import { cobrancaLigadaComMemo } from '../../../instalacao/modulos';
 import { createDefaultRegistry, type ProviderRegistry } from './providers';
@@ -303,6 +303,16 @@ export interface RunModelCallDeps {
  * `satisfies` aqui, tirar (ou jamais adicionar) qualquer campo que o motor lê
  * vira erro de tipo NA HORA, não um turno mudo em produção.
  */
+/**
+ * O `usage` cru do provedor em cada passo do laço de ferramentas — é onde mora a
+ * divisão da gravação de cache por TTL. Sem passos (resposta de um passo só),
+ * vale o `usage` do resultado.
+ */
+export function usosCrusDosPassos(result: { usage: { raw?: unknown }; steps?: ReadonlyArray<{ usage?: { raw?: unknown } }> }): unknown[] {
+  const dosPassos = (result.steps ?? []).map((s) => s.usage?.raw).filter((r) => r !== undefined);
+  return dosPassos.length > 0 ? dosPassos : [result.usage.raw];
+}
+
 export type ResultadoDoModeloDoSeam = Pick<
   Awaited<ReturnType<typeof generateText>>,
   'text' | 'usage' | 'response' | 'responseMessages' | 'steps' | 'toolCalls'
@@ -1128,15 +1138,19 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
   }
   const latencyMs = Date.now() - startedAt;
 
+  const cacheWriteTokens = result.usage.inputTokenDetails.cacheWriteTokens ?? 0;
+  const cacheWrite1hTokens = gravacaoDeUmaHora(usosCrusDosPassos(result), cacheWriteTokens);
   const usage = {
     inputTokens: result.usage.inputTokens ?? 0,
     outputTokens: result.usage.outputTokens ?? 0,
     cacheReadTokens: result.usage.inputTokenDetails.cacheReadTokens ?? 0,
-    cacheWriteTokens: result.usage.inputTokenDetails.cacheWriteTokens ?? 0,
+    cacheWriteTokens,
+    ...(cacheWrite1hTokens !== undefined ? { cacheWrite1hTokens } : {}),
   };
-  // O TTL é o MESMO que gravou o prefixo estável acima: a gravação de cache custa
-  // 1.25× a entrada em 5m e 2× em 1h, e supor a doutrina superfaturaria 60% da
-  // parcela de cache write em quem usa o knob.
+  // A gravação de cache custa 1.25× a entrada em 5m e 2× em 1h. Quando o provedor
+  // diz quanto foi de cada (`cache_creation` da Anthropic), cada parcela vai pela
+  // sua tarifa; senão, vale o TTL que gravou o prefixo estável acima. Cobrar tudo
+  // a 1h superfaturava ~16% do mês (medido contra a fatura em 17/10/2026).
   const cost = costCents(model, usage, cfg.cacheTtl ?? '1h');
 
   const { rows } = await db.query<{ id: string }>(
