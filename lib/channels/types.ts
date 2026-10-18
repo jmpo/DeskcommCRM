@@ -57,6 +57,13 @@ export interface ChannelCapabilities {
   costPerMessage: boolean;
   /** O atendente pode editar e apagar para todos uma mensagem já enviada. */
   alteraMensagemEnviada: boolean;
+  /**
+   * O PROVEDOR faz a transmissão: recebe a lista inteira e um modelo, e manda a
+   * todos de uma vez, com o relatório por destinatário (migration 0694). É o que
+   * liga a terceira velocidade da campanha. Os valores do modelo são os mesmos
+   * para todos — o provedor não recebe valor por destinatário.
+   */
+  transmissao: boolean;
 }
 
 /**

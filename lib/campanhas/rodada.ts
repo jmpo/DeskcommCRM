@@ -56,6 +56,7 @@ import { hashDoEndereco } from "./exclusoes";
 import type { ConteudoDoEnvio } from "./modelo";
 import { renderizar } from "./renderizador";
 import { RAJADA, rodarEmRajada } from "./rajada";
+import { rodarCampanhaEmTransmissao } from "./transmissao";
 import { escolherNumero, poolDaCampanha, type NumeroDisponivel } from "./rodizio";
 import { podeMandarAgora, proximaTentativa, type RitmoDaCampanha } from "./ritmo";
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
@@ -106,6 +107,9 @@ interface CampanhaRow {
   provider_template_language: string | null;
   /** Migration 0687: `rapida` = rajada na rodada (só com modelo); `gradual` = uma por rodada. */
   velocidade: string;
+  /** Migration 0694: com `velocidade = transmissao`, as origens das variáveis e o id no provedor. */
+  provider_template_variables: unknown;
+  provider_broadcast_id: string | null;
   started_at: string | null;
   paused_at: string | null;
 }
@@ -113,7 +117,8 @@ interface CampanhaRow {
 const COLUNAS_DA_CAMPANHA =
   "id, organization_id, channel_session_id, name, message_body, content_version, " +
   "intervalo_segundos, janela_inicio_hora, janela_fim_hora, teto_diario, teto_horario, " +
-  "message_mode, provider_template_name, provider_template_language, velocidade, started_at, paused_at";
+  "message_mode, provider_template_name, provider_template_language, velocidade, started_at, paused_at, " +
+  "provider_template_variables, provider_broadcast_id";
 
 /**
  * O status da organização embutido com `!inner` no `select`, e filtrado na
@@ -173,9 +178,11 @@ export async function rodarUmaRodadaDeCampanha(
     if (numerosAtendidos.size >= NUMEROS_POR_RODADA) break;
 
     try {
-      const r = emRajada(campanha)
-        ? await rodarCampanhaEmRajada(admin, campanha)
-        : await rodarUmaCampanha(admin, campanha, agora);
+      const r = emTransmissao(campanha)
+        ? await rodarCampanhaEmTransmissao(admin, campanha, agora)
+        : emRajada(campanha)
+          ? await rodarCampanhaEmRajada(admin, campanha)
+          : await rodarUmaCampanha(admin, campanha, agora);
       total.enviadas += r.enviadas;
       total.pulados += r.pulados;
       total.concluidas += r.concluidas;
@@ -281,6 +288,14 @@ async function pendentesDaCampanha(
 /** Velocidade rápida só com modelo: o CHECK da 0687 garante, e o despacho confere de novo. */
 function emRajada(campanha: CampanhaRow): boolean {
   return campanha.velocidade === "rapida" && campanha.message_mode === "template";
+}
+
+/**
+ * Transmissão só com modelo, como a rápida. Quem manda é o provedor; a rodada
+ * entrega a lista e depois acompanha o relatório (`transmissao.ts`).
+ */
+function emTransmissao(campanha: CampanhaRow): boolean {
+  return campanha.velocidade === "transmissao" && campanha.message_mode === "template";
 }
 
 /**
