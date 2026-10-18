@@ -178,19 +178,16 @@ async function entregarAoProvedor(
 
   const reservados = await reservar(admin, campanha, prontos, agora);
   const lista = [...reservados, ...emVoo];
+  let estado: EstadoDaTransmissao;
+  let puladosNoProvedor: number;
   try {
-    const { pulados: puladosNoProvedor } = await ops.adicionar(
-      id,
-      lista.map((d) => d.telefone),
-    );
-    const { estado } = await ops.enviar(id);
-    await recordSends(getRequestPool(), campanha.organization_id, campanha.channel_session_id, agora, lista.length);
-    return {
-      enviadas: lista.length,
-      pulados,
-      concluidas: 0,
-      detalhe: `transmissao:${estado}:${lista.length}${puladosNoProvedor > 0 ? `:sem_whatsapp_${puladosNoProvedor}` : ""}`,
-    };
+    puladosNoProvedor = (
+      await ops.adicionar(
+        id,
+        lista.map((d) => d.telefone),
+      )
+    ).pulados;
+    estado = (await ops.enviar(id)).estado;
   } catch (err) {
     // Nada saiu (ou não dá para saber): quem foi reservado volta à fila. Se o
     // provedor tiver mandado mesmo assim, o relatório da próxima rodada corrige
@@ -201,6 +198,23 @@ async function entregarAoProvedor(
     );
     throw err;
   }
+
+  // Fora do `try` de propósito: a lista JÁ saiu. Uma falha ao contar no livro do
+  // ritmo não pode devolver à fila quem o provedor está entregando agora.
+  try {
+    await recordSends(getRequestPool(), campanha.organization_id, campanha.channel_session_id, agora, lista.length);
+  } catch (err) {
+    logger.warn("[campanha] envios da transmissão não contados no ritmo do número", {
+      campanha: campanha.id,
+      motivo: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return {
+    enviadas: lista.length,
+    pulados,
+    concluidas: 0,
+    detalhe: `transmissao:${estado}:${lista.length}${puladosNoProvedor > 0 ? `:sem_whatsapp_${puladosNoProvedor}` : ""}`,
+  };
 }
 
 interface Pronto {
