@@ -6,7 +6,8 @@ import * as path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 import { carregarEnvLocal } from "../../scripts/lib/env-de-teste";
-import { expect, test, type Page } from "./helpers/test";
+import { loginComoAdmin, type CredsE2E } from "./helpers/login-admin";
+import { expect, test } from "./helpers/test";
 
 /**
  * O número oficial conectado com UM CLIQUE, pela conta do provedor da instalação.
@@ -38,11 +39,7 @@ const PERFIL = "6e2e0000000000000000ab01";
 const CONTA = "6e2e0000000000000000cd01";
 const TELEFONE = `+5959811${SUFIXO.slice(-5)}`;
 
-interface Creds {
-  password: string;
-  org_id: string;
-  users: Record<string, { email: string }>;
-}
+type Creds = CredsE2E & { org_id: string };
 
 interface Pedido {
   metodo: string;
@@ -165,14 +162,6 @@ function dubleDoProvedor(): http.Server {
   });
 }
 
-async function login(page: Page, email: string, senha: string): Promise<void> {
-  await page.goto("/login");
-  await page.locator("#email").fill(email);
-  await page.locator("#password").fill(senha);
-  await page.getByRole("button", { name: "Entrar", exact: true }).click();
-  await page.waitForURL(/\/app/, { timeout: 60_000 });
-}
-
 test.describe("Conexões — número oficial com um clique, pela conta do provedor da instalação", () => {
   test.describe.configure({ mode: "serial", timeout: 180_000 });
   test.skip(
@@ -209,7 +198,8 @@ test.describe("Conexões — número oficial com um clique, pela conta do proved
     page,
   }) => {
     fs.mkdirSync(EVIDENCIA, { recursive: true });
-    await login(page, creds.users.admin!.email, creds.password);
+    // O dono da organização tem o fator TOTP: a rota de conexão exige a sessão verificada.
+    creds = { ...creds, ...(await loginComoAdmin(page, creds)) };
     await page.goto("/app/connections?aba=parceiro");
 
     const botao = page.getByRole("button", { name: /^Conectar (meu|mi) WhatsApp$/ });
@@ -326,7 +316,8 @@ test.describe("Conexões — número oficial com um clique, pela conta do proved
 
   test("excluir a conexão apaga o webhook e desconecta o número no provedor", async ({ page }) => {
     test.skip(!sessaoId, "depende do caso anterior");
-    await login(page, creds.users.admin!.email, creds.password);
+    // O dono da organização tem o fator TOTP: a rota de conexão exige a sessão verificada.
+    creds = { ...creds, ...(await loginComoAdmin(page, creds)) };
     const r = await page.request.delete(`/api/v1/channel-sessions/${sessaoId}`);
     expect(r.status()).toBe(200);
     expect(

@@ -3643,10 +3643,10 @@ contra um dublê HTTP do provedor (porta 3996) que guarda perfis, contas e assin
 
 | # | Caso | Expectativa | Resultado |
 |---|------|-------------|-----------|
-| J51.1 | Instalação com a chave, empresa sem conexão | o botão de um clique, com a escolha «já usa o app WhatsApp Business» / «número novo»; o campo de chave própria só a pedido | a medir (local + CI) — `evidence/numero-oficial-um-clique/01-botao-de-um-clique.png` |
-| J51.2 | Clicar, concluir no provedor e voltar | «Conectado» com o número; webhook «configurado automaticamente»; a sessão aponta para a chave da instalação (nenhuma cópia dela); a assinatura no provedor é filtrada à conta, na URL do token da sessão | a medir (local + CI) — `evidence/numero-oficial-um-clique/02-conectado-webhook-automatico.png` |
-| J51.3 | Mensagem do cliente assinada com o segredo registrado | entra (200) e vira mensagem | a medir (local + CI) |
-| J51.4 | Excluir a conexão | apaga a assinatura e desconecta o número da conta da instalação | a medir (local + CI) |
+| J51.1 | Instalação com a chave, empresa sem conexão | o botão de um clique, com a escolha «já usa o app WhatsApp Business» / «número novo»; o campo de chave própria só a pedido | **PASS pela tela (local)** — `evidence/numero-oficial-um-clique/01-botao-de-um-clique.png` |
+| J51.2 | Clicar, concluir no provedor e voltar | «Conectado» com o número; webhook «configurado automaticamente»; a sessão aponta para a chave da instalação (nenhuma cópia dela); a assinatura no provedor é filtrada à conta, na URL do token da sessão | **PASS pela tela (local)** — `evidence/numero-oficial-um-clique/02-conectado-webhook-automatico.png` |
+| J51.3 | Mensagem do cliente assinada com o segredo registrado | entra (200) e vira mensagem | **PASS (local)** — mesma spec |
+| J51.4 | Excluir a conexão | apaga a assinatura e desconecta o número da conta da instalação | **PASS (local)** — mesma spec |
 | J51.5 | Volta forjada, vencida, de outra organização, ou conta fora do perfil | nada é gravado | **PASS (unit)** — `lib/channels/conexao-um-clique.test.ts`, `tests/unit/parceiro-volta-da-conexao.test.ts` |
 | J51.6 | Plano sem vaga de número | recusa ANTES de abrir a página da Meta (o número não entra na fatura da instalação para o CRM recusar no fim) | **PASS (unit)** — `lib/channels/conexao-um-clique.test.ts` |
 
