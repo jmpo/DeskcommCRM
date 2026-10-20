@@ -1003,22 +1003,22 @@ function StartMessageFlowForm({
             própria regra de um por contato. */}
         {!ehRoteiro ? (
           <>
-          {/* Um contato só anda em UM fluxo por vez. Desligado, a regra perde para o
-              fluxo que chegou antes — e a pessoa que acabou de pedir pode ficar sem
-              a confirmação porque estava no remarketing. */}
-          <div className="mt-2 flex items-center justify-between gap-3 rounded-md border p-3">
-            <div className="space-y-0.5">
-              <Label>{t("Tirar o contato de outro fluxo")}</Label>
-              <p className="text-xs text-muted-foreground">
-                {t(
-                  "Se o contato já estiver em outro fluxo, ele sai daquele e entra neste. Fluxo pausado por uma pessoa não é trocado.",
-                )}
-              </p>
-            </div>
-            <Switch
-              checked={config.replace_live_flow === true}
-              onCheckedChange={(v) => onChange({ ...config, replace_live_flow: v ? true : undefined })}
-            />
+            {/* Um contato só anda em UM fluxo por vez. Desligado, a regra perde para o
+                fluxo que chegou antes — e a pessoa que acabou de pedir pode ficar sem
+                a confirmação porque estava no remarketing. */}
+            <div className="mt-2 flex items-center justify-between gap-3 rounded-md border p-3">
+              <div className="space-y-0.5">
+                <Label>{t("Tirar o contato de outro fluxo")}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    "Se o contato já estiver em outro fluxo, ele sai daquele e entra neste. Fluxo pausado por uma pessoa não é trocado.",
+                  )}
+                </p>
+              </div>
+              <Switch
+                checked={config.replace_live_flow === true}
+                onCheckedChange={(v) => onChange({ ...config, replace_live_flow: v ? true : undefined })}
+              />
             </div>
           </>
         ) : null}
