@@ -15,6 +15,11 @@ vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (s: string) => s }));
 vi.mock("@/lib/api/client", () => ({
   apiClient: { get: vi.fn(async () => ({ data: [] })) },
 }));
+// Desde a v1.86 o formulário lê os módulos da empresa (a superfície de
+// atendimento só aparece com o módulo ligado). Sem ele, só o follow-up.
+vi.mock("@/hooks/auth/AuthProvider", () => ({
+  useAuth: () => ({ activeOrg: { modulos_ligados: [] } }),
+}));
 
 function montar(config: { flow_pointer_id: string; replace_live_flow?: boolean }) {
   const onChange = vi.fn();
