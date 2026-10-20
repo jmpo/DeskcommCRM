@@ -128,6 +128,19 @@ function idiomaDaPagina(idioma: string): "es" | "pt-BR" | "en" {
 }
 
 /**
+ * O navegador da pessoa vai para este endereço: só https. A exceção é a própria
+ * máquina (`localhost`/`127.0.0.1`), que é onde o dublê do provedor responde nas
+ * provas de tela (`ZERNIO_API_BASE_URL`) — nenhum endereço de fora passa em http.
+ */
+function enderecoSeguro(url: string): boolean {
+  const u = new URL(url);
+  return (
+    u.protocol === "https:" ||
+    (u.protocol === "http:" && ["127.0.0.1", "localhost"].includes(u.hostname))
+  );
+}
+
+/**
  * A URL da página de cadastro hospedada pelo provedor (`signup=hosted`): ela
  * abre a janela da Meta e conecta o número escolhido. `onboarding` escolhe a
  * tela da Meta: `business_app` (coexistência, pede o QR no celular) ou `api`
@@ -146,7 +159,7 @@ export async function urlDaPaginaDeConexao(chave: string, p: PaginaDeConexao): P
   const { authUrl } = z
     .object({ authUrl: z.string().url() })
     .parse(await pedirAoProvedor(chave, `connect/whatsapp?${query.toString()}`));
-  if (!authUrl.startsWith("https://"))
+  if (!enderecoSeguro(authUrl))
     throw new ErroDoProvedor("O provedor devolveu um endereço inseguro.");
   return authUrl;
 }

@@ -165,6 +165,11 @@ describe("urlDaPaginaDeConexao", () => {
     expect(q.has("primaryColor")).toBe(false);
   });
 
+  it("aceita http só na própria máquina (o dublê das provas de tela)", async () => {
+    responder(() => ({ status: 200, body: { authUrl: "http://127.0.0.1:3996/cadastro" } }));
+    expect(await urlDaPaginaDeConexao("k", base)).toBe("http://127.0.0.1:3996/cadastro");
+  });
+
   it("recusa endereço que não é https", async () => {
     responder(() => ({ status: 200, body: { authUrl: "http://zernio.test/x" } }));
     await expect(urlDaPaginaDeConexao("k", base)).rejects.toThrow("inseguro");
