@@ -35,7 +35,7 @@ import { padraoRegexDeBusca } from "@/lib/contacts/busca-regex";
 type SB = SupabaseClient;
 
 const SELECT_COLS =
-  "id, organization_id, name, display_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_personal, ai_opt_out, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, custom_fields, created_at, updated_at, last_activity_at, first_service_at";
+  "id, organization_id, name, display_name, address_book_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_personal, ai_opt_out, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, custom_fields, created_at, updated_at, last_activity_at, first_service_at";
 
 interface CursorPayload {
   sort: string | null;
@@ -219,6 +219,12 @@ export async function listContactsHandler(
       // zero resultados para um contato que EXISTE, e desistiu — a demanda
       // morreria por uma coluna faltando no OR.
       `display_name.imatch.${s}`,
+      // O nome da agenda do celular (#2439) é o que a tela mostra quando não há
+      // nome escolhido no CRM — mesma razão do `display_name` acima. Mas ele é SÓ
+      // DA EQUIPE: com `soContato` (a busca do agente durante a conversa), casar
+      // nele faria a ferramenta responder ao modelo se o rótulo interno contém o
+      // termo digitado — o rótulo chegaria ao cliente aos pedaços.
+      ...(soContato ? [] : [`address_book_name.imatch.${s}`]),
       `email.imatch.${s}`,
       `phone_number.imatch.${s}`,
     ];

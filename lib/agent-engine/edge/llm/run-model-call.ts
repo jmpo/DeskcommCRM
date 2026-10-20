@@ -57,6 +57,7 @@ import {
   type ChaveDeOrcamento,
 } from './orcamento';
 import { costCents, gravacaoDeUmaHora } from './pricing';
+import { custoDoModeloForaDoMotor } from './pricing-do-catalogo';
 import { chaveDeOrcamentoDaInstalacao } from '../../../instalacao/comportamento';
 import { cobrancaLigadaComMemo } from '../../../instalacao/modulos';
 import { createDefaultRegistry, type ProviderRegistry } from './providers';
@@ -216,6 +217,9 @@ export function tetoDeSaida(daOrganizacao: number | undefined, daChamada: number
   return daChamada === undefined ? base : Math.min(base, daChamada);
 }
 
+/** Provedores em que `reasoning: 'none'` foi conferido contra a API real (#2904). */
+const PROVEDORES_COM_RACIOCINIO_NENHUM_MEDIDO: ReadonlySet<string> = new Set(['anthropic', 'openai']);
+
 export interface RunModelCallInput {
   tenantId: string;
   leadId?: string | null;
@@ -315,7 +319,7 @@ export function usosCrusDosPassos(result: { usage: { raw?: unknown }; steps?: Re
 
 export type ResultadoDoModeloDoSeam = Pick<
   Awaited<ReturnType<typeof generateText>>,
-  'text' | 'usage' | 'response' | 'responseMessages' | 'steps' | 'toolCalls'
+  'text' | 'usage' | 'response' | 'responseMessages' | 'steps' | 'toolCalls' | 'finishReason'
 >;
 
 /**
@@ -940,8 +944,13 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
       let steps: Awaited<typeof streamed.steps>;
       let responseMessages: Awaited<typeof streamed.responseMessages>;
       let toolCalls: Awaited<typeof streamed.toolCalls>;
+      // `finishReason` ('stop' | 'length' | 'tool-calls' | ...). O
+      // ramo da assinatura monta o resultado à mão, então sem ele aqui o campo
+      // FALTARIA no runtime (generateText devolve sozinho) e a detecção de
+      // saída truncada ('length') cegaria exatamente no provedor de assinatura.
+      let finishReason: Awaited<typeof streamed.finishReason>;
       try {
-        [text, usage, response, steps, responseMessages, toolCalls] = await Promise.all([
+        [text, usage, response, steps, responseMessages, toolCalls, finishReason] = await Promise.all([
           streamed.text,
           streamed.usage,
           streamed.response,
@@ -949,6 +958,7 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
           streamed.responseMessages,
           // Lido por quem pede UMA ferramenta (propostas, valor da conversa).
           streamed.toolCalls,
+          streamed.finishReason,
         ]);
       } catch (erroDoSdk) {
         throw erroOriginalDoStream ?? erroDoSdk;
@@ -967,6 +977,7 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
         responseMessages,
         steps,
         toolCalls,
+        finishReason,
       } satisfies ResultadoDoModeloDoSeam;
       return resultadoDoStream as unknown as Awaited<ReturnType<typeof generateText>>;
     }
@@ -977,7 +988,14 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
       topP,
       topK,
       maxOutputTokens: tetoDeSaida(maxOutputTokens, input.maxOutputTokens),
-      ...(input.reasoning !== undefined ? { reasoning: input.reasoning } : {}),
+      // Só onde o `'none'` foi aceito pela API real (#2904). Nos de Chat Completions
+      // (OpenRouter, Requesty, personalizado) o SDK manda `reasoning_effort` para
+      // qualquer modelo; no Gemini 2.5 Pro vira `thinkingBudget: 0`, que o Google
+      // documenta como recusado, e no 3.x Pro, `thinkingLevel: "minimal"`. Uma recusa
+      // derrubaria a classificação em todo turno. Entram com a medição deles.
+      ...(input.reasoning !== undefined && PROVEDORES_COM_RACIOCINIO_NENHUM_MEDIDO.has(cfgUsada.provider)
+        ? { reasoning: input.reasoning }
+        : {}),
     });
   };
 
@@ -1151,7 +1169,27 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
   // diz quanto foi de cada (`cache_creation` da Anthropic), cada parcela vai pela
   // sua tarifa; senão, vale o TTL que gravou o prefixo estável acima. Cobrar tudo
   // a 1h superfaturava ~16% do mês (medido contra a fatura em 17/10/2026).
-  const cost = costCents(model, usage, cfg.cacheTtl ?? '1h');
+  //
+  // A tabela estática do motor é a PRIMEIRA verdade. Quando ela não conhece o id
+  // — o caso do provedor PERSONALIZADO, que serve qualquer modelo de qualquer
+  // preço (#3013: 180 chamadas de `openai/gpt-oss-120b` no Groq, custo nulo) —, o
+  // preço da linha sai do catálogo da INSTALAÇÃO (`ai_models`/`ai_pricing`, as
+  // mesmas tabelas que `lib/ai/cost.ts` e `lib/ai/runtime/cost.ts` já consultam).
+  // Sem preço em nenhum dos dois o custo continua `null` — mas com aviso no log,
+  // nunca calado, e nunca um 0 inventado. O caminho dos modelos que já têm linha
+  // na tabela estática não muda uma vírgula: `costCents` segue sendo chamado
+  // primeiro, e só o `null` dele chega aqui.
+  let cost = costCents(model, usage, cfg.cacheTtl ?? '1h');
+  let origemDoCusto: 'catalogo_da_instalacao' | undefined;
+  if (cost === null) {
+    cost = await custoDoModeloForaDoMotor(db, {
+      model,
+      provider: config.provider,
+      usage,
+      log: deps.log,
+    });
+    if (cost !== null) origemDoCusto = 'catalogo_da_instalacao';
+  }
 
   const { rows } = await db.query<{ id: string }>(
     `insert into llm_calls
@@ -1191,6 +1229,11 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
     origem_da_escolha: origem,
     ...usage,
     cost_cents: cost,
+    // Só quando o preço NÃO veio da tabela estática do motor: diz de qual caminho
+    // saiu o número gravado, e é o que um operador procura quando pergunta "de
+    // onde saiu este custo?". Modelo sem preço em lugar nenhum não traz o campo —
+    // o `cost_cents: null` acima somado ao aviso de sem-preço é a marca.
+    ...(origemDoCusto !== undefined ? { custo_origem: origemDoCusto } : {}),
     latency_ms: latencyMs,
   });
   for (const aviso of decisao.avisos) {

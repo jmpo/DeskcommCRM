@@ -153,6 +153,12 @@ export default async function AccountSuspendedPage({
               linkDePagamento={painel.assinatura.link_de_pagamento}
               cancelaNoFim={painel.assinatura.cancela_no_fim}
               planosParaTroca={[]}
+              planoAtual={painel.plano ? { id: painel.plano.id, nome: painel.plano.nome, preco_cents: painel.plano.preco_cents, intervalo: painel.plano.intervalo, max_assentos: painel.plano.max_assentos, max_canais: painel.plano.max_canais, teto_ia_usd_cents: painel.plano.teto_ia_usd_cents } : null}
+              periodoPagoDesde={painel.assinatura.periodo_pago_desde}
+              proximoVencimento={painel.assinatura.proximo_vencimento}
+              trocaPagamentoUrl={painel.assinatura.troca_pagamento_url}
+              trocaStatus={painel.assinatura.troca_status}
+              instanteCalculo={new Date().toISOString()}
               provedor={painel.checkout.provedor}
               documentoDoCadastro={painel.checkout.documentoDoCadastro}
               fuso={painel.fuso}

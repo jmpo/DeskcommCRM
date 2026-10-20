@@ -98,10 +98,13 @@ describe("o catálogo e a tabela de preço do motor", () => {
       // 3.6/3.7/3.8 Flash: a tabela só cabe um preço (PK em `model`) e guarda a
       // tarifa de 2027. O motor só a aplica a partir de 2027-01-01T00:00:00Z;
       // comparar com `new Date()` ficaria vermelho até lá e verde depois, sem mudança.
+      // O 4 Argon (0703) segue o mesmo desenho com a tarifa de 2026-12-01T00:00:00Z.
       const em =
         id === "gemini-3.6-flash" || id === "gemini-3.7-flash" || id === "gemini-3.8-flash"
           ? new Date("2027-01-01T00:00:00.000Z")
-          : undefined;
+          : id === "gemini-4-argon"
+            ? new Date("2026-12-01T00:00:00.000Z")
+            : undefined;
       expect.soft(costCents(id, { ...vazio, inputTokens: 1_000_000 }, "1h", em), `${id}: entrada`).toBeCloseTo(
         t.prompt,
         6,

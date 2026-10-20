@@ -10,6 +10,7 @@ import { originFromAutomationEvent } from "@/lib/atendimento/origem-automacao";
  * eventos derivados (anti-loop profundidade 1: regra→ação→handler→evento).
  */
 import { registerAction } from "@/lib/automation/actions";
+import { mensagemDeErro } from "@/lib/automation/actions/erro-legivel";
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
 import type { ActionCtx, ActionResultDetail } from "@/lib/automation/types";
 import type { HandlerCtx } from "@/lib/api/handlers/types";
@@ -302,7 +303,7 @@ async function execute(ctx: ActionCtx, config: Record<string, unknown>): Promise
     return {
       type: "create_or_move_lead",
       status: "failed",
-      error: err instanceof Error ? err.message : String(err),
+      error: mensagemDeErro(err),
     };
   }
 }

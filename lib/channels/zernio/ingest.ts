@@ -40,10 +40,7 @@ import {
   metadataDoEco,
   type EcoDaTransmissao,
 } from "@/lib/campanhas/transmissao";
-import {
-  ehNumeroInternoDeAviso,
-  registrarMensagemIgnorada,
-} from "@/lib/escalacao/numero-interno-de-aviso";
+import { consumirRespostaDoSuporteNoWhatsApp } from "@/lib/escalacao/resposta-whatsapp-ao-caso";
 
 import { aplicarEfeitosPosEntrada } from "../pos-entrada";
 
@@ -129,17 +126,19 @@ export async function ingestZernioInbound(
   // é do provedor, não o identificador de privacidade do WhatsApp, e casar por
   // ela exigiria um segundo campo na configuração sem consumidor nenhum hoje.
   if (
-    msg.identity.phone &&
-    (await ehNumeroInternoDeAviso(admin, input.organizationId, {
-      kind: "phone",
-      phone: msg.identity.phone,
-      lid: null,
-    }))
+    await consumirRespostaDoSuporteNoWhatsApp(admin, {
+      organizationId: input.organizationId,
+      channelSessionId: input.channelSessionId,
+      identidade: {
+        kind: msg.identity.phone ? "phone" : "unknown",
+        phone: msg.identity.phone,
+        lid: null,
+      },
+      direction: msg.direction,
+      texto: msg.text,
+      externalId: msg.externalId,
+    })
   ) {
-    await registrarMensagemIgnorada(admin, input.organizationId, {
-      direction: "inbound",
-      sessionId: input.channelSessionId,
-    });
     return { status: "ignored", reason: "numero_interno_de_aviso" };
   }
 
@@ -311,7 +310,7 @@ export async function ingestZernioInbound(
   // próprio envio já saiu como `"duplicate"` acima. NÃO mexe na origem do lead.
   //
   // A TRANSMISSÃO do provedor não é pessoa nenhuma: é a campanha mandando a
-  // lista de uma vez (migration 0694). Medido em 16/10/2026: sem esta exceção,
+  // lista de uma vez (migration 0709). Medido em 16/10/2026: sem esta exceção,
   // cada número novo da lista ficava com a IA calada pelo prazo do atendimento
   // manual — justamente quando as respostas chegam juntas.
   if (msg.direction === "outbound" && !ehDeTransmissao(msg)) {

@@ -101,13 +101,13 @@ interface CampanhaRow {
   janela_fim_hora: number | null;
   teto_diario: number | null;
   teto_horario: number | null;
-  /** Migration 0680: `template` = modelo aprovado pelo número oficial. */
+  /** Migration 0707: `template` = modelo aprovado pelo número oficial. */
   message_mode: string;
   provider_template_name: string | null;
   provider_template_language: string | null;
-  /** Migration 0687: `rapida` = rajada na rodada (só com modelo); `gradual` = uma por rodada. */
+  /** Migration 0708: `rapida` = rajada na rodada (só com modelo); `gradual` = uma por rodada. */
   velocidade: string;
-  /** Migration 0694: com `velocidade = transmissao`, as origens das variáveis e o id no provedor. */
+  /** Migration 0709: com `velocidade = transmissao`, as origens das variáveis e o id no provedor. */
   provider_template_variables: unknown;
   provider_broadcast_id: string | null;
   started_at: string | null;
@@ -285,7 +285,7 @@ async function pendentesDaCampanha(
   return (data ?? []) as unknown as DestinatarioRow[];
 }
 
-/** Velocidade rápida só com modelo: o CHECK da 0687 garante, e o despacho confere de novo. */
+/** Velocidade rápida só com modelo: o CHECK da 0708 garante, e o despacho confere de novo. */
 function emRajada(campanha: CampanhaRow): boolean {
   return campanha.velocidade === "rapida" && campanha.message_mode === "template";
 }

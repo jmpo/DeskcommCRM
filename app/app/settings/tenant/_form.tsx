@@ -163,7 +163,18 @@ export function TenantForm({ initial, onSave, onSaved }: Props) {
           </div>
           <div className="space-y-2">
             <Label htmlFor="country">{t("País")}</Label>
-            <Select value={form.country ?? "BR"} onValueChange={(v) => set("country", v)}>
+            <Select
+              value={form.country ?? "BR"}
+              onValueChange={(v) => {
+                // Escolher o país SUGERE o fuso dele (issue #2347, item 4): uma
+                // organização de Portugal que nunca trocou o fuso ficava com o
+                // `America/Sao_Paulo` do padrão e mandava ao titular datas em
+                // GMT-3. A sugestão entra no campo logo acima — e quem quiser
+                // outro fuso ainda pode recusá-la, que é só trocar ali.
+                const sugerido = perfilDoPais(v).fusoDoSugerido;
+                setForm((f) => ({ ...f, country: v, timezone: sugerido }));
+              }}
+            >
               <SelectTrigger id="country">
                 <SelectValue />
               </SelectTrigger>

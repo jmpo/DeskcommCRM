@@ -91,7 +91,7 @@ export default async function ConexaoExternaPage({
       />
 
       <div className="flex min-h-[520px] flex-1 flex-col">
-        <ExploradorDeDados connectionId={conexao.id} />
+        <ExploradorDeDados connectionId={conexao.id} soLiberadas={conexao.source_mode === "list"} />
       </div>
     </div>
   );

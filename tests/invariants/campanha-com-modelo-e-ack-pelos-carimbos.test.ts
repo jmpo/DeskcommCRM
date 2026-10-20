@@ -1,5 +1,5 @@
 /**
- * MIGRATION 0680 — campanha com modelo aprovado, e o ack pelos carimbos.
+ * MIGRATION 0707 — campanha com modelo aprovado, e o ack pelos carimbos.
  *
  * Duas coisas que só o banco prova:
  *
@@ -7,7 +7,7 @@
  *      exige nome E idioma — a plataforma identifica a definição pelos dois.
  *   2. O oficial direto grava entrega e leitura SÓ nos carimbos
  *      (`lib/channels/meta/status-update.ts` mantém `status = 'sent'`). Antes
- *      da 0680 o trigger de ack olhava só o status e saía cedo: a campanha
+ *      da 0707 o trigger de ack olhava só o status e saía cedo: a campanha
  *      ficava com zero entregues e zero lidos para sempre nesse canal.
  */
 import { describe, expect, it } from "vitest";
@@ -24,7 +24,7 @@ function semear(): void {
   seedGov();
   sql(`
     insert into public.contacts (id, organization_id, display_name, phone_number)
-      values ('${CONTATO}', '${GOV_ORG}', 'Prova 0680', '+595981000680')
+      values ('${CONTATO}', '${GOV_ORG}', 'Prova 0707', '+595981000680')
       on conflict (id) do nothing;
     insert into public.conversations (id, organization_id, contact_id, channel_session_id, status)
       values ('${CONVERSA}', '${GOV_ORG}', '${CONTATO}', '${GOV_SESSION}', 'open')
@@ -32,7 +32,7 @@ function semear(): void {
     insert into public.campaigns
       (id, organization_id, name, status, channel_session_id, base_legal,
        message_mode, provider_template_name, provider_template_language, provider_template_variables)
-      values ('${CAMPANHA}', '${GOV_ORG}', 'Prova 0680', 'running', '${GOV_SESSION}', 'consent',
+      values ('${CAMPANHA}', '${GOV_ORG}', 'Prova 0707', 'running', '${GOV_SESSION}', 'consent',
               'template', 'oferta_pico', 'es', '{"1": {"kind": "contact_first_name"}}'::jsonb)
       on conflict (id) do nothing;
     insert into public.messages
@@ -49,7 +49,7 @@ function semear(): void {
   `);
 }
 
-describe("0680: campanha com modelo aprovado", () => {
+describe("0707: campanha com modelo aprovado", () => {
   it("message_mode nasce `text` para toda campanha que já existia", () => {
     const def = sql(
       `select column_default || '|' || is_nullable from information_schema.columns
@@ -76,7 +76,7 @@ describe("0680: campanha com modelo aprovado", () => {
   });
 });
 
-describe("0680: o ack da campanha lê os carimbos de entrega e leitura", () => {
+describe("0707: o ack da campanha lê os carimbos de entrega e leitura", () => {
   it("o oficial direto carimba delivered_at com status 'sent' — o destinatário vira entregue", () => {
     semear();
     sql(`update public.messages set delivered_at = now() where id = '${MENSAGEM}';`);

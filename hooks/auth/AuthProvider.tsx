@@ -129,6 +129,8 @@ const ACTION_MIN_ROLE: Record<string, Role> = {
   "contact.create": "agent",
   "contact.update": "agent",
   "contact.delete": "manager",
+  // Pôr o contato na carteira de alguém: o piso da rota `[id]/carteira`.
+  "contact.carteira": "manager",
   "pipeline.view": "viewer",
   "pipeline.create": "manager",
   "pipeline.move_card": "agent",

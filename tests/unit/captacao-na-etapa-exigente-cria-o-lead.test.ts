@@ -125,4 +125,21 @@ describe("webhook de captação numa etapa que exige campo", () => {
     expect(h.leadsInseridos, "o negócio não nasceu").toHaveLength(1);
     expect(h.leadsInseridos[0]).toMatchObject({ pipeline_id: FUNIL, stage_id: ETAPA });
   });
+
+  it("⭐ o card nasce CARIMBADO com a fonte que o criou (#2316, migration 0683)", async () => {
+    // A coluna `crm_leads.webhook_source_id` é o que responde "de quem é este
+    // card" para a atualização por integração alcançar só o card da própria
+    // fonte. Sem o carimbo, o card novo entra na lista dos que nunca podem ser
+    // atualizados — e o defeito só aparece depois, quando a integração manda o
+    // segundo evento e nada acontece.
+    const req = new NextRequest("http://localhost/api/v1/webhooks/in/token-da-fonte-0001", {
+      method: "POST",
+      body: JSON.stringify({ nome: "Dora", email: "dora@example.com" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    await POST(req, { params: Promise.resolve({ token: "token-da-fonte-0001" }) });
+
+    expect(h.leadsInseridos[0]).toMatchObject({ webhook_source_id: "fonte-1" });
+  });
 });

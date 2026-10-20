@@ -511,6 +511,17 @@ export async function createLeadHandler(
     /** Interno (webhook inbound) — idempotência via uniq_crm_leads_org_source_external. */
     external_id?: string;
     /**
+     * Interno (webhook inbound) — a FONTE que criou este card (issue #2316,
+     * migration 0683).
+     *
+     * É o carimbo que responde "de quem é este card" para a atualização por
+     * integração alcançar só o card da própria fonte, e ele é durável por
+     * desenho: a linha de `webhook_lead_captures` é podada em 365 dias. Não vem
+     * do corpo da requisição — quem passa é a rota de captação, que resolve a
+     * fonte pelo `path_token`.
+     */
+    webhook_source_id?: string | null;
+    /**
      * Interno (importação de planilha). Marca o `lead.created` com
      * `metadata.via`, e o gatilho de follow-up "Lead criado" não inscreve em
      * lote quem entrou por planilha. Não vem do corpo da requisição.
@@ -685,6 +696,7 @@ export async function createLeadHandler(
       source: input.source,
       source_metadata: input.source_metadata ?? {},
       external_id: input.external_id ?? null,
+      webhook_source_id: input.webhook_source_id ?? null,
       custom_fields: input.custom_fields ?? {},
       retomado_de_lead_id: input.retomado_de_lead_id ?? null,
       status: "open",

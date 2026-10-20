@@ -382,7 +382,27 @@ const FRASES_DE_OPT_OUT: readonly RegExp[] = [
   // As duas leem hoje a MESMA constante (`LISTAS_DE_ENVIO`), que é o que torna
   // impossível uma voltar a divergir da outra.
   new RegExp(`\\bsair\\s+d(?:a|essa|esta)\\s+lista\\b${FREIO_DE_LISTA_QUALIFICADA}`, "u"),
-  /\bcancelar?\s+(?:a\s+)?(?:inscricao|assinatura)\b/u,
+  // "cancelar a inscrição" — e NÃO "cancelar a assinatura" (#2886). A palavra
+  // `assinatura` saiu daqui para as ambíguas, abaixo, pelo mesmo motivo que a
+  // `subscricao` de Portugal saiu no #2343: ela serve às DUAS coisas, sair das
+  // mensagens e cancelar o plano do produto, e bloqueava quem só perguntava
+  // "posso cancelar a assinatura e voltar depois?" (medido: `is_blocked` gravado
+  // e nenhuma resposta depois).
+  //
+  // `inscricao` FICA, e não por esquecimento: medida na #2886, ela tem o mesmo
+  // formato de defeito ("posso cancelar a inscrição e voltar depois?" grava
+  // `is_blocked`), mas movê-la obriga a reverter uma guarda de INGESTÃO que hoje
+  // a fixa bloqueando (`tests/unit/pos-entrada-efeitos-do-canal.test.ts`), e o
+  // recorte desta fatia é `assinatura`/`suscripcion`. A medição dela está na
+  // evidência da issue como medida-e-não-movida, com o número.
+  /\bcancelar?\s+(?:a\s+)?inscricao\b/u,
+  // ...mas "cancelar a assinatura DAS MENSAGENS" nomeia o objeto de
+  // comunicação, e aí bloqueia na hora — a regra do cabeçalho. A ambígua lá
+  // embaixo só cobre a frase SEM objeto. Vale também para a `subscricao` de
+  // Portugal (#2872), que tinha o mesmo buraco. "do whatsapp" e "de vocês"
+  // ficam DE FORA de propósito: também podem ser o plano, então seguem só
+  // escalando para uma pessoa.
+  /\bcancelar?\s+(?:a\s+)?(?:minha\s+)?(?:assinatura|subscricao)\s+(?:d(?:as|essas|estas)\s+(?:mensagens|notificacoes|promocoes|ofertas|novidades)|d(?:os|esses|estes)\s+(?:avisos|disparos|envios)|d(?:a|essa|esta)\s+newsletter)\b/u,
   // ── PORTUGUÊS DE PORTUGAL: o pronome vem PRESO ao verbo, DEPOIS dele ──────
   //
   // Em pt-PT o pronome átono é ENCLÍTICO ("remova-me da lista"), enquanto o
@@ -477,7 +497,14 @@ const FRASES_DE_OPT_OUT: readonly RegExp[] = [
   // quer continuar sendo atendido.
   /\b(?:sacame|sacar|quitame|quitar|borrame|borrar|elimina|eliminame)\s+de\s+(?:la\s+)?lista\b(?!\s+de\s+(?:espera|precios|invitados))/u,
   /\bsalir\s+de\s+(?:la\s+)?lista\b(?!\s+de\s+(?:espera|precios|invitados))/u,
-  /\bcancelar\s+(?:la\s+)?(?:suscripcion|inscripcion)\b/u,
+  // Espelho exato do português acima: `suscripcion` saiu para as ambíguas
+  // (#2886) porque em espanhol também serve às duas coisas — "cancelar la
+  // suscripcion" é o plano, e bloqueava quem só perguntava. `inscripcion` fica
+  // pelo mesmo motivo de `inscricao` lá em cima.
+  /\bcancelar\s+(?:la\s+)?inscripcion\b/u,
+  // E o espelho da forma com objeto: "cancelar la suscripción a los mensajes"
+  // bloqueia na hora; "cancelar la suscripción" sozinha só escala.
+  /\bcancelar\s+(?:la\s+|mi\s+)?suscripcion\s+(?:a|de)\s+(?:los|estos|tus|sus)\s+(?:mensajes|promociones|ofertas)\b/u,
 ];
 
 /**
@@ -495,6 +522,17 @@ const FRASES_AMBIGUAS_DE_OPT_OUT: readonly RegExp[] = [
   // cliente a perguntar sobre o produto, e `is_blocked` o deixaria sem
   // resposta. Sem o objeto de comunicação, o humano decide.
   /\bcancelar?\s+(?:a\s+)?(?:minha\s+)?subscric(?:ao|oes)\b/u,
+  // "cancelar a assinatura" (pt-BR, #2886) — a MESMA decisão da subscrição de
+  // Portugal acima, e pela mesma razão: a palavra serve às duas coisas. "quero
+  // cancelar a assinatura da revista" é cliente a falar do PLANO dele, e o
+  // bloqueio o deixaria sem resposta — a academia, a revista ou o SaaS perde o
+  // cliente que só queria saber como pausar. Medido com as funções da main:
+  //   "posso cancelar a assinatura e voltar depois?"  bloqueia=true
+  //   "quero cancelar a assinatura da revista"        bloqueia=true
+  //   "cancelar la suscripcion" (espanhol, abaixo)    bloqueia=true
+  // Aqui escala para um humano, que decide o bloqueio de verdade — o custo
+  // aceito (campanhas seguem até alguém decidir) está na #2886.
+  /\bcancelar?\s+(?:a\s+)?(?:minha\s+)?assinatura\b/u,
   // ── espanhol ──────────────────────────────────────────────────────────────
   //
   // Esta lista tinha ZERO entradas em espanhol. Não por decisão: o ambíguo é
@@ -522,6 +560,12 @@ const FRASES_AMBIGUAS_DE_OPT_OUT: readonly RegExp[] = [
   // `/\bnao\s+(?:me\s+)?interessa\s+mais\b/` — a assimetria era o defeito.
   /\b(?:ya\s+no\s+me\s+interesa|no\s+me\s+interesa\s+mas)\b/u,
   /\b(?:ya\s+basta|basta\s+ya)\b/u,
+  // "cancelar la suscripcion" — o espelho espanhol de "cancelar a assinatura"
+  // (#2886). Mesma palavra para o plano do produto e para as mensagens: quem
+  // pergunta "puedo cancelar la suscripcion?" quer resposta, não `is_blocked`.
+  // A forma com OBJETO segue bloqueando na hora — "dar de baja la suscripcion"
+  // e "quiero dar de baja la suscripcion" continuam em `FRASES_DE_OPT_OUT`.
+  /\bcancelar\s+(?:la\s+|mi\s+)?suscripcion\b/u,
   /\bno\s+me\s+molest(?:e|en|es)\b/u,
 ];
 

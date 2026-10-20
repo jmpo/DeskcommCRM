@@ -54,6 +54,7 @@ const FONTE: WebhookSourceRow = {
   path_token: "tok-abc",
   is_active: true,
   authorize_ai_on_capture: false,
+  update_existing_lead_on_capture: false,
   kind: "lead_capture",
   last_received_at: null,
   default_pipeline_id: "p-1",

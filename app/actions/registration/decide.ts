@@ -69,7 +69,14 @@ export async function decideRegistrationRequest(
         {
           id: conta.user.id,
           email: conta.user.email,
-          user_metadata: { org_name: pedido.requested_organization_name },
+          // O plano escolhido no cadastro (#2846) viaja junto: sem ele, a empresa
+          // nasceria no padrão — ou, sem padrão, o gatilho recusaria toda aprovação.
+          user_metadata: {
+            org_name: pedido.requested_organization_name,
+            ...(typeof conta.user.user_metadata?.cobranca_plan_id === "string"
+              ? { cobranca_plan_id: conta.user.user_metadata.cobranca_plan_id }
+              : {}),
+          },
         },
         { source: "signup" },
       );

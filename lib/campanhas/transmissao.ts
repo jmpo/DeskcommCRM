@@ -1,5 +1,5 @@
 /**
- * A CAMPANHA POR TRANSMISSÃO (migration 0694): a lista inteira entregue ao
+ * A CAMPANHA POR TRANSMISSÃO (migration 0709): a lista inteira entregue ao
  * provedor numa chamada, e o relatório dele trazido de volta, destinatário a
  * destinatário, a cada rodada.
  *

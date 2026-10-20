@@ -144,7 +144,7 @@ describe("catálogo de modelos", () => {
   it("a geração corrente dos três provedores está no catálogo", () => {
     // Ids VERIFICADOS no provedor (GET /v1/models) para Anthropic e OpenAI — os
     // Claude 5.5 e os GPT-6 só na documentação oficial (ver os cabeçalhos da
-    // 0647 e da 0646). Este
+    // 0675 e da 0646). Este
     // caso é o que reprova quando o catálogo envelhece: sem ele, "o padrão é o
     // melhor disponível" vira uma frase que ninguém mede.
     const ids = new Set(modelosDoCatalogo().map((m) => m.model_id));

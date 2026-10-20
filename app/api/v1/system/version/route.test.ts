@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 import { loadAuthUser } from "@/lib/auth/server";
@@ -52,6 +52,13 @@ let insertError: { code: string; message: string } | null;
 let versionSelectError: { message: string } | null;
 /** Erro que a leitura (`maybeSingle`) de `system_update_runs` deve devolver neste caso. */
 let runSelectError: { message: string } | null;
+/**
+ * A linha de `platform_smtp_settings` que o dublê devolve — é ela que decide se
+ * a instalação TEM SMTP, e portanto se o painel mostra o aviso (#2755).
+ */
+let smtpRow: Record<string, unknown> | null;
+/** Erro que a leitura (`maybeSingle`) de `platform_smtp_settings` deve devolver. */
+let smtpSelectError: { message: string } | null;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -63,6 +70,8 @@ beforeEach(() => {
   insertError = null;
   versionSelectError = null;
   runSelectError = null;
+  smtpRow = null;
+  smtpSelectError = null;
   versionRow = {
     id: 1,
     current_version: "1.0.0",
@@ -90,8 +99,18 @@ beforeEach(() => {
       // quebraria com TypeError, e o teste "melhoraria" o mock em vez do
       // double refletir a query de verdade.
       const maybeSingle = async () => ({
-        data: table === "system_version" ? versionRow : runRow,
-        error: table === "system_version" ? versionSelectError : runSelectError,
+        data:
+          table === "system_version"
+            ? versionRow
+            : table === "platform_smtp_settings"
+              ? smtpRow
+              : runRow,
+        error:
+          table === "system_version"
+            ? versionSelectError
+            : table === "platform_smtp_settings"
+              ? smtpSelectError
+              : runSelectError,
       });
       return {
         select: () => ({
@@ -128,6 +147,12 @@ beforeEach(() => {
       };
     },
   } as never);
+});
+
+// `SINGLE_SERVER` entra e sai por caso (o estado do SMTP depende dele): sem esta
+// limpeza, o primeiro caso que o liga contaminaria todos os seguintes.
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 function get() {
@@ -863,5 +888,81 @@ describe("POST /api/v1/system/update", () => {
     const body = await res.json();
     expect(body.error.code).toBe("state_conflict");
     expect(body.error.message).toBe("Já existe uma atualização em andamento.");
+  });
+});
+
+/**
+ * #2755 (item 3): O PAINEL DE ATUALIZAÇÃO PRECISA SABER — E SÓ O DONO PRECISA.
+ *
+ * O aviso de "sem SMTP" no painel lê este campo. Ele nasce do caminho de leitura
+ * que já existe (`lerSmtp`, o mesmo que a tela /admin/email usa) e da régua da
+ * ação que sofre com o problema (`semSmtpNaInstalacao`): host E remetente, só no
+ * servidor único, e só quando o BANCO respondeu — um soluço dele não é falta de
+ * configuração. Quem não é dono não recebe o campo: aviso sem ação disponível é
+ * só ansiedade.
+ */
+describe("GET /api/v1/system/version — o estado do SMTP da instalação", () => {
+  const LINHA_COM_SMTP = {
+    smtp_host: "smtp.revenda.com.br",
+    smtp_port: 587,
+    smtp_security: "starttls",
+    smtp_username: "nao-responda@revenda.com.br",
+    smtp_password_encrypted: null,
+    from_email: "nao-responda@revenda.com.br",
+    from_name: "Revenda",
+  };
+
+  async function corpo() {
+    const { GET } = await import("../version/route");
+    return (await GET(get())).json();
+  }
+
+  it("⭐ servidor único sem SMTP: o dono recebe smtp_configured: false", async () => {
+    vi.stubEnv("SINGLE_SERVER", "1");
+    vi.mocked(loadAuthUser).mockResolvedValue(OWNER as never);
+
+    const body = await corpo();
+
+    expect(body.data.smtp_configured).toBe(false);
+  });
+
+  it("⭐ CONTROLE — com SMTP salvo na tela: smtp_configured: true e o painel fica calado", async () => {
+    vi.stubEnv("SINGLE_SERVER", "1");
+    smtpRow = LINHA_COM_SMTP;
+    vi.mocked(loadAuthUser).mockResolvedValue(OWNER as never);
+
+    const body = await corpo();
+
+    expect(body.data.smtp_configured).toBe(true);
+  });
+
+  it("banco que NÃO respondeu não vira 'sem SMTP' — soluço não é falta de configuração", async () => {
+    // Quem lê o aviso vai configurar uma coisa que talvez já esteja lá: "não sei"
+    // não pode sair da rota disfarçado de "não tem".
+    vi.stubEnv("SINGLE_SERVER", "1");
+    smtpSelectError = { message: "relation does not exist" };
+    vi.mocked(loadAuthUser).mockResolvedValue(OWNER as never);
+
+    const body = await corpo();
+
+    expect(body.data.smtp_configured).toBe(true);
+  });
+
+  it("fora do servidor único o login tem e-mail próprio: não há o que avisar", async () => {
+    vi.stubEnv("SINGLE_SERVER", "");
+    vi.mocked(loadAuthUser).mockResolvedValue(OWNER as never);
+
+    const body = await corpo();
+
+    expect(body.data.smtp_configured).toBe(true);
+  });
+
+  it("quem não é dono não recebe o campo — é ele quem configura, e aviso sem ação é ansiedade", async () => {
+    vi.stubEnv("SINGLE_SERVER", "1");
+    vi.mocked(loadAuthUser).mockResolvedValue(MEMBRO as never);
+
+    const body = await corpo();
+
+    expect(body.data.smtp_configured).toBeUndefined();
   });
 });

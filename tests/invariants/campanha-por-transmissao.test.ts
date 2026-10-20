@@ -1,8 +1,8 @@
 /**
- * MIGRATION 0694 — campanha por transmissão (broadcast) do provedor.
+ * MIGRATION 0709 — campanha por transmissão (broadcast) do provedor.
  *
  * O que só o banco prova: `transmissao` entra no vocabulário fechado de
- * `velocidade`, continua presa a modelo aprovado pelo CHECK da 0687, e o id da
+ * `velocidade`, continua presa a modelo aprovado pelo CHECK da 0708, e o id da
  * transmissão é ÚNICO por organização — é por ele que o eco de cada mensagem
  * volta à campanha, e dois ecos apontando para duas campanhas misturariam os
  * relatórios.
@@ -14,7 +14,7 @@ import { GOV_ORG, GOV_SESSION, seedGov, sql } from "./gov-helpers";
 const COM_MODELO = `organization_id, name, channel_session_id, base_legal, message_mode,
   provider_template_name, provider_template_language, velocidade`;
 
-describe("0694: campanha por transmissão do provedor", () => {
+describe("0709: campanha por transmissão do provedor", () => {
   it("transmissão com modelo aprovado passa", () => {
     seedGov();
     sql(`insert into public.campaigns (${COM_MODELO})
@@ -22,7 +22,7 @@ describe("0694: campanha por transmissão do provedor", () => {
     expect(sql(`select velocidade from public.campaigns where name = 'broadcast oficial';`)).toBe("transmissao");
   });
 
-  it("transmissão com texto livre (número por QR) é recusada pelo CHECK da 0687", () => {
+  it("transmissão com texto livre (número por QR) é recusada pelo CHECK da 0708", () => {
     seedGov();
     expect(() =>
       sql(`insert into public.campaigns (organization_id, name, channel_session_id, base_legal, message_mode, velocidade)

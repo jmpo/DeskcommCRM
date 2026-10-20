@@ -200,3 +200,23 @@ describe("gatilho da cor no editor", () => {
     expect(classes).not.toContain("lg:h-8");
   });
 });
+
+describe("o aviso de junção antes do clique (#2801)", () => {
+  const AVISO =
+    "Este nome já existe no vocabulário — confirmar vai juntar as duas etiquetas numa só.";
+  const VIP: LinhaDeVocabulario = { ...OBRA, tag: "vip", cor: null };
+
+  it("mudar só a caixa da própria etiqueta NÃO avisa junção; o nome de OUTRA avisa", () => {
+    montar([OBRA, VIP]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Renomear" })[0]!);
+    const campo = screen.getByLabelText("Novo nome");
+
+    // "obra" → "OBRA" é renome: a lista de comparação não inclui a própria etiqueta.
+    fireEvent.change(campo, { target: { value: "OBRA" } });
+    expect(screen.queryByText(AVISO)).toBeNull();
+
+    // "obra" → "VIP" junta com a outra linha: o aviso aparece antes de confirmar.
+    fireEvent.change(campo, { target: { value: "VIP" } });
+    expect(screen.getByText(AVISO)).toBeTruthy();
+  });
+});

@@ -21,7 +21,8 @@ import {
   parseWahaMessageId,
   wahaEchoExternalIds,
 } from "@/lib/waha/message-id";
-import { resolveWahaChatId } from "@/lib/waha/send";
+import { consultarNomeDaAgenda } from "@/lib/contacts/nome-da-agenda";
+import { marcarConversaComoLida, resolveWahaChatId } from "@/lib/waha/send";
 import type { FetchedMedia } from "@/lib/messaging/media/types";
 import { DETALHE_CREDENCIAL_RECUSADA } from "../health";
 import type { ChannelAdapter, ChannelHealth, OutboundEnvelope, RecipientInput } from "../types";
@@ -150,6 +151,25 @@ export const wahaAdapter: ChannelAdapter = {
     const client = getWahaClient();
     if (!client) return null;
     return resolvePhoneJidDigitsForCall(client, input.sessionRef, input.phone);
+  },
+
+  /**
+   * Agenda do aparelho primeiro (`name`), apelido do perfil se a agenda não
+   * tiver. Transporte ausente é `null` — a varredura carimba sem tratar como
+   * "não existe".
+   */
+  async resolveAddressBookName(input: {
+    sessionRef: string;
+    phone: string | null;
+    lid: string | null;
+  }): Promise<{ agenda: string | null; perfil: string | null } | null> {
+    const client = getWahaClient();
+    if (!client) return null;
+    return consultarNomeDaAgenda(
+      (contactId) => client.getContact(input.sessionRef, contactId),
+      input.phone,
+      input.lid,
+    );
   },
 
   /**
@@ -308,6 +328,25 @@ export const wahaAdapter: ChannelAdapter = {
         envelope.replyToExternalId ? idCompletoDaMensagem(envelope.replyToExternalId, to) : null,
       );
     }
+
+    // O visto azul no aparelho do cliente (issue #2981): responder sem ter
+    // "lido" é o que denuncia automação. Vem DEPOIS de o transporte aceitar a
+    // mensagem, no MESMO endereço resolvido do envio — marcar outro deixaria a
+    // conversa respondida sem visto —, e o helper falha macio: a resposta já
+    // saiu, e um recibo de leitura que falha nunca custa a mensagem.
+    //
+    // `void`, e não `await`: o pedido do visto sai aqui mesmo, logo depois do
+    // aceite, mas NÃO segura o retorno. Quem chama só grava o `external_id`
+    // depois que este `send` volta, e o `message.ack` do webhook encontra a
+    // linha SÓ por esse id (`handleAck` em `lib/waha/ingest.ts`): um ack de
+    // "entregue" que chegasse durante o visto se perderia, e a mensagem ficaria
+    // em "enviada" (o efeito descrito em `session-reconciler.ts`). O helper
+    // nunca rejeita, então não há rejeição solta.
+    void marcarConversaComoLida({
+      organizationId: envelope.organizationId,
+      sessionName: envelope.sessionRef,
+      chatId: to,
+    });
 
     return { externalId: parseWahaMessageId(res) };
   },

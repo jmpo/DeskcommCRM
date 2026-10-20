@@ -176,12 +176,6 @@ const ESTEIRAS: readonly { caminho: string; motivo: string }[] = [
       "ele, e as escritas seguintes usam o id que essa leitura devolveu.",
   },
   {
-    caminho: "lib/ai/dispatcher/",
-    motivo:
-      "Claim de event_log pelo id do evento. O evento carrega a organização, e o " +
-      "handler que o consome filtra por ela.",
-  },
-  {
     caminho: "lib/lgpd/storage-redaction-queue.ts",
     motivo:
       "Fila de remoção de mídia: cada item é processado pelo id que o próprio " +

@@ -115,7 +115,7 @@ Owner/Admin. Não dá para hospedar vários clientes numa conta só.
   stack SOBE com 2 GB — mas operar é outra coisa: são 7 contêineres, e o WAHA consome
   ~150 MB por sessão de WhatsApp além de ~300 MB de overhead do Node. Com 2 GB você roda
   no limite e vai precisar de swap. Ver `docs/runbooks/waha-hostgator.md`.
-- Portas **80** e **443** abertas (`ufw allow 80,443,22/tcp`).
+- Portas **80** e **443** abertas, e a **22022** do SSH (`ufw allow 22,22022,80,443/tcp`).
 - Docker + Docker Compose v2 — o `install.sh` instala o Docker sozinho se faltar (ver acima).
 
 ### VPS que já vem com proxy próprio (Hostinger, Coolify, Dokploy…)
@@ -185,6 +185,43 @@ entrega WhatsApp ou restauração de dados: essas jornadas exigem teste real.
 > transação única não há rollback: em falha fatal do `psql`, confira o estado do banco antes
 > de repetir. (Gerar o dump com `--clean --if-exists` mudaria o formato dele — decisão do
 > mantenedor, issue #2120.)
+
+## Publicar outro serviço no mesmo VPS (issue #2724)
+
+Uma wiki, uma landing page, um n8n no mesmo servidor em que o CRM já roda: **não edite o `Caddyfile`**. Os dois arquivos (o da variante normal e o `Caddyfile.single-server`) terminam com um ponto de extensão, e os dois composes montam a mesma pasta local:
+
+```yaml
+- ./caddy-sites:/etc/caddy/sites:ro
+```
+
+O caminho do `import` e o alvo do bind mount são o mesmo — e a régua `tests/unit/ponto-de-extensao-do-caddy.test.ts` reprova qualquer um dos dois que mude sozinho, porque se divergirem o Caddy continua validando e só avisa no log (aí o arquivo existe, o subdomínio não responde e ninguém explica).
+
+Como fazer:
+
+1. Crie `caddy-sites/<nome>.caddy` na raiz do clone (um arquivo novo — **não** edite o `caddy-sites/README.caddy`, que é versionado e alterado trava a atualização):
+
+   ```
+   base.exemplo.com.br {
+   	encode gzip
+   	reverse_proxy wiki:80
+   }
+   ```
+
+2. Suba o serviço extra na rede `caddy-sites` do stack, para o nome `wiki` resolver dentro do contêiner do Caddy: `docker run --network <nome-do-projeto>_caddy-sites --memory 512m ...` (`docker network ls | grep caddy-sites` mostra o nome da rede). Essa rede existe só entre o Caddy e os serviços extras; **não** use a `_internal`, que é a dos serviços internos do CRM. O `--memory` não é decoração: sem teto o serviço novo derruba o CRM junto.
+
+3. Confira e recarregue o proxy, **sem reiniciá-lo**:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml exec caddy caddy validate --config /etc/caddy/Caddyfile
+   docker compose -f docker-compose.prod.yml exec caddy caddy reload --config /etc/caddy/Caddyfile
+   # single-server: acrescente -f docker-compose.single-server.yml
+   ```
+
+   Não use `restart caddy`: com um arquivo errado o Caddy reiniciado não sobe, e o CRM sai do ar junto. O `reload` recusa o arquivo errado, diz a linha e mantém no ar o que já estava.
+
+A pasta `caddy-sites/` está no `.gitignore` (só o `README.caddy` é versionado, para a pasta existir no clone novo e o glob do `import` nunca ficar vazio). Seus arquivos não aparecem em `git status`, não entram em `git diff` e **não atrapalham o `update.sh`** — ele troca de versão com `git checkout <tag>` e não toca nesta pasta. HTTPS automático, emissão de certificado e gzip vêm de graça, com o mesmo `ACME_EMAIL` do CRM.
+
+Na atualização, o `update.sh` confere a configuração do proxy (esta pasta inclusive) **antes** de recriá-lo. Se a conferência recusar um arquivo seu, o proxy antigo continua no ar, o CRM segue respondendo e a saída da atualização mostra o motivo, citando `caddy-sites/`.
 
 ## Automações e webhooks
 

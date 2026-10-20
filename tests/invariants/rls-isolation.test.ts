@@ -120,6 +120,7 @@ beforeAll(() => {
       v_empresa uuid;
       v_pessoa uuid;
       v_lote uuid;
+      v_regra uuid;
     begin
       foreach v_org in array array['${ORG_A}'::uuid, '${ORG_B}'::uuid] loop
         select id into v_sess from public.channel_sessions where organization_id = v_org limit 1;
@@ -177,6 +178,22 @@ beforeAll(() => {
               (select reply_context_revision from public.conversations where organization_id = v_org and id = v_conv),
               (select operation_revision from public.ai_agents where organization_id = v_org and id = v_agent),
               'pending', 'RLS invariant private reply');
+        end if;
+
+        -- 0665 (#2796): o vínculo versão↔número. O agente passa a declarar em
+        -- quais números atende; o número PRINCIPAL segue em
+        -- ai_agent_versions.channel_session_id. A linha abaixo vincula a versão
+        -- publicada acima ao número da organização, para o caso de isolamento
+        -- desta lista (o agent semeado é controle positivo legítimo: a leitura
+        -- é org-scoped sem gate de papel).
+        if not exists (select 1 from public.ai_agent_version_channels where organization_id = v_org) then
+          insert into public.ai_agent_version_channels
+            (organization_id, agent_version_id, channel_session_id)
+          select v_org, v.id, v_sess
+            from public.ai_agent_versions v
+           where v.organization_id = v_org
+           order by v.version_number desc
+           limit 1;
         end if;
 
         -- 0281: a conversa INTERNA da equipe com a IA sobre um caso. Guarda o
@@ -576,6 +593,25 @@ beforeAll(() => {
           values
             (v_org, v_sess, timestamptz '2030-01-01 03:00:00+00', timestamptz '2030-01-01 05:00:00+00');
         end if;
+
+        -- migration 0692 (#2041): o historico do rodizio da acao assign_owner.
+        -- Semeado pelo ESCRITOR de producao (a funcao), com uma regra cuja fila
+        -- e o usuario semeado (agent, elegivel). A leitura e org-scoped sem gate
+        -- de papel, entao o agent e controle positivo legitimo; a escrita nao e
+        -- concedida a authenticated (medido em rodizio-da-acao-atribuir.test.ts).
+        if not exists (select 1 from public.automation_rodizio_atribuicoes where organization_id = v_org) then
+          insert into public.automation_rules (organization_id, name, trigger_event, actions)
+          select v_org, 'RLS invariant rodizio', 'lead.created',
+                 jsonb_build_array(jsonb_build_object('type', 'assign_owner', 'config',
+                   jsonb_build_object('modo', 'rodizio', 'fila',
+                     jsonb_build_array(jsonb_build_object('user_id', uo.user_id, 'pausado', false)))))
+            from public.user_organizations uo
+           where uo.organization_id = v_org
+           limit 1
+          returning id into v_regra;
+          perform public.fn_automation_rodizio_atribuir(v_org, v_regra,
+            (select id from public.crm_leads where organization_id = v_org limit 1));
+        end if;
       end loop;
     end
     $seed$;
@@ -747,6 +783,21 @@ export const TABLES = [
   // RPC. Vazar a linha entrega ao vizinho quando o outro vai mexer nas
   // conexões dele — e a retomada programada passaria a ser do vizinho.
   "channel_schedules",
+  // migration 0665 (#2796, fatia 1) — o vínculo versão↔número: em quais números
+  // uma versão de agente atende. A LEITURA é org-scoped pela policy `select`
+  // (fn_user_org_ids) sem gate de papel, então o `agent` semeado é controle
+  // positivo legítimo; a ESCRITA é `for all` com fn_role_at_least(admin),
+  // medida em vinculo-do-agente-ao-numero.test.ts. O número PRINCIPAL segue em
+  // ai_agent_versions.channel_session_id — esta tabela só acrescenta vínculos.
+  "ai_agent_version_channels",
+  // migration 0692 (#2041) — o histórico do rodízio da ação "Atribuir a um
+  // atendente": quem recebeu cada lead e em que posição da fila. Vazar a linha
+  // entrega ao vizinho quem atende qual negócio e o ritmo de distribuição da
+  // equipe. A LEITURA é org-scoped sem gate de papel (o `agent` semeado é
+  // controle positivo legítimo); a ESCRITA não é concedida a `authenticated` —
+  // só a função `fn_automation_rodizio_atribuir`, com service_role, grava. Esse
+  // segundo eixo é medido em rodizio-da-acao-atribuir.test.ts.
+  "automation_rodizio_atribuicoes",
   // ⚠️ `cobranca_assinaturas` (migration 0583) NÃO entra nesta lista, pelo mesmo
   // motivo de `webhook_lead_captures`: a leitura é só do `admin` e o usuário
   // semeado aqui é `agent`, então o controle positivo falharia por ACERTO. A

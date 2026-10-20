@@ -515,6 +515,34 @@ export function criarAdaptadorAsaas(dep: DependenciasDoAsaas): AdaptadorDeCobran
     return { url, expiraEm: null, assinaturaRef, sessaoId: primeira.id };
   }
 
+  async function iniciarAjusteProporcional(p: Parameters<AdaptadorDeCobranca["iniciarAjusteProporcional"]>[0]) {
+    const externalReference = `upgrade:${uuidDaOrg(p.orgId)}:${p.chaveIdempotencia}`;
+    const consulta = new URLSearchParams({ customer: p.clienteRef, externalReference, limit: "10" });
+    const existentes = ler(listaDoAsaas(cobrancaDoAsaas), await chamar("GET", `/payments?${consulta}`)).data;
+    let pagamento = existentes.find((c) => c.status === "PENDING" || c.status === "OVERDUE");
+    if (!pagamento) {
+      pagamento = ler(cobrancaDoAsaas, await chamar("POST", "/payments", {
+        customer: p.clienteRef,
+        billingType: "UNDEFINED",
+        value: p.valorCents / 100,
+        dueDate: dataCivilEmSaoPaulo(agora()),
+        description: `Ajuste proporcional — ${p.plano.nome}`,
+        externalReference,
+      }));
+    }
+    const url = linkSeguro(pagamento.invoiceUrl);
+    if (url === null) throw new ErroDoProvedor(200, "resposta_invalida", false);
+    return { pagamentoRef: pagamento.id, url };
+  }
+
+  async function lerPagamentoProporcional(pagamentoRef: string): Promise<"pendente" | "pago" | "encerrado"> {
+    const pagamento = ler(cobrancaDoAsaas, await chamar("GET", `/payments/${encodeURIComponent(pagamentoRef)}`));
+    if (PAGO.has(pagamento.status)) return "pago";
+    // Cartão em análise de risco ainda pode ser aprovado: encerrá-lo esqueceria um pagamento que vai chegar.
+    if (pagamento.status === "PENDING" || pagamento.status === "OVERDUE" || pagamento.status === "AWAITING_RISK_ANALYSIS") return "pendente";
+    return "encerrado";
+  }
+
   /**
    * `DELETE /v3/payments/{id}` (#2609): a cobrança pendente some e o link dela
    * (`invoiceUrl`) para de aceitar pagamento — é o que deixa a troca de plano
@@ -566,6 +594,7 @@ export function criarAdaptadorAsaas(dep: DependenciasDoAsaas): AdaptadorDeCobran
     const daPrincipal = principal ? await cobrancasDaAssinatura(principal.id) : [];
     const hoje = dataCivilEmSaoPaulo(agora());
     const existe = daPrincipal.some((c) => PAGO.has(c.status));
+    const ultimaPagaDaPrincipal = daPrincipal.filter((c) => PAGO.has(c.status)).sort((a, b) => b.dueDate.localeCompare(a.dueDate))[0];
     const corrente = daPrincipal.filter((c) => c.dueDate <= hoje).at(-1);
     const devidas = daPrincipal.filter((c) => c.status === "OVERDUE");
     if (corrente !== undefined && ESTORNADO.has(corrente.status)) devidas.push(corrente);
@@ -587,6 +616,9 @@ export function criarAdaptadorAsaas(dep: DependenciasDoAsaas): AdaptadorDeCobran
       emAtraso,
       vencidaDesde: maisAntiga === undefined ? null : fimDoDiaEmSaoPaulo(maisAntiga),
       proximoVencimento: fins.length > 0 ? new Date(Math.max(...fins)) : null,
+      periodoPagoDesde: ultimaPagaDaPrincipal
+        ? new Date(fimDoDiaEmSaoPaulo(ultimaPagaDaPrincipal.dueDate).getTime() - 24 * 60 * 60 * 1000 + 1000)
+        : null,
       jaPagou: pagas.length > 0,
       emTesteNoProvedorAte: null,
       pagamentoSemAssinaturaViva: false,
@@ -602,7 +634,7 @@ export function criarAdaptadorAsaas(dep: DependenciasDoAsaas): AdaptadorDeCobran
   }
 
   /**
-   * Chamado no AGENDAMENTO (§7e). Guarda: cobrança OVERDUE, ou PENDING que vence
+   * Chamado após pagamento proporcional ou agendamento de downgrade (§7e). Guarda: cobrança OVERDUE, ou PENDING que vence
    * até hoje em São Paulo, é o período em uso ainda não pago — mudar o valor
    * agora mexeria no boleto que o cliente já tem. Nunca comparar com
    * `nextDueDate`: é a próxima cobrança AINDA NÃO gerada, toda cobrança
@@ -646,6 +678,8 @@ export function criarAdaptadorAsaas(dep: DependenciasDoAsaas): AdaptadorDeCobran
     removerWebhooks,
     garantirCliente,
     iniciarAssinatura,
+    iniciarAjusteProporcional,
+    lerPagamentoProporcional,
     expirarSessao,
     lerSituacao,
     trocarPlano,

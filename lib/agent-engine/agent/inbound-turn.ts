@@ -106,6 +106,7 @@ import {
 import { buildOpeningMessage, ritualBlocks } from "./abertura/ritual";
 import { applySaveLeadNote, buildNotesIndexBlock, getLeadNoteBody } from './lead-notes';
 import { buildCompromissosBlock } from './compromissos-do-contato';
+import { buildOrigemBlock } from './abertura/origem-do-contato';
 import { agendaNoFechamento } from './abertura/agenda-no-fechamento';
 import { applyScheduleFollowup, type FollowupWindowKnobs } from './schedule-followup';
 import { podeExporScheduleFollowup } from '@/lib/followup/callback-policy';
@@ -212,9 +213,12 @@ import {
 } from '@/lib/escalacao/briefing-da-passagem';
 import { diffCheckpoint } from '@/lib/leads/checkpoint-diff';
 import { CORRECAO_DO_TURNO_MUDO, turnoMudoPedeCorrecao } from './turno-mudo';
+import { criarTravaDeDuplicata } from './near-dup';
+import { vetoReason } from '@/lib/leads/veto-activity';
+import { corposEnviadosDesdeUltimaInbound } from './memoria-envio';
 import { emitAgentActivityForContact } from '@/lib/leads/agent-activity';
 import { resolveActiveLeadForContact, type LeadCandidate } from '@/lib/leads/active-lead';
-import { aplicaDestinoDaIntencao } from './destino-da-intencao';
+import { aplicaDestinoDaIntencao, funisDeProdutoDoRoteador } from './destino-da-intencao';
 import { recalculaScoreDoLead } from '@/lib/leads/score-writer';
 import {
   JAILBREAK_ESCALATION_LEVEL,
@@ -449,6 +453,15 @@ export const AGENT_TOOL_DEFS = {
     // é por isso que eles trazem exemplo em vez de definição.
     inputSchema: z
       .object({
+        motivo_codigo: z
+          .string()
+          .optional()
+          .describe(
+            'código do motivo: requested_human quando o cliente pede uma pessoa; critical_stage ' +
+              'quando uma etapa exige finalização humana (ex.: concluir um agendamento já coletado). ' +
+              'Não use critical_stage só porque o cliente mencionou agendamento. ' +
+              'Sem este campo, mantém requested_human. Não altera as condições para encaminhar.',
+          ),
         por_que: z
           .string()
           .optional()
@@ -1508,6 +1521,8 @@ export interface AgentTurnInput {
      * o compilador.
      */
     compromissosBlock?: string;
+    /** O anúncio que o contato clicou (vazio = não veio de anúncio). */
+    origemBlock?: string;
     /** Texto exato da mensagem que acordou este turno inbound. */
     currentInboundText?: string;
     /**
@@ -2311,6 +2326,12 @@ async function executarTurnoDoAgente(
         contactId: leadId,
         destinoPipelineId,
         destinoStageId,
+        // Os funis de produto do roteador: quem tem card num deles e fala de outro
+        // ganha um card a mais, não troca de funil (consórcio ↔ investimentos).
+        funisDeProduto:
+          routed.routerId === null
+            ? []
+            : await funisDeProdutoDoRoteador(deps.crmCfg.supabase, tenantId, routed.routerId),
         handlerCtx: {
           organization_id: tenantId,
           actor: {
@@ -2741,11 +2762,12 @@ async function executarTurnoDoAgente(
   // de `get-lead-context.ts:193` diz o mesmo). Passar essa variável para um
   // parâmetro chamado `contactId` é correto pelo VALOR; o nome é que mente, e é
   // o que a issue #509 conserta. Não troque por um `lead_id` "mais coerente".
-  const [notesIndexBlock, compromissosBlock, noteIdRows] = await Promise.all([
+  const [notesIndexBlock, compromissosBlock, origemBlock, noteIdRows] = await Promise.all([
     preview
       ? (preview.notes ?? []).map((n) => n.headline + ': ' + n.body).join('\n')
       : buildNotesIndexBlock(pool, tenantId, leadId, deps.knobs.notesIndexMaxTokens),
     preview?.kind === 'sandbox' ? '' : buildCompromissosBlock(pool, tenantId, leadId, new Date()),
+    preview ? '' : buildOrigemBlock(pool, tenantId, leadId, new Date()),
     preview
       ? null
       : pool
@@ -2782,6 +2804,16 @@ async function executarTurnoDoAgente(
   // O que o modelo de fato mandou neste turno (depois da cadeia). A trava "a
   // pergunta saiu?" do roteiro de atendimento lê daqui.
   const corposEnviados: string[] = [];
+  // DUPLICATA PRÓXIMA NO MESMO TURNO: a trava `near-dup.ts` guarda DUAS memórias.
+  // `aceitos` = corpos de `send_message` que PASSARAM pela cadeia e foram aceitos
+  // neste turno (o corpo PRÉ-cadeia, para comparar candidato contra candidato) —
+  // a memória que a régua consulta para suprimir repetição (o defeito medido
+  // em produção: 4 respostas a 1 pergunta, 3 vindas da correção do turno mudo).
+  // Só conteúdos ACEITOS entram: um veto não é resposta. `emVoo` = candidatas cuja
+  // cadeia ainda roda: fecha a corrida de tool calls paralelas do MESMO passo (o
+  // SDK as executa juntas) — sem a reserva, todas passariam pela checagem antes de
+  // qualquer envio registrar (#2996, item 6).
+  const dupTrava = criarTravaDeDuplicata();
   // #1943: o turno foi DESCARTADO como obsoleto (guard `resposta_obsoleta`, #1940)
   // ainda no run — o cliente escreveu de novo enquanto o modelo pensava. Quando
   // ligada, NADA mais sai dele, nem a pergunta pendente do roteiro (que segue
@@ -2870,6 +2902,14 @@ async function executarTurnoDoAgente(
       contactId: leadId || null,
       agentId: agentConfig?.agentId ?? null,
       lerEvidencias: () => evidenciasComerciais.ler(),
+      // #2923 — o RUN que mediu: o job no turno automático, o RASCUNHO na prévia
+      // (é o que o `runId` da prévia já carrega). É o ponteiro que a resposta
+      // aprovada usa para fechar a linha que a prévia deixou em aberto.
+      runId: job?.id ?? preview?.runId ?? null,
+      // Na prévia o rascunho AINDA NÃO saiu: a linha nasce "sem par" de propósito
+      // (o cartão só conta o que chegou ao cliente), e quem a fecha é a resposta
+      // aprovada. No turno automático o par nasce fechado, como sempre.
+      rotuloAtual: preview ? null : 'enviado',
     },
     deps.jev ?? {},
   );
@@ -3282,6 +3322,74 @@ async function executarTurnoDoAgente(
             },
           };
         }
+        // DUPLICATA PRÓXIMA NO MESMO TURNO (near-dup): o corpo é quase idêntico a algo
+        // que JÁ foi aceito e enviado NESTE turno, ou que está EM VOO agora (tool calls
+        // paralelas do mesmo passo — a reserva vira logo abaixo, antes do primeiro
+        // await; a candidata checada ainda não foi reservada, então nunca se suprime
+        // a si mesma). O contrato é UMA resposta adequada e completa — repetição
+        // imediata é redundância, não informação nova (mudança de valor/negação é
+        // exceção na régua: preço, hora ou "não" trocado passam, ver near-dup.ts).
+        // Suprime sem tocar no canal nem no ledger (nada é marcado como entregue),
+        // devolvendo ao modelo um erro de ENSINO (mesma forma de corpo_vazio/
+        // resposta_obsoleta). Cobre o caminho de recuperação do turno mudo: a
+        // correção re-entra por aqui, na janela em memória. Bolhas de UM
+        // send_message não se comparam entre si (só candidato contra candidato),
+        // então fatiamento legítimo não se autossuprime.
+        const corpoRepetido = dupTrava.checar(body);
+        if (corpoRepetido !== null) {
+          runLog.info('duplicate_suppressed — candidato quase idêntico ao já aceito no turno', {
+            job_id: job?.id ?? null,
+            prior_len: corpoRepetido.length,
+            candidato_len: body.length,
+          });
+          // RASTRO PARA O OPERADOR (#2996, item 7): suprimir sem registrar é
+          // silêncio invisível na timeline — quem opera precisa ver que o agente
+          // DECIDIU não falar e por quê. Mesmo vocabulário do veto de guardrail
+          // (`send_vetoed`), motivo legível pela `vetoReason` (sem código cru na
+          // tela), metadados SÓ ids e tamanhos — nunca o conteúdo da mensagem
+          // (PII: a linha aparece na tela e no export LGPD). Sem lastro (a
+          // supressão acontece ANTES da cadeia, não existe trace) a linha entra
+          // como 'system' com `actor_agent_id` — regra da própria 0071. Try/catch:
+          // a timeline não pode derrubar a recusa que ela descreve.
+          try {
+            const roteou = await emitAgentActivityForContact({
+              pool,
+              organizationId: tenantId,
+              contactId: leadId,
+              type: 'send_vetoed',
+              sourceModule: 'near-dup',
+              sourceId: job?.id ?? null,
+              ...(agentConfig?.agentId ? { agentId: agentConfig.agentId } : {}),
+              reason: vetoReason('near_dup', 'duplicate_suppressed'),
+              payload: {
+                gate: 'near_dup',
+                code: 'duplicate_suppressed',
+                conversation_id: input.conversationId,
+                prior_len: corpoRepetido.length,
+                candidato_len: body.length,
+              },
+            });
+            if (!roteou.routed) {
+              runLog.warn('supressão near-dup não roteada na timeline do negócio', {
+                reason: roteou.reason,
+              });
+            }
+          } catch (err) {
+            runLog.warn('atividade da supressão near-dup não gravada', {
+              error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
+            });
+          }
+          return {
+            ok: false,
+            error: {
+              code: 'duplicate_suppressed',
+              message:
+                'Você já enviou uma mensagem muito parecida a esta nesta conversa, depois da última fala do cliente — ela NÃO foi reenviada. ' +
+                'Não repita a mesma informação. Se há algo genuinamente novo a acrescentar, envie SÓ a parte nova; ' +
+                'senão encerre o turno agora.',
+            },
+          };
+        }
         if (claimsCurrentInboundIsEmpty(body, mensagemDoJob)) {
           falseEmptyInboundVetoCount += 1;
           if (falseEmptyInboundVetoCount < MAX_VETOS_DE_FALSO_VAZIO) {
@@ -3315,67 +3423,106 @@ async function executarTurnoDoAgente(
             },
           };
         }
-        // RESPOSTA OBSOLETA: o cliente escreveu de novo enquanto este turno pensava.
-        // Só antes do PRIMEIRO envio — cortar a meio uma resposta já começada é pior
-        // que a duplicata. A mensagem nova tem job próprio, que lê a conversa inteira
-        // e responde a tudo de uma vez. Ver `respostaFicouObsoleta`.
-        if (
-          !preview &&
-          seq === 0 &&
-          (await respostaFicouObsoleta(
-            pool,
-            { organizationId: tenantId, conversationId: input.conversationId, jobId: liveJob().id },
-            deps.knobs.respostaObsoletaTetoMs ?? 0,
-          ))
-        ) {
-          runLog.info('resposta descartada — o cliente escreveu de novo durante o turno', {
-            job_id: liveJob().id,
-            conversation_id: input.conversationId,
-          });
-          // #1943: marca o turno como descartado. NADA mais sai dele, nem a
-          // pergunta pendente do roteiro — ela segue feita para o turno da
-          // mensagem nova. Ver `perguntaDoRoteiroPodeSair` no `enviar`.
-          turnoDescartado = true;
-          return {
-            ok: false,
-            error: {
-              code: 'resposta_obsoleta',
-              message:
-                'O cliente mandou mensagem nova enquanto você escrevia; esta resposta ficou desatualizada e NÃO foi enviada. ' +
-                'NÃO chame send_message de novo neste turno — encerre agora. O próximo turno lê a conversa inteira e responde a tudo de uma vez.',
-            },
-          };
-        }
-        // A foto do produto (ideia de @vgamkt, #1130): preparada ANTES da cadeia e
-        // fora do lock do número — a cópia no Storage é rede. Código errado volta
-        // ao modelo sem enviar nada; foto que não copiou sai do envio e o texto
-        // segue (degradar para só texto). Ver `agent/fotos-do-produto.ts`.
+        // RESERVA EM VOO (#2996, item 6): do gate até aqui o CAMINHO DE PASSAGEM
+        // é tudo síncrono (nenhuma operação assíncrona entre `checar` e
+        // `reservar`; o único ponto que cede o event loop mora no ramo de
+        // supressão, que termina em return), então check-then-reserve é atômico
+        // no event loop — a próxima chamada paralela do passo só roda depois
+        // desta tick e vê a reserva. Daqui até o `finally` da cadeia esta
+        // candidata vale como "em envio": três send_message quase idênticos num
+        // mesmo passo não passam todos pela checagem. Veto/falha/exceção removem
+        // a reserva (os `liberar` explícitos + o `finally`); envio aceito
+        // PROMOVE para a memória durável (exatamente uma vez, em `promover`).
+        // JANELA PRÉ-CADEIA COM DONO (revisão do #2996, item 6): as duas
+        // consultas de antes da cadeia — a de resposta obsoleta e a de preparo
+        // de fotos — não têm catch próprio; uma exceção delas escaparia por
+        // CIMA do `finally` da cadeia e deixaria a reserva órfã em `emVoo`,
+        // suprimindo depois a re-tentativa legítima da candidata que nunca saiu
+        // (no provedor com chave de reserva da assinatura, o turno até re-entra
+        // no modelo e esbarra nela). Este bloco envolve a reserva e as duas
+        // consultas: em exceção ele SOLTA a reserva e RE-LANÇA o erro original
+        // intacto — sem traduzir para `internal_error`, sem mudar classificação
+        // nem desfecho do turno; só o vazamento deixa de existir. Os `liberar`
+        // dos returns estruturados seguem valendo (return não passa por catch).
+        // `let` das fotos declarado antes do bloco porque o escopo precisa
+        // alcançar a cadeia; envolver a reserva não altera o caminho do gate —
+        // ele segue inteiramente síncrono do `checar` até a reserva.
         let fotosDoProduto: FotoParaEnvio[] = [];
         let fotosQueFaltaram = 0;
         // O código que resolveu um produto ATIVO do catálogo — só com ele a
         // mensagem, se sair, etiqueta o negócio (ver o bloco depois do envio).
         let produtoApresentado: string | null = null;
-        if (produto_codigo !== undefined && produto_codigo.trim() !== '' && !preview) {
-          const preparadas = await prepararFotosDoProduto(pool, copiarFotoNoStorage(runLog), {
-            tenantId,
-            conversationId: input.conversationId,
-            codigo: produto_codigo,
-          });
-          if (!preparadas.ok) {
-            return { ok: false, error: { code: preparadas.code, message: preparadas.message } };
+        try {
+          dupTrava.reservar(body);
+          // RESPOSTA OBSOLETA: o cliente escreveu de novo enquanto este turno pensava.
+          // Só antes do PRIMEIRO envio — cortar a meio uma resposta já começada é pior
+          // que a duplicata. A mensagem nova tem job próprio, que lê a conversa inteira
+          // e responde a tudo de uma vez. Ver `respostaFicouObsoleta`.
+          if (
+            !preview &&
+            seq === 0 &&
+            (await respostaFicouObsoleta(
+              pool,
+              { organizationId: tenantId, conversationId: input.conversationId, jobId: liveJob().id },
+              deps.knobs.respostaObsoletaTetoMs ?? 0,
+            ))
+          ) {
+            runLog.info('resposta descartada — o cliente escreveu de novo durante o turno', {
+              job_id: liveJob().id,
+              conversation_id: input.conversationId,
+            });
+            // #1943: marca o turno como descartado. NADA mais sai dele, nem a
+            // pergunta pendente do roteiro — ela segue feita para o turno da
+            // mensagem nova. Ver `perguntaDoRoteiroPodeSair` no `enviar`.
+            turnoDescartado = true;
+            // Nada saiu: a reserva em voo não pode virar memória (nem sobreviver
+            // ao turno como entrada órfã). #2996, item 6.
+            dupTrava.liberar(body);
+            return {
+              ok: false,
+              error: {
+                code: 'resposta_obsoleta',
+                message:
+                  'O cliente mandou mensagem nova enquanto você escrevia; esta resposta ficou desatualizada e NÃO foi enviada. ' +
+                  'NÃO chame send_message de novo neste turno — encerre agora. O próximo turno lê a conversa inteira e responde a tudo de uma vez.',
+              },
+            };
           }
-          fotosDoProduto = preparadas.fotos;
-          fotosQueFaltaram = preparadas.tinha - preparadas.fotos.length;
-          produtoApresentado = produto_codigo.trim();
-        }
-        // F4-04: sinaliza (independente do gate F4-01/F4-08) se ESTA candidata é uma
-        // promessa fora de tabela — usado só para correlacionar com o jailbreak no fim do
-        // turno. A detecção é determinística (decidePromise); sem tabela do tenant = no-op.
-        if (
-          promiseTable !== null &&
-          !decidePromise({ candidate: body, table: promiseTable }).allow
-        ) {
-          outOfTablePromiseAttempted = true;
+          // A foto do produto (ideia de @vgamkt, #1130): preparada ANTES da cadeia e
+          // fora do lock do número — a cópia no Storage é rede. Código errado volta
+          // ao modelo sem enviar nada; foto que não copiou sai do envio e o texto
+          // segue (degradar para só texto). Ver `agent/fotos-do-produto.ts`.
+          if (produto_codigo !== undefined && produto_codigo.trim() !== '' && !preview) {
+            const preparadas = await prepararFotosDoProduto(pool, copiarFotoNoStorage(runLog), {
+              tenantId,
+              conversationId: input.conversationId,
+              codigo: produto_codigo,
+            });
+            if (!preparadas.ok) {
+              // Nada saiu: libera a reserva antes de devolver o erro ao modelo.
+              dupTrava.liberar(body);
+              return { ok: false, error: { code: preparadas.code, message: preparadas.message } };
+            }
+            fotosDoProduto = preparadas.fotos;
+            fotosQueFaltaram = preparadas.tinha - preparadas.fotos.length;
+            produtoApresentado = produto_codigo.trim();
+          }
+          // F4-04: sinaliza (independente do gate F4-01/F4-08) se ESTA candidata é uma
+          // promessa fora de tabela — usado só para correlacionar com o jailbreak no fim do
+          // turno. A detecção é determinística (decidePromise); sem tabela do tenant = no-op.
+          if (
+            promiseTable !== null &&
+            !decidePromise({ candidate: body, table: promiseTable }).allow
+          ) {
+            outOfTablePromiseAttempted = true;
+          }
+        } catch (err) {
+          // EXCEÇÃO PRÉ-CADEIA (revisão do #2996, item 6): nada saiu — a reserva
+          // órfã sai junto e o erro sobe idêntico ao de antes (nenhum code novo,
+          // nenhum return inventado). `liberar` é idempotente: se um caminho já
+          // tiver liberado, aqui é no-op.
+          dupTrava.liberar(body);
+          throw err;
         }
         // Cadeia de guardrails (F2-13): stop/opt-out → anti-ban → spinning rodam
         // AQUI, entre a decisão do modelo e o adapter. Se um gate veta, o
@@ -3715,6 +3862,14 @@ async function executarTurnoDoAgente(
           }
           const outcome = chain.outcome;
           outcomes.push(outcome);
+          // MEMÓRIA DE DUPLICATA: só o que saiu de fato vira referência para a régua.
+          // sent/already_sent/queued = o corpo (ou quase) chegou/chegará ao cliente;
+          // blocked/failed/unavailable não é resposta — não deve suprimir a próxima.
+          // `promover` = transição exatamente uma vez: sai de `emVoo` e entra em
+          // `aceitos` (o `finally` depois disso é no-op nesta candidata).
+          if (outcome.kind === 'sent' || outcome.kind === 'already_sent' || outcome.kind === 'queued') {
+            dupTrava.promover(body);
+          }
           if (outcome.kind === 'sent' && pendingCitations.length > 0) {
             try {
               await pool.query(
@@ -3813,6 +3968,14 @@ async function executarTurnoDoAgente(
               message: 'erro interno no envio — encerre o turno agora.',
             },
           };
+        } finally {
+          // LIBERAÇÃO (#2996, item 6): toda tentativa que reservou termina aqui.
+          // Sucesso já promoveu (saiu de `emVoo` dentro de `promover` — este
+          // `liberar` é no-op); veto, blocked/failed/unavailable, exception e
+          // timeout saem de `emVoo` sem virar memória. Nenhuma reserva sobrevive
+          // à tentativa, então nada fica preso "em voo" suprimindo re-tentativas
+          // legítimas.
+          dupTrava.liberar(body);
         }
       },
     }),
@@ -4281,6 +4444,7 @@ async function executarTurnoDoAgente(
             organizationId: tenantId,
             jobId: preview?.runId ?? liveJob().id,
             contactId: leadId || null,
+            conversationId: input.conversationId,
           },
           configDoTurno,
           runLog,
@@ -4413,6 +4577,12 @@ async function executarTurnoDoAgente(
                 conversationId: PASTA_DE_TESTE_DE_MIDIA,
                 codigo,
               }),
+            // #2923 — a conferência de fato do turno entra na prévia: o mesmo
+            // conferidor criado acima, com as evidências que as ferramentas
+            // consultaram NESTE turno. É ele que grava a observação e que faz um
+            // `contradiz`/`nao_esta_na_base` aparecer para quem revisa o rascunho
+            // (impedimento no assistido, aviso no Teste) em vez de sair calado.
+            conferirAfirmacoes,
           )
         : rawTools;
     const tools = wrapToolsWithBreaker(previewTools, {
@@ -4578,6 +4748,7 @@ async function executarTurnoDoAgente(
       projeta: projetaContexto,
       entregues,
       compromissosBlock,
+      origemBlock,
       ...(currentInboundText !== null ? { currentInboundText } : {}),
     });
     // Sufixos por-lead (situacionais, voláteis — depois do prefixo cacheável F2-17): corpos de
@@ -4661,6 +4832,34 @@ async function executarTurnoDoAgente(
         ? openingTextOnly
         : [{ role: 'user', content: [{ type: 'text', text: openingText }, ...nativeParts] }];
 
+    // MEMÓRIA DE DUPLICATA CRUZADA (near-dup): semeia a régua com o que JÁ saiu
+    // para esta conversa desde a última inbound do cliente. Num turno fresco que
+    // responde mensagem NOVA a janela está vazia (nada saiu depois dela), então
+    // nada legítimo é suprimido; num follow-up de promessa que re-responde uma
+    // conversa CALADA a janela está cheia e a re-resposta quase idêntica é
+    // suprimida — a redundância de follow-up medida em produção. Não-fatal: banco
+    // indisponível → degrada para a memória só-do-turno (dedup parcial melhor que
+    // turno derrubado).
+    //
+    // `!preview &&` idem à guarda irmã (linha ~2052): em preview `job` é null e
+    // `liveJob()` LANÇA `preview_operational_job_forbidden` — o seeding derrubava
+    // o `runAgentPreview` inteiro (#2996, item 1).
+    if (!preview && turnoVaiFalarComOLead(liveJob())) {
+      try {
+        const jaDito = await corposEnviadosDesdeUltimaInbound(pool, {
+          organizationId: tenantId,
+          conversationId: input.conversationId,
+        });
+        if (jaDito.length > 0) {
+          dupTrava.semear(jaDito);
+        }
+      } catch (err) {
+        runLog.warn('memória de duplicata não carregada — dedup cai só para o turno', {
+          error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
+        });
+      }
+    }
+
     // O "digitando…" ENQUANTO o modelo pensa já está aceso e sendo renovado desde
     // o início do `try` (`manterDigitando`). A pausa humana antes da 1ª bolha
     // (`esperaForaDoLock`) desconta este tempo e quase sempre zera — e com espera
@@ -4712,6 +4911,26 @@ async function executarTurnoDoAgente(
       { registry: deps.registry, log: runLog },
     );
 
+    // SAÍDA TRUNCADA (finish_reason = 'length'): o modelo bateu no
+    // teto de tokens de saída e o que produziu veio cortado. A detecção mora aqui,
+    // no ponto que consome o resultado, porque o seam devolve o resultado INTEIRO
+    // (ramo generateText e ramo de assinatura streamText — este último monta o
+    // objeto à mão e só não cega se repassar o finishReason, ver run-model-call).
+    //
+    // NUNCA se manda parcial: texto fora de `send_message` não sai, e argumento de
+    // tool cortado falha no schema (zod) e nem executa. Logo, truncamento só é
+    // DANO quando nada despachou — aí vira correção limitada (UM retry, o mesmo
+    // caminho do turno mudo) e, se a correção também falhar, FALHA TERMINAL
+    // VISÍVEL. Nunca retry infinito, nunca silêncio mascarado como decisão.
+    const saidaTruncada = turn.result.finishReason === 'length';
+    if (saidaTruncada) {
+      runLog.warn('output_truncated — resposta do modelo cortada no teto de tokens', {
+        job_id: job?.id ?? null,
+        enviadas_ate_aqui: outcomes.length,
+        finish_reason: turn.result.finishReason,
+      });
+    }
+
     // F4-04: correlação dos dois sinais do MESMO turno — jailbreak ALTO + tentativa de
     // promessa fora de tabela (F4-01). Ambos estão determinados aqui (o jailbreak rodou na
     // abertura; as tentativas de envio já passaram pelo loop). Dispara escalação humana em
@@ -4748,7 +4967,16 @@ async function executarTurnoDoAgente(
     // conversa e as mesmas ferramentas: o envio passa pela cadeia inteira, como
     // qualquer outro. O fechamento lê a fita das DUAS chamadas.
     let mensagensDoTurno: ModelMessage[] = turn.result.responseMessages;
-    if (
+    // Foi PEDIDA (e logo abaixo EXECUTADA) a correção limitada do turno mudo? O
+    // valor é consumido DEPOIS dela, no desfecho terminal, junto com
+    // `correcaoTruncou` (o sinal de FALHA da própria correção): correção que
+    // terminou truncada (length) é defeito, mas silêncio DELIBERADO — que o
+    // CORRECAO_DO_TURNO_MUDO autoriza o modelo a escolher — nunca abre caso.
+    // Erro da chamada de correção propaga e o job falha na fila (retry /
+    // dead-letter visível). As condições são as do próprio pedido
+    // (turno-mudo.ts): razões legítimas de silêncio nem chegam a corrigir.
+    let correcaoTruncou = false;
+    const correcaoDoTurnoMudoPedida =
       !preview &&
       liveJob().kind === 'inbound_turn' &&
       turnoMudoPedeCorrecao({
@@ -4757,8 +4985,8 @@ async function executarTurnoDoAgente(
         turnoDescartado,
         passouParaAEquipe,
         capDeEnvio: capDeEnvioAtingido(),
-      })
-    ) {
+      });
+    if (correcaoDoTurnoMudoPedida) {
       runLog.warn('turno terminou sem mensagem ao cliente — pedindo UMA correção', {
         job_id: liveJob().id,
       });
@@ -4788,12 +5016,104 @@ async function executarTurnoDoAgente(
         },
         { registry: deps.registry, log: runLog },
       );
+      // Sinal de FALHA da correção: terminou no teto de tokens. Silêncio com
+      // finishReason normal (stop/tool-calls) é resposta escolhida, não defeito.
+      correcaoTruncou = correcao.result.finishReason === 'length';
       mensagensDoTurno = [...mensagensDoTurno, pedidoDeCorrecao, ...correcao.result.responseMessages];
       if (runError !== null) throw runError;
       if (outcomes.some((o) => o.kind === 'failed')) {
         throw new Error('envio marcado como failed pelo CRM — run re-tentado pela fila');
       }
       runLog.info('correção do turno mudo concluída', { messages_sent: outcomes.length });
+    }
+
+    // FALHA TERMINAL VISÍVEL — só com sinal de FALHA, nunca por silêncio
+    // deliberado (#2938): o CORRECAO_DO_TURNO_MUDO autoriza o modelo a responder
+    // "nada a dizer", então silêncio que persiste com a correção NÃO é defeito.
+    // Duas causas, um único bloco (um caso humano por turno, nunca duplicado):
+    //  - saída TRUNCADA (finish_reason=length): o modelo cortou no teto de tokens;
+    //  - a correção limitada do turno mudo (UMA, `correcaoDoTurnoMudoPedida`
+    //    acima) TAMBÉM terminou truncada (`correcaoTruncou`) — sinal de falha.
+    // As condições isentam toda razão LEGÍTIMA de silêncio — turno descartado
+    // (obsoleto), passagem para a equipe (handoff do cliente), teto de pacing, e
+    // `tentativasDeEnvio === 0` (o modelo nunca chegou a chamar `send_message`;
+    // se chamou e levou veto, o veto é a razão e já ensinou o modelo). Os flags
+    // são re-avaliados DEPOIS da correção: se nela nasceu handoff/teto/descarte,
+    // aquilo é a razão e não há caso. O caso humano abre só com `casesEnabled`
+    // ligado (mesma régua dos fail-safes clínico e de promessa; `openCase`
+    // deduplica caso aberto) — a falha em si continua visível pelo log de erro.
+    // O bloco não despacha nada (só registra e abre caso) — logo nunca duplica
+    // mensagem; `caso.ok` gateia o move do funil — logo nunca duplica caso
+    // humano. O retry continua limitado à UMA correção.
+    const silencioSemRazaoLegitima =
+      !preview &&
+      // Só turno que RESPONDE ao cliente: retomada (followup) cortada não é "cliente sem resposta".
+      eTurnoDeResposta(liveJob()) &&
+      outcomes.length === 0 &&
+      seq === 0 &&
+      tentativasDeEnvio === 0 &&
+      !turnoDescartado &&
+      !passouParaAEquipe &&
+      !capDeEnvioAtingido();
+    if (silencioSemRazaoLegitima && (saidaTruncada || correcaoTruncou)) {
+      const desfechoTerminal = saidaTruncada
+        ? 'output_truncated_recovered_failed'
+        : 'correction_truncated_failed';
+      runLog.error(`${desfechoTerminal} — sem nenhuma mensagem entregue`, {
+        job_id: job?.id ?? null,
+        kind: liveJob().kind,
+        finish_reason: turn.result.finishReason,
+        correcao_limitada_rodou: correcaoDoTurnoMudoPedida,
+        correcao_truncou: correcaoTruncou,
+      });
+      // Cases vêm desligados por padrão (`ai_agent_versions.cases_enabled`) — a
+      // mesma régua dos fail-safes clínico e de promessa de caso. Com a feature
+      // desligada a falha segue visível pelo log de erro acima; o caso para o
+      // time (e o move do funil) só acontece com ela ligada e sem caso aberto.
+      const haCasoAberto =
+        agentConfig?.casesEnabled === true
+          ? await hasOpenCaseForContact(pool, tenantId, input.conversationId)
+          : false;
+      if (agentConfig?.casesEnabled === true && !openedCaseThisTurn && !haCasoAberto) {
+        try {
+          const caso = await openCase(
+            pool,
+            { tenantId, conversationId: input.conversationId, agentId: agentConfig?.agentId ?? null },
+            {
+              title: saidaTruncada
+                ? 'Resposta do agente truncada — nenhuma mensagem saiu'
+                : 'A correção automática da IA também falhou — nenhuma mensagem saiu',
+              summary:
+                'O cliente ficou sem resposta neste turno: a IA não entregou mensagem nenhuma e a ' +
+                'correção automática não recuperou. Atendente precisa retomar a conversa e responder o cliente.',
+              blocker: saidaTruncada
+                ? 'A resposta da IA veio cortada no limite de tamanho, e mensagem cortada não é enviada ao cliente.'
+                : 'O turno terminou sem mensagem para o cliente e a correção automática da IA também veio ' +
+                  'cortada no limite de tamanho.',
+              kind: 'problema',
+              source: 'guardrail_autofallback',
+              contextSnapshot: buildCaseContextSnapshot(),
+            },
+          );
+          if (caso.ok) {
+            openedCaseThisTurn = true;
+            moverParaHandoffBestEffort(desfechoTerminal);
+          } else {
+            // Caso não abriu (já existe um aberto) — a falha fica visível pelo log
+            // de erro acima; nada de retry extra aqui.
+            runLog.error(`${desfechoTerminal} — caso humano não abriu (já existe)`, {
+              job_id: job?.id ?? null,
+              code: caso.error.code,
+            });
+          }
+        } catch (err) {
+          // Best-effort: erro do banco não pode mascarar a causa original.
+          runLog.error(`${desfechoTerminal} — openCase lançou`, {
+            job_id: job?.id ?? null,
+            error: (err instanceof Error ? err.message : String(err)).slice(0, 160),
+          });
+        }
+      }
     }
 
     // ROTEIRO: a pergunta pendente é compromisso. Se o modelo não a fez, o motor
@@ -5486,6 +5806,7 @@ export function createInboundTurnHandler(deps: InboundTurnDeps) {
         projeta,
         entregues,
         compromissosBlock,
+        origemBlock,
         currentInboundText,
       }) =>
         buildOpeningMessage(
@@ -5497,6 +5818,7 @@ export function createInboundTurnHandler(deps: InboundTurnDeps) {
           entregues,
           compromissosBlock,
           currentInboundText,
+          origemBlock,
         ),
     });
   };

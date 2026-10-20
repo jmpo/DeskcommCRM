@@ -733,6 +733,15 @@ fi
 # external, but could not be found" — e este script roda sozinho pelo agent.sh,
 # então ninguém está lendo a tela para decifrar isso. Mesma função do install.sh.
 garantir_rede_do_proxy
+# Antes de qualquer `up -d`: a configuração NOVA do Caddy (Caddyfile desta
+# versão + caddy-sites/ do operador + imagem já puxada) passa pela conferência.
+# Recusada, nem o `up -d` do parque nem a recriação lá embaixo tocam no proxy
+# que está no ar (#2724; ver conferir_config_do_proxy em _common.sh).
+PROXY_RECUSA=""
+case "${REVERSE_PROXY:-caddy}" in
+traefik|npm|cloudflared) ;;
+*) conferir_config_do_proxy || true ;;
+esac
 # O `up -d` falha por imagem ausente no disco e, com ele, a atualização inteira:
 # numa VPS de arquitetura diferente da das imagens publicadas o `pull` acima não
 # traz nada. Worker, scheduler e voz têm `build:` ao lado do `image:` e o
@@ -763,7 +772,7 @@ garantir_rede_do_proxy
 # de ERRO, onde este ponto aqui nunca chega a ser alcancado.
 manutencao_desce
 CONSTRUIU_AQUI=""
-if ! dc up -d; then
+if ! subir_o_parque; then
   # ── O PORTÃO DO BUILD LOCAL (#1955, critério 2) ─────────────────────────
   # O gatilho continua sendo o CÓDIGO DE SAÍDA do `up -d` (nunca o texto do
   # erro — arquitetura, tag publicando, pacote privado e registro fora caem no
@@ -815,9 +824,7 @@ traefik|npm|cloudflared)
   c_grn "✓ proxy externo (${REVERSE_PROXY}): o Caddy não é usado aqui — nada a recarregar"
   ;;
 *)
-  dc up -d --force-recreate --no-deps caddy >/dev/null 2>&1 \
-    && c_grn "✓ proxy recarregado com a configuração desta versão" \
-    || c_ylw "⚠ não consegui recriar o proxy — rode: docker compose $(dc_files) up -d --force-recreate caddy"
+  recriar_o_proxy || true
   ;;
 esac
 

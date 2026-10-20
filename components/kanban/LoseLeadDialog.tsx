@@ -40,6 +40,10 @@ interface LoseLeadDialogProps {
    * clicável durante a escrita e um segundo clique dobraria o lote.
    */
   submitting?: boolean;
+  /** Depois de a perda gravar — para quem mora fora do quadro (ex.: painel da conversa) recarregar o que mostra. */
+  onPerdido?: () => void;
+  /** Motivos do funil quando o quadro não está em cache (painel da conversa); sem isto, lê do cache do quadro. */
+  motivos?: string[];
 }
 
 const MAX_LEN = 500;
@@ -51,6 +55,8 @@ export function LoseLeadDialog({
   pipelineId,
   onConfirm,
   submitting = false,
+  onPerdido,
+  motivos,
 }: LoseLeadDialogProps) {
   const t = useT();
   const [reasonCode, setReasonCode] = useState<string>("");
@@ -62,7 +68,8 @@ export function LoseLeadDialog({
 
   // O funil deste card manda na lista: o que ele tem cadastrado substitui o
   // padrão do produto — ver lib/leads/motivos-de-perda-do-funil.ts.
-  const cadastrados = useMotivosDePerdaDoFunil(pipelineId);
+  const doQuadro = useMotivosDePerdaDoFunil(pipelineId);
+  const cadastrados = motivos ?? doQuadro;
   const opcoes = useMemo(() => opcoesDeMotivoDePerda(cadastrados), [cadastrados]);
   const funilConfigurado = cadastrados.length > 0;
 
@@ -125,6 +132,7 @@ export function LoseLeadDialog({
       setReasonCode("");
       setOtherText("");
       onOpenChange(false);
+      onPerdido?.();
     } catch {
       // error already toasted
     }

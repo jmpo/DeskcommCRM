@@ -923,7 +923,15 @@ function QrDialog({
       }
     };
     void poll();
-    const iv = setInterval(poll, 3000);
+    const iv = setInterval(() => {
+      // ABA OCULTA NÃO PERGUNTA (refs #2821, a convenção da casa): o pareamento
+      // é uma tela de espera — com a aba escondida ninguém está escaneando QR
+      // nenhum, e cada tick de 3 s custa uma consulta ao transporte. A guarda é
+      // a mesma do refetch de segurança (hooks/realtime/useRefetchDeSeguranca.ts):
+      // quem volta para a aba vê o estado no tick seguinte, em no máximo 3 s.
+      if (document.visibilityState !== "visible") return;
+      void poll();
+    }, 3000);
     return () => {
       cancelled = true;
       clearInterval(iv);

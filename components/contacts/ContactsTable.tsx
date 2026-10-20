@@ -12,7 +12,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, formatRelative, isToday, isYesterday } from "date-fns";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api/client";
-import { CaretDown, CaretUp, ChatCircle, PencilSimple, Trash } from "@/lib/ui/icons";
+import { CaretDown, CaretUp, ChatCircle, Check, PencilSimple, Trash } from "@/lib/ui/icons";
 import {
   Table,
   TableBody,
@@ -37,7 +37,7 @@ import { useActiveOrg } from "@/hooks/auth/AuthProvider";
 import { useDeleteContact, mensagemDeBloqueioPorVinculo } from "@/hooks/contacts/useDeleteContact";
 import type { ContactOrderBy } from "@/lib/schemas/contacts";
 import type { Contact } from "@/lib/types/contacts";
-import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import { rotuloParaAEquipe } from "@/lib/contacts/rotulo-do-contato";
 import { phoneForDisplay } from "@/lib/channels/phone-variants";
 import { useConversaNovaComEscolhaDeCanal } from "@/components/channels/SeletorDeCanalParaConversa";
 import { EditContactDialog } from "@/components/contacts/EditContactDialog";
@@ -47,10 +47,19 @@ interface Props {
   orderBy: ContactOrderBy;
   orderDir: "asc" | "desc";
   onSort: (column: ContactOrderBy) => void;
+  /**
+   * Seleção múltipla (#2484, fatia F3). Quando `onAlternarSelecao` vem, cada
+   * linha ganha a caixa de marcação e a tabela oferece o "selecionar todas" —
+   * sem ela, a tabela é exatamente a que era. A barra de ações em lote mora
+   * FORA (no cliente da página): esta componente só mede a seleção.
+   */
+  selecionados?: Set<string>;
+  onAlternarSelecao?: (id: string) => void;
+  onSelecionarTodosVisiveis?: () => void;
 }
 
 function displayName(c: Contact, t: (texto: string) => string = (texto) => texto): string {
-  return rotuloDoContato(c, t);
+  return rotuloParaAEquipe(c, t);
 }
 
 /** Hoje/ontem: relativo ("há 2 horas", "ontem"). Mais antigo: data, não dia da semana. */
@@ -110,7 +119,15 @@ function SortableHead({
   );
 }
 
-export function ContactsTable({ contacts, orderBy, orderDir, onSort }: Props) {
+export function ContactsTable({
+  contacts,
+  orderBy,
+  orderDir,
+  onSort,
+  selecionados,
+  onAlternarSelecao,
+  onSelecionarTodosVisiveis,
+}: Props) {
   const localeDaData = useLocaleDeData();
   const t = useT();
   const clientesLigado = useActiveOrg()?.cliente_pela_agenda === true;
@@ -182,6 +199,31 @@ export function ContactsTable({ contacts, orderBy, orderDir, onSort }: Props) {
     <Table>
       <TableHeader>
         <TableRow>
+          {/*
+            Cabeça da seleção em lote (#2484, F3): marca de uma vez tudo o que
+            está na tela. Só existe quando a tabela recebe as props de seleção
+            — quem não liga o lote continua com a tabela de sempre.
+          */}
+          {onAlternarSelecao && (
+            <TableHead className="w-[40px]">
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={
+                  selecionados ? contacts.every((c) => selecionados.has(c.id)) : false
+                }
+                aria-label={t("Selecionar todos os contatos visíveis")}
+                title={t("Selecionar todas")}
+                data-testid="selecionar-todos-contatos"
+                onClick={onSelecionarTodosVisiveis}
+                className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-muted-foreground bg-background transition-colors hover:bg-surface-elevated focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {selecionados && contacts.every((c) => selecionados.has(c.id)) && (
+                  <Check size={12} weight="bold" aria-hidden />
+                )}
+              </button>
+            </TableHead>
+          )}
           <SortableHead
             label={t("Nome")}
             column="display_name"
@@ -220,6 +262,21 @@ export function ContactsTable({ contacts, orderBy, orderDir, onSort }: Props) {
       <TableBody>
         {contacts.map((c) => (
           <TableRow key={c.id} className="cursor-pointer">
+            {onAlternarSelecao && (
+              <TableCell>
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={selecionados?.has(c.id) ?? false}
+                  aria-label={`${t("Selecionar contato")} ${displayName(c, t)}`}
+                  data-testid={`selecionar-contato-${c.id}`}
+                  onClick={() => onAlternarSelecao(c.id)}
+                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-muted-foreground bg-background transition-colors hover:bg-surface-elevated focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {selecionados?.has(c.id) && <Check size={12} weight="bold" aria-hidden />}
+                </button>
+              </TableCell>
+            )}
             <TableCell className="font-medium">
               <Link href={`/app/contacts/${c.id}`} className="hover:underline">
                 {displayName(c)}

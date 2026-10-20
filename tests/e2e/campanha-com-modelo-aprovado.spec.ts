@@ -1,5 +1,5 @@
 /**
- * CAMPANHA PELO NÚMERO OFICIAL, COM MODELO APROVADO (#1330, fatia 4; migration 0680).
+ * CAMPANHA PELO NÚMERO OFICIAL, COM MODELO APROVADO (#1330, fatia 4; migration 0707).
  *
  * Pela tela, como quem opera faria: escolhe o número oficial, o campo de texto
  * dá lugar aos modelos aprovados daquele número; escolhe o modelo, diz de onde
@@ -16,7 +16,7 @@
  * O dublê recebe o pedido e a spec confere o que chegou: o nome e o idioma do
  * modelo, a lista de valores na ordem do contrato e a imagem do cabeçalho.
  *
- * ENVIO RÁPIDO (migration 0687): o número oficial oferece "Rápido" no ritmo; a
+ * ENVIO RÁPIDO (migration 0708): o número oficial oferece "Rápido" no ritmo; a
  * confirmação diz em quantos minutos sai; e — com o dublê — UMA rodada do cron
  * manda a lista inteira, cada um com o próprio nome, e conclui a campanha.
  */
@@ -65,7 +65,7 @@ const COMPONENTES = [
 const recebidos: { metodo: string; caminho: string; corpo: Record<string, unknown> | null }[] = [];
 let servidor: http.Server | null = null;
 
-/** O broadcast que o dublê guarda: os telefones recebidos e o estado (migration 0694). */
+/** O broadcast que o dublê guarda: os telefones recebidos e o estado (migration 0709). */
 const transmissao = { telefones: [] as string[], estado: "draft" };
 
 /**

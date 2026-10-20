@@ -48,6 +48,7 @@ globalThis.ResizeObserver = class {
 import { updatePipelineConfig } from "@/app/actions/settings/updatePipelineConfig";
 import {
   PipelinesClient,
+  ROTULOS_DO_TIPO,
   TIPOS_DE_CAMPO,
   tipoTemOpcoes,
   type EtapaDoFunil,
@@ -91,14 +92,64 @@ describe("tipos de campo que a tela do funil oferece", () => {
   });
 });
 
+/**
+ * O SELETOR DE TIPO FALA A LÍNGUA DE QUEM CONFIGURA (issue #3037).
+ *
+ * O dono do negócio via `multiselect` e `searchable_select` no seletor sem
+ * saber qual era a lista de várias escolhas e qual era a pesquisável. O `value`
+ * continua técnico — é o que o schema e a API gravam —, mas o texto que a
+ * pessoa lê passa a ser um rótulo em português, pelo `t()`.
+ */
+describe("rótulos dos tipos de campo (#3037)", () => {
+  it("o mapa cobre TODO tipo do schema, e nenhum rótulo é o nome técnico", () => {
+    const doSchema = [...customFieldSchema.shape.type.options].sort();
+    expect(Object.keys(ROTULOS_DO_TIPO).sort()).toEqual(doSchema);
+
+    for (const tipo of doSchema) {
+      const rotulo = ROTULOS_DO_TIPO[tipo];
+      expect(rotulo.trim().length, `rótulo vazio para ${tipo}`).toBeGreaterThan(0);
+      expect(rotulo, `${tipo} continua com nome técnico`).not.toBe(tipo);
+    }
+  });
+
+  it("o gatilho mostra o RÓTULO — inclusive os dois que se confundiam", () => {
+    const FUNIL_DE_TIPOS: PipelineRow = {
+      id: "44444444-4444-4444-8444-444444444444",
+      name: "Tipos",
+      slug: "tipos",
+      vocabulary: null,
+      settings: {
+        fields: [
+          { key: "um", label: "Um", type: "select" },
+          { key: "varios", label: "Vários", type: "multiselect" },
+          { key: "busca", label: "Busca", type: "searchable_select" },
+          { key: "curto", label: "Curto", type: "text" },
+        ],
+      },
+    };
+    render(<PipelinesClient pipelines={[FUNIL_DE_TIPOS]} podeEditarConfig />);
+
+    expect(screen.getByLabelText(/Tipo do campo 1/i).textContent?.trim()).toBe(
+      "Lista de uma escolha",
+    );
+    expect(screen.getByLabelText(/Tipo do campo 2/i).textContent?.trim()).toBe(
+      "Lista de várias escolhas",
+    );
+    expect(screen.getByLabelText(/Tipo do campo 3/i).textContent?.trim()).toBe(
+      "Lista pesquisável",
+    );
+    expect(screen.getByLabelText(/Tipo do campo 4/i).textContent?.trim()).toBe("Texto curto");
+  });
+});
+
 describe("um campo multiselect já gravado", () => {
   it("abre com o tipo à mostra, e não com o seletor em branco", () => {
     render(<PipelinesClient pipelines={[FUNIL]} podeEditarConfig />);
 
     const seletor = screen.getByLabelText(/Tipo do campo 1/i);
-    // O texto do gatilho do Radix é o rótulo do item casado. Vazio = nenhum
-    // `SelectItem` bateu com o `value`, que é exatamente o defeito.
-    expect(seletor.textContent?.trim()).toBe("multiselect");
+    // O texto do gatilho do Radix é o RÓTULO do item casado (issue #3037).
+    // Vazio = nenhum `SelectItem` bateu com o `value`, que é o defeito antigo.
+    expect(seletor.textContent?.trim()).toBe("Lista de várias escolhas");
   });
 
   it("deixa editar as opções — sem isso o campo fica só de leitura", () => {
@@ -208,6 +259,41 @@ describe("o input de opções de um campo de lista fechada", () => {
     expect(patch?.fields?.[0]?.options).toEqual([
       { value: "Clareamento Dental", label: "Clareamento Dental" },
       { value: "Implantes", label: "Implantes" },
+    ]);
+  });
+});
+
+describe("lista pesquisável: editar as opções à mão depois de importar (#2521)", () => {
+  const FUNIL_DESTINO: PipelineRow = {
+    id: "33333333-3333-4333-8333-333333333333",
+    name: "Viagens",
+    slug: "viagens",
+    vocabulary: null,
+    settings: { fields: [{ key: "destino", label: "Destino", type: "searchable_select" }] },
+  };
+
+  it("acrescentar uma opção não troca o `value` nem apaga os apelidos da que veio do CSV", async () => {
+    vi.mocked(updatePipelineConfig).mockClear();
+    render(<PipelinesClient pipelines={[FUNIL_DESTINO]} podeEditarConfig />);
+
+    fireEvent.change(screen.getByLabelText(/Importar opções \(CSV\) 1/i), {
+      target: { value: "maceio-al,Maceió (AL),maceio;mcz" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Importar opções do campo 1/i }));
+
+    // Rótulo exato: o botão "Importar opções do campo 1" também casaria com a regex.
+    const opcoes = screen.getByLabelText("Opções do campo 1") as HTMLInputElement;
+    expect(opcoes).toHaveValue("Maceió (AL)");
+    // Cada tecla reconstrói a lista a partir dos rótulos: é aqui que `maceio-al`
+    // virava `Maceió (AL)` e os apelidos sumiam.
+    digitar(opcoes, ", Recife");
+    fireEvent.click(screen.getByRole("button", { name: /Salvar vocabulário e campos/i }));
+
+    await vi.waitFor(() => expect(updatePipelineConfig).toHaveBeenCalledTimes(1));
+    const patch = vi.mocked(updatePipelineConfig).mock.calls[0]?.[1];
+    expect(patch?.fields?.[0]?.options).toEqual([
+      { value: "maceio-al", label: "Maceió (AL)", aliases: ["maceio", "mcz"] },
+      { value: "Recife", label: "Recife" },
     ]);
   });
 });
@@ -395,5 +481,55 @@ describe("escreveMostrarQuando — o item 'ainda não escolhi' não vira valor",
     );
     expect(meio).toEqual({ campo: "tipo", operador: "igual" });
     expect(normalizaMostrarQuando(meio)).toBeUndefined();
+  });
+});
+
+describe("'Este campo pertence a' só no funil padrão (#2791)", () => {
+  // A ficha do contato lê as definições SÓ do funil padrão (/api/v1/pipelines/default).
+  // Marcar "Contato" num funil secundário tiraria o campo do card sem levá-lo à
+  // ficha: ele sumiria de toda tela. A régua é a da rota: `is_default`, senão o
+  // primeiro da lista (que a página entrega por `position`).
+  const campo = (escopo?: "contato") => ({
+    fields: [{ key: "cpf", label: "CPF", type: "text", ...(escopo ? { escopo } : {}) }],
+  });
+  const funil = (id: string, nome: string, extra: Partial<PipelineRow> = {}): PipelineRow => ({
+    id,
+    name: nome,
+    slug: nome.toLowerCase(),
+    vocabulary: null,
+    settings: campo(),
+    ...extra,
+  });
+  const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+  it("sem nenhum funil marcado, o padrão é o primeiro — o seletor aparece só nele", () => {
+    render(<PipelinesClient pipelines={[funil(A, "Vendas"), funil(B, "Pos")]} podeEditarConfig />);
+    expect(screen.getAllByLabelText(/Escopo do campo 1/i)).toHaveLength(1);
+    expect(screen.getAllByText("Este campo pertence a:")).toHaveLength(1);
+  });
+
+  it("com is_default no segundo, o seletor sai do primeiro e vai para ele", () => {
+    const { container } = render(
+      <PipelinesClient
+        pipelines={[funil(A, "Vendas", { is_default: false }), funil(B, "Pos", { is_default: true })]}
+        podeEditarConfig
+      />,
+    );
+    const cards = container.querySelectorAll("h2");
+    expect(cards[0]?.textContent).toBe("Vendas");
+    expect(screen.getAllByLabelText(/Escopo do campo 1/i)).toHaveLength(1);
+    const cardDoPos = cards[1]?.closest("div.space-y-6");
+    expect(cardDoPos?.textContent).toContain("Este campo pertence a:");
+  });
+
+  it("num funil secundário, um campo JÁ marcado Contato mantém o seletor para desfazer", () => {
+    render(
+      <PipelinesClient
+        pipelines={[funil(A, "Vendas"), funil(B, "Pos", { settings: campo("contato") })]}
+        podeEditarConfig
+      />,
+    );
+    expect(screen.getAllByLabelText(/Escopo do campo 1/i)).toHaveLength(2);
   });
 });

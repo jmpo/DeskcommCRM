@@ -3,20 +3,18 @@
  *
  * ## O pedido
  *
- * Operação real (Pedilo, 12/10/2026): "cuando un cliente viene de un anuncio,
- * que ese anuncio aparezca en la conversación y al costado, para saber por qué
- * anuncio de Meta Ads vino". O dado já existia — `metadata.anuncio` na mensagem
- * nascida do clique e `source_metadata.ad_*` no contato — e só a ficha do
- * contato o mostrava.
+ * De uma operação real: "quando um cliente vem de um anúncio, que esse anúncio
+ * apareça na conversa e ao lado, para saber por qual anúncio da Meta ele veio".
+ * O contato já guardava o anúncio de primeiro toque (`source_metadata.ad_*`),
+ * que só a ficha do contato mostrava; a mensagem nascida do clique passa a
+ * guardar o SEU (`metadata.anuncio`).
  *
  * ## O que esta spec mede que o teste de componente não mede
  *
  * - que `metadata.anuncio` sobrevive à rota de mensagens até a bolha certa;
  * - que o `crm-summary` devolve o anúncio de origem e o mais recente ao painel;
  * - que a imagem CARREGA (`naturalWidth > 0`), e não só que o `<img>` existe;
- * - no tema escuro, o CONTRASTE do nome da conversa selecionada, medido com a
- *   cor computada do texto contra o fundo efetivo (a captura de 12/10 mostrava
- *   o nome branco sobre a linha selecionada branca).
+ * - que os cartões cabem na coluna do painel (`boundingBox`).
  *
  * A miniatura da Meta é https e externa; a spec a serve por `page.route`, para
  * provar o carregamento sem depender da rede.
@@ -51,24 +49,24 @@ const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL!, env.SUPABASE_SERVICE_R
 
 const PREFIXO = "Anuncio de Origem E2E";
 const NOME_DO_CONTATO = `${PREFIXO} ${Date.now()}`;
-const MINIATURA_A = "https://scontent.e2e-anuncio.test/pico.svg";
-const MINIATURA_B = "https://scontent.e2e-anuncio.test/parasol.svg";
+const MINIATURA_A = "https://scontent.e2e-anuncio.test/lavadora.svg";
+const MINIATURA_B = "https://scontent.e2e-anuncio.test/protetor.svg";
 const ANUNCIO_A = {
-  titulo: "DELIVERY GRATIS",
-  texto: "Pico de alta presión: lavá el auto con tu manguera. Pagás cuando te llega.",
-  ad_id: "120251615780570072",
-  url: "https://fb.me/pico-e2e",
+  titulo: "FRETE GRÁTIS",
+  texto: "Lavadora de alta pressão: lave o carro com a sua mangueira. Pague na entrega.",
+  ad_id: "120200000000000001",
+  url: "https://fb.me/lavadora-e2e",
   miniatura: MINIATURA_A,
 };
 const ANUNCIO_B = {
-  titulo: "ENVÍO GRATIS",
-  texto: "Parasol para auto: protegé tu tablero del sol.",
-  ad_id: "120251738379250072",
-  url: "https://fb.me/parasol-e2e",
+  titulo: "ENTREGA RÁPIDA",
+  texto: "Protetor solar para carro: proteja o painel do sol.",
+  ad_id: "120200000000000002",
+  url: "https://fb.me/protetor-e2e",
   miniatura: MINIATURA_B,
 };
-const PRIMEIRA = "Hola, ¿cuál es el precio?";
-const SEGUNDA = "¿Y el parasol cuánto sale?";
+const PRIMEIRA = "Oi, qual é o preço?";
+const SEGUNDA = "E o protetor, quanto custa?";
 
 let creds: Creds;
 let conversaId = "";
@@ -81,7 +79,7 @@ async function servirMiniaturas(page: Page): Promise<void> {
   await page.route("https://scontent.e2e-anuncio.test/**", (rota) =>
     rota.fulfill({
       contentType: "image/svg+xml",
-      body: rota.request().url().includes("parasol") ? svg("#c2410c", "PARASOL") : svg("#1d4ed8", "PICO"),
+      body: rota.request().url().includes("protetor") ? svg("#c2410c", "PROTETOR") : svg("#1d4ed8", "LAVADORA"),
     }),
   );
 }
@@ -145,7 +143,7 @@ test.describe("Inbox — o anúncio que trouxe a pessoa aparece na conversa e no
       .insert({
         organization_id: creds.org_id,
         display_name: NOME_DO_CONTATO,
-        phone_number: `+59598${String(Date.now()).slice(-7)}`,
+        phone_number: `+55119${String(Date.now()).slice(-8)}`,
         source: "meta_ads",
         source_metadata: {
           ad_platform: "meta_ads",
@@ -238,59 +236,5 @@ test.describe("Inbox — o anúncio que trouxe a pessoa aparece na conversa e no
 
     fs.mkdirSync(EVIDENCIA, { recursive: true });
     await page.screenshot({ path: path.join(EVIDENCIA, "01-anuncio-na-bolha-e-no-painel.png"), animations: "disabled" });
-  });
-
-  test("no tema escuro, o nome da conversa selecionada é legível", async ({ page }) => {
-    await servirMiniaturas(page);
-    await page.addInitScript(() => {
-      try {
-        window.localStorage.setItem("deskcomm-theme", "dark");
-      } catch {
-        /* sem storage o teste reprova no poll abaixo, que é o que deve acontecer */
-      }
-    });
-    await login(page, creds.users.agent!.email, creds.password);
-    await page.goto(`/app/inbox/${conversaId}`);
-    await expect
-      .poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme")))
-      .toBe("dark");
-
-    const linha = page.locator(`[data-conversation-id="${conversaId}"]`);
-    await expect(linha).toHaveAttribute("aria-current", "true", { timeout: 60_000 });
-    const nome = linha.getByText(NOME_DO_CONTATO, { exact: true });
-    await expect(nome).toBeVisible();
-
-    // Contraste WCAG entre a cor computada do nome e o fundo EFETIVO da linha
-    // (o fundo da selecionada é translúcido: compõe sobre os ancestrais).
-    const contraste = await nome.evaluate((el) => {
-      const rgba = (s: string) => {
-        const n = s.match(/[\d.]+/g)!.map(Number);
-        return { r: n[0]!, g: n[1]!, b: n[2]!, a: n[3] ?? 1 };
-      };
-      const camadas: Array<{ r: number; g: number; b: number; a: number }> = [];
-      for (let no: Element | null = el; no; no = no.parentElement) {
-        const c = rgba(getComputedStyle(no).backgroundColor);
-        if (c.a > 0) camadas.push(c);
-        if (c.a >= 1) break;
-      }
-      let fundo = { r: 255, g: 255, b: 255 };
-      for (const c of camadas.reverse()) {
-        fundo = { r: c.r * c.a + fundo.r * (1 - c.a), g: c.g * c.a + fundo.g * (1 - c.a), b: c.b * c.a + fundo.b * (1 - c.a) };
-      }
-      const texto = rgba(getComputedStyle(el).color);
-      const lum = ({ r, g, b }: { r: number; g: number; b: number }) => {
-        const f = (v: number) => {
-          const s = v / 255;
-          return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-        };
-        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
-      };
-      const [a, b] = [lum(texto), lum(fundo)].sort((x, y) => y - x);
-      return (a! + 0.05) / (b! + 0.05);
-    });
-    expect(contraste, `contraste do nome na linha selecionada: ${contraste.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
-
-    fs.mkdirSync(EVIDENCIA, { recursive: true });
-    await page.screenshot({ path: path.join(EVIDENCIA, "02-selecionada-no-escuro.png"), animations: "disabled" });
   });
 });

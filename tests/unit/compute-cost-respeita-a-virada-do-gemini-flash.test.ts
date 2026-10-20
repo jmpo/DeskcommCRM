@@ -31,6 +31,13 @@ const AI_PRICING = [
     completion_cents_per_million_tokens: 111,
     embedding_cents_per_million_tokens: null,
   },
+  // 0703: a linha do Argon já é a tarifa de 01/12/2026.
+  {
+    model: "gemini-4-argon",
+    prompt_cents_per_million_tokens: 400,
+    completion_cents_per_million_tokens: 2000,
+    embedding_cents_per_million_tokens: null,
+  },
 ];
 
 const AI_MODELS = FLASH.map((model_id) => ({
@@ -123,6 +130,15 @@ describe("computeCost — Gemini 3.6/3.7/3.8 Flash respeita a virada do costCent
     vi.setSystemTime(VIRADA_2027);
     _resetPricingCacheForTests();
     expect(await centavos("google/gemini-3.7-flash", { completionTokens: 1_000_000 })).toBeCloseTo(750, 6);
+  });
+
+  it("gemini-4-argon cobra 200/1000 até 2026-12-01T00:00:00Z, com ai_pricing já em 400/2000", async () => {
+    const antes = new Date("2026-11-30T23:59:59.999Z");
+    const virada = new Date("2026-12-01T00:00:00.000Z");
+    expect(await centavos("gemini-4-argon", { promptTokens: 1_000_000 }, antes)).toBeCloseTo(200, 6);
+    expect(await centavos("google/gemini-4-argon", { completionTokens: 1_000_000 }, antes)).toBeCloseTo(1000, 6);
+    expect(await centavos("gemini-4-argon", { promptTokens: 1_000_000 }, virada)).toBeCloseTo(400, 6);
+    expect(await centavos("gemini-4-argon", { completionTokens: 1_000_000 }, virada)).toBeCloseTo(2000, 6);
   });
 
   it("um modelo sem essa virada continua na linha de ai_pricing", async () => {

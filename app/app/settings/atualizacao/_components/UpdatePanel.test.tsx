@@ -95,6 +95,95 @@ describe("tela de atualização — o botão não fica atrás do changelog", () 
 });
 
 /**
+ * #2755 (item 3): O "SEM SMTP" APARECE NA TELA, E NÃO SÓ NO LOG.
+ *
+ * Até aqui o painel de atualização exibia o log do `update.sh` e mais nada.
+ * Numa instalação sem SMTP, quem administrava descobria que o e-mail não saía
+ * quando alguém reclamava de não ter recebido a recuperação de senha. O aviso
+ * passou a ser lido pelo próprio painel, no caminho de leitura que já existe
+ * (`GET /api/v1/system/version`) e com a régua da ação que sofre com isso
+ * (`semSmtpNaInstalacao`) — sem campo novo de banco.
+ *
+ * Os DOIS lados importam: o aviso APARECE quando falta SMTP e NÃO aparece
+ * quando o campo não veio (quem não é dono, ou instalação fora do servidor
+ * único). Ausente é "não sei", e sobre o que não se sabe esta tela não afirma.
+ */
+describe("tela de atualização — o aviso de 'sem SMTP'", () => {
+  const SEM_SMTP: SystemVersion = {
+    current_version: "1.0.0",
+    is_owner: true,
+    latest_version: "1.0.0",
+    update_available: false,
+    agent_online: true,
+    smtp_configured: false,
+    notes: null,
+    run: null,
+  };
+
+  it("⭐ sem SMTP: o aviso aparece, diz o que não sai e onde configurar", () => {
+    renderTela(SEM_SMTP);
+
+    expect(screen.getByTestId("aviso-sem-smtp")).toBeInTheDocument();
+    expect(screen.getByText("Sem SMTP configurado", { exact: false })).toBeInTheDocument();
+    expect(
+      screen.getByText(/Configure o servidor de e-mail em \/admin\/email/),
+    ).toBeInTheDocument();
+    // O SMTP de /admin/email só chega ao serviço de login pelo update.sh
+    // (`sincronizar_smtp_do_gotrue`); sem o passo, o aviso some e o e-mail segue sem sair.
+    expect(screen.getByTestId("aviso-sem-smtp").textContent).toMatch(/update\.sh/);
+    // Sem SMTP, convite e LGPD ainda saem pela Resend (lib/email/roteador.ts):
+    // o aviso fala do serviço de login, nunca de "nenhum e-mail".
+    expect(screen.getByTestId("aviso-sem-smtp").textContent).not.toMatch(/e-mail nenhum/);
+  });
+
+  it("o aviso vem ANTES do conteúdo — ele é da instalação, não do estado da atualização", () => {
+    renderTela(SEM_SMTP);
+
+    const aviso = screen.getByTestId("aviso-sem-smtp");
+    const conteudo = screen.getByText("É a mais recente. Não há nada a fazer.");
+
+    expect(
+      Boolean(aviso.compareDocumentPosition(conteudo) & Node.DOCUMENT_POSITION_FOLLOWING),
+    ).toBe(true);
+  });
+
+  it("atravessa o estado de espera: o dono vê o aviso mesmo com atualização em curso", () => {
+    renderTela({
+      ...SEM_SMTP,
+      latest_version: "1.5.0",
+      update_available: true,
+      run: {
+        id: "66666666-6666-4666-8666-666666666666",
+        status: "dispatched",
+        last_step: null,
+        from_version: "1.0.0",
+        to_version: "1.5.0",
+        log_tail: "",
+        dispatched_at: new Date().toISOString(),
+      },
+    });
+
+    expect(screen.getByText("Pedido enviado — esperando o servidor pegar")).toBeInTheDocument();
+    expect(screen.getByTestId("aviso-sem-smtp")).toBeInTheDocument();
+  });
+
+  it("⭐ CONTROLE — COM SMTP configurado: nenhum aviso", () => {
+    renderTela({ ...SEM_SMTP, smtp_configured: true });
+
+    expect(screen.queryByTestId("aviso-sem-smtp")).toBeNull();
+  });
+
+  it("campo ausente (quem não é dono, ou fora do servidor único): a tela não afirma nada", () => {
+    const semCampo: SystemVersion = { ...SEM_SMTP };
+    delete semCampo.smtp_configured;
+
+    renderTela(semCampo);
+
+    expect(screen.queryByTestId("aviso-sem-smtp")).toBeNull();
+  });
+});
+
+/**
  * O #1040: a rodada de atualização sabe que houve disputa de banco, e a tela
  * CONTA isso — em português de gente — e diz onde está o detalhe. Até aqui o
  * aviso morria só no `.update.log`, no disco da VPS, e quem apertou o botão

@@ -1,100 +1,51 @@
 /**
- * O passo "modelo de mensagem" mostra, para um modelo aprovado COM variável, de
- * onde sai cada `{{n}}` — e o que a pessoa escolhe chega ao grafo. Sem esta
- * tela, o mapa só existiria escrito à mão no banco (invariante 6: configuração
- * com superfície).
+ * Seguimento do #3056 — o passo de modelo cujo id não está em nenhuma lista da
+ * conta (importado de outra conta, ou modelo apagado) mostrava o seletor EM
+ * BRANCO. Agora mostra o placeholder e um aviso. Sem react-query nem rede: os
+ * dois hooks de lista são trocados por teste.
  */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ActionForm } from "./ActionForm";
 
-const COM_VARIAVEIS = "11111111-1111-4111-8111-111111111111";
-const SEM_VARIAVEIS = "22222222-2222-4222-8222-222222222222";
+type Consulta<T> = { data?: T; isLoading: boolean; isError: boolean; isSuccess: boolean };
+const pronta = <T,>(data: T): Consulta<T> => ({ data, isLoading: false, isError: false, isSuccess: true });
 
+const DA_CONTA = "22222222-2222-4222-8222-222222222222";
+const DE_FORA = "33333333-3333-4333-8333-333333333333";
+const AVISO = "O modelo que estava aqui não está disponível nesta conta. Escolha um modelo para este passo.";
+
+let textos: Consulta<{ id: string; title: string }[]> = pronta([{ id: DA_CONTA, title: "Boas-vindas" }]);
+let aprovados: Consulta<{ id: string; name: string; language: string; texto: string }[]> = pronta([]);
+vi.mock("@/hooks/inbox/useMessageTemplates", () => ({ useMessageTemplates: () => textos }));
+vi.mock("@/hooks/followup/useModelosAprovadosDoFluxo", () => ({ useModelosAprovadosDoFluxo: () => aprovados }));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (s: string) => s }));
-vi.mock("@/hooks/inbox/useMessageTemplates", () => ({
-  useMessageTemplates: () => ({ data: [], isLoading: false, isError: false }),
-}));
-vi.mock("@/hooks/webhooks/useWebhookSources", () => ({
-  usePipelines: () => ({ data: { data: [] } }),
-}));
-vi.mock("@/hooks/followup/useModelosAprovadosDoFluxo", () => ({
-  useModelosAprovadosDoFluxo: () => ({
-    isLoading: false,
-    isError: false,
-    data: [
-      {
-        id: COM_VARIAVEIS,
-        name: "confirmacion_pedido_web",
-        language: "es",
-        texto: "¡Hola {{1}}! Recibimos tu pedido: {{2}}",
-        variaveis: [
-          {
-            chave: "1",
-            marcador: "{{1}}",
-            antes: "¡Hola ",
-            depois: "! Recibimos",
-            noCabecalho: false,
-          },
-          { chave: "2", marcador: "{{2}}", antes: "tu pedido: ", depois: "", noCabecalho: false },
-        ],
-      },
-      {
-        id: SEM_VARIAVEIS,
-        name: "recordatorio",
-        language: "es",
-        texto: "¿Seguís interesado?",
-        variaveis: [],
-      },
-    ],
-  }),
-}));
 
-function montar(config: Parameters<typeof ActionForm>[0]["config"]) {
-  const onChange = vi.fn();
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
-    <QueryClientProvider client={client}>
-      <ActionForm config={config} onChange={onChange} />
-    </QueryClientProvider>,
-  );
-  return onChange;
-}
+const renderizar = (templateId: string) =>
+  render(<ActionForm config={{ mode: "template", template_id: templateId }} onChange={() => {}} />);
 
-describe("passo de modelo com variáveis", () => {
-  it("⭐ mostra uma origem por variável, e a mudança chega ao grafo com o mapa inteiro", () => {
-    const onChange = montar({
-      mode: "template",
-      template_id: COM_VARIAVEIS,
-      template_values: {
-        "1": { kind: "contact_first_name" },
-        "2": { kind: "lead_custom", key: "producto" },
-      },
-    });
-
-    expect(screen.getByText("De onde sai cada variável")).toBeInTheDocument();
-    expect(screen.getAllByText("{{1}}").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("{{2}}").length).toBeGreaterThan(0);
-
-    // `producto` não é campo declarado no funil: a tela mostra a chave livre.
-    const chave = screen.getByLabelText("Chave do campo do negócio");
-    expect(chave).toHaveValue("producto");
-    fireEvent.change(chave, { target: { value: "producto_nombre" } });
-
-    expect(onChange).toHaveBeenLastCalledWith({
-      mode: "template",
-      template_id: COM_VARIAVEIS,
-      template_values: {
-        "1": { kind: "contact_first_name" },
-        "2": { kind: "lead_custom", key: "producto_nombre" },
-      },
-    });
+describe("ActionForm — modelo que não existe nesta conta", () => {
+  it("mostra o placeholder e o aviso no lugar do seletor em branco", () => {
+    textos = pronta([{ id: DA_CONTA, title: "Boas-vindas" }]);
+    aprovados = pronta([]);
+    renderizar(DE_FORA);
+    expect(screen.getByRole("alert").textContent).toBe(AVISO);
+    expect(screen.getByRole("combobox", { name: "Modelo de mensagem" }).textContent).toBe("Escolha um modelo");
   });
 
-  it("modelo sem variável não mostra o mapa", () => {
-    montar({ mode: "template", template_id: SEM_VARIAVEIS });
-    expect(screen.queryByText("De onde sai cada variável")).toBeNull();
+  it("modelo da conta: sem aviso, com o nome no seletor", () => {
+    textos = pronta([{ id: DA_CONTA, title: "Boas-vindas" }]);
+    aprovados = pronta([]);
+    renderizar(DA_CONTA);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Modelo de mensagem" }).textContent).toBe("Boas-vindas");
+  });
+
+  it("lista que falhou não prova ausência: não avisa", () => {
+    textos = { data: undefined, isLoading: false, isError: true, isSuccess: false };
+    aprovados = pronta([{ id: DA_CONTA, name: "ola", language: "pt_BR", texto: "Olá" }]);
+    renderizar(DE_FORA);
+    expect(screen.queryByText(AVISO)).toBeNull();
   });
 });

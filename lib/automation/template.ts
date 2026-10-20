@@ -1,4 +1,5 @@
 import { resolveField } from "@/lib/automation/conditions";
+import { nomeDoContato, type ContatoNomeavel } from "@/lib/contacts/rotulo-do-contato";
 
 const ALIASES: Record<string, string> = {
   nome: "contact.name",
@@ -46,6 +47,16 @@ function campoPersonalizadoDoLead(context: Record<string, unknown>, nome: string
 }
 
 /**
+ * Campos do contato que SÓ A EQUIPE vê e que nenhuma mensagem renderiza, nem
+ * pedidos pelo caminho (`{{contact.address_book_name}}`). O contexto da
+ * automação carrega a linha inteira do contato (`select("*")`), então a guarda
+ * mora aqui, onde todo texto de automação e de modelo de mensagem passa. O nome
+ * da agenda é o rótulo que alguém da empresa escreveu no celular e pode ser um
+ * apelido interno (decisão do mantenedor no PR #2439).
+ */
+const SO_DA_EQUIPE = new Set(["contact.address_book_name"]);
+
+/**
  * `formatarValor` recebe cada VALOR já resolvido, nunca o template: quem
  * renderiza para HTML escapa o que veio do contato/negócio e mantém a marcação
  * que o operador escreveu.
@@ -56,8 +67,14 @@ export function renderTemplate(
   formatarValor: (valor: string) => string = (valor) => valor,
 ): string {
   return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, path: string) => {
+    if (SO_DA_EQUIPE.has(path)) return "";
+    // `{{nome}}` fala com a pessoa: segue a régua única de nome de gente
+    // (cadastrado, depois o perfil do WhatsApp). Contato que chega pelo
+    // WhatsApp tem `name` nulo — só `contact.name` saía "Olá , ...".
     const resolved =
-      resolveField(context, ALIASES[path] ?? path) ?? campoPersonalizadoDoLead(context, path);
+      path === "nome" || path === "primeiro_nome"
+        ? nomeDoContato(context.contact as ContatoNomeavel | undefined)
+        : (resolveField(context, ALIASES[path] ?? path) ?? campoPersonalizadoDoLead(context, path));
     // `{{primeiro_nome}}` = primeira palavra do nome, como no Inbox e na campanha.
     const texto = String(resolved ?? "");
     return formatarValor(path === "primeiro_nome" ? (texto.trim().split(/\s+/)[0] ?? "") : texto);

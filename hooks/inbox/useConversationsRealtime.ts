@@ -17,6 +17,9 @@ export interface ContactSummary {
   id: string;
   display_name: string | null;
   name: string | null;
+  /** Nome salvo na agenda do celular. SÓ A EQUIPE vê (`rotuloParaAEquipe`); nunca vai em mensagem.
+   *  Opcional: conversas em cache de antes do campo existir. */
+  address_book_name?: string | null;
   phone_number: string | null;
   tags: string[];
   is_blocked: boolean;
@@ -139,12 +142,27 @@ export function soMudouOAutomaticoDaFila(
 export function useConversationsRealtime(
   filters: ConversationsFilters,
   orgId: string | null,
+  /**
+   * A CHAVE AINDA NÃO É A DEFINITIVA (#2365) — `false` segura a consulta.
+   *
+   * A Fila monta o `comando` a partir de um fato org-wide ASSÍNCRONO
+   * (`/ai/automatico-ativo`). Consultar antes de o fato chegar era o que
+   * produzia DUAS buscas em série pela MESMA lista: a primeira saía com
+   * `aguardando`, a resposta do fato trocava a chave para
+   * `aguardando,automatico` e a primeira resposta era DESCARTADA — medido no
+   * trace do #2360 (run 37340942770): 1091ms + 896ms, com a lista fora da tela
+   * no meio. Segurar a consulta até a chave ficar pronta custa a espera do fato
+   * (a MESMA pergunta que a tela já faz, deduplicada pelo react-query) e devolve
+   * UMA requisição com o filtro definitivo.
+   */
+  habilitada = true,
 ) {
   const qc = useQueryClient();
   const queryKey = useMemo(() => ["conversations", filters] as const, [filters]);
 
   const query = useInfiniteQuery({
     queryKey,
+    enabled: habilitada,
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       const qs = new URLSearchParams();

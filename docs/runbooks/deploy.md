@@ -216,8 +216,6 @@ Notas:
 - **Single-server (Supabase self-hosted) não é suportado.** O instalador recusa
   `REVERSE_PROXY=cloudflared` nesse modo: as APIs do Supabase dependem do Caddy.
 - A borda da Cloudflare corta HTTP acima de ~100s (504/524). O webhook do WAHA é interno e
-  não passa pelo túnel. O runner do agente (`/api/internal/agents/run`) passa: o dispatcher o
-  chama pelo endereço público (`NEXT_PUBLIC_APP_URL`). O disparo não espera a resposta, mas uma
-  execução acima de 100s esbarra no teto — o efeito disso no app não foi medido.
+  não passa pelo túnel.
 - Verificação: `docker compose -f docker-compose.prod.yml -f docker-compose.cloudflared.yml
   --env-file .env config --services` deve listar `cloudflared` e **não** listar `caddy`.

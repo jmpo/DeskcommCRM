@@ -1,6 +1,6 @@
 /**
  * CAMPANHA COM MODELO APROVADO — de onde sai cada variável, e o valor de cada
- * contato (issue #1330, fatia 4; migration 0680).
+ * contato (issue #1330, fatia 4; migration 0707).
  *
  * ─── Por que existe ─────────────────────────────────────────────────────────
  *

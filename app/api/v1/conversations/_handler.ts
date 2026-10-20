@@ -92,7 +92,8 @@ const SELECT_COLS = `
   snooze_until, created_at, updated_at,
   bot_silenced_until, last_handoff_at, last_handoff_reason,
   comando_da_conversa,
-  contacts:contact_id (id, display_name, name, phone_number, is_anonymized, tags, is_blocked, is_personal, avatar_storage_path, force_human),
+  usable_for_rag,
+  contacts:contact_id (id, display_name, name, address_book_name, phone_number, is_anonymized, tags, is_blocked, is_personal, avatar_storage_path, force_human),
   channel_sessions:channel_session_id (phone_number, display_name, provider, social_platform:metadata->>social_platform)
 `;
 
@@ -379,6 +380,8 @@ export async function listConversationsHandler(
     const camposDoContato = [
       `display_name.ilike.*${s}*`,
       `name.ilike.*${s}*`,
+      // O nome da agenda do celular (#2439): a lista o mostra, a busca o acha.
+      `address_book_name.ilike.*${s}*`,
       ...(pareceTelefone ? [`phone_number.ilike.*${somenteDigitos}*`] : []),
     ].join(",");
 

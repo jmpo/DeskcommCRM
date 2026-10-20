@@ -75,6 +75,7 @@ vi.mock(
   }),
 );
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: vi.fn(() => ({})) }));
+vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn(async () => ({})) }));
 vi.mock('@/lib/ai/agents/router-members-http', () => ({
   replaceRouterMembersHttp: vi.fn(async () => undefined),
 }));

@@ -25,6 +25,7 @@ const USER = { id: "u-1", is_platform_admin: false, support: null };
 
 vi.mock("@/hooks/auth/AuthProvider", () => ({
   useActiveOrg: () => ({ ...ORG, cliente_pela_agenda: ligada }),
+  usePermission: () => true,
   useAuth: () => ({ user: USER, activeOrg: { ...ORG, cliente_pela_agenda: ligada } }),
 }));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (s: string) => s }));

@@ -224,3 +224,48 @@ export const contactsMergeSchema = z
     path: ["secondary_contact_ids"],
   });
 export type ContactsMergeInput = z.infer<typeof contactsMergeSchema>;
+
+/**
+ * POST /api/v1/contacts/bulk — as ações em lote da tela de Contatos (#2484, fatia F3).
+ *
+ * Só as três ações que têm caminho por CONTATO único, e nenhuma outra: a rota
+ * de lote encaminha cada id à rota individual, então entrar aqui é ter porta
+ * individual. `tag` e `custom-field` passam pelo MESMO PATCH da ficha
+ * (`/contacts/[id]`), `carteira` pela única porta que grava
+ * `contacts.carteira_user_id` (`/contacts/[id]/carteira`). "Mover card de
+ * etapa" e "marcar sempre humano" ficaram FORA por medição: a primeira é
+ * endereçada por NEGÓCIO (`/leads/[id]/move`), não por contato, e a segunda só
+ * é gravada pelo motor de atendimento — não existe porta individual.
+ *
+ * A organização NUNCA vem do corpo: cada subchamada lê a da SESSÃO, e este
+ * schema não tem campo para ela. O teto de ids é política da ROTA
+ * (`TETO_DO_LOTE`), não do schema — quem estoura recebe 422 `bulk_too_large`
+ * com o número na mensagem, e não um `validation_error` genérico.
+ */
+export const bulkContactActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("tag"),
+    ids: z.array(z.string().uuid()).min(1),
+    op: z.enum(["add", "remove"]),
+    // Normalizada no MESMO caminho da escrita (`normalizarTags`), e o PATCH
+    // re-normaliza: gravar "VIP" aqui e o filtro procurar "vip" é o defeito da
+    // issue #1224, que já está consertado do outro lado.
+    tag: z.string().trim().min(1).max(40),
+  }),
+  z.object({
+    action: z.literal("carteira"),
+    ids: z.array(z.string().uuid()).min(1),
+    /** `null` tira o cliente da carteira — mesmo contrato da rota individual. */
+    dono_user_id: z.string().uuid().nullable(),
+    origem: z.enum(["manual", "importacao", "atribuicao_automatica"]).optional(),
+  }),
+  z.object({
+    action: z.literal("custom-field"),
+    ids: z.array(z.string().uuid()).min(1),
+    chave: z.string().trim().min(1).max(80),
+    /** `null` apaga a chave; os demais campos do contato permanecem (MERGE). */
+    valor: z.union([z.string().max(500), z.number(), z.boolean(), z.null()]),
+  }),
+]);
+
+export type BulkContactActionInput = z.infer<typeof bulkContactActionSchema>;

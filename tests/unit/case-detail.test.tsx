@@ -82,6 +82,13 @@ describe("CaseDetail", () => {
     expect(screen.getByText("Selecione um caso à esquerda")).toBeInTheDocument();
   });
 
+  it("linka para a conversa completa no inbox", () => {
+    useCaseMock.mockReturnValue({ isLoading: false, data: BASE_CASE });
+    render(wrap(<CaseDetail caseId="case-1" />));
+
+    expect(screen.getByRole("link", { name: "Ver conversa" })).toHaveAttribute("href", "/app/inbox/conv-1");
+  });
+
   it("mostra summary/blocker rotulados e traduz pelo menos 2 kinds da timeline pra pt-br", () => {
     useCaseMock.mockReturnValue({ isLoading: false, data: BASE_CASE });
     render(wrap(<CaseDetail caseId="case-1" />));

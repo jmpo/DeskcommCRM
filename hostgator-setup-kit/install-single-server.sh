@@ -300,13 +300,20 @@ fi
 
 # E-mail de acesso (esqueci a senha, confirmar cadastro): o GoTrue passa a usar
 # o SMTP do CRM. Sem SMTP no CRM, o aviso fica no fim, onde o dono o lê.
+#
+# #2755 — o aviso diz POR QUE rodar o update.sh: o app não leva o SMTP de
+# /admin/email ao GoTrue, quem leva é o `sincronizar_smtp_do_gotrue` de lá. Sem o
+# porquê, "rode o update.sh" na tela final parecia ordem sem motivo — a MESMA
+# correção que a saída do update.sh recebeu. Cuidado com o par: os dois textos
+# vivem separados (este arquivo é shell, com saída em ASCII), e é o teste de
+# shell que cobra o porquê nos dois.
 load_env "$app_env"
 if sincronizar_smtp_do_gotrue; then
   dc_supabase up -d --no-deps auth
   aviso_email="O e-mail de acesso (senha, cadastro) sai pelo SMTP configurado no CRM."
 else
   aviso_email="ATENCAO: sem SMTP, 'esqueci a senha' e a confirmacao de cadastro NAO enviam e-mail.
-Configure em /admin/email e rode: bash hostgator-setup-kit/update.sh"
+Configure em /admin/email e rode bash hostgator-setup-kit/update.sh (ele roda mesmo sem versao nova) - e ele que leva o SMTP ao servico de login."
 fi
 
 cat <<EOF

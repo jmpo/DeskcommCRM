@@ -9,6 +9,7 @@ import type { NextRequest } from "next/server";
 
 import { fail, ok } from "@/lib/api/wrappers";
 import { loadAuthUser } from "@/lib/auth/server";
+import { semSmtpNaInstalacao } from "@/lib/email/estado";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extractChangelogRange } from "@/lib/system/changelog";
@@ -179,9 +180,23 @@ export async function GET(_req: NextRequest): Promise<Response> {
   // para quem mais precisa lê-la.
   const faixa = latest ? extractChangelogRange(version?.changelog_raw ?? "", latest, running) : null;
 
+  // #2755 (item 3) — quem administra a instalação precisa VER que ela não envia
+  // e-mail. Até aqui esse estado só existia no log do `update.sh`, e a tela de
+  // atualização exibia só o log: o dono descobria o problema quando alguém
+  // reclamava de não receber a recuperação de senha. Vem na resposta do DONO
+  // (`is_platform_admin`) porque é ele quem configura o SMTP — para quem não
+  // pode agir, aviso sem ação é só ansiedade.
+  //
+  // A leitura é a que já existe (`lerSmtp`, a mesma tela de /admin/email usa) e
+  // a régua é a MESMA da ação que sofre com isso (`semSmtpNaInstalacao`): fora
+  // do single-server o login tem e-mail próprio, e `true` ali é a resposta
+  // honesta — não há o que avisar.
+  const smtpConfigurado = !(await semSmtpNaInstalacao());
+
   return ok({
     current_version: running,
     is_owner: true,
+    smtp_configured: smtpConfigurado,
     latest_version: latest,
     update_available:
       // `!acabouDeInstalar` é o degrau histórico: na janela logo após um
