@@ -59,70 +59,8 @@ comment on column public.campaigns.provider_template_language is
 comment on column public.campaigns.provider_template_variables is
   'slotKey ("1", "header:1", "button0:1") → origem do valor ({kind: contact_first_name|contact_name|lead_custom|fixed}). Nunca o valor: ele é resolvido por contato na preparação.';
 
-create or replace function public.fn_campanha_sincroniza_ack() returns trigger
-  language plpgsql
-  security definer
-  set search_path to 'public'
-as $$
-declare
-  v_efetivo text;
-begin
-  if new.status is not distinct from old.status
-     and new.delivered_at is not distinct from old.delivered_at
-     and new.read_at is not distinct from old.read_at then
-    return new;
-  end if;
-
-  -- O oficial direto mantém `status = 'sent'` e só carimba entrega e leitura;
-  -- o parceiro e o QR mudam o status. O estado efetivo cobre os dois.
-  v_efetivo := case
-    when new.status = 'failed' then 'failed'
-    when new.status = 'read' or new.read_at is not null then 'read'
-    when new.status = 'delivered' or new.delivered_at is not null then 'delivered'
-    else new.status
-  end;
-
-  update public.campaign_recipients r
-     set delivered_at = case
-           when v_efetivo in ('delivered', 'read')
-             then coalesce(r.delivered_at, new.delivered_at, now())
-           else r.delivered_at end,
-         read_at = case
-           when v_efetivo = 'read' then coalesce(r.read_at, new.read_at, now())
-           else r.read_at end,
-         sent_at = case
-           when v_efetivo in ('sent', 'delivered', 'read')
-             then coalesce(r.sent_at, new.sent_at, now())
-           else r.sent_at end,
-         status = case
-           when r.status in ('replied', 'opted_out', 'cancelled') then r.status
-           when v_efetivo = 'read' then 'read'
-           when v_efetivo = 'delivered' and r.status in ('queued', 'sending', 'sent') then 'delivered'
-           when v_efetivo = 'sent' and r.status in ('queued', 'sending') then 'sent'
-           when v_efetivo = 'failed' and r.status in ('queued', 'sending', 'sent') then 'failed'
-           else r.status end,
-         last_error_code = case
-           when v_efetivo = 'failed' then coalesce(new.error_code, r.last_error_code)
-           else r.last_error_code end,
-         last_error_detail = case
-           when v_efetivo = 'failed' then coalesce(new.error_message, r.last_error_detail)
-           else r.last_error_detail end,
-         updated_at = now()
-   where r.message_id = new.id;
-
-  return new;
-end
-$$;
-
-comment on function public.fn_campanha_sincroniza_ack() is
-  'Trigger de messages: leva o ack do canal (sent/delivered/read/failed, pelo status ou pelos carimbos delivered_at/read_at) ao campaign_recipients daquela mensagem. Status analítico nunca retrocede. Migration 0707.';
-
-revoke execute on function public.fn_campanha_sincroniza_ack() from public, anon, authenticated;
-grant execute on function public.fn_campanha_sincroniza_ack() to service_role;
-
-drop trigger if exists trg_messages_sincroniza_campanha on public.messages;
-create trigger trg_messages_sincroniza_campanha
-  after update of status, delivered_at, read_at on public.messages
-  for each row
-  when (new.direction = 'outbound')
-  execute function public.fn_campanha_sincroniza_ack();
+-- O trigger de ack pelos carimbos que esta migration trazia (quando era a 0680
+-- do fork) veio da upstream com o mesmo comportamento (issue #2937). Na
+-- renumeração da sync com a v1.86 ele saiu daqui: redefini-lo DEPOIS da upstream
+-- faria a última definição da cadeia divergir do apêndice do baseline
+-- (`tests/unit/apendice-do-baseline-nao-diverge-da-cadeia.test.ts`).

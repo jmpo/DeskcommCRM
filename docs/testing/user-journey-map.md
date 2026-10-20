@@ -572,28 +572,6 @@ Spec: `tests/e2e/inbox-mensagem-por-modelo.spec.ts`.
 | J48.2 | Enviar modelo com botões / sem espelho / texto comum com botões forjados no `metadata` | grava os botões da definição, na ordem / não grava nada e envia / não grava nada (o `metadata` de entrada não fala pelos botões) | **PASS (unit)** — `tests/unit/messages-handler-canal-intermediado.test.ts` |
 | J48.3 | Mensagem por modelo enviada antes desta versão (sem botões gravados) | só o selo, sem lista | **PASS (unit)** — `components/inbox/MessageBubble.test.tsx` |
 
-## J47 — O anúncio que trouxe a pessoa aparece na conversa e no painel `[P1]` (2026-10-12)
-
-Contexto: pedido de operação (loja com vários produtos anunciados). A ingestão
-já gravava de qual anúncio a pessoa veio — `metadata.anuncio` na mensagem
-nascida do clique e `source_metadata.ad_*` no contato —, e só a ficha do
-contato o mostrava. A bolha dessa mensagem passa a levar o cartão do anúncio
-(imagem, título, texto, «Ver anúncio») e o painel ao lado ganha «Anúncio de
-origem», com o anúncio mais recente quando a pessoa voltou por outro
-(`components/inbox/AnuncioCard.tsx`, `components/inbox/AnuncioDoContato.tsx`,
-`app/api/v1/contacts/[id]/crm-summary/route.ts`). Junto, a conversa selecionada
-deixou de ser branca no tema escuro (`bg-accent-50` → `bg-accent-soft`).
-
-Spec: `tests/e2e/inbox-anuncio-de-origem.spec.ts`.
-
-| # | Caso | Expectativa | Resultado |
-|---|------|-------------|-----------|
-| J47.1 | Abrir a conversa de quem veio de um anúncio e voltou por outro | cada bolha de clique tem o cartão do SEU anúncio, com a imagem carregada (`naturalWidth > 0`) e o link; o painel mostra o anúncio de origem e «Voltou por outro anúncio» com o segundo; os cartões cabem na coluna (`boundingBox`) | **PASS pela tela** — Evidência: `evidence/inbox-anuncio-de-origem/01-anuncio-na-bolha-e-no-painel.png` |
-| J47.2 | A mesma conversa selecionada no tema escuro | contraste do nome contra o fundo efetivo da linha ≥ 4,5 (cor computada) | **PASS pela tela** — Evidência: `evidence/inbox-anuncio-de-origem/02-selecionada-no-escuro.png` |
-| J47.3 | Endereço do anúncio que não é `https:` (`javascript:`, `data:`, `http:`) | não chega a `href` nem a `src` | **PASS (unit)** — `tests/unit/anuncio-visivel-na-inbox.test.tsx` |
-
----
-
 ## J9 — Ver o que o follow-up já fez, e intervir sem matá-lo `[P1]`
 
 Contexto do código: o dossiê do enrollment (`/app/ai/followups/enrollments/[id]`,
@@ -3545,7 +3523,7 @@ vale o horário, no segundo. Uma inbound sem texto acorda o nó, não é
 classificada, e a carência recomeça desse despertar (comportamento anterior do
 motor, não mexido aqui).
 
-## J46 — Escolher o modelo que escreve o seguimento `[P2]` (2026-10-02)
+## J50 — Escolher o modelo que escreve o seguimento `[P2]` (2026-10-02)
 
 Em Agente de IA › Provedores, grupo "Atender o cliente", o ponto **"Escrever o seguimento"**
 (`followup_turn`) mostra o modelo da versão publicada do agente enquanto ninguém escolheu outro, e
@@ -3554,8 +3532,8 @@ silêncio e retornos acordados) passam a usá-lo; responder ao cliente continua 
 
 | # | Caso | Esperado | Estado |
 |---|---|---|---|
-| J46.1 | Abrir Provedores com o agente publicado e sem escolha | o ponto aparece com o modelo da versão publicada | **PASS** — `prova-painel-provedores.spec.ts`; evidência `evidence/modelo-do-seguimento/01-ponto-no-painel.png` |
-| J46.2 | Escolher outro modelo no ponto e gravar | a escolha fica gravada e o cartão a mostra | **PASS** — evidência `evidence/modelo-do-seguimento/02-escolha-gravada.png` e `evidence/modelo-do-seguimento/03-cartao-do-follow-up.png` |
+| J50.1 | Abrir Provedores com o agente publicado e sem escolha | o ponto aparece com o modelo da versão publicada | **PASS** — `prova-painel-provedores.spec.ts`; evidência `evidence/modelo-do-seguimento/01-ponto-no-painel.png` |
+| J50.2 | Escolher outro modelo no ponto e gravar | a escolha fica gravada e o cartão a mostra | **PASS** — evidência `evidence/modelo-do-seguimento/02-escolha-gravada.png` e `evidence/modelo-do-seguimento/03-cartao-do-follow-up.png` |
 ## J39 — O fluxo de silêncio espera antes de recomeçar para quem já passou por ele `[P1]` (2026-09-27)
 
 Contexto do código: num fluxo de silêncio com `cancel_on_reply`, cada resposta do
