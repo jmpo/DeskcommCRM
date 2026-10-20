@@ -2,6 +2,7 @@
 
 import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
 import { formatDistanceToNowStrict } from "date-fns";
+import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,6 +42,12 @@ export function CaseDetail({ caseId }: { caseId: string | null }) {
         <div>
           <h2 className="text-base font-semibold">{data.contact_name ?? t("Contato sem nome")}</h2>
           <p className="text-xs text-muted-foreground">{data.contact_phone ?? t("Sem telefone")}</p>
+          <Link
+            className="text-xs underline underline-offset-4"
+            href={`/app/inbox/${data.conversation_id}`}
+          >
+            {t("Ver conversa")}
+          </Link>
         </div>
         <div className="flex items-center gap-2">
           {data.source === "guardrail_autofallback" ? (

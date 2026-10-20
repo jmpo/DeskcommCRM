@@ -375,19 +375,34 @@ v_sb_key() {
     *) echo "$(t "Isso não parece uma chave do Supabase (elas começam com 'eyJ' ou 'sb_'). Pegue em Settings > API.")"; return 1;;
   esac
   [ -z "$url" ] && return 0
+  # ── A PROVA HTTP bate no Supabase LOCAL quando ele é desta VPS ──────────────
+  # No single-server a URL pública é servida pelo Caddy desta instalação, e ele
+  # só sobe DEPOIS desta fase: com o domínio atrás de proxy (Cloudflare laranja,
+  # o padrão do kit) a chamada abaixo volta 521 e a instalação PARA na fase 2,
+  # mandando conferir uma chave que está certa — medido numa VPS real, 10/10/2026.
+  # Quem responde à pergunta "esta chave serve?" é o gateway local, publicado só
+  # em loopback — a MESMA escolha que `v_supabase_url` já faz acima. O `ref` do
+  # JWT continua conferido contra a URL que o operador deu: aquela comparação é
+  # sobre o PROJETO, e essa não muda.
+  local prova="$url"
+  if [ "${SINGLE_SERVER:-0}" = "1" ]; then
+    case "${SUPABASE_INTERNAL_URL:-}" in
+      http://*|https://*) prova="$SUPABASE_INTERNAL_URL";;
+    esac
+  fi
   local code
   if [ "$want" = "service_role" ]; then
     # Rota de administração: a anon leva 401 aqui. É o que separa uma da outra.
     code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 \
       -H "apikey: $key" -H "Authorization: Bearer $key" \
-      "$url/auth/v1/admin/users?page=1&per_page=1" 2>/dev/null)" || code=000
+      "$prova/auth/v1/admin/users?page=1&per_page=1" 2>/dev/null)" || code=000
   else
     # /auth/v1/settings é a rota que a anon PODE abrir. Não use /rest/v1/: ele
     # responde 401 "Only the service_role API key can be used for this endpoint"
     # até para a anon correta — validador que reprova o dado certo é pior que
     # nenhum. Provado nesta VPS: settings dá 200 para as chaves do projeto e 401
     # para lixo e para JWT de outro projeto.
-    code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 -H "apikey: $key" "$url/auth/v1/settings" 2>/dev/null)" || code=000
+    code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 -H "apikey: $key" "$prova/auth/v1/settings" 2>/dev/null)" || code=000
   fi
   case "$code" in
     2*) return 0;;

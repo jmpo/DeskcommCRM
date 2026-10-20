@@ -232,6 +232,8 @@ describe("POST /api/v1/contacts/import — a planilha segue o PAÍS da organiza�
       valida: (valor) => /^\d{9}[A-Z]{2}\d{3}$/.test(valor),
       normaliza: (valor) => valor.toUpperCase().replace(/[^0-9A-Z]/g, ""),
     },
+    idioma: "xi-XI",
+    fusoDoSugerido: "UTC",
     lei: { nome: "Lei do Xistão", numero: "Lei nº 1/2020", artigo: "Art. 5º", revisada: false },
     calendario: { feriados: [], rotulo: "feriados do Xistão" },
     padroesDePii: [],

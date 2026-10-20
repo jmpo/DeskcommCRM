@@ -19,7 +19,8 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { carregaEtapasCitadas } from "@/lib/followup/etapas-citadas";
-import type { FollowupFlowSurface } from "@/lib/followup/api-schemas";
+import { carregaModelosCitados } from "@/lib/followup/modelos-citados";
+import { triggerConfigSchema, type FollowupFlowSurface } from "@/lib/followup/api-schemas";
 import { moduloLigado } from "@/lib/instalacao/modulos";
 import {
   algumCanalExigeModeloForaDaJanela,
@@ -173,6 +174,10 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
   // está ativa — sem esta leitura, uma regra que nunca decide publicaria calada.
   const citadas = await carregaEtapasCitadas(admin, activeOrg.orgId, graph.nodes);
   if (!citadas.ok) return fail("internal_error", citadas.mensagem, 500, { requestId });
+  // O motor lança a cada envio quando o modelo do passo não existe NESTA org
+  // (fluxo importado de outra conta, ou modelo apagado) — seguimento do #3056.
+  const modelos = await carregaModelosCitados(admin, activeOrg.orgId, graph.nodes);
+  if (!modelos.ok) return fail("internal_error", modelos.mensagem, 500, { requestId });
   // Roteiro: para onde os OUTROS roteiros ativos encadeiam — para recusar a
   // publicação que fecharia um ciclo A → B → A (revisão do #1573).
   let roteiro: RoteiroDoPublish | undefined;
@@ -218,16 +223,23 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
   const exigeModeloForaDaJanela = algumCanalExigeModeloForaDaJanela(
     (conexoes ?? []).map((c) => c.provider as string | null),
   );
+  // O gatilho entra só pelos AVISOS (`avisosDoGatilho`): nenhuma recusa
+  // depende dele, e um `trigger_config` que não parseia não pode travar a
+  // publicação de um grafo válido — vira ausência, que é "nada a avisar".
+  const gatilho = triggerConfigSchema.safeParse(pointer.trigger_config);
   const validation = validateFlowForPublish(graph, {
     etapas: citadas.etapas,
     surface,
     roteiro,
     exigeModeloForaDaJanela,
+    modelos: modelos.modelos,
+    ...(gatilho.success ? { trigger: gatilho.data } : {}),
   });
   if (!validation.ok) {
     return fail("validation_failed", t("Fluxo reprovado na validação de publish."), 422, {
       requestId,
-      details: { errors: validation.errors },
+      // `t()` degrada para o português quando a frase não tem tradução.
+      details: { errors: validation.errors.map((e) => ({ ...e, message: t(e.message) })) },
     });
   }
 
@@ -266,5 +278,10 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     metadata: { version_id: result.version_id },
   });
 
-  return ok(updatedPointer, { requestId });
+  // Os avisos viajam com o sucesso. Publicar é o momento em que a pessoa está
+  // olhando, e um aviso guardado para depois é um aviso que ninguém lê.
+  return ok(
+    { ...updatedPointer, avisos: validation.warnings ?? [] },
+    { requestId },
+  );
 }

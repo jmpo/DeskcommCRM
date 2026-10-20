@@ -128,6 +128,9 @@ export const ApiErrorCodes = {
   // 422 — semântica
   unprocessable_entity: "unprocessable_entity",
   plano_invalido: "plano_invalido", // plano inexistente, arquivado, de outro intervalo, ou cobrança desligada
+  // #2846: cobrança ligada, planos oferecidos e nenhum plano padrão — a empresa
+  // não nasce sem plano (doc 146). Quem administra define um padrão.
+  plano_obrigatorio: "plano_obrigatorio",
   // Cobrança do revendedor, PR 3a (spec §7a–§7g, §13). O provedor fora do ar é
   // 503 e o provedor que recusou é 502: a tela diz "tente de novo" num caso e
   // "confira os dados" no outro.
@@ -330,15 +333,15 @@ export const ApiErrorCodes = {
   campanha_agenda_invalida: "campanha_agenda_invalida", // 422: data no passado
   campanha_conteudo_invalido: "campanha_conteudo_invalido", // 422: texto vazio ou variável que não existe
   campanha_base_legal_invalida: "campanha_base_legal_invalida", // 422: interesse legítimo sem referência da LIA
-  // Migration 0680 (#1330, fatia 4): campanha pelo número oficial com modelo aprovado.
+  // Migration 0707 (#1330, fatia 4): campanha pelo número oficial com modelo aprovado.
   campanha_modo_do_canal: "campanha_modo_do_canal", // 422: texto livre em número oficial, ou modelo em número por QR
   campanha_modelo_um_numero: "campanha_modelo_um_numero", // 422: modelo aprovado sai por um número só
   campanha_modelo_inexistente: "campanha_modelo_inexistente", // 422: o modelo não existe neste número
   campanha_modelo_nao_aprovado: "campanha_modelo_nao_aprovado", // 422: modelo pausado, recusado ou em análise
   campanha_modelo_variaveis: "campanha_modelo_variaveis", // 422: variável sem origem, ou origem que não serve
-  // Migration 0687: envio rápido (rajada) só pelo número oficial, com modelo aprovado.
+  // Migration 0708: envio rápido (rajada) só pelo número oficial, com modelo aprovado.
   campanha_velocidade_do_canal: "campanha_velocidade_do_canal", // 422: envio rápido ou broadcast pedido num número que não o faz
-  campanha_transmissao_variavel: "campanha_transmissao_variavel", // 422: broadcast com variável que muda por pessoa (migration 0694)
+  campanha_transmissao_variavel: "campanha_transmissao_variavel", // 422: broadcast com variável que muda por pessoa (migration 0709)
   campanha_transmissao_entregue: "campanha_transmissao_entregue", // 409: a velocidade não muda depois que a lista foi entregue ao provedor
 
   // 500 / upstream

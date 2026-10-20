@@ -166,6 +166,13 @@ export const PUBLIC_PATHS: RegExp[] = [
   /^\/api\/v1\/ai\/agents\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/publish$/i,
   /^\/api\/v1\/ai\/agents\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/versions\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
   /^\/api\/v1\/ai\/agents\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/versions\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/test$/i,
+  // ROTEADORES DE IA SERVER-TO-SERVER. Sessão OU Bearer `dsk_…`, resolvidos
+  // dentro dos handlers. Os segmentos dinâmicos aceitam somente forma de UUID
+  // e todos os padrões são ancorados para nenhum irmão futuro entrar de carona.
+  /^\/api\/v1\/ai\/routers$/,
+  /^\/api\/v1\/ai\/routers\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  /^\/api\/v1\/ai\/routers\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/members$/i,
+  /^\/api\/v1\/ai\/routers\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/test$/i,
   /^\/_next\//,
   /^\/favicon\.ico$/,
   // O ícone da aba (`app/icon.tsx`), que o `<head>` de TODA página pede —

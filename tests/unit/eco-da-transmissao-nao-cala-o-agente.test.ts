@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * O ECO DA TRANSMISSÃO (migration 0694) — a mensagem que o provedor mandou por
+ * O ECO DA TRANSMISSÃO (migration 0709) — a mensagem que o provedor mandou por
  * broadcast volta pelo webhook como uma saída que o CRM não mandou.
  *
  * Medido em produção em 16/10/2026, antes deste conserto, com 2 destinatários:

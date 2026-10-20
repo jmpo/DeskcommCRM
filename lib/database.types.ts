@@ -1057,6 +1057,8 @@ export type Database = {
         Row: {
           channel_session_id: string
           created_at: string
+          default_assignee_user_id: string | null
+          distribution_mode: string | null
           id: string
           organization_id: string
           updated_at: string
@@ -1064,6 +1066,8 @@ export type Database = {
         Insert: {
           channel_session_id: string
           created_at?: string
+          default_assignee_user_id?: string | null
+          distribution_mode?: string | null
           id?: string
           organization_id: string
           updated_at?: string
@@ -1071,6 +1075,8 @@ export type Database = {
         Update: {
           channel_session_id?: string
           created_at?: string
+          default_assignee_user_id?: string | null
+          distribution_mode?: string | null
           id?: string
           organization_id?: string
           updated_at?: string
@@ -1624,6 +1630,7 @@ export type Database = {
           legacy_recovery_code: string | null
           kind: string
           organization_id: string | null
+          para_user_id: string | null
           ref_id: string | null
           ref_kind: string | null
           resolved_at: string | null
@@ -1639,6 +1646,7 @@ export type Database = {
           legacy_recovery_code?: string | null
           kind: string
           organization_id?: string | null
+          para_user_id?: string | null
           ref_id?: string | null
           ref_kind?: string | null
           resolved_at?: string | null
@@ -1654,6 +1662,7 @@ export type Database = {
           legacy_recovery_code?: string | null
           kind?: string
           organization_id?: string | null
+          para_user_id?: string | null
           ref_id?: string | null
           ref_kind?: string | null
           resolved_at?: string | null
@@ -3669,6 +3678,7 @@ export type Database = {
         Row: {
           calendar_selection_revision: number
           account_email: string
+          catalog_retry_at: string | null
           created_at: string
           id: string
           last_sync_at: string | null
@@ -3687,6 +3697,7 @@ export type Database = {
         Insert: {
           calendar_selection_revision?: number
           account_email: string
+          catalog_retry_at?: string | null
           created_at?: string
           id?: string
           last_sync_at?: string | null
@@ -3705,6 +3716,7 @@ export type Database = {
         Update: {
           calendar_selection_revision?: number
           account_email?: string
+          catalog_retry_at?: string | null
           created_at?: string
           id?: string
           last_sync_at?: string | null
@@ -4639,6 +4651,8 @@ export type Database = {
           organization_id: string
           person_id: string | null
           phone_lookup_at: string | null
+          name_lookup_at: string | null
+          address_book_name: string | null
           phone_number: string | null
           social_identity: string | null
           source: string
@@ -4683,6 +4697,8 @@ export type Database = {
           organization_id: string
           person_id?: string | null
           phone_lookup_at?: string | null
+          name_lookup_at?: string | null
+          address_book_name?: string | null
           phone_number?: string | null
           social_identity?: string | null
           source?: string
@@ -4727,6 +4743,8 @@ export type Database = {
           organization_id?: string
           person_id?: string | null
           phone_lookup_at?: string | null
+          name_lookup_at?: string | null
+          address_book_name?: string | null
           phone_number?: string | null
           social_identity?: string | null
           source?: string
@@ -5356,6 +5374,7 @@ export type Database = {
           title: string
           updated_at: string
           value_cents: number | null
+          webhook_source_id: string | null
         }
         Insert: {
           assigned_at?: string | null
@@ -5389,6 +5408,7 @@ export type Database = {
           title: string
           updated_at?: string
           value_cents?: number | null
+          webhook_source_id?: string | null
         }
         Update: {
           assigned_at?: string | null
@@ -5422,6 +5442,7 @@ export type Database = {
           title?: string
           updated_at?: string
           value_cents?: number | null
+          webhook_source_id?: string | null
         }
         Relationships: [
           {
@@ -5464,6 +5485,13 @@ export type Database = {
             columns: ["lost_from_stage_id"]
             isOneToOne: false
             referencedRelation: "crm_stages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crm_leads_webhook_source_id_fkey"
+            columns: ["webhook_source_id"]
+            isOneToOne: false
+            referencedRelation: "webhook_sources"
             referencedColumns: ["id"]
           },
         ]
@@ -9938,6 +9966,7 @@ export type Database = {
           path_token: string
           redirect_to: string | null
           secret_encrypted: string | null
+          update_existing_lead_on_capture: boolean
           updated_at: string
         }
         Insert: {
@@ -9959,6 +9988,7 @@ export type Database = {
           path_token: string
           redirect_to?: string | null
           secret_encrypted?: string | null
+          update_existing_lead_on_capture?: boolean
           updated_at?: string
         }
         Update: {
@@ -9980,6 +10010,7 @@ export type Database = {
           path_token?: string
           redirect_to?: string | null
           secret_encrypted?: string | null
+          update_existing_lead_on_capture?: boolean
           updated_at?: string
         }
         Relationships: [
@@ -10445,6 +10476,7 @@ export type Database = {
 
       fn_google_appointment: { Args: { p_org: string; p_id: string; p_action: string; p_args?: Json }; Returns: Json }
       fn_google_calendar: { Args: { p_org: string; p_id: string; p_action: string; p_args?: Json }; Returns: Json }
+      fn_google_calendar_page_batch: { Args: { p_org: string; p_id: string; p_args: Json }; Returns: Json }
       fn_google_calendar_fence: { Args: { p_org: string; p_id: string; p_claim: Json; p_cursor?: Json }; Returns: undefined }
       fn_google_catalog: { Args: { p_org: string; p_connection: string; p_items: Json; p_revision: string }; Returns: undefined }
       fn_google_selection: { Args: { p_org: string; p_revisions: Json; p_sources: string[]; p_destination: string }; Returns: undefined }
@@ -10705,12 +10737,29 @@ export type Database = {
           source_name: string
         }[]
       }
+      fn_can_view_appointment: {
+        Args: { p_org: string; p_owner_user_id: string }
+        Returns: boolean
+      }
       fn_can_view_conversation: {
         Args: { p_assigned_to_user_id: string; p_org: string }
         Returns: boolean
       }
+      fn_evento_visivel_ao_atendente: {
+        Args: {
+          p_entity_id: string
+          p_entity_kind: string
+          p_org: string
+          p_payload: Json
+        }
+        Returns: boolean
+      }
       fn_can_view_lead: {
         Args: { p_org: string; p_owner_user_id: string }
+        Returns: boolean
+      }
+      fn_can_view_task: {
+        Args: { p_assigned_to: string; p_created_by: string; p_org: string }
         Returns: boolean
       }
       fn_claim_due_followup_enrollments: {

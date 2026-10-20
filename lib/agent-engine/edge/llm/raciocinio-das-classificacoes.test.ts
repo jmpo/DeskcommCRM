@@ -21,7 +21,12 @@ import { createDefaultRegistry } from "@/lib/agent-engine/edge/llm/providers";
 import { runModelCall } from "@/lib/agent-engine/edge/llm/run-model-call";
 
 const ORG = "44444444-4444-4444-8444-444444444444";
-const CFG = { anthropicApiKey: "chave-ant-de-teste", openaiApiKey: "chave-openai-de-teste", cacheTtl: "1h" } as never;
+const CFG = {
+  anthropicApiKey: "chave-ant-de-teste",
+  openaiApiKey: "chave-openai-de-teste",
+  openrouterApiKey: "chave-openrouter-de-teste",
+  cacheTtl: "1h",
+} as never;
 const LOG = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as never;
 const CONTEXTO = { messages: [{ direction: "inbound", body: "quero dois, quanto fica?" }], last_proposal: null } as never;
 
@@ -113,6 +118,19 @@ describe("as classificações saem sem raciocínio", () => {
     for (const corpos of [await classificarEstagio("openai", "gpt-6-luna"), await classificarManipulacao("openai", "gpt-6-luna")]) {
       expect(corpos.length).toBeGreaterThan(0);
       expect(corpos[0]?.reasoning).toMatchObject({ effort: "none" });
+    }
+  });
+});
+
+describe("fora dos provedores medidos, a classificação sai como antes", () => {
+  // OpenRouter, Requesty e personalizado falam Chat Completions: o SDK escreveria
+  // `reasoning_effort: "none"` para QUALQUER modelo. Google: `thinkingBudget: 0` no
+  // 2.5 Pro, que o Google documenta como recusado. Sem a medição de cada um, nada é pedido.
+  it("openrouter/meta-llama/llama-3.3-70b-instruct: sem reasoning_effort no corpo", async () => {
+    const modelo = "meta-llama/llama-3.3-70b-instruct";
+    for (const corpos of [await classificarEstagio("openrouter", modelo), await classificarManipulacao("openrouter", modelo)]) {
+      expect(corpos.length).toBeGreaterThan(0);
+      expect(corpos[0]).not.toHaveProperty("reasoning_effort");
     }
   });
 });

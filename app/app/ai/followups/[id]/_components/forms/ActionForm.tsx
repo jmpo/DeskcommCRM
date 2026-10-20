@@ -57,6 +57,19 @@ function SeletorDeModelo({
   // O plano B da IA não tem mapa de variáveis: só modelo sem variável serve a ele.
   const doCanal = (aprovados.data ?? []).filter((m) => !soAprovados || m.variaveis.length === 0);
 
+  // Seguimento do #3056: o id gravado que não está em nenhuma das listas (fluxo
+  // importado de outra conta, modelo apagado) deixava o seletor EM BRANCO, sem
+  // dizer nada. Só afirma a ausência com as duas listas carregadas — lista que
+  // falhou ou não pôde ser lida não prova que o modelo sumiu. Indisponível, o
+  // `value` vai "" — é o que faz o Radix mostrar o placeholder «Escolha um modelo».
+  const listasLidas = (soAprovados || textos.isSuccess) && aprovados.isSuccess;
+  const indisponivel = listasLidas && valor !== "" && !prontos.some((m) => m.id === valor) && !doCanal.some((m) => m.id === valor);
+  const aviso = indisponivel && (
+    <p role="alert" className="text-xs text-warning-fg">
+      {t("O modelo que estava aqui não está disponível nesta conta. Escolha um modelo para este passo.")}
+    </p>
+  );
+
   if ((!soAprovados && textos.isLoading) || aprovados.isLoading) {
     return <p className="text-xs text-text-muted">{t("Carregando seus modelos…")}</p>;
   }
@@ -72,9 +85,12 @@ function SeletorDeModelo({
   // tela justamente para quem ainda não tem modelo, e nada explicaria onde ele foi.
   if (!soAprovados && prontos.length === 0 && doCanal.length === 0) {
     return (
-      <p className="text-xs text-text-muted">
-        {t("Você ainda não tem modelos de mensagem. Crie um em Ajustes → Modelos e ele aparece aqui.")}
-      </p>
+      <div className="space-y-2">
+        {aviso}
+        <p className="text-xs text-text-muted">
+          {t("Você ainda não tem modelos de mensagem. Crie um em Ajustes → Modelos e ele aparece aqui.")}
+        </p>
+      </div>
     );
   }
 
@@ -83,7 +99,7 @@ function SeletorDeModelo({
   return (
     <div className="space-y-2">
       <Select
-        value={valor === "" ? SEM_MODELO : valor}
+        value={indisponivel ? "" : valor === "" ? SEM_MODELO : valor}
         onValueChange={(v) => onChange(v === SEM_MODELO ? "" : v)}
       >
         <SelectTrigger id={id}>
@@ -113,6 +129,7 @@ function SeletorDeModelo({
           )}
         </SelectContent>
       </Select>
+      {aviso}
       {escolhido && <p className="whitespace-pre-line text-xs text-text-muted">{escolhido.texto}</p>}
       {soAprovados && doCanal.length === 0 && (
         <p className="text-xs text-text-muted">
@@ -238,11 +255,17 @@ export function ActionForm({
   );
   const aprovados = useModelosAprovadosDoFluxo();
   const variaveisDe = (id: string) => aprovados.data?.find((m) => m.id === id)?.variaveis ?? [];
+  // #2734 — mídia OPCIONAL do passo: com uma imagem ou PDF, o texto acima vira a
+  // LEGENDA. O upload pela tela ainda não existe nesta fatia — o campo é a URL.
+  const [mediaUrl, setMediaUrl] = useState(
+    config.mode === "text" ? (config.media_url ?? "") : "",
+  );
   const [error, setError] = useState<string | null>(null);
 
   const commit = (next: {
     mode: ModoDaAcao;
     body: string;
+    mediaUrl: string;
     promptHint: string;
     fallbackTemplateId: string;
     templateId: string;
@@ -258,7 +281,11 @@ export function ActionForm({
         : Object.fromEntries(Object.entries(next.templateValues).filter(([chave]) => chaves.includes(chave)));
     const candidate =
       next.mode === "text"
-        ? { mode: "text" as const, body: next.body }
+        ? {
+            mode: "text" as const,
+            body: next.body,
+            ...(next.mediaUrl.trim() ? { media_url: next.mediaUrl.trim() } : {}),
+          }
         : next.mode === "ai_message"
           ? {
               mode: "ai_message" as const,
@@ -279,7 +306,7 @@ export function ActionForm({
     onChange(parsed.data);
   };
 
-  const fields = { body, promptHint, fallbackTemplateId, templateId, templateValues };
+  const fields = { body, mediaUrl, promptHint, fallbackTemplateId, templateId, templateValues };
   const variaveisDoEscolhido = variaveisDe(templateId);
 
   return (
@@ -322,6 +349,23 @@ export function ActionForm({
           <p className="text-xs text-text-muted">
             {t("Sai exatamente assim, sem IA. No laço,")} {t("{{volta}}")} {t("e")} {t("{{voltas}}")} {t("viram o número da volta.")}
           </p>
+          <div className="space-y-2">
+            <Label htmlFor="action-media-url">{t("Imagem ou PDF (opcional)")}</Label>
+            <Input
+              id="action-media-url"
+              type="url"
+              maxLength={2000}
+              value={mediaUrl}
+              placeholder="https://…/oferta.pdf"
+              onChange={(e) => {
+                setMediaUrl(e.target.value);
+                commit({ mode, ...fields, mediaUrl: e.target.value });
+              }}
+            />
+            <p className="text-xs text-text-muted">
+              {t("Com uma imagem ou PDF, o texto acima vira a legenda do arquivo. Outros tipos de arquivo são recusados. Depois de 24 horas sem resposta do cliente, a mídia não sai — só um modelo aprovado chega até ele.")}
+            </p>
+          </div>
         </div>
       ) : mode === "ai_message" ? (
         <>

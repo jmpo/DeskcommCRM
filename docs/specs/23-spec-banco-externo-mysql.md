@@ -536,8 +536,9 @@ por token enxerga NADA até marcar as fontes — por isso o fragmento de versão
 
 ### Onde a regra é aplicada (um lugar só)
 
-Função PURA `aplicarFontes` (em `lib/external-db/fontes.ts`), chamada dentro do
-dialeto/`abrirAcesso` — nunca em cada tool ou rota. Regras:
+Funções PURAS `tabelaLiberada`, `colunasLiberadas` e `aplicarAoCatalogo` (em
+`lib/external-db/fontes.ts`), aplicadas dentro do dialeto (`criarDialetoPostgres`,
+`lib/external-db/dialeto.ts`) — nunca em cada tool ou rota. Regras:
 
 1. `listarTabelas` devolve só as fontes liberadas, com `descricao`, e nelas só as colunas liberadas;
 2. `colunasDaTabela` devolve só as colunas liberadas — e é essa lista que valida projeção,
@@ -679,7 +680,7 @@ bytes do `describe` existem para manter esse custo sob controle.
   (aviso); `GRANT USAGE ON *.* ...` (sem aviso); `GRANT 'leitura' TO 'u'@'%'` (role → "não consegui
   conferir os papéis..."); presença de `GRANT OPTION` (aviso); `SELECT` em `*.*` ou em
   `banco.*` (aviso de leitura ampla, ver "O que o agente consegue ver").
-- Unidade de `aplicarFontes`: fonte fora da lista (`fonte_nao_liberada`); coluna escondida em
+- Unidade das funções de `lib/external-db/fontes.ts`: fonte fora da lista (`fonte_nao_liberada`); coluna escondida em
   projeção, em filtro e em ordenação; projeção vazia com colunas restritas vira lista explícita
   (nunca `*`); modo `all` = comportamento atual; lista vazia (`sem_fontes_liberadas`).
 - Tool com o dialeto MySQL simulado: `conexao.motor` presente (se o campo `motor` for adotado),
@@ -757,7 +758,7 @@ bytes do `describe` existem para manter esse custo sob controle.
 
 Teste que não fica vermelho com a linha sabotada não guarda nada; cada uma abaixo deixa um
 teste vermelho: trocar `ESCAPE '!'` por barra; remover o filtro `table_schema`; remover a
-omissão de `ssl`; fazer o interpretador ignorar `ALL PRIVILEGES`; tirar `aplicarFontes` do
+omissão de `ssl`; fazer o interpretador ignorar `ALL PRIVILEGES`; tirar `aplicarAoCatalogo` do
 `listarTabelas`; aceitar filtro em coluna escondida; deixar a projeção vazia virar `*` com
 colunas restritas; ignorar `source_mode = 'list'`; trocar o `default` da coluna para
 `'list'` (deve deixar vermelho o caso de conexão antiga); tirar o `source_mode: 'list'` do
@@ -770,7 +771,7 @@ Cada fatia sai num PR próprio:
 | Fatia | O que entrega | Depende de | Toca schema? | Toca tela? |
 |---|---|---|---|---|
 | 1 | Os dois defeitos da seção "Defeitos existentes": as ferramentas somem com o módulo desligado + nome da tabela com maiúscula | — | Não | Não |
-| 2a | Fontes liberadas no banco, no núcleo e na API (`source_mode`, `sources`, `aplicarFontes`, rotas `catalog`/`sources`); nasce o `Dialeto` só com PostgreSQL | 1 (satisfeita) | Sim | Não |
+| 2a | Fontes liberadas no banco, no núcleo e na API (`source_mode`, `sources`, as funções de `fontes.ts`, rotas `catalog`/`sources`); nasce o `Dialeto` só com PostgreSQL | 1 (satisfeita) | Sim | Não |
 | 2b | Painel "O que o assistente pode ver" (marcação de fontes) | 2a | Não | Sim |
 | 3 | O `Dialeto` ganha `consultar`, `testar`, `fechar` e a escolha pelo `db_type`; refatoração sem mudar comportamento | 2a | Não | Não |
 | 4a | MySQL: `db_type`, `last_test_aviso`, driver, dialeto, interpretador de `SHOW GRANTS` | 3 | Sim | Não |
@@ -866,7 +867,7 @@ Medido contra a `main` `17a67d3da`, que já contém o #2280; fatias 1 e 2a parte
 
 ## Living System Checklist — dialeto MySQL
 
-1. Quem me alimenta? Conexões `mysql` em `external_db_connections` (cadastro em `/app/integracao-dados`). As fontes marcadas alimentam o dialeto (`aplicarFontes`).
+1. Quem me alimenta? Conexões `mysql` em `external_db_connections` (cadastro em `/app/integracao-dados`). As fontes marcadas alimentam o dialeto (`lib/external-db/fontes.ts`, aplicado por `criarDialetoPostgres`).
 2. Quem eu alimento? Grade do explorador + tools `crm_describe/query_external_data` (mesmos consumidores do PG) — agora filtrados pelas fontes liberadas.
 3. Que registro eu emito? `api_audit_log` via `audit()` (leitura e mutação, sem PII, agora com `db_type` e `source_mode` no metadata de criação) + `last_test_*` na linha da conexão + **aviso de privilégio excessivo** (`last_test_aviso`, visível na tela como aviso amarelo) + rastro `ai_agent_runs.tool_calls` (com conteúdo — ver item 4 de Segurança).
 4. Onde eu apareço na tela? Explorador `/app/integracao-dados/[id]` + seletor de motor no formulário (desabilitado ao editar) + aviso amarelo de privilégio (`last_test_aviso`) + painel "O que o assistente pode ver".

@@ -645,6 +645,30 @@ describe("iniciarAssinatura", () => {
     });
   });
 
+  it("⭐ cria cobrança avulsa proporcional no mesmo cliente e recupera o pagamento por referência idempotente", async () => {
+    const { adaptador, chamadas } = montar({
+      "GET /payments": rotaDePagamentos([]),
+      "POST /payments": { corpo: cobranca({ id: "pay_upgrade", invoiceUrl: "https://sandbox.asaas.com/i/pay_upgrade" }) },
+    });
+    const resultado = await adaptador.iniciarAjusteProporcional({
+      clienteRef: CLIENTE, orgId: ORG, plano: PLANO, valorCents: 3065, chaveIdempotencia: "troca-1", urlDeVolta: "https://crm.example.com/volta",
+    });
+    expect(resultado).toEqual({ pagamentoRef: "pay_upgrade", url: "https://sandbox.asaas.com/i/pay_upgrade" });
+    expect(chamadas.find((c) => c.rota === "POST /payments")?.corpo).toMatchObject({
+      customer: CLIENTE, billingType: "UNDEFINED", value: 30.65, externalReference: `upgrade:${ORG}:troca-1`,
+    });
+  });
+
+  it.each([
+    ["PENDING", "pendente"], ["OVERDUE", "pendente"],
+    // Cartão em análise de risco: ainda pode ser aprovado — encerrado esqueceria o pagamento.
+    ["AWAITING_RISK_ANALYSIS", "pendente"],
+    ["RECEIVED", "pago"], ["CONFIRMED", "pago"], ["REFUNDED", "encerrado"],
+  ])("⭐ ajuste proporcional com status %s → %s", async (status, esperado) => {
+    const { adaptador } = montar({ "GET /payments/pay_upgrade": { corpo: cobranca({ id: "pay_upgrade", status }) } });
+    await expect(adaptador.lerPagamentoProporcional("pay_upgrade")).resolves.toBe(esperado);
+  });
+
   it("⭐ #2609 expirar a sessão: DELETE /payments/{id} — a cobrança some e a invoiceUrl dela para de valer", async () => {
     const { adaptador, chamadas } = montar({ "DELETE /payments/pay_aberta": { corpo: { id: "pay_aberta", deleted: true } } });
     await adaptador.expirarSessao("pay_aberta");
@@ -738,6 +762,7 @@ describe("lerSituacao", () => {
       assinaturaRef: "sub_1", existe: true, assinaturasVivas: 1, cancelada: false, cancelaNoFim: false,
       emAtraso: false, vencidaDesde: null, proximoVencimento: fim("2026-11-01"), jaPagou: true,
       emTesteNoProvedorAte: null, pagamentoSemAssinaturaViva: false,
+      periodoPagoDesde: new Date("2026-10-01T03:00:00.000Z"),
       linkDePagamento: "https://sandbox.asaas.com/i/pay_nov", precoCents: 4990, statusBruto: "ACTIVE",
     });
   });
@@ -965,7 +990,7 @@ describe("cancelarNoFim e urlDeGerenciar", () => {
     expect(a.id).toBe("asaas");
     expect(Object.keys(a).sort()).toEqual(
       ["id", "testarChave", "prepararWebhook", "removerWebhooks", "clienteExiste", "verificarWebhook", "garantirCliente",
-        "iniciarAssinatura", "expirarSessao", "lerSituacao", "trocarPlano", "cancelarNoFim", "urlDeGerenciar"].sort(),
+        "iniciarAssinatura", "iniciarAjusteProporcional", "lerPagamentoProporcional", "expirarSessao", "lerSituacao", "trocarPlano", "cancelarNoFim", "urlDeGerenciar"].sort(),
     );
   });
 });

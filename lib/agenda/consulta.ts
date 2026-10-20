@@ -147,6 +147,7 @@ export type ResultadoDaConsulta =
        * um agente que o oferece MARCA por cima da cirurgia e confirma ao cliente.
        */
       agendaExternaNuncaLida: boolean;
+      /** Cobertura incompleta para o trecho futuro consultado; o passado não oferece horários. */
       googleCoberturaParcial: boolean;
     }
   | {
@@ -363,8 +364,21 @@ export async function horariosLivresDaOrg(
     agora: params.agora,
   });
 
-  let googleCoberturaParcial = true;
-  try { googleCoberturaParcial = Boolean(await googleRpc(supabase, "fn_google_coverage", { p_org: organizationId, p_owner: donoId, p_start: params.de.toISOString(), p_end: params.ate.toISOString() })); } catch { /* leitura incerta não afirma cobertura */ }
+  // A grade semanal inclui dias passados no começo do recorte, mas a cobertura
+  // do Google começa em torno de agora. Esses dias já não podem oferecer horário
+  // e não devem manter o aviso aceso para os dias futuros que a cobertura atende.
+  const inicioDaCobertura = Math.max(params.de.getTime(), params.agora.getTime());
+  let googleCoberturaParcial = params.ate.getTime() > inicioDaCobertura;
+  if (googleCoberturaParcial) {
+    try {
+      googleCoberturaParcial = Boolean(await googleRpc(supabase, "fn_google_coverage", {
+        p_org: organizationId,
+        p_owner: donoId,
+        p_start: new Date(inicioDaCobertura).toISOString(),
+        p_end: params.ate.toISOString(),
+      }));
+    } catch { /* leitura incerta não afirma cobertura */ }
+  }
   return {
     ok: true,
     googleCoberturaParcial,

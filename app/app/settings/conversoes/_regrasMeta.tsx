@@ -72,7 +72,10 @@ export function RegrasDeConversaoMeta({
         const r = porEtapa.get(e.id);
         const rascunho: Rascunho = r
           ? { enabled: r.enabled, metaEvent: r.metaEvent }
-          : { enabled: false, metaEvent: eventoRecomendadoParaMeta(e.nome) ?? "LeadSubmitted" };
+          : {
+              enabled: false,
+              metaEvent: eventoRecomendadoParaMeta(e.nome, conexaoDireta) ?? "LeadSubmitted",
+            };
         return [e.id, rascunho];
       }),
     ) as Record<string, Rascunho>;
@@ -89,7 +92,7 @@ export function RegrasDeConversaoMeta({
     setRascunhos((atual) => {
       const novo = { ...atual };
       for (const e of etapas) {
-        const sugestao = eventoRecomendadoParaMeta(e.nome);
+        const sugestao = eventoRecomendadoParaMeta(e.nome, conexaoDireta);
         if (!sugestao) continue;
         novo[e.id] = { enabled: true, metaEvent: sugestao };
       }

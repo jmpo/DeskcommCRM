@@ -123,6 +123,24 @@ export function PainelDeTags({ tags, idioma }: { tags: LinhaDeVocabulario[]; idi
     [tags, alvo],
   );
 
+  /**
+   * O nome digitado já É uma etiqueta desta organização (issue #2801).
+   *
+   * Nesse caso `renomear` não renomeia: ele junta as duas entradas numa só, e
+   * o que sobra de cor/descrição é decidido pelo vocabulário, não por quem
+   * digitou. A tela avisa ANTES do clique — o marcador `juntou` da resposta
+   * só chega depois, quando já não há o que desfazer. Mesma régua visual do
+   * aviso de `excluir`: uma frase que diz o que vai acontecer, não um "tem
+   * certeza?".
+   *
+   * Compara com `destinos`, que já exclui a própria etiqueta: mudar só a caixa
+   * ("cliente" → "Cliente") é renome, não junção.
+   */
+  const destinoJaExiste =
+    acao === "renomear" &&
+    destino.trim().length > 0 &&
+    destinos.some((linha) => linha.tag.toLowerCase() === destino.trim().toLowerCase());
+
   function abrir(linha: LinhaDeVocabulario, qual: AcaoDeVocabulario) {
     setAlvo(linha);
     setAcao(qual);
@@ -182,6 +200,25 @@ export function PainelDeTags({ tags, idioma }: { tags: LinhaDeVocabulario[]; idi
       }
       const alterados =
         Number(dados.contatos ?? 0) + Number(dados.leads ?? 0) + Number(dados.conversas ?? 0);
+      if (dados.juntou === true) {
+        // ⚠️ O AVISO DE JUNÇÃO (issue #2801). Renomear para um nome que já
+        // existia JUNTAVA as duas etiquetas e respondia como renome simples:
+        // a frase de sucesso abaixo era indistinguível da de um rename que não
+        // juntou nada, e o operador só descobria depois, na lista. O marcador
+        // vem do BANCO — é ali que se sabe se o destino já existia como
+        // entrada do vocabulário; a tela só tem a lista que ela mesma leu, e o
+        // caso interessante é justamente o que já vinha como duas linhas.
+        //
+        // `toast.warning` e não `toast.success`: a operação foi concluída, mas
+        // ela fez ALGO A MAIS do que o botão prometia, e isso não pode sair
+        // com o mesmo tom de um renome normal.
+        toast.warning(
+          `${t("Etiqueta juntada em")} ${destino} — ${t("as duas etiquetas viraram uma só.")}`,
+        );
+        setAlvo(null);
+        router.refresh();
+        return;
+      }
       // ⚠️ O DADO ENTRA FORA DO `t()`. `traduzir()` casa a string EXATA, então
       // uma frase montada em runtime nunca casa chave nenhuma —
       // a frase sai em português para quem escolheu espanhol, e o guarda de i18n
@@ -394,6 +431,20 @@ export function PainelDeTags({ tags, idioma }: { tags: LinhaDeVocabulario[]; idi
                 maxLength={60}
                 placeholder={alvo.tag}
               />
+              {destinoJaExiste && (
+                // O AVISO ANTES DO CLIQUE (issue #2801). Renomear para um nome
+                // que já existe não renomeia: junta as duas etiquetas numa só,
+                // e a cor/descrição que sobra é decidida pelo vocabulário. O
+                // `juntou` da resposta só chega DEPOIS, quando já não há o que
+                // desfazer — então quem lê este aviso ainda pode escolher
+                // "Juntar" de propósito, ou outro nome. Mesma régua visual do
+                // aviso de `excluir` abaixo: a frase diz o que vai acontecer.
+                <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                  {t(
+                    "Este nome já existe no vocabulário — confirmar vai juntar as duas etiquetas numa só.",
+                  )}
+                </p>
+              )}
             </div>
           )}
 

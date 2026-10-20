@@ -142,7 +142,7 @@ export function googleTransport(accessToken: string, transport: GoogleFetch = fe
     async page(calendar: string, cursor: SyncCursor) {
       const q = new URLSearchParams({
         singleEvents: "true",
-        maxResults: "100",
+        maxResults: "250",
         showDeleted: "true",
       });
       if (cursor.base_sync_token) q.set("syncToken", cursor.base_sync_token);

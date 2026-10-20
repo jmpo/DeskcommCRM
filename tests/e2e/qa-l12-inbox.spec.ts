@@ -279,6 +279,10 @@ test.describe("Lote 12 — painel do contato no Inbox", () => {
       (r) => r.url().includes(`/contacts/${contatoId}`) && r.request().method() === "PATCH",
     );
     await page.getByRole("button", { name: "+ obra", exact: true }).click();
+    // #2789: para manager a sugestão abre o diálogo de cor; o PATCH sai no Adicionar.
+    const dialogo = page.getByRole("dialog");
+    await expect(dialogo).toBeVisible();
+    await dialogo.getByRole("button", { name: "Adicionar tag" }).click();
     const r = await resposta;
     const { data: depois } = await admin.from("contacts").select("tags").eq("id", contatoId).single();
     registra(`#946 · PATCH = ${r.status()} · antes=${JSON.stringify(antes)} depois=${JSON.stringify(depois)}`);

@@ -223,6 +223,77 @@ export const conditionSchema = z.object({
 });
 
 /**
+ * O `config` de `assign_owner` (#2041): uma pessoa fixa, a forma de sempre, ou
+ * um RODÍZIO, em que a posição na `fila` é a ordem e `pausado` tira a pessoa da
+ * vez sem tirá-la da fila.
+ *
+ * `modo` é o discriminador e é OPCIONAL na forma fixa: as regras gravadas antes
+ * do rodízio têm só `{ user_id }` e continuam válidas sem migração de dados. O
+ * union discriminado (e não `z.union`) mantém o caminho do erro no campo
+ * (`fila`, `user_id`), que é o que a tela usa para dizer o que corrigir.
+ */
+export const configDoAtribuirSchema = z.discriminatedUnion("modo", [
+  z.object({ modo: z.literal("fixo").optional(), user_id: z.string().uuid() }),
+  z.object({
+    modo: z.literal("rodizio"),
+    fila: z
+      .array(z.object({ user_id: z.string().uuid(), pausado: z.boolean() }))
+      .min(1)
+      .max(50)
+      .superRefine((fila, ctx) => {
+        const vistos = new Set<string>();
+        for (const [indice, pessoa] of fila.entries()) {
+          if (vistos.has(pessoa.user_id)) {
+            ctx.addIssue({
+              code: "custom",
+              path: [indice, "user_id"],
+              message: "Cada pessoa entra uma vez só na fila do rodízio.",
+            });
+          }
+          vistos.add(pessoa.user_id);
+        }
+      }),
+  }),
+]);
+
+const ehRodizio = (acao: { type: string; config?: unknown }) =>
+  acao.type === "assign_owner" && (acao.config as { modo?: unknown } | undefined)?.modo === "rodizio";
+
+export const MENSAGEM_DO_RODIZIO_FORA_DO_LUGAR =
+  "Uma automação tem no máximo um rodízio de atendentes, como ação direta: a vez de cada pessoa é contada pela automação.";
+
+/**
+ * Uma regra tem no máximo UM rodízio, e só como ação direta. A vez de cada
+ * pessoa é contada por regra (`fn_automation_rodizio_atribuir` lê a fila da
+ * própria regra), então um segundo rodízio na mesma regra — ou um escondido
+ * dentro de `ai_decide` — andaria pela fila do primeiro, calado.
+ */
+function umRodizioPorRegra(
+  acoes: ReadonlyArray<{ type: string; config?: unknown }>,
+  ctx: z.RefinementCtx,
+): void {
+  let rodizios = 0;
+  for (const [indice, acao] of acoes.entries()) {
+    if (acao.type === "ai_decide") {
+      const opcoes = (acao.config as { opcoes?: Array<{ acao?: { type: string; config?: unknown } }> }).opcoes ?? [];
+      for (const [k, opcao] of opcoes.entries()) {
+        if (opcao.acao && ehRodizio(opcao.acao)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [indice, "config", "opcoes", k, "acao", "config", "modo"],
+            message: MENSAGEM_DO_RODIZIO_FORA_DO_LUGAR,
+          });
+        }
+      }
+      continue;
+    }
+    if (ehRodizio(acao) && ++rodizios > 1) {
+      ctx.addIssue({ code: "custom", path: [indice, "config", "modo"], message: MENSAGEM_DO_RODIZIO_FORA_DO_LUGAR });
+    }
+  }
+}
+
+/**
  * As ações FIXAS do motor — a fonte única de "que ações existem, e com que
  * config".
  *
@@ -237,7 +308,24 @@ export const conditionSchema = z.object({
  */
 const acoesFixas = [
   z.object({ type: z.literal("create_or_move_lead"), config: z.object({ pipeline_id: z.string().uuid(), stage_id: z.string().uuid() }) }),
-  z.object({ type: z.literal("send_whatsapp_message"), config: z.object({ channel_session_id: z.string().uuid(), template: z.string().min(1).max(2000) }) }),
+  z.object({
+    type: z.literal("send_whatsapp_message"),
+    config: z.object({
+      channel_session_id: z.string().uuid(),
+      template: z.string().min(1).max(2000),
+      /**
+       * #2734 — MÍDIA OPCIONAL por URL. Quando presente, o `template` deixa de ser
+       * a mensagem inteira e vira a LEGENDA da imagem/PDF. Opcional de propósito: a
+       * regra antiga (só texto) não tem a chave e continua idêntica. O `nullish`
+       * deixa o editor gravar `null`/ausente sem recusar a regra.
+       *
+       * O `type` (imagem × PDF) NÃO mora aqui: quem o decide é o envio, a partir do
+       * MIME — a extensão da URL quando não há MIME. Guardar uma cópia do tipo no
+       * config criaria uma segunda verdade que envelhece se a URL mudar.
+       */
+      media_url: z.string().url().max(2000).nullish(),
+    }),
+  }),
   // #2726 — o e-mail como SAÍDA. O transporte não é configuração da regra: ele
   // já existe em `lib/email` (SMTP ou Resend, escolhido em Admin › E-mail), e
   // esta ação só diz QUEM recebe, o ASSUNTO e o CORPO. `destinatario` é o modo
@@ -287,7 +375,7 @@ const acoesFixas = [
       destino: z.enum(["card", "contato"]).optional(),
     }),
   }),
-  z.object({ type: z.literal("assign_owner"), config: z.object({ user_id: z.string().uuid() }) }),
+  z.object({ type: z.literal("assign_owner"), config: configDoAtribuirSchema }),
   z.object({
     type: z.literal("send_ai_message"),
     config: z.object({
@@ -322,6 +410,10 @@ const acoesFixas = [
       include_owner: z.boolean().optional(),
     }),
   }),
+  // #2647 — a ação alcança o fluxo de ATENDIMENTO, e o caminho é o do produto
+  // (iniciarFluxoDeAtendimento, `coletando`), não o enroll de follow-up.
+  // `surface` é OPCIONAL de propósito: config sem ela é o follow-up de sempre,
+  // então toda regra já gravada continua apontando para o MESMO fluxo.
   z.object({
     type: z.literal("start_message_flow"),
     config: z.object({
@@ -332,6 +424,7 @@ const acoesFixas = [
        * viva, e sem isto a regra perde para o fluxo que chegou antes.
        */
       replace_live_flow: z.boolean().optional(),
+      surface: z.enum(["followup", "atendimento"]).optional(),
     }),
   }),
   // #1540 — a ação que NUNCA fala com o cliente: grava `crm_tasks` e avisa o
@@ -448,6 +541,16 @@ export const updateWebhookSourceSchema = createWebhookSourceSchema.partial().ext
   name: z.string().trim().min(1).max(120).optional(),
   is_active: z.boolean().optional(),
   authorize_ai_on_capture: z.boolean().optional(),
+  /**
+   * A opção do #2316: quando o `external_id` já existe, ATUALIZAR o card da
+   * MESMA fonte em vez de descartar o envio como reenvio.
+   *
+   * Só entra no PATCH — criar fonte com ela ligada não existe, porque o
+   * segredo que a habilita é da mesma tela e vem depois. Nasce DESLIGADA por
+   * DEFAULT na coluna (migration 0683): quem nunca mexer aqui segue exatamente
+   * como antes do #2316, sem a integração poder reescrever edição manual.
+   */
+  update_existing_lead_on_capture: z.boolean().optional(),
 });
 
 export const createAutomationRuleSchema = z
@@ -455,7 +558,7 @@ export const createAutomationRuleSchema = z
     name: z.string().min(1).max(120),
     trigger_event: z.enum(TRIGGER_EVENTS),
     conditions: z.array(conditionSchema).max(10).default([]),
-    actions: z.array(actionSchema).min(1).max(10),
+    actions: z.array(actionSchema).min(1).max(10).superRefine(umRodizioPorRegra),
     /**
      * O que o gatilho precisa saber além do nome dele (#989).
      *
@@ -541,7 +644,7 @@ export const updateAutomationRuleSchema = z
     name: z.string().min(1).max(120).optional(),
     trigger_event: z.enum(TRIGGER_EVENTS).optional(),
     conditions: z.array(conditionSchema).max(10).optional(),
-    actions: z.array(actionSchema).min(1).max(10).optional(),
+    actions: z.array(actionSchema).min(1).max(10).superRefine(umRodizioPorRegra).optional(),
     trigger_config: z.record(z.string(), z.unknown()).optional(),
     is_active: z.boolean().optional(),
   })

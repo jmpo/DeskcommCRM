@@ -194,3 +194,15 @@ describe("link de pagamento", () => {
     expect((gerar() as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+describe("#2961: exceção do B (revendedor sem plano nenhum: a empresa nasce isenta)", () => {
+  it("⭐ isenta e sem plano nenhum: sem botão de gerar link, sem campo de documento, só o caminho para criar um plano", () => {
+    render(<CardDeCobranca orgId={ORG} planos={[]} assinatura={null} suspensaPorCobranca={false} rotuloAntigo={null} pedeDocumento />);
+    expect(screen.getByText("Isenta: não paga e não tem limites.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Gerar link de pagamento" })).toBeNull();
+    expect(screen.queryByLabelText("CPF ou CNPJ de quem paga")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Atribuir plano" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tornar isenta" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Criar um plano em Cobrança" }).getAttribute("href")).toBe("/admin/cobranca");
+  });
+});

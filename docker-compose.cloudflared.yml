@@ -63,11 +63,9 @@
 # ---------------------------------------
 # A borda da Cloudflare corta requisições HTTP acima de ~100s (504/524), e isso
 # não é configurável no plano padrão. O WAHA chama `http://app:3000` direto pela
-# rede interna e não passa pelo túnel. O runner do agente
-# (`/api/internal/agents/run`) PASSA: o dispatcher o chama pelo endereço público
-# (`NEXT_PUBLIC_APP_URL`, lib/ai/dispatcher/index.ts), sem esperar a resposta.
-# Uma execução acima de 100s esbarra nesse teto; o que acontece com ela do lado
-# do app não foi medido.
+# rede interna e não passa pelo túnel. O runner legado do agente, que passava pelo
+# endereço público e podia levar minutos, saiu junto com a rota
+# `/api/internal/agents/run` e o dispatcher que a chamava.
 #
 # A única porta que continua publicada por um serviço nosso não é HTTP (o áudio
 # WebRTC do `wacalls`, UDP) — proxy L7 nenhum carrega UDP, e NAT também não.

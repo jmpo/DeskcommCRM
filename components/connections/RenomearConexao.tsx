@@ -34,6 +34,15 @@ export function RenomearConexao({
 
   useEffect(() => setName(currentName ?? ""), [currentName]);
 
+  // #2892: o `name` digitado sobrevivia ao Cancelar e reaparecia na
+  // reabertura — o useEffect acima só repunha quando `currentName` MUDAVA.
+  // Repor na abertura cobre as duas portas: o clique em Renomear e qualquer
+  // `onOpenChange(true)`; o Cancelar (e o X, e o Escape) só fecham.
+  function abrirDialogo() {
+    setName(currentName ?? "");
+    setOpen(true);
+  }
+
   async function save() {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -54,11 +63,14 @@ export function RenomearConexao({
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+      <Button variant="outline" size="sm" onClick={abrirDialogo}>
         <PencilSimple size={14} aria-hidden />
         {t("Renomear")}
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => (next ? abrirDialogo() : setOpen(false))}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("Nome interno da conexão")}</DialogTitle>

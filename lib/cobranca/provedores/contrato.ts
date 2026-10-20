@@ -55,6 +55,8 @@ export interface Situacao {
   readonly vencidaDesde: Date | null;
   /** Fim do período pago. */
   readonly proximoVencimento: Date | null;
+  /** Início do período efetivamente pago, usado para calcular um upgrade proporcional. */
+  readonly periodoPagoDesde?: Date | null;
   /** Houve pagamento confirmado (> 0) em qualquer assinatura do cliente. */
   readonly jaPagou: boolean;
   /** Principal em teste no provedor (Stripe `trialing`): fim do teste lá. Asaas: sempre null. */
@@ -148,8 +150,10 @@ export interface AdaptadorDeCobranca {
     urlDeVolta: string;
     chaveIdempotencia: string;
   }): Promise<{ url: string; expiraEm: Date | null; assinaturaRef: string | null; sessaoId: string | null }>;
+  iniciarAjusteProporcional(p: { clienteRef: string; orgId: string; plano: PlanoParaProvedor; valorCents: number; chaveIdempotencia: string; urlDeVolta: string }): Promise<{ pagamentoRef: string; url: string }>;
+  lerPagamentoProporcional(pagamentoRef: string): Promise<"pendente" | "pago" | "encerrado">;
   lerSituacao(p: { clienteRef: string }): Promise<Situacao>;
-  /** "Vale a partir da próxima cobrança gerada." Pode recusar com ErroDoProvedor não transitório. */
+  /** Atualiza o preço recorrente sem mudar a data de renovação. Pode recusar com ErroDoProvedor não transitório. */
   trocarPlano(p: { assinaturaRef: string; plano: PlanoParaProvedor }): Promise<void>;
   /**
    * Mata NO PROVEDOR a sessão de pagamento aberta (issue #2609), para a troca de

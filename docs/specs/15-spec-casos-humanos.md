@@ -163,6 +163,16 @@ Quando o humano clica **"Não consigo → escalar"**, o caso vira `escalated` e 
 
 **Resolvido (era risco §10.1):** o caminho canônico do engine é **`performHumanHandoff`** (`lib/agent-engine/agent/human-handoff.ts`) — já é o que a tool inline `request_human_handoff` delega internamente, e o que a detecção determinística e o opt-out chamam. Não criamos um 3º caminho.
 
+A ferramenta nativa `request_human_handoff` aceita `motivo_codigo` opcional:
+`requested_human` para pedido de atendente e `critical_stage` quando a etapa exige
+finalização pela equipe (por exemplo, concluir um agendamento com os dados já
+coletados). Ausente, preserva `requested_human`; mencionar agendamento por si só
+não é razão para encaminhar. O código classifica o briefing, a passagem e o aviso
+da Central, sem escolher destino nem alterar as condições do handoff. `por_que`
+continua sendo a justificativa em texto, com `reason` como sinônimo legado.
+Outros códigos são recusados pelo runtime com erro de ensino; os motivos de
+orçamento, opt-out e casos escalados continuam nos seus emissores próprios.
+
 O que a escalação do caso passa a ele mudou com a migration 0291/0293: além do `reason` (o texto do humano), ela monta o **briefing da passagem** (`lib/escalacao/briefing-da-passagem.ts`) com o caso **mais o checkpoint durável da conversa**, e declara `passagem: { origem: 'caso_escalado', motivoCodigo: 'caso_escalado', casoId }`. Esta seção mandava usar `buildHandoffSummary(previous)` e o código nunca o fez — quem recebia a passagem de um caso escalado via o título, o resumo e o bloqueio do caso, e nada da conversa.
 
 Para ver a chamada em vigor sem acreditar nesta prosa (comando não envelhece):

@@ -352,16 +352,23 @@ describe.skipIf(!temAwk)("recriar o que falta: o comando INTEIRO, nunca o nome",
         comparacao,
         `printf '%s' "$faltando"`,
       ].join("\n");
+      // O locale hostil vai só na ORDENAÇÃO. `LC_ALL` também traduz as
+      // mensagens, e numa máquina em português o `comm` responde "o arquivo 1
+      // não está ordenado" — o caso de sabotagem, que procura "not in sorted
+      // order", ficava vermelho para quem não roda em inglês.
+      const env: NodeJS.ProcessEnv = { ...process.env, A: a.join("\n"), B: b.join("\n") };
+      const colacao = locale ?? env.LC_ALL;
+      delete env.LC_ALL;
+      if (colacao) {
+        env.LC_COLLATE = colacao;
+        env.LC_CTYPE = colacao;
+      }
+      env.LC_MESSAGES = "C";
       try {
         const out = execFileSync(BASH, ["-c", script], {
           encoding: "utf8",
           maxBuffer: 64 * 1024 * 1024,
-          env: {
-            ...process.env,
-            ...(locale ? { LC_ALL: locale } : {}),
-            A: a.join("\n"),
-            B: b.join("\n"),
-          },
+          env,
           stdio: ["ignore", "pipe", fs.openSync(err, "w")],
         });
         return {

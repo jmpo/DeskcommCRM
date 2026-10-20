@@ -244,6 +244,27 @@ export interface PerfilDoPais {
    * brasileiro a quem cadastra cliente em Lisboa. País novo declara o seu.
    */
   telefoneExemplo: string;
+  /**
+   * A LÍNGUA dos destinatários deste país, em BCP-47 (`pt-BR`, `pt-PT`).
+   *
+   * Decide o `lang` do HTML e a língua dos textos que saem do produto para quem
+   * está no país — o alarme ao encarregado (`lib/lgpd/sla-alarm.ts`) é o
+   * primeiro consumidor (issue #2347, item 2). NÃO é a língua da INTERFACE
+   * (`lib/i18n/idiomas`): a interface segue quem opera, e um país pode falar uma
+   * variante que o seletor de idioma não oferece (`pt-PT`). Obrigatória de
+   * propósito, pela mesma razão de `empresa`: país novo declara a sua, e o
+   * esquecimento vira erro de tipo em vez de texto em português calado.
+   */
+  idioma: string;
+  /**
+   * O FUSO SUGERIDO ao escolher este país no seletor (issue #2347, item 4).
+   *
+   * Não é o fuso GRAVADO nem o `FUSO_PADRAO` do produto: uma organização de
+   * Portugal que nunca trocou o fuso continua com `America/Sao_Paulo` (o
+   * DEFAULT da coluna) e mandava ao titular datas em GMT-3. O seletor de país
+   * oferece este valor, e quem escolhe ainda pode recusá-lo trocando o fuso.
+   */
+  fusoDoSugerido: string;
   /** `null` quando o país ainda não tem lei revisada para citar. */
   lei: LeiCitada | null;
   /**
@@ -329,6 +350,8 @@ const PERFIL_BR: PerfilDoPais = {
     rotuloNumero: "CNPJ",
   },
   telefoneExemplo: "+5511999998888",
+  idioma: "pt-BR",
+  fusoDoSugerido: "America/Sao_Paulo",
   lei: {
     nome: "LGPD",
     numero: "Lei nº 13.709/2018",
@@ -391,6 +414,8 @@ const PERFIL_PT: PerfilDoPais = {
     rotuloNumero: "NIPC",
   },
   telefoneExemplo: "+351912345678",
+  idioma: "pt-PT",
+  fusoDoSugerido: "Europe/Lisbon",
   lei: {
     nome: "RGPD",
     numero: "Regulamento (UE) 2016/679",

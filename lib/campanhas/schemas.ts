@@ -24,7 +24,7 @@ export const ritmoSchema = z.object({
   teto_diario: z.number().int().min(1).max(10_000).nullable().optional(),
   teto_horario: z.number().int().min(1).max(10_000).nullable().optional(),
   /**
-   * Migration 0687. Ausente = a que já está (`gradual` numa campanha nova). A
+   * Migration 0708. Ausente = a que já está (`gradual` numa campanha nova). A
    * rota confere contra o número: rápida só com modelo aprovado.
    */
   velocidade: z.enum(VELOCIDADES_DA_CAMPANHA).optional(),
@@ -36,7 +36,7 @@ const baseDaCampanha = {
   channel_session_id: z.string().uuid(),
   message_body: z.string().trim().max(4096).nullable().optional(),
   /**
-   * Migration 0680 (#1330, fatia 4). Ausente = `text`, que é o que toda campanha
+   * Migration 0707 (#1330, fatia 4). Ausente = `text`, que é o que toda campanha
    * anterior é. A rota confere contra o número: o modo é o que o canal aceita
    * (`modoDeCampanhaDoCanal`), nunca uma escolha solta do corpo.
    */

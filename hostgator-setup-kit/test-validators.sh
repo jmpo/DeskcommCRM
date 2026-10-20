@@ -452,6 +452,53 @@ rede_morta "chave Anthropic segue pelo ramo 000"  pass v_anthropic  "sk-ant-abc1
 rede_morta "chave OpenRouter segue pelo ramo 000" pass v_openrouter "sk-or-abc123"  "não consegui checar"
 rede_morta "chave OpenAI segue pelo ramo 000"     pass v_openai     "sk-abc123"     "não consegui checar"
 
+# ── A prova da chave, no single-server, bate no Supabase LOCAL ────────────────
+# Defeito medido numa instalação real (10/10/2026; single-server com o domínio
+# atrás de Cloudflare no modo proxy): a fase 2 provava a chave contra
+# NEXT_PUBLIC_SUPABASE_URL, mas quem serve essa URL é o Caddy DESTA instalação,
+# que só sobe DEPOIS desta fase — o proxy devolve 521 e a instalação PARA
+# mandando conferir uma chave que está certa. O `curl` abaixo é o juiz: ele
+# registra QUAL endereço foi chamado e responde por host (a pública, 521 ou 200
+# conforme o caso; o gateway local do Supabase, sempre 200).
+prova_no_local() {  # prova_no_local <descrição> <SINGLE_SERVER> <resposta da pública> <url esperada>
+  local desc="$1" single="$2" publica="$3" esperada="$4" log chamadas rc
+  log="$(mktemp)"
+  SINGLE_DO_CASO="$single" PUBLICA_DO_CASO="$publica" CURL_LOG="$log" \
+  JWT_DO_CASO="$(mkjwt anon abcdefghijklmnop)" bash -c '
+      INSTALL_SH_LIB=1 . ./install.sh
+      set +e
+      NEXT_PUBLIC_SUPABASE_URL="https://abcdefghijklmnop.supabase.co"
+      SUPABASE_INTERNAL_URL="http://127.0.0.1:8000"
+      SINGLE_SERVER="$SINGLE_DO_CASO"
+      curl() {
+        local a url=""
+        for a in "$@"; do case "$a" in http://*|https://*) url="$a";; esac; done
+        printf "%s\n" "$url" >> "$CURL_LOG"
+        case "$url" in
+          http://127.0.0.1:8000/*) printf 200;;
+          *) printf "%s" "$PUBLICA_DO_CASO";;
+        esac
+        return 0
+      }
+      v_anon "$JWT_DO_CASO"' >/dev/null 2>&1
+  rc=$?
+  chamadas="$(cat "$log" 2>/dev/null)"
+  if [ -n "$chamadas" ] && [ "$chamadas" != "$esperada" ]; then
+    printf '  ✗ %s  (chamou o endereço errado)\n     esperava: %s\n     chamou:   %s\n' \
+      "$desc" "$esperada" "$chamadas"; fail=1
+  elif [ $rc -ne 0 ]; then
+    printf '  ✗ %s  (a chave CERTA foi recusada)\n' "$desc"; fail=1
+  else
+    printf '  ✓ %s\n' "$desc"
+  fi
+  rm -f "$log"
+}
+
+prova_no_local "single-server com o proxy no caminho: a chave certa SEGUE (prova no Supabase local)" \
+  1 521 "http://127.0.0.1:8000/auth/v1/settings"
+prova_no_local "fora do single-server: a prova continua na URL pública que o operador deu" \
+  0 200 "https://abcdefghijklmnop.supabase.co/auth/v1/settings"
+
 echo "leitura do .env (load_env)"
 . ./_common.sh
 set +e
@@ -3590,6 +3637,82 @@ caddy_skip_e2e "caddy (default): recria o próprio proxy"       caddy   ""      
 caddy_skip_e2e "traefik: nunca recria o Caddy"                  traefik "TRAEFIK_NETWORK='crmcaddyskip_proxy'"      nao
 caddy_skip_e2e "npm: nunca recria o Caddy"                      npm     "PROXY_NETWORK_NAME='proxy_network'"       nao
 caddy_skip_e2e "cloudflared: nunca recria o Caddy"              cloudflared "CLOUDFLARE_TUNNEL_TOKEN='token'"     nao
+
+echo "integração: update.sh só recria o Caddy com uma configuração que o Caddy aceitou (#2724)"
+# O arquivo do operador em caddy-sites/ não trava mais a atualização; em troca,
+# um arquivo errado ali faria o Caddy recriado parar e levar o CRM junto. A
+# guarda confere ANTES do primeiro `up -d` (a imagem nova do Caddy também
+# recria o proxy no `up -d` do parque) e, recusada, deixa o proxy antigo no ar
+# e diz o motivo citando caddy-sites/. O dublê faz o papel do `caddy validate`:
+# recusa quando algum .caddy da pasta tem a palavra QUEBRADO, aprova senão. E
+# ele lê o stdin: se o `run` herdasse o stdin de quem roda o update.sh por pipe,
+# comeria o próprio script — o dublê registra se achou algo para ler.
+proxy_conferido_e2e() {  # proxy_conferido_e2e <descrição> <conteúdo do .caddy> <bom|ruim>
+  local desc="$1" conteudo="$2" esperado="$3" dir saida n_val n_up
+  dir="$(mktemp -d)"
+  (
+    montar_vps "$dir" "crmcaddysites" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+case "$*" in
+  *" run "*"caddy validate"*)
+    if IFS= read -r -t 1 _l; then printf 'STDIN_CONSUMIDO\n' >> "$DOCKER_LOG"; fi
+    if grep -qs QUEBRADO caddy-sites/*.caddy; then
+      printf 'Error: adapting config using caddyfile: /etc/caddy/sites/wiki.caddy:2: unrecognized directive: QUEBRADO\n' >&2
+      exit 1
+    fi
+    printf 'Valid configuration\n'; exit 0 ;;
+  *" config --services"*) printf 'app\nworker\nscheduler\ncaddy\nwaha\n'; exit 0 ;;
+esac
+case "$1" in
+  compose) case "$*" in *" exec "*) printf 'healthy\n{"data":{"status":"healthy"}}\n' ;; esac; exit 0 ;;
+esac
+exit 0
+STUB
+    (cd "$VPS_PROJ" && git init -q -b main . \
+      && printf 'caddy-sites/*\n' > .gitignore \
+      && git -c user.email=t@exemplo -c user.name=teste add -A \
+      && git -c user.email=t@exemplo -c user.name=teste commit -qm base \
+      && git tag v9.9.9) >/dev/null 2>&1
+    mkdir -p "$VPS_PROJ/caddy-sites"
+    printf '%s\n' "$conteudo" > "$VPS_PROJ/caddy-sites/wiki.caddy"
+    saida="$(rodar update.sh --skip-backup "INTERNAL_SECRET='segredo-de-teste'
+NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'" 'linha do stdin que não é do caddy
+')"
+    n_val="$(grep -n 'caddy validate' "$VPS_LOG" | head -1 | cut -d: -f1)"
+    n_up="$(grep -nE '^compose .* up -d( |$)' "$VPS_LOG" | grep -v -- '--force-recreate' | head -1 | cut -d: -f1)"
+    falhou=""
+    [ -n "$n_val" ] && [ -n "$n_up" ] && [ "$n_val" -lt "$n_up" ] \
+      || { printf '    a conferência não veio antes do primeiro up -d (validate=%s up=%s)\n' "$n_val" "$n_up"; falhou=1; }
+    ! grep -q STDIN_CONSUMIDO "$VPS_LOG" \
+      || { printf '    a conferência comeu o stdin do update.sh\n'; falhou=1; }
+    if [ "$esperado" = bom ]; then
+      grep -qF -- '--force-recreate --no-deps caddy' "$VPS_LOG" \
+        || { printf '    com a configuração aceita o Caddy não foi recriado\n'; falhou=1; }
+      grep -qE '^compose .* up -d$' "$VPS_LOG" \
+        || { printf '    o up -d do parque não foi o de sempre (sem lista de serviços)\n'; falhou=1; }
+      grep -q '✓ proxy recarregado' <<<"$saida" \
+        || { printf '    a saída não confirma o proxy recarregado\n'; falhou=1; }
+    else
+      ! grep -qF -- '--force-recreate --no-deps caddy' "$VPS_LOG" \
+        || { printf '    o Caddy foi recriado com a configuração recusada\n'; falhou=1; }
+      ! grep -E '^compose .* up -d' "$VPS_LOG" | grep -qw caddy \
+        || { printf '    um up -d do parque alcançou o caddy\n'; falhou=1; }
+      grep -qE '^compose .* up -d app worker scheduler waha$' "$VPS_LOG" \
+        || { printf '    o up -d do parque não subiu os outros serviços\n'; falhou=1; }
+      grep -q 'caddy-sites/' <<<"$saida" && grep -q 'unrecognized directive' <<<"$saida" \
+        && grep -q 'proxy anterior segue no ar' <<<"$saida" \
+        || { printf '    o aviso não cita caddy-sites/ e o motivo do Caddy\n'; falhou=1; }
+    fi
+    if [ -z "$falhou" ]; then printf '  ✓ %s\n' "$desc"
+    else printf '  ✗ %s\n     saída: %s\n' "$desc" "$(printf '%s' "$saida" | tail -4)"; exit 1; fi
+  ) || fail=1
+  rm -rf "$dir"
+}
+proxy_conferido_e2e "arquivo bom em caddy-sites/: confere e recria o proxy" \
+  "$(printf 'wiki.exemplo.com.br {\n\treverse_proxy wiki:80\n}')" bom
+proxy_conferido_e2e "arquivo ruim em caddy-sites/: mantém o proxy antigo e avisa" \
+  "$(printf 'wiki.exemplo.com.br {\n\tQUEBRADO\n}')" ruim
 
 echo "nome do projeto que o docker compose usa"
 # O compose faz TrimLeft("_-") no basename. Sem isso, uma pasta /root/_deskcomm

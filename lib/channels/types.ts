@@ -59,7 +59,7 @@ export interface ChannelCapabilities {
   alteraMensagemEnviada: boolean;
   /**
    * O PROVEDOR faz a transmissão: recebe a lista inteira e um modelo, e manda a
-   * todos de uma vez, com o relatório por destinatário (migration 0694). É o que
+   * todos de uma vez, com o relatório por destinatário (migration 0709). É o que
    * liga a terceira velocidade da campanha. Os valores do modelo são os mesmos
    * para todos — o provedor não recebe valor por destinatário.
    */
@@ -308,6 +308,27 @@ export interface ChannelAdapter {
   resolvePhoneForIdentity?(
     input: ChannelTenantScope & { sessionRef: string; identity: string },
   ): Promise<string | null>;
+
+  /**
+   * O nome salvo na agenda do aparelho ligado a este canal, e o apelido do perfil.
+   *
+   * OPCIONAL: nem todo canal tem agenda. `null` significa que a pergunta nem
+   * saiu (transporte fora, canal sem o método). Um objeto com os dois campos
+   * nulos significa que o canal respondeu e não tinha nome — quem chama
+   * carimba e tenta de novo depois, em vez de perguntar a mesma pessoa para
+   * sempre.
+   *
+   * `agenda` é o nome que o dono do número GRAVOU no celular. `perfil` é o
+   * apelido que a própria pessoa pôs no WhatsApp. Quem chama não precisa saber
+   * QUAL canal guarda a agenda: testa a presença do método.
+   */
+  resolveAddressBookName?(
+    input: ChannelTenantScope & {
+      sessionRef: string;
+      phone: string | null;
+      lid: string | null;
+    },
+  ): Promise<{ agenda: string | null; perfil: string | null } | null>;
 
   /**
    * O número, em dígitos, pelo qual este canal REGISTRA um telefone — `null`

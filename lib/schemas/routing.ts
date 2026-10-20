@@ -240,8 +240,17 @@ export const availabilityPatchSchema = z
   });
 export type AvailabilityPatch = z.infer<typeof availabilityPatchSchema>;
 
+/**
+ * Corpo do PATCH de `/api/v1/settings/routing/channels` (regras POR NÚMERO,
+ * issue #2331). `distribution_mode` e `default_assignee_user_id` são OPCIONAIS:
+ * a tela que só mexe nos responsáveis continua mandando o mesmo corpo, e o
+ * número fica sem regra própria (herda a organização). `null` explícito é
+ * diferente de omitir na chamada da RPC — a tela manda sempre o que quer gravar.
+ */
 export const channelRoutingPatchSchema = z.object({
   channel_session_id: z.string().uuid(),
   user_ids: z.array(z.string().uuid()).max(1000),
   reset: z.boolean().default(false),
+  distribution_mode: z.enum(ROUTING_MODES).nullable().optional(),
+  default_assignee_user_id: z.string().uuid().nullable().optional(),
 }).strict();

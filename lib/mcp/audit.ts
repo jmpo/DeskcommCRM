@@ -94,6 +94,9 @@ export async function auditMcpToolCall(input: AuditMcpToolCallInput): Promise<vo
   // O termo, para a contagem "não achei POR TERMO" (`fn_agent_tool_usage_por_termo`).
   // Mesmo corte do motivo: é texto do cliente e o audit não guarda romance.
   if (termo) metadata.termo = termo.slice(0, 200);
+  // O contato da conversa, quando o turno o injetou no ctx (hoje: ferramenta
+  // de servidor MCP externo em turno de atendimento, #2147).
+  if (ctx.contatoDoTurno) metadata.contact_id = ctx.contatoDoTurno;
   if (ctx.actor.type === "ai_agent" && ctx.actor.api_token_id) {
     metadata.actor_api_token_id = ctx.actor.api_token_id;
   }

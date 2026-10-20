@@ -6,10 +6,10 @@
  * (`lib/agent-engine/edge/llm/pricing.ts`) e às colunas `numeric` de
  * `llm_calls`/`ai_invocations`.
  *
- * Exceção: Gemini 3.6/3.7/3.8 Flash (e o prefixo `provider/`) não usam a
- * linha. Ela já está em 150/750 desde a migration 0649, para a lista mostrar
- * a tarifa de 2027. O gasto sai de `costCentsDoGeminiFlashComVirada`, o mesmo
- * corte de `costCents` (promo até o instante anterior a 2027-01-01T00:00:00Z).
+ * Exceção: os ids com promoção datada (Gemini 3.6/3.7/3.8 Flash, migration
+ * 0649; Gemini 4 Argon, migration 0703 — e o prefixo `provider/`) não usam a
+ * linha. Ela já guarda a tarifa POSTERIOR à promo, para a lista mostrá-la. O
+ * gasto sai de `costCentsComVirada`, o mesmo corte de `costCents`.
  *
  * Arredondava para cima até o centavo inteiro "para errar cobrando a mais".
  * Numa chamada de classificador (~250 tokens de entrada no gpt-5.6-luna, custo
@@ -19,7 +19,7 @@
  * da organização por um número falso.
  */
 
-import { costCentsDoGeminiFlashComVirada } from "@/lib/agent-engine/edge/llm/pricing";
+import { costCentsComVirada } from "@/lib/agent-engine/edge/llm/pricing";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 interface PricingRow {
@@ -74,8 +74,8 @@ export interface ComputeCostInput {
   /** For embedding-only models, treat tokens as embedding tokens. */
   embeddingTokens?: number;
   /**
-   * Instante da chamada. Sem ele, agora. Os Gemini 3.6/3.7/3.8 Flash (e o
-   * prefixo `provider/`) usam o corte de `costCents`, não a linha 150/750.
+   * Instante da chamada. Sem ele, agora. Os ids com promoção datada (e o
+   * prefixo `provider/`) usam o corte de `costCents`, não a linha da tabela.
    */
   em?: Date;
 }
@@ -127,10 +127,10 @@ async function precoDoCatalogo(
  * Returns cost in **cents** (fracionado, sem arredondar). Zero when pricing missing.
  */
 export async function computeCost(input: ComputeCostInput): Promise<number> {
-  // Estes três Flash têm a tarifa de 2027 no catálogo desde a 0649. O gasto
-  // gravado em llm_calls tem de seguir `costCents` (promo estritamente antes
-  // de 2027-01-01T00:00:00.000Z). Outro modelo continua na linha de ai_pricing.
-  const pelaVirada = costCentsDoGeminiFlashComVirada(
+  // Ids com promoção datada guardam no catálogo a tarifa posterior à promo
+  // (0649, 0703). O gasto gravado em llm_calls tem de seguir `costCents`
+  // (promo estritamente antes do corte). Outro modelo segue a linha de ai_pricing.
+  const pelaVirada = costCentsComVirada(
     input.model,
     {
       inputTokens: input.promptTokens ?? 0,

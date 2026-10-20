@@ -8,6 +8,20 @@
  * apagava o que a primeira tinha acabado de gravar. Caso documentado no PR original:
  * um formulário pode disparar no mesmo `lead.created` a regra
  * da etiqueta do produto e a da confirmação; o negócio ficava sem a do produto.
+ *
+ * ─── #2888 — a junção mudou de lado, e o dublê mudou com ela ───────────────
+ *
+ * Este arquivo NÃO mede mais a releitura do aplicativo: desde a 0682 não há
+ * releitura nenhuma aqui. Quem junta é `fn_lead_adicionar_etiquetas` /
+ * `fn_contato_adicionar_etiquetas`, DENTRO do `UPDATE` (`tags || array(select
+ * unnest(p) except select unnest(tags))`), e o que decide escrita e evento é o
+ * que ela devolve no `RETURNING`. O dublê abaixo emula esse contrato — inclusive
+ * o dedupe e o "nada entrou, nada grava" — para que o que continua sendo medido
+ * AQUI seja o que a ação faz com a resposta, não como ela monta a lista.
+ *
+ * A corrida entre dois EVENTOS DIFERENTES (que o app não pode resolver, e é o
+ * motivo da mudança) é medida com transações de verdade em
+ * `tests/invariants/add-tag-concorrente-nao-apaga.test.ts`, contra o Postgres.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -19,47 +33,42 @@ import { getAction } from "@/lib/automation/actions";
 import "@/lib/automation/actions/add-tag";
 import type { ActionCtx } from "@/lib/automation/types";
 
-/** Banco de mentira: guarda as etiquetas por linha e registra o que foi gravado. */
+/** Banco de mentira: guarda as etiquetas por linha, e serve as DUAS funções de
+ *  junção da 0682 com a mesma semântica do SQL (`except` = nada duplica). */
 function banco(inicial: Record<string, string[]>, falhaDeLeitura = false) {
   const linhas: Record<string, string[]> = { ...inicial };
   const gravacoes: Array<{ tabela: string; tags: string[] }> = [];
   const eventos: Array<Record<string, unknown>> = [];
+  const juncoes: Array<{ rpc: string; args: Record<string, unknown> }> = [];
+
   const admin = {
-    from(tabela: string) {
-      let id = "";
-      const leitura = {
-        eq(coluna: string, valor: string) {
-          if (coluna === "id") id = valor;
-          return leitura;
-        },
-        async maybeSingle() {
-          return { data: id in linhas ? { id, tags: linhas[id] } : null, error: falhaDeLeitura ? { message: "indisponível" } : null };
-        },
-      };
-      return {
-        select: () => leitura,
-        update(payload: { tags: string[] }) {
-          const escrita = {
-            eq(coluna: string, valor: string) {
-              if (coluna === "id") id = valor;
-              return escrita;
-            },
-            then(resolve: (v: unknown) => void) {
-              linhas[id] = payload.tags;
-              gravacoes.push({ tabela, tags: payload.tags });
-              resolve({ error: null });
-            },
-          };
-          return escrita;
-        },
-      };
-    },
-    async rpc(_nome: string, args: Record<string, unknown>) {
-      eventos.push(args);
-      return { error: null };
+    async rpc(nome: string, args: Record<string, unknown>) {
+      if (nome === "emit_event") {
+        eventos.push(args);
+        return { data: null, error: null };
+      }
+      if (nome !== "fn_lead_adicionar_etiquetas" && nome !== "fn_contato_adicionar_etiquetas") {
+        throw new Error(`banco de mentira: rpc desconhecida ${nome}`);
+      }
+      juncoes.push({ rpc: nome, args });
+      if (falhaDeLeitura) return { data: null, error: { message: "indisponível" } };
+
+      const id = String(nome === "fn_lead_adicionar_etiquetas" ? args.p_lead : args.p_contato);
+      const pedidas = ((args.p_etiquetas as string[] | undefined) ?? []).map(String);
+      // Sem linha (ou linha de outra organização): nulo, como a função devolve.
+      if (!(id in linhas)) return { data: null, error: null };
+
+      const antes = linhas[id]!;
+      const adicionadas = pedidas.filter((t) => !antes.includes(t));
+      const tabela = nome === "fn_lead_adicionar_etiquetas" ? "crm_leads" : "contacts";
+      if (adicionadas.length) {
+        linhas[id] = [...antes, ...adicionadas];
+        gravacoes.push({ tabela, tags: linhas[id]! });
+      }
+      return { data: { tags: linhas[id]!, adicionadas }, error: null };
     },
   } as unknown as ActionCtx["admin"];
-  return { admin, linhas, gravacoes, eventos };
+  return { admin, linhas, gravacoes, eventos, juncoes };
 }
 
 function ctx(
@@ -96,6 +105,24 @@ describe("add_tag junta com as etiquetas gravadas", () => {
     expect(linhas["lead-1"]).toEqual(["produto-a", "origem-web", "formulario"]);
   });
 
+  it("⭐ a ação não monta a lista: quem junta é a função do banco, sobre a linha VIGENTE", async () => {
+    // A foto diz uma lista, o banco diz outra — a do banco é a que vale, e é o
+    // que o `UPDATE` da 0682 garante sem o app ter de reler nada.
+    const { admin, juncoes } = banco({ "lead-1": ["do-banco"] });
+    await addTag().execute(
+      ctx(admin, { lead: { id: "lead-1", tags: ["da-foto-velha"] } }, "r"),
+      { tags: ["nova"] },
+    );
+
+    expect(juncoes).toHaveLength(1);
+    expect(juncoes[0]!.rpc).toBe("fn_lead_adicionar_etiquetas");
+    expect(juncoes[0]!.args).toMatchObject({
+      p_org: "org-1",
+      p_lead: "lead-1",
+      p_etiquetas: ["nova"],
+    });
+  });
+
   it("o evento anuncia só as etiquetas que de fato entraram", async () => {
     const { admin, eventos } = banco({ "lead-1": ["origem-web"] });
     await addTag().execute(ctx(admin, { lead: { id: "lead-1", tags: [] } }, "r"), {
@@ -120,11 +147,12 @@ describe("add_tag junta com as etiquetas gravadas", () => {
   });
 
   it("sem negócio no contexto, etiqueta o CONTATO pela mesma regra", async () => {
-    const { admin, linhas } = banco({ "contato-1": ["cliente"] });
+    const { admin, linhas, juncoes } = banco({ "contato-1": ["cliente"] });
     await addTag().execute(ctx(admin, { contact: { id: "contato-1", tags: [] } }, "r"), {
       tags: ["origem-web"],
     });
 
+    expect(juncoes[0]!.rpc).toBe("fn_contato_adicionar_etiquetas");
     expect(linhas["contato-1"]).toEqual(["cliente", "origem-web"]);
   });
   it("leitura indisponível não permite gravar a foto antiga", async () => {

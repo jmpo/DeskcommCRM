@@ -1029,6 +1029,7 @@ jobs:
         fotos-no-catalogo.spec.ts
         catalogo-busca-no-catalogo-inteiro.spec.ts
         relatorio-por-etiqueta.spec.ts
+        integracao-dados-mysql-na-tela.spec.ts
 
       # ─── PARTE 4 — a spec de VPS fresca, e quem pode entrar ao lado dela ───
       #
@@ -1196,6 +1197,8 @@ jobs:
         marca-logo.spec.ts
         suporte-temporario.spec.ts
         campanha-com-modelo-aprovado.spec.ts
+        inbox-selecionada-no-escuro.spec.ts
+        inbox-anuncio-de-origem.spec.ts
 
       # ─── PARTE 7 — a "parte 6" que o fork criou em 2026-09-19 ───
       # Na sincronização de 29/09 a upstream também criou uma PARTE_6 (acima
@@ -1218,7 +1221,6 @@ jobs:
         contadores-do-menu.spec.ts
         honorarios-instalar-e-pagar.spec.ts
         inbox-mensagem-por-modelo.spec.ts
-        inbox-anuncio-de-origem.spec.ts
 
       # ─── PARTE 6 — nasceu em 2026-09-28, e o orçamento de 24 min a pediu ───
       #

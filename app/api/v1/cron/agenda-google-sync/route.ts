@@ -5,6 +5,8 @@ import { audit } from "@/lib/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { autorizaCron } from "@/lib/auth/cron-auth";
 export const dynamic = "force-dynamic";
+/** O mesmo prazo que a RPC dá à agenda que falhou (`sync_next_attempt_at` + 15 min). */
+const RECUO_DO_CATALOGO_MS = 15 * 60_000;
 async function executar(req: NextRequest) {
   if (!autorizaCron(req))
     return NextResponse.json(
@@ -14,7 +16,7 @@ async function executar(req: NextRequest) {
   const db = createAdminClient();
   const { data: raw, error } = await db
     .from("calendar_connections")
-    .select("id,organization_id,user_id,calendar_selection_revision")
+    .select("id,organization_id,user_id,calendar_selection_revision,catalog_retry_at")
     .eq("status", "healthy")
     .eq("provider", "google_calendar")
     .order("updated_at")
@@ -44,7 +46,21 @@ async function executar(req: NextRequest) {
         !catalog?.[0]?.catalog_checked_at ||
         Date.parse(catalog[0].catalog_checked_at) < Date.now() - 86_400_000
       ) {
-        await refreshCatalog(db, org, connection.id);
+        // Só o sucesso grava `catalog_checked_at`. Sem este recuo, a leitura do
+        // catálogo que falha (429, 5xx, 403) seria repetida a cada tick do cron
+        // de 1 min: 60 chamadas e 60 audits por hora. No recuo, a conexão espera
+        // como esperava antes, sem ler as agendas com o catálogo vencido.
+        if (connection.catalog_retry_at && Date.parse(connection.catalog_retry_at) > Date.now()) continue;
+        try {
+          await refreshCatalog(db, org, connection.id);
+        } catch (catalogError) {
+          await db
+            .from("calendar_connections")
+            .update({ catalog_retry_at: new Date(Date.now() + RECUO_DO_CATALOGO_MS).toISOString() })
+            .eq("organization_id", org)
+            .eq("id", connection.id);
+          throw catalogError;
+        }
         effects.set(org, (effects.get(org) ?? 0) + 1);
       }
       const { data: calendars, error: calendarError } = await db

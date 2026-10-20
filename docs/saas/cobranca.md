@@ -89,14 +89,23 @@ Aba **Planos**:
 | Nome do plano | Até 60 caracteres |
 | Preço (R$) | A partir de R$ 5,00 |
 | Intervalo de cobrança | Mensal ou Anual |
-| Dias de teste grátis | De 0 a 90; o padrão é 14 |
+| Dias de teste grátis | De 0 a 90; o padrão é 14. **0 = entrada paga:** a empresa que nasce nesse plano fica suspensa até o provedor confirmar o primeiro pagamento |
 | Máximo de pessoas | Vazio = sem limite |
 | Máximo de números conectados | Vazio = sem limite |
 | Teto de uso de IA por mês (US$) | Só para a empresa que usa a chave de IA da instalação. Com a chave da própria empresa (BYOK), não se aplica |
 
 - **Salvar plano** grava. Depois, no plano que quem se cadastra sozinho deve ganhar, clique em
-  **Usar no cadastro**. Sem isso, quem se cadastra sozinho fica **isento**: usa de graça e sem
-  limite, e não tem o que assinar.
+  **Usar no cadastro** (o plano padrão).
+- Com a cobrança ligada, **toda empresa nova nasce com plano**: o que a pessoa escolhe na tela de
+  cadastro (a lista mostra os planos visíveis às empresas e já vem marcada no padrão) ou, sem
+  escolha (entrada pelo Google, integração), o padrão.
+- **Sem plano padrão, mas com planos visíveis às empresas:** o "Entrar com Google" some da tela
+  de cadastro, o cadastro sem plano é recusado e a integração (`/api/v1/tenants/provision`)
+  recebe `409 plano_obrigatorio`. A aba Planos avisa quando você está nessa situação. Quem
+  entra pela primeira vez com o Google pela tela de login escolhe o plano na tela seguinte.
+- **Sem plano nenhum** (nenhum padrão e nenhum visível às empresas): tudo como antes da cobrança
+  por plano — quem se cadastra sozinho fica **isento** (usa de graça e sem limite) e o Google
+  aparece.
 - O preço e o intervalo de um plano **travam** quando alguém o assina. Para mudar, arquive e crie
   outro.
 - Plano negociado com um só cliente: **Esconder das empresas**. Ele ganha o selo "Só você
@@ -151,8 +160,20 @@ A troca vale para a empresa (Configurações › Plano e cobrança › **Trocar 
 você (Tenants › empresa › card Cobrança › **Trocar plano**). As regras:
 
 - **No teste grátis**, a troca vale na hora.
-- **Depois do teste**, com a assinatura no provedor, a troca fica **agendada** e vira na próxima
-  cobrança paga. Subir de plano no dia 1 e descer no dia 28 não compensa.
+- **Depois do teste, a empresa sobe de plano:** ela paga na hora a diferença proporcional aos
+  dias que faltam no período. O plano novo e os limites dele valem quando o provedor confirma
+  esse pagamento (Pix e cartão: minutos; boleto: até 1 dia útil), e a data da renovação não muda.
+  A cobrança da diferença vale até o fim do período em que foi feita: não paga até lá, ela é
+  cancelada no provedor; paga depois disso, o plano novo só vale a partir da próxima renovação
+  paga. Diferença abaixo de R$ 5,00 (perto do fim do período) não é cobrada: a troca fica
+  agendada para a renovação.
+- **Com uma diferença esperando pagamento**, escolher outro plano cancela essa cobrança no
+  provedor. Se ela já foi paga, a troca é recusada por alguns minutos, enquanto o plano pago é
+  aplicado.
+- **Descer de plano** fica **agendado** e vira na próxima cobrança paga, sem crédito do que
+  sobrou. A próxima fatura já sai com o preço novo.
+- **Você (o dono) trocando o plano depois do teste**, para cima ou para baixo, também fica
+  agendado: plano negociado não paga diferença.
 - **Em atraso**, ou com o teste vencido sem assinatura, a troca é recusada: regularize antes.
 - **No Asaas**, com a mensalidade do período ainda em aberto, a troca é recusada até o pagamento
   ser confirmado.

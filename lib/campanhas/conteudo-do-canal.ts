@@ -1,5 +1,5 @@
 /**
- * O CONTEÚDO DA CAMPANHA SEGUE O QUE O NÚMERO ACEITA (migration 0680).
+ * O CONTEÚDO DA CAMPANHA SEGUE O QUE O NÚMERO ACEITA (migration 0707).
  *
  * Número por QR manda texto livre; número oficial manda modelo aprovado — a
  * pergunta é da capability do canal (`modoDeCampanhaDoCanal`), nunca uma escolha
@@ -183,7 +183,7 @@ export function variaveisPorPessoa(variaveis: VariaveisDaCampanha): string[] {
 }
 
 /**
- * A VELOCIDADE SEGUE O CONTEÚDO (migrations 0687 e 0694): rápida e transmissão
+ * A VELOCIDADE SEGUE O CONTEÚDO (migrations 0708 e 0709): rápida e transmissão
  * só com modelo aprovado, que é o número oficial. Pedir qualquer uma num número
  * por QR é recusado com a frase; trocar a campanha para um número por QR a
  * devolve a gradual — a única que ali existe —, em vez de travar a edição no

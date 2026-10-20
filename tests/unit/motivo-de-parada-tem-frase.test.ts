@@ -90,6 +90,13 @@ const ORIGENS: DeclaracaoDeOrigem[] = [
     produtor: { arquivo: "lib/automation/guarda-do-contato.ts" },
   },
   {
+    arquivo: "lib/automation/actions/send-whatsapp.ts",
+    expressao: "classificada.motivo",
+    porque:
+      "a recusa da mídia que não é imagem nem PDF (#2734) chega à tela pelo `error` do resultado; o motivo é a frase de gente que o produtor escreve, e o produtor é varrido ao lado",
+    produtor: { arquivo: "lib/messaging/media/midia-com-legenda.ts" },
+  },
+  {
     arquivo: "lib/automation/actions/send-ai-message.ts",
     expressao: "acesso.motivo",
     porque:

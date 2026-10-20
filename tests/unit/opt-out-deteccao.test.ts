@@ -155,6 +155,19 @@ const NAO_PEDE_PARA_SAIR = [
   "posso cancelar a consulta de amanhã?",
   "vocês vão parar no feriado?",
   "que horas vocês param de atender?",
+  // ─── CONTROLE NEGATIVO de `assinatura` (#2886) ────────────────────────────
+  //
+  // O corpus não tinha UMA frase negativa para `assinatura`: só o positivo, que
+  // esta fatia moveu para as ambíguas. Sem estes casos, alguém "consertaria" o
+  // falso positivo alargando o padrão de bloqueio até casar qualquer coisa com
+  // a palavra, e a suíte seguiria verde. Aqui `assinatura` é o PLANO ou a
+  // FATURA, nunca o canal de mensagens: nenhuma bloqueia — e nenhuma ESCALA
+  // (o describe do lado negativo cobre o escalar, abaixo; sem ele a frase
+  // cairia no ambíguo e desligaria a automação na pergunta de preço).
+  "quanto custa a assinatura anual?",
+  "o valor da assinatura aumentou este mês",
+  "quando vence a assinatura do meu plano?",
+  "a assinatura renova sozinha ou preciso avisar?",
   // colagem — o defeito da versão com `\b` ASCII, que já tinha sido corrigido
   "amanhã ele sairá do escritório e pararão as obras",
   "a obra pararia se chovesse",
@@ -309,7 +322,6 @@ const ESPANHOL_PEDE_PARA_SAIR = [
   "por favor no me escriban mas",
   "me desuscribo",
   "sacame de la lista",
-  "cancelar la suscripcion",
 ];
 
 const ESPANHOL_NAO_PEDE = [
@@ -354,6 +366,12 @@ const ESPANHOL_NAO_PEDE = [
   "no me interesa el seguro, quiero solo el producto",
   "la verdad no me interesa el precio, me interesa la calidad",
   "no me interesa pagar mas, hay algo mas barato?",
+  // CONTROLE NEGATIVO de `suscripcion` (#2886) — espelho do controle de
+  // `assinatura` em `NAO_PEDE_PARA_SAIR`: aqui a palavra é o PLANO ou a FATURA,
+  // nunca o canal. Nenhuma bloqueia e nenhuma escala.
+  "cuanto cuesta la suscripcion anual?",
+  "la suscripcion se renueva sola?",
+  "quiero saber el precio de la suscripcion",
 ];
 
 /**
@@ -416,6 +434,69 @@ const PT_PT_ESCALA_SEM_BLOQUEAR = [
   "cancela a subscrição",
   "posso cancelar a subscrição e voltar depois?",
 ];
+
+/**
+ * ─── "cancelar a assinatura" é o PLANO, não as mensagens (#2886) ─────────────
+ *
+ * A palavra serve às duas coisas: sair das mensagens E cancelar o plano do
+ * produto. Medido com `ehPedidoDeOptOut`/`ehOptOutProvavel` da main, antes
+ * desta fatia, as frases abaixo gravavam `is_blocked` (e escalavam), porque o
+ * padrão `cancelar a (inscricao|assinatura)` estava em `FRASES_DE_OPT_OUT`:
+ *
+ *   "posso cancelar a assinatura e voltar depois?"  bloqueia=true  escala=true
+ *   "quero cancelar a assinatura da revista"        bloqueia=true  escala=true
+ *   "cancelar la suscripcion"                       bloqueia=true  escala=true
+ *
+ * Uma academia, uma revista ou um SaaS que atende pelo WhatsApp PERDIA o cliente
+ * que só perguntava como pausar o plano: o contato ficava bloqueado e a IA parava
+ * de responder. O precedente é a #2872, que fez o mesmo com `cancelar a
+ * subscricão` (pt-PT); o custo aceito — campanhas seguem até alguém da equipe
+ * decidir o bloqueio — está escrito na #2886.
+ *
+ * Quem quer sair DAS MENSAGENS continua coberto pelas formas com objeto, que
+ * bloqueiam na hora; o `it` de baixo é a guarda disso.
+ */
+const ASSINATURA_ESCALA_SEM_BLOQUEAR = [
+  "cancelar a assinatura",
+  "quero cancelar a assinatura",
+  "posso cancelar a assinatura e voltar depois?",
+  "quero cancelar a assinatura da revista",
+  "gostaria de cancelar minha assinatura por enquanto",
+];
+
+const SUSCRIPCION_ESCALA_SEM_BLOQUEAR = [
+  "cancelar la suscripcion",
+  "quiero cancelar la suscripcion",
+  "puedo cancelar la suscripcion y volver despues?",
+  "necesito cancelar mi suscripcion, como hago?",
+];
+
+describe("cancelar o PLANO escala sem bloquear — a palavra de duas caras (#2886)", () => {
+  for (const texto of [...ASSINATURA_ESCALA_SEM_BLOQUEAR, ...SUSCRIPCION_ESCALA_SEM_BLOQUEAR]) {
+    it(`escala sem bloquear: ${texto}`, () => {
+      expect(ehPedidoDeOptOut(texto)).toBe(false);
+      expect(ehOptOutProvavel(texto)).toBe(true);
+    });
+  }
+
+  it("as formas COM objeto de comunicação continuam bloqueando na hora", () => {
+    // O outro lado do conserto: mover `assinatura` para as ambíguas não pode
+    // afrouxar quem de fato pediu para parar de receber.
+    for (const texto of [
+      "parar de me mandar",
+      "sair da lista",
+      "dar de baja la suscripcion",
+      "quiero dar de baja la suscripcion",
+      "quero cancelar a inscrição",
+    ]) {
+      expect(ehPedidoDeOptOut(texto), texto).toBe(true);
+    }
+  });
+
+  it("`cancelar` SOZINHO, sem objeto, continua bloqueando", () => {
+    expect(ehPedidoDeOptOut("cancelar")).toBe(true);
+  });
+});
 
 describe("português de Portugal — o vocabulário da issue #2343", () => {
   for (const texto of PT_PT_PEDE_PARA_SAIR) {
@@ -654,5 +735,49 @@ describe("comecaComPalavraDeSaida — qual frase o cliente lê quando a IA sai d
   it("texto ausente é falso, sem lançar", () => {
     expect(comecaComPalavraDeSaida(null)).toBe(false);
     expect(comecaComPalavraDeSaida(undefined)).toBe(false);
+  });
+});
+
+/**
+ * ─── Com objeto de comunicação, `assinatura` BLOQUEIA (#2971) ───────────────
+ *
+ * O outro lado do bloco de cima. Quando a frase nomeia o que se quer parar de
+ * receber — as mensagens, as notificações, os avisos, a newsletter —, ela tem
+ * objeto de comunicação e bloqueia na hora, como na main antes do #2886. Só a
+ * frase SEM objeto (que também pode ser o plano) escala sem bloquear.
+ *
+ * "do whatsapp" e "de vocês" ficam fora DE PROPÓSITO: também podem ser o plano
+ * ("cancelar a assinatura do whatsapp" numa revenda de planos de WhatsApp), e
+ * seguem só escalando para uma pessoa. A mesma regra fecha o buraco igual da
+ * `subscricao` de Portugal (#2872).
+ */
+const ASSINATURA_COM_OBJETO_BLOQUEIA = [
+  "cancelar a assinatura das mensagens",
+  "quero cancelar a assinatura dessas mensagens",
+  "cancelar a assinatura da newsletter",
+  "cancelar a assinatura das notificações",
+  "quero cancelar a assinatura dos avisos",
+  "cancelar minha assinatura das promoções",
+  "quero cancelar a subscrição das mensagens",
+  "cancelar la suscripción a los mensajes",
+  "quiero cancelar mi suscripcion de sus promociones",
+];
+
+describe("com objeto de comunicação, `assinatura` BLOQUEIA (#2971)", () => {
+  for (const texto of ASSINATURA_COM_OBJETO_BLOQUEIA) {
+    it(`bloqueia: ${texto}`, () => {
+      expect(ehPedidoDeOptOut(texto)).toBe(true);
+    });
+  }
+
+  it("o objeto que pode ser o PLANO não bloqueia — só escala", () => {
+    for (const texto of [
+      "cancelar a assinatura do plano de mensagens",
+      "cancelar a assinatura de mensagens",
+      "cancelar a assinatura do whatsapp",
+    ]) {
+      expect(ehPedidoDeOptOut(texto), texto).toBe(false);
+      expect(ehOptOutProvavel(texto), texto).toBe(true);
+    }
   });
 });

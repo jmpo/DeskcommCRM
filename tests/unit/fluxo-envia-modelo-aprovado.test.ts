@@ -340,3 +340,58 @@ describe("passo `template` com variáveis, preenchidas pelo contato e pelo negó
     expect(resultado(completeFollowupTurn).kind).toBe("skipped");
   });
 });
+
+/**
+ * #2734 — passo de texto fixo com MÍDIA, no caminho do worker (`runFlowDrivenTurn`).
+ * O outro caminho, o atalho inline, está em `lib/followup/enviar-texto-fixo.test.ts`.
+ *
+ * Sabotagem prevista: apagar o bloco `passo.midia !== undefined && janelaFechada(...)`
+ * de `followup-turn.ts` deixa vermelho o caso da janela fechada — a mídia sai pela
+ * cadeia e o canal é chamado.
+ */
+describe("passo de texto fixo com mídia (#2734)", () => {
+  const URL_DA_MIDIA = "https://cdn.exemplo.com/oferta.png";
+
+  it("⭐ janela de 24 h FECHADA: o passo é pulado com o motivo e o canal não é chamado — nem com o texto", async () => {
+    const { d, send, completeFollowupTurn } = deps();
+    await criarHandler(d)(
+      job({ fixed_body: "Olha a oferta", fixed_media_url: URL_DA_MIDIA }),
+      fakePool({ ultimoInboundHa: 30 }),
+      { workerId: "w1" },
+    );
+
+    expect(send).not.toHaveBeenCalled();
+    expect(runBeforeSend).not.toHaveBeenCalled();
+    const r = resultado(completeFollowupTurn);
+    expect(r.kind).toBe("skipped");
+    expect(r.reason).toContain("janela de 24 horas");
+  });
+
+  it("URL de tipo que não é imagem nem PDF: o passo é RECUSADO com o motivo, sem tocar na cadeia", async () => {
+    const { d, send, completeFollowupTurn } = deps();
+    await criarHandler(d)(
+      job({ fixed_body: "Segue o contrato", fixed_media_url: "https://cdn.exemplo.com/contrato.docx" }),
+      fakePool({ ultimoInboundHa: 2 }),
+      { workerId: "w1" },
+    );
+
+    expect(send).not.toHaveBeenCalled();
+    expect(runBeforeSend).not.toHaveBeenCalled();
+    const r = resultado(completeFollowupTurn);
+    expect(r.kind).toBe("skipped");
+    expect(r.reason).toContain("imagem");
+  });
+
+  it("controle: janela ABERTA — sai como mídia, com o texto de legenda", async () => {
+    const { d, send, completeFollowupTurn } = deps();
+    await criarHandler(d)(
+      job({ fixed_body: "Olha a oferta", fixed_media_url: URL_DA_MIDIA }),
+      fakePool({ ultimoInboundHa: 2 }),
+      { workerId: "w1" },
+    );
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]![0]).toMatchObject({ body: "Olha a oferta", media: { url: URL_DA_MIDIA, mime: "image/png", type: "image" } });
+    expect(resultado(completeFollowupTurn).kind).toBe("sent");
+  });
+});

@@ -40,12 +40,17 @@ export interface ChannelSendInput {
     /** Valor por slot, chaveado por `slotKey` — a mesma chave da tela. */
     values: Record<string, string>;
   };  /**
-   * Presente = este envio é uma IMAGEM já guardada no Storage da conversa, e o
-   * `body` é a legenda (pode ser vazio). Hoje só a foto do catálogo usa
-   * (`agent/fotos-do-produto.ts`). Caminho, nunca URL nem bytes: quem assina a
-   * URL curta para o canal é o handler de mensagens, como em toda mídia.
+   * Presente = este envio é uma MÍDIA e o `body` é a legenda (pode ser vazio).
+   *
+   * Duas procedências, um caminho só: `storagePath` é a imagem que já mora no
+   * Storage da conversa (hoje só a foto do catálogo usa — `agent/fotos-do-produto.ts`);
+   * `url` é a mídia de um passo automático (#2734), apontada direto pelo operador.
+   * Caminho, nunca bytes: quem assina a URL curta para o canal é o handler de
+   * mensagens, como em toda mídia — e é ele que confere a URL antes de buscar.
    */
-  media?: { storagePath: string; mime: string };
+  media?:
+    | { storagePath: string; mime: string }
+    | { url: string; mime: string; type: 'image' | 'document' };
 }
 
 /**

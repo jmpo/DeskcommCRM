@@ -290,7 +290,7 @@ async function montarContexto(
   if (contactId) {
     const { data: contato } = await deps.supabase
       .from("contacts")
-      .select("id, name, phone_number, email")
+      .select("id, name, phone_number, email, display_name")
       .eq("id", contactId)
       .eq("organization_id", deps.organizationId)
       .maybeSingle();

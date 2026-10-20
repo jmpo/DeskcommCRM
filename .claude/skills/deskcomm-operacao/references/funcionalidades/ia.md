@@ -74,7 +74,7 @@ O menu e o código mandam sobre este arquivo; para ver o que mudou depois, use
 - **Base que responde** — Material vira resposta com análise de clima junto. _(desde 1.0.0)_
 
 ### Agente de IA → Credenciais
-- **ChatGPT por assinatura com login próprio** — A conexão usa o "Sign in with ChatGPT" e a lista de modelos é por empresa; quem conectou antes precisa conectar de novo. Na 1.79.0 a lista passa a ser buscada no serviço do Codex (se a busca falhar, o seletor mostra o motivo); se a lista não vier, declare `CODEX_CLIENT_VERSION` no `.env` (ex.: `0.160.1`). Onde: Agente de IA → Credenciais. _(desde 1.78.0)_
+- **ChatGPT por assinatura com login próprio** — A conexão usa o "Sign in with ChatGPT" e a lista de modelos é por empresa, consultada com o token da conta em `/v1/models`. Se a consulta falhar, o seletor mostra o motivo; para recuperar a lista após trocar a conta, reconecte-a. Onde: Agente de IA → Credenciais. _(desde 1.78.0)_
 
 - **Login ChatGPT por assinatura** — Com interruptor da instalação, cada empresa conecta a assinatura no Credenciais. _(desde 1.74.0)_
 - **Provedor personalizado OpenAI** — Credenciais aceita endpoint próprio com teste de conexão antes de salvar. _(desde 1.50.0)_

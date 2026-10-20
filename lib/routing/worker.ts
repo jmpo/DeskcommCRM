@@ -15,7 +15,7 @@
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logger } from "@/lib/logger";
-import { decideRouting } from "@/lib/routing/decide";
+import { decideRouting, resolverRoteamentoPorNumero, type RegraDoNumero } from "@/lib/routing/decide";
 import { loadEligibleAttendants, InvalidRoutingChannel } from "@/lib/routing/eligibles";
 import { routingConfigSchema } from "@/lib/schemas/routing";
 
@@ -180,9 +180,19 @@ async function processEvent(event: EventRow, now: Date): Promise<RoutingOutcome>
   const settings = (org?.settings ?? {}) as { routing?: unknown };
   const config = routingConfigSchema.parse(settings.routing ?? {});
 
+  // Regra POR NÚMERO (#2331): o canal pode ter modo próprio e um atendente de
+  // destino padrão. Número sem regra (policy ausente ou colunas nulas) cai no
+  // comportamento da organização — resolverRoteamentoPorNumero é pura e o
+  // resultado é o mesmo que o worker já usava quando não havia coluna.
+  const regraDoNumero = await carregarRegraDoNumero(admin, orgId, conv.channel_session_id);
+  const efetivo = resolverRoteamentoPorNumero(config, regraDoNumero);
+
   const alreadyAssigned = Boolean(conv.assigned_to_user_id);
+  // O destino padrão NÃO depende da lista de elegíveis do modo: é entrega
+  // direta. Por isso só carregamos elegíveis quando o modo vai distribuir.
+  const viaDestinoPadrao = !alreadyAssigned && Boolean(efetivo.defaultAssigneeUserId);
   let eligibles: Awaited<ReturnType<typeof loadEligibleAttendants>> = [];
-  if (!alreadyAssigned && (config.mode === "round_robin" || config.mode === "load")) {
+  if (!alreadyAssigned && !viaDestinoPadrao && (efetivo.mode === "round_robin" || efetivo.mode === "load")) {
     try {
       eligibles = await loadEligibleAttendants(admin, orgId, now, {
         kind: "conversation_channel", channelSessionId: conv.channel_session_id,
@@ -196,20 +206,26 @@ async function processEvent(event: EventRow, now: Date): Promise<RoutingOutcome>
   }
 
   const action = decideRouting({
-    mode: config.mode,
+    mode: efetivo.mode,
     alreadyAssigned,
     eligibles,
     config,
+    defaultAssigneeUserId: efetivo.defaultAssigneeUserId,
     attempts: event.attempts,
     now,
   });
 
   switch (action.kind) {
     case "assign": {
+      // O destino padrão não passou pela régua de elegibilidade (não é
+      // rodízio): vai sem snapshot de jornada — a RPC checa disponibilidade e
+      // capacidade, mas não compara jornada de quem ninguém escolheu.
+      const schedule = viaDestinoPadrao
+        ? null
+        : (eligibles.find((candidate) => candidate.userId === action.userId)?.scheduleSnapshot ?? {});
       const { data: result, error } = await admin.rpc("fn_channel_routing_claim", {
         p_org: orgId, p_conversation: conversationId, p_channel: conv.channel_session_id,
-        p_user: action.userId, p_reason: "routing",
-        p_schedule: eligibles.find((candidate) => candidate.userId === action.userId)?.scheduleSnapshot ?? {},
+        p_user: action.userId, p_reason: "routing", p_schedule: schedule,
       });
       if (error) throw new Error(`fn_channel_routing_claim: ${error.message}`);
       if (result === "already_assigned" || result === "conversation_changed") {
@@ -340,6 +356,34 @@ function strOrNull(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
   return t.length > 0 ? t : null;
+}
+
+/**
+ * Lê a regra do NÚMERO (#2331) de `channel_routing_policies`.
+ *
+ * Ausência de policy = número sem regra própria, e é o estado de TODA
+ * instalação existente: as duas colunas nasceram nulas. Devolver `null` (e não
+ * um objeto default) é o que faz o worker cair no comportamento da organização.
+ */
+async function carregarRegraDoNumero(
+  admin: ReturnType<typeof createAdminClient>,
+  orgId: string,
+  channelSessionId: string | null,
+): Promise<RegraDoNumero | null> {
+  if (!channelSessionId) return null;
+  const { data, error } = await admin
+    .from("channel_routing_policies")
+    .select("distribution_mode, default_assignee_user_id")
+    .eq("organization_id", orgId)
+    .eq("channel_session_id", channelSessionId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  const row = data as { distribution_mode: string | null; default_assignee_user_id: string | null };
+  return {
+    distribution_mode: (row.distribution_mode ?? null) as RegraDoNumero["distribution_mode"],
+    default_assignee_user_id: row.default_assignee_user_id ?? null,
+  };
 }
 
 /**

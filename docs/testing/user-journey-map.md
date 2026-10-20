@@ -37,7 +37,7 @@ fonte só (`lib/onboarding/passos.ts`) — eram três listas que discordavam. Ga
 | J1.1 | Login com credenciais do bootstrap | entra e é redirecionado pro `/onboarding` (org sem `onboarded_at`) |
 | J1.2 | Login com senha errada | mensagem clara "Email ou senha incorretos", sem stack |
 | J1.3 | Welcome: termos não aceitos | botão avança desabilitado |
-| J1.4 | Welcome: nome da org + timezone salvos | grava `display_name`/`timezone`, avança pro WhatsApp |
+| J1.4 | Welcome: nome da org + timezone salvos | grava `display_name`/`timezone`, avança pro WhatsApp; o seletor continua funcionando se a tradução do navegador substituir o texto selecionado (`components/ui/select.test.tsx`, `tests/e2e/vps-fresh-onboarding.spec.ts`). Evidência local com tradução simulada e dados sintéticos: `evidence/select-traducao-do-navegador/localizacao-selecionada.png` |
 | J1.5 | Connect WhatsApp: WAHA ativo → QR aparece | sessão criada, QR renderiza via proxy, poll de status roda |
 | J1.6 | Connect WhatsApp: "Pular por enquanto" | avança pro step correto (setup-ai quando Nuvemshop off) |
 | J1.7 | Setup IA: criar agente default | `ai_agents` criado **e a versão publicada aponta para o provedor que a instalação escolheu**, com o modelo curado DAQUELE provedor; avança. **Sem chave de IA** (o `install.sh` deixa pular, e é o ambiente da VPS fresca no CI): o agente nasce rascunho, sem versão, o aviso nomeia o provedor e "Continuar sem publicar" avança para "Onde ele organiza" (`tests/e2e/vps-fresh-onboarding.spec.ts`) |
@@ -528,14 +528,14 @@ a campanha de texto num número oficial falhava em cada envio. Agora, no número
 oficial, o formulário oferece os modelos aprovados DAQUELE número
 (`GET /api/v1/campaigns/modelos`), o mapa de onde sai cada variável
 (`lib/campanhas/modelo.ts`) e a prévia (`components/channels/PreviaDoModelo.tsx`,
-a mesma do inbox). Migration 0680.
+a mesma do inbox). Migration 0707.
 
 Spec: `tests/e2e/campanha-com-modelo-aprovado.spec.ts`, na `SPECS_PARTE_5`. Os
 casos 1, 2 e o da escolha do envio rápido rodam no CI; o envio de teste e a
 rodada rápida precisam do dublê do provedor (ambiente do `next start`) e pulam
 sem ele — o comando está no cabeçalho da spec.
 
-Envio rápido (migration 0687, 2026-10-16): `campaigns.velocidade` (`gradual` |
+Envio rápido (migration 0708, 2026-10-16): `campaigns.velocidade` (`gradual` |
 `rapida`, só com modelo). Na rápida, a rodada do cron manda em rajada
 (`lib/campanhas/rajada.ts`: 6 inícios por segundo, 4 em voo, até 38 s por
 rodada) em vez de uma mensagem por rodada; o 429 do provedor e o 130429 da
@@ -549,9 +549,9 @@ plataforma devolvem a pessoa à fila em vez de falhá-la.
 | J49.4 | Enviar teste (com o dublê do provedor) | o provedor recebe nome, idioma, `templateParams` na ordem do contrato e `headerMedia`; a conversa guarda o modelo com o texto preenchido | **PASS pela tela, local** — `evidence/campanha-com-modelo-aprovado/05-teste-enviado.png`; no CI pula (sem dublê) |
 | J49.5 | Falha da plataforma no envio | da pessoa (131050, 131049, 131026) segue para a próxima com o motivo em frase; do envio inteiro (132015, 131048, 131042…) pausa a campanha com o motivo | **PASS (unit)** — `lib/channels/erro-da-plataforma.test.ts`; rodada **NÃO MEDIDA** pela tela |
 | J49.6 | Entrega e leitura pelo oficial direto | o trigger de ack lê `delivered_at`/`read_at` e o destinatário vira entregue/lido | **PASS (banco)** — `tests/invariants/campanha-com-modelo-e-ack-pelos-carimbos.test.ts` |
-| J49.7 | Escolher «Rápido» no ritmo de uma campanha do número oficial (migration 0687) | a campanha que já existia vem «Gradual»; «Rápido» grava `velocidade = rapida`, some o campo de intervalo, e a confirmação de «Iniciar envio» diz «Envio rápido: sai tudo em cerca de 1 min.» | **PASS pela tela + banco** (2026-10-16) — `evidence/campanha-com-modelo-aprovado/06-envio-rapido-escolhido.png` |
+| J49.7 | Escolher «Rápido» no ritmo de uma campanha do número oficial (migration 0708) | a campanha que já existia vem «Gradual»; «Rápido» grava `velocidade = rapida`, some o campo de intervalo, e a confirmação de «Iniciar envio» diz «Envio rápido: sai tudo em cerca de 1 min.» | **PASS pela tela + banco** (2026-10-16) — `evidence/campanha-com-modelo-aprovado/06-envio-rapido-escolhido.png` |
 | J49.8 | Campanha rápida de 3 pessoas, uma rodada do cron (com o dublê do provedor) | o provedor recebe os 3 modelos, cada um com o primeiro nome da pessoa; os 3 destinatários ficam `sent`, a campanha `completed`, e a tela mostra «Enviadas 3» | **PASS pela tela, local** (2026-10-16) — `evidence/campanha-com-modelo-aprovado/07-rapida-lista-inteira-numa-rodada.png`; no CI pula (sem dublê) |
-| J49.9 | Escolher «Broadcast» numa campanha do número oficial cujo provedor faz broadcast (migration 0694) | com `{{1}}` = primeiro nome, a opção aparece travada e diz «usa dados de cada pessoa ({{1}})»; com texto fixo nas duas variáveis ela destrava, a tela lista «amiga» e «Pico de Alta Presión» como o que sai para todos, e somem intervalo e tetos (fica a janela) | **PASS pela tela** (2026-10-18) — `evidence/campanha-com-modelo-aprovado/08-broadcast-travado-com-nome.png`, `evidence/campanha-com-modelo-aprovado/09-broadcast-escolhido-texto-fixo.png` |
+| J49.9 | Escolher «Broadcast» numa campanha do número oficial cujo provedor faz broadcast (migration 0709) | com `{{1}}` = primeiro nome, a opção aparece travada e diz «usa dados de cada pessoa ({{1}})»; com texto fixo nas duas variáveis ela destrava, a tela lista «amiga» e «Pico de Alta Presión» como o que sai para todos, e somem intervalo e tetos (fica a janela) | **PASS pela tela** (2026-10-18) — `evidence/campanha-com-modelo-aprovado/08-broadcast-travado-com-nome.png`, `evidence/campanha-com-modelo-aprovado/09-broadcast-escolhido-texto-fixo.png` |
 | J49.10 | Campanha por broadcast de 3 pessoas, duas rodadas do cron (com o dublê do provedor) | 1ª rodada: o provedor recebe UM broadcast com o modelo e os valores já escritos, os 3 telefones e o envio — nenhum envio de um em um; a campanha guarda o id. 2ª rodada: o relatório leva os 3 a `delivered`, a campanha conclui e a tela mostra «Entregues 3» | **PASS pela tela, local** (2026-10-18) — `evidence/campanha-com-modelo-aprovado/10-broadcast-entregue-pelo-relatorio.png`; no CI pula (sem dublê) |
 
 ## J48 — A mensagem que saiu por modelo diz qual e mostra as opções `[P1]` (2026-09-29)
@@ -1607,6 +1607,43 @@ real, não pela tela).
 - **O pagamento em si pelo link.** É o mesmo da J44 (Pix pago no dublê → "Em dia").
 
 **Evidência:** ainda não versionada. A spec grava as duas fotos (o card com o link gerado e o painel da empresa com o mesmo link) na pasta `evidence/cobranca-link-pelo-dono/` quando roda; elas entram aqui, citadas, depois da primeira rodada verde do `e2e`.
+
+## J46 — O anúncio que trouxe a pessoa aparece na conversa e no painel `[P1]` (2026-10-12)
+
+Contexto: pedido de uma operação real (loja com vários produtos anunciados). O
+contato já guardava o anúncio de primeiro toque (`source_metadata.ad_*`), e só
+a ficha do contato o mostrava; a mensagem nascida do clique não guardava de qual
+anúncio veio. A ingestão dos três transportes passa a gravar `metadata.anuncio`
+(título, texto, id, link e miniatura — nunca o clique nem o cru), a bolha dessa
+mensagem leva o cartão do anúncio (imagem, título, texto, «Ver anúncio») e o
+painel ao lado ganha «Anúncio de origem», com o anúncio mais recente quando a
+pessoa voltou por outro (`components/inbox/AnuncioCard.tsx`,
+`components/inbox/AnuncioDoContato.tsx`,
+`app/api/v1/contacts/[id]/crm-summary/route.ts`).
+
+Spec: `tests/e2e/inbox-anuncio-de-origem.spec.ts`.
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J46.1 | Abrir a conversa de quem veio de um anúncio e voltou por outro | cada bolha de clique tem o cartão do SEU anúncio, com a imagem carregada (`naturalWidth > 0`) e o link; o painel mostra o anúncio de origem e «Voltou por outro anúncio» com o segundo; os cartões cabem na coluna (`boundingBox`) | **PASS pela tela** — Evidência: `evidence/inbox-anuncio-de-origem/01-anuncio-na-bolha-e-no-painel.png` |
+| J46.2 | Mensagem recebida de um clique, nos três transportes (intermediado, oficial direto, QR) | `metadata.anuncio` com título, texto, id, link e miniatura; sem `ctwa_clid` nem payload cru; sem anúncio, a chave nem aparece; o primeiro toque do contato segue estampado como antes | **PASS (unit)** — `tests/unit/mensagem-guarda-o-seu-anuncio.test.ts` |
+| J46.3 | Endereço do anúncio que não é `https:` (`javascript:`, `data:`, `http:`) | não chega a `href` nem a `src` | **PASS (unit)** — `tests/unit/anuncio-visivel-na-inbox.test.tsx` |
+
+## J47 — Ler a conversa selecionada no tema escuro `[P1]` (2026-10-12)
+
+Contexto: relatado por uma operação real, com a captura — no tema escuro, a linha
+selecionada da lista do Inbox ficava quase branca e o nome do contato sumia. A
+causa: `bg-accent-50`, um degrau da rampa da marca, que tem o MESMO hex nos dois
+temas; o nome é `text-text`, claro no escuro. Passa a `bg-accent-soft`, o token
+que o tema troca (`components/inbox/ConversationListItem.tsx`).
+
+Spec: `tests/e2e/inbox-selecionada-no-escuro.spec.ts`.
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J47.1 | Tema escuro, conversa aberta pela lista | o nome do contato na linha selecionada tem contraste ≥ 4,5 contra o fundo EFETIVO (cor computada, camadas translúcidas compostas) | **PASS pela tela** — Evidência: `evidence/inbox-selecionada-no-escuro/01-selecionada-no-escuro.png` |
+| J47.2 | A classe da selecionada | `bg-accent-soft`, nenhum degrau fixo `bg-accent-50…950`; a não selecionada não ganha o fundo | **PASS (unit)** — `tests/unit/selecionada-legivel-no-escuro.test.tsx` |
+| J47.3 | Tema escuro, conversa aberta E marcada no lote, com o mouse ou o foco de teclado | a linha fica num tom só (o botão não pinta por cima do fundo da linha), o foco aparece como anel, e o nome e a prévia seguem com contraste ≥ 4,5 contra o fundo efetivo | **PASS pela tela** — Evidência: `evidence/inbox-selecionada-no-escuro/02-aberta-e-marcada-com-foco.png` |
 
 ## Jornadas exercitadas (instalação final, virgem)
 

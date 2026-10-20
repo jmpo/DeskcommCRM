@@ -505,7 +505,7 @@ const PARES: Array<{
   {
     tabela: "campaigns",
     coluna: "message_mode",
-    // lib/campanhas/tipos.ts → MODOS_DA_MENSAGEM. Migration 0680 (#1330, fatia
+    // lib/campanhas/tipos.ts → MODOS_DA_MENSAGEM. Migration 0707 (#1330, fatia
     // 4): o número oficial manda modelo aprovado, e o despacho escolhe o
     // caminho por esta coluna. Um modo só no TypeScript viraria `23514` ao
     // salvar a campanha; só no CHECK, campanha que o despacho não sabe mandar.
@@ -515,8 +515,8 @@ const PARES: Array<{
   {
     tabela: "campaigns",
     coluna: "velocidade",
-    // lib/campanhas/tipos.ts → VELOCIDADES_DA_CAMPANHA. Migrations 0687 e
-    // 0694: o despacho escolhe rajada, uma-por-rodada ou a transmissão do
+    // lib/campanhas/tipos.ts → VELOCIDADES_DA_CAMPANHA. Migrations 0708 e
+    // 0709: o despacho escolhe rajada, uma-por-rodada ou a transmissão do
     // provedor por esta coluna.
     arquivo: "lib/campanhas/tipos.ts",
     simbolo: "VELOCIDADES_DA_CAMPANHA",
@@ -526,6 +526,12 @@ const PARES: Array<{
     coluna: "source_mode",
     arquivo: "lib/external-db/types.ts",
     simbolo: "ModoDeFontes",
+  },
+  {
+    tabela: "external_db_connections",
+    coluna: "db_type",
+    arquivo: "lib/external-db/types.ts",
+    simbolo: "TipoBanco",
   },
 ];
 
