@@ -71,7 +71,9 @@ export function nomeDoPerfil(org: { id: string; nome: string }): string {
   return `${nome} · ${org.id.slice(0, 8)}`;
 }
 
-const perfisSchema = z.object({ profiles: z.array(z.object({ _id: z.string(), name: z.string() })) });
+const perfisSchema = z.object({
+  profiles: z.array(z.object({ _id: z.string(), name: z.string() })),
+});
 
 /**
  * O perfil desta organização no provedor: o já gravado, ou um novo.
@@ -85,7 +87,8 @@ export async function garantirPerfil(
   org: { id: string; nome: string; perfilGravado: string | null },
 ): Promise<string> {
   const perfis = perfisSchema.parse(await pedirAoProvedor(chave, "profiles")).profiles;
-  if (org.perfilGravado && perfis.some((p) => p._id === org.perfilGravado)) return org.perfilGravado;
+  if (org.perfilGravado && perfis.some((p) => p._id === org.perfilGravado))
+    return org.perfilGravado;
   const nome = nomeDoPerfil(org);
   const existente = perfis.find((p) => p.name === nome);
   if (existente) return existente._id;
@@ -143,7 +146,8 @@ export async function urlDaPaginaDeConexao(chave: string, p: PaginaDeConexao): P
   const { authUrl } = z
     .object({ authUrl: z.string().url() })
     .parse(await pedirAoProvedor(chave, `connect/whatsapp?${query.toString()}`));
-  if (!authUrl.startsWith("https://")) throw new ErroDoProvedor("O provedor devolveu um endereço inseguro.");
+  if (!authUrl.startsWith("https://"))
+    throw new ErroDoProvedor("O provedor devolveu um endereço inseguro.");
   return authUrl;
 }
 
@@ -167,6 +171,30 @@ export interface ContaConectada {
   nome: string | null;
 }
 
+type ContaDoProvedor = z.infer<typeof contasSchema>["accounts"][number];
+
+/** As contas de WhatsApp ativas DESTE perfil — o filtro do provedor é conferido de novo aqui. */
+async function whatsappsDoPerfil(chave: string, profileId: string): Promise<ContaDoProvedor[]> {
+  const { accounts } = contasSchema.parse(
+    await pedirAoProvedor(chave, `accounts?profileId=${encodeURIComponent(profileId)}`),
+  );
+  return accounts.filter(
+    (a) =>
+      (typeof a.profileId === "string" ? a.profileId : a.profileId._id) === profileId &&
+      a.platform === "whatsapp" &&
+      a.isActive,
+  );
+}
+
+function paraContaConectada(conta: ContaDoProvedor): ContaConectada {
+  const digitos = (conta.username ?? "").replace(/\D/g, "");
+  return {
+    accountId: conta._id,
+    telefone: digitos ? `+${digitos}` : null,
+    nome: conta.displayName ?? null,
+  };
+}
+
 /**
  * A conta que voltou na URL está NESTE perfil, é de WhatsApp e está ativa?
  * `null` quando não: a volta não prova nada sozinha, quem prova é o provedor.
@@ -176,17 +204,21 @@ export async function contaConectadaNoPerfil(
   profileId: string,
   accountId: string,
 ): Promise<ContaConectada | null> {
-  const { accounts } = contasSchema.parse(
-    await pedirAoProvedor(chave, `accounts?profileId=${encodeURIComponent(profileId)}`),
-  );
-  const conta = accounts.find(
-    (a) =>
-      a._id === accountId &&
-      (typeof a.profileId === "string" ? a.profileId : a.profileId._id) === profileId,
-  );
-  if (!conta || conta.platform !== "whatsapp" || !conta.isActive) return null;
-  const digitos = (conta.username ?? "").replace(/\D/g, "");
-  return { accountId: conta._id, telefone: digitos ? `+${digitos}` : null, nome: conta.displayName ?? null };
+  const conta = (await whatsappsDoPerfil(chave, profileId)).find((a) => a._id === accountId);
+  return conta ? paraContaConectada(conta) : null;
+}
+
+/**
+ * O número que o perfil JÁ tem, se tiver. O provedor aceita um WhatsApp por
+ * perfil: achado aqui, a conexão se conclui sem passar de novo pela Meta — é o
+ * caminho de reconectar e o de uma volta que se perdeu no meio.
+ */
+export async function whatsappDoPerfil(
+  chave: string,
+  profileId: string,
+): Promise<ContaConectada | null> {
+  const [conta] = await whatsappsDoPerfil(chave, profileId);
+  return conta ? paraContaConectada(conta) : null;
 }
 
 const webhooksSchema = z.object({
@@ -198,17 +230,23 @@ const webhooksSchema = z.object({
  *
  * Reconciliada pela URL, como a das redes sociais: uma tentativa que criou a
  * assinatura e morreu antes de gravar o id não pode virar duas assinaturas
- * (cada evento chegaria em dobro). Achada pela URL, recebe o filtro e é
- * religada; o segredo dela é o mesmo, porque a URL (o token) e o segredo da
- * sessão só mudam juntos.
+ * (cada evento chegaria em dobro).
+ *
+ * Achada pela URL com o MESMO segredo da sessão (`segredoNovo: false`), só
+ * recebe o filtro e é religada: nenhum evento se perde no caminho. Com segredo
+ * novo, ela é trocada por uma nova — a documentação do provedor não lista o
+ * segredo entre os campos que a edição aceita, e uma assinatura que assina com
+ * o segredo velho teria toda entrega recusada pela rota de entrada.
  */
 export async function garantirWebhook(
   chave: string,
-  w: { url: string; segredo: string; accountId: string; nome: string },
+  w: { url: string; segredo: string; segredoNovo: boolean; accountId: string; nome: string },
 ): Promise<string> {
   const { webhooks } = webhooksSchema.parse(await pedirAoProvedor(chave, "webhooks/settings"));
   const achada = webhooks.find((h) => h.url === w.url);
-  if (achada) {
+  if (achada && w.segredoNovo) {
+    await apagarWebhook(chave, achada._id);
+  } else if (achada) {
     await pedirAoProvedor(
       chave,
       "webhooks/settings",

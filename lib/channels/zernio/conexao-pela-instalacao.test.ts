@@ -25,6 +25,7 @@ import {
   motivoDaVolta,
   nomeDoPerfil,
   urlDaPaginaDeConexao,
+  whatsappDoPerfil,
 } from "./conexao-pela-instalacao";
 
 interface Chamada {
@@ -34,6 +35,13 @@ interface Chamada {
 }
 let chamadas: Chamada[] = [];
 let respostas: Array<(c: Chamada) => { status: number; body?: unknown } | undefined> = [];
+
+/** A n-ésima chamada ao provedor — lança se ela não aconteceu, em vez de seguir com `undefined`. */
+function chamada(n: number): Chamada {
+  const c = chamadas[n];
+  if (!c) throw new Error(`a chamada ${n} ao provedor não aconteceu`);
+  return c;
+}
 
 function responder(fn: (c: Chamada) => { status: number; body?: unknown } | undefined) {
   respostas.push(fn);
@@ -53,7 +61,10 @@ beforeEach(() => {
       chamadas.push(c);
       for (const r of respostas) {
         const res = r(c);
-        if (res) return new Response(res.body === undefined ? null : JSON.stringify(res.body), { status: res.status });
+        if (res)
+          return new Response(res.body === undefined ? null : JSON.stringify(res.body), {
+            status: res.status,
+          });
       }
       return new Response(JSON.stringify({ erro: "sem dublê" }), { status: 500 });
     }),
@@ -67,32 +78,49 @@ const CONTA = "b".repeat(24);
 
 describe("garantirPerfil", () => {
   it("reaproveita o perfil gravado sem criar outro", async () => {
-    responder((c) => (c.metodo === "GET" && c.caminho === "profiles" ? { status: 200, body: { profiles: [{ _id: PERFIL, name: "x" }] } } : undefined));
+    responder((c) =>
+      c.metodo === "GET" && c.caminho === "profiles"
+        ? { status: 200, body: { profiles: [{ _id: PERFIL, name: "x" }] } }
+        : undefined,
+    );
     expect(await garantirPerfil("k", { ...ORG, perfilGravado: PERFIL })).toBe(PERFIL);
     expect(chamadas.filter((c) => c.metodo === "POST")).toHaveLength(0);
   });
 
   it("acha pelo nome o perfil que uma tentativa anterior criou", async () => {
-    responder((c) => (c.metodo === "GET" ? { status: 200, body: { profiles: [{ _id: PERFIL, name: nomeDoPerfil(ORG) }] } } : undefined));
+    responder((c) =>
+      c.metodo === "GET"
+        ? { status: 200, body: { profiles: [{ _id: PERFIL, name: nomeDoPerfil(ORG) }] } }
+        : undefined,
+    );
     expect(await garantirPerfil("k", { ...ORG, perfilGravado: null })).toBe(PERFIL);
     expect(chamadas.filter((c) => c.metodo === "POST")).toHaveLength(0);
   });
 
   it("cria com o nome da organização e o começo do id", async () => {
     responder((c) => (c.metodo === "GET" ? { status: 200, body: { profiles: [] } } : undefined));
-    responder((c) => (c.metodo === "POST" ? { status: 201, body: { profile: { _id: PERFIL } } } : undefined));
+    responder((c) =>
+      c.metodo === "POST" ? { status: 201, body: { profile: { _id: PERFIL } } } : undefined,
+    );
     expect(await garantirPerfil("k", { ...ORG, perfilGravado: null })).toBe(PERFIL);
-    expect(chamadas.find((c) => c.metodo === "POST")?.corpo).toEqual({ name: "Loja da Ana · 0f1e2d3c" });
+    expect(chamadas.find((c) => c.metodo === "POST")?.corpo).toEqual({
+      name: "Loja da Ana · 0f1e2d3c",
+    });
   });
 
   it("409 na criação converge para o perfil que já existe", async () => {
     let listas = 0;
     responder((c) =>
       c.metodo === "GET"
-        ? { status: 200, body: { profiles: listas++ === 0 ? [] : [{ _id: PERFIL, name: nomeDoPerfil(ORG) }] } }
+        ? {
+            status: 200,
+            body: { profiles: listas++ === 0 ? [] : [{ _id: PERFIL, name: nomeDoPerfil(ORG) }] },
+          }
         : undefined,
     );
-    responder((c) => (c.metodo === "POST" ? { status: 409, body: { error: "duplicado" } } : undefined));
+    responder((c) =>
+      c.metodo === "POST" ? { status: 409, body: { error: "duplicado" } } : undefined,
+    );
     expect(await garantirPerfil("k", { ...ORG, perfilGravado: null })).toBe(PERFIL);
   });
 });
@@ -108,10 +136,15 @@ describe("urlDaPaginaDeConexao", () => {
   };
 
   it("pede a página hospedada, em espanhol, com a tela de coexistência", async () => {
-    responder(() => ({ status: 200, body: { authUrl: "https://zernio.test/connect/whatsapp/embedded-signup?x=1", state: "s" } }));
-    expect(await urlDaPaginaDeConexao("k", base)).toBe("https://zernio.test/connect/whatsapp/embedded-signup?x=1");
-    const q = new URLSearchParams(chamadas[0].caminho.split("?")[1]);
-    expect(chamadas[0].caminho.startsWith("connect/whatsapp?")).toBe(true);
+    responder(() => ({
+      status: 200,
+      body: { authUrl: "https://zernio.test/connect/whatsapp/embedded-signup?x=1", state: "s" },
+    }));
+    expect(await urlDaPaginaDeConexao("k", base)).toBe(
+      "https://zernio.test/connect/whatsapp/embedded-signup?x=1",
+    );
+    const q = new URLSearchParams(chamada(0).caminho.split("?")[1]);
+    expect(chamada(0).caminho.startsWith("connect/whatsapp?")).toBe(true);
     expect(Object.fromEntries(q)).toEqual({
       profileId: PERFIL,
       redirect_url: base.redirectUrl,
@@ -126,7 +159,7 @@ describe("urlDaPaginaDeConexao", () => {
   it("número só na nuvem pede `api`; cor inválida fica de fora", async () => {
     responder(() => ({ status: 200, body: { authUrl: "https://zernio.test/x" } }));
     await urlDaPaginaDeConexao("k", { ...base, coexistencia: false, cor: "azul", idioma: "pt-BR" });
-    const q = new URLSearchParams(chamadas[0].caminho.split("?")[1]);
+    const q = new URLSearchParams(chamada(0).caminho.split("?")[1]);
     expect(q.get("onboarding")).toBe("api");
     expect(q.get("language")).toBe("pt-BR");
     expect(q.has("primaryColor")).toBe(false);
@@ -138,13 +171,52 @@ describe("urlDaPaginaDeConexao", () => {
   });
 });
 
+describe("whatsappDoPerfil", () => {
+  it("devolve o WhatsApp ativo que o perfil já tem, e null quando não tem", async () => {
+    responder(() => ({
+      status: 200,
+      body: {
+        accounts: [
+          { _id: "c".repeat(24), platform: "instagram", isActive: true, profileId: PERFIL },
+          {
+            _id: CONTA,
+            platform: "whatsapp",
+            username: "+1 310 555 1234",
+            isActive: true,
+            profileId: { _id: PERFIL },
+          },
+        ],
+      },
+    }));
+    expect(await whatsappDoPerfil("k", PERFIL)).toEqual({
+      accountId: CONTA,
+      telefone: "+13105551234",
+      nome: null,
+    });
+    respostas = [];
+    responder(() => ({ status: 200, body: { accounts: [] } }));
+    expect(await whatsappDoPerfil("k", PERFIL)).toBeNull();
+  });
+});
+
 describe("contaConectadaNoPerfil", () => {
-  const conta = { _id: CONTA, platform: "whatsapp", username: "+595 981 000 000", displayName: "Loja", isActive: true, profileId: PERFIL };
+  const conta = {
+    _id: CONTA,
+    platform: "whatsapp",
+    username: "+595 981 000 000",
+    displayName: "Loja",
+    isActive: true,
+    profileId: PERFIL,
+  };
 
   it("conta do perfil, de WhatsApp e ativa: devolve o telefone em E.164", async () => {
     responder(() => ({ status: 200, body: { accounts: [conta] } }));
-    expect(await contaConectadaNoPerfil("k", PERFIL, CONTA)).toEqual({ accountId: CONTA, telefone: "+595981000000", nome: "Loja" });
-    expect(chamadas[0].caminho).toBe(`accounts?profileId=${PERFIL}`);
+    expect(await contaConectadaNoPerfil("k", PERFIL, CONTA)).toEqual({
+      accountId: CONTA,
+      telefone: "+595981000000",
+      nome: "Loja",
+    });
+    expect(chamada(0).caminho).toBe(`accounts?profileId=${PERFIL}`);
   });
 
   it.each([
@@ -159,11 +231,26 @@ describe("contaConectadaNoPerfil", () => {
 });
 
 describe("garantirWebhook", () => {
-  const w = { url: "https://crm.exemplo.com/api/v1/webhooks/channel/tok", segredo: "s3gr3d0", accountId: CONTA, nome: "CRM WhatsApp" };
+  const w = {
+    url: "https://crm.exemplo.com/api/v1/webhooks/channel/tok",
+    segredo: "s3gr3d0",
+    segredoNovo: false,
+    accountId: CONTA,
+    nome: "CRM WhatsApp",
+  };
 
   it("cria a assinatura filtrada à conta, com segredo e os eventos do número", async () => {
-    responder((c) => (c.metodo === "GET" ? { status: 200, body: { webhooks: [{ _id: "w-outro", url: "https://outro/x", isActive: true }] } } : undefined));
-    responder((c) => (c.metodo === "POST" ? { status: 200, body: { webhook: { _id: "w-novo" } } } : undefined));
+    responder((c) =>
+      c.metodo === "GET"
+        ? {
+            status: 200,
+            body: { webhooks: [{ _id: "w-outro", url: "https://outro/x", isActive: true }] },
+          }
+        : undefined,
+    );
+    responder((c) =>
+      c.metodo === "POST" ? { status: 200, body: { webhook: { _id: "w-novo" } } } : undefined,
+    );
     expect(await garantirWebhook("k", w)).toBe("w-novo");
     expect(chamadas.find((c) => c.metodo === "POST")?.corpo).toEqual({
       name: "CRM WhatsApp",
@@ -175,12 +262,36 @@ describe("garantirWebhook", () => {
     });
   });
 
-  it("a assinatura achada pela URL recebe o filtro e é religada, sem criar outra", async () => {
-    responder((c) => (c.metodo === "GET" ? { status: 200, body: { webhooks: [{ _id: "w-velho", url: w.url, isActive: false }] } } : undefined));
+  it("achada pela URL com segredo NOVO: a velha sai e nasce uma com o segredo novo", async () => {
+    responder((c) =>
+      c.metodo === "GET"
+        ? { status: 200, body: { webhooks: [{ _id: "w-velho", url: w.url, isActive: true }] } }
+        : undefined,
+    );
+    responder((c) => (c.metodo === "DELETE" ? { status: 200, body: {} } : undefined));
+    responder((c) =>
+      c.metodo === "POST" ? { status: 200, body: { webhook: { _id: "w-novo" } } } : undefined,
+    );
+    expect(await garantirWebhook("k", { ...w, segredoNovo: true })).toBe("w-novo");
+    expect(chamadas.map((c) => c.metodo)).toEqual(["GET", "DELETE", "POST"]);
+    expect(chamada(1).caminho).toBe("webhooks/settings?webhookId=w-velho");
+    expect((chamada(2).corpo as { secret: string }).secret).toBe("s3gr3d0");
+  });
+
+  it("a assinatura achada pela URL com o mesmo segredo recebe o filtro e é religada, sem criar outra", async () => {
+    responder((c) =>
+      c.metodo === "GET"
+        ? { status: 200, body: { webhooks: [{ _id: "w-velho", url: w.url, isActive: false }] } }
+        : undefined,
+    );
     responder((c) => (c.metodo === "PUT" ? { status: 200, body: {} } : undefined));
     expect(await garantirWebhook("k", w)).toBe("w-velho");
     expect(chamadas.filter((c) => c.metodo === "POST")).toHaveLength(0);
-    expect(chamadas.find((c) => c.metodo === "PUT")?.corpo).toEqual({ webhookId: "w-velho", accountIds: [CONTA], isActive: true });
+    expect(chamadas.find((c) => c.metodo === "PUT")?.corpo).toEqual({
+      webhookId: "w-velho",
+      accountIds: [CONTA],
+      isActive: true,
+    });
   });
 });
 
