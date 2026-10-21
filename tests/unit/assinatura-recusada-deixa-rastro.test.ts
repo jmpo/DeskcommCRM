@@ -101,7 +101,7 @@ describe("o outro lado: assinatura BOA não pode ser marcada como inválida", ()
     // existe — e é o erro que o comentário do arquivador já avisava.
     const s = fonte();
     const bloco = s.slice(
-      onde(s, "if (!await inboundPayloadBelongsToSession("),
+      onde(s, "await inboundPayloadBelongsToSession("),
       onde(s, 'reason: "evento_de_outra_conta" }, { requestId })'),
     );
     expect(bloco).toMatch(/validSignature:\s*true/);

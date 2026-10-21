@@ -181,7 +181,7 @@ describe("iniciar", () => {
   });
 
   it("sem marca própria (a do produto), o perfil fica sem prefixo", async () => {
-    h.marca.mockResolvedValue({ nome: "DeskcommCRM", origens: { nome: "padrao", cor: "padrao" } });
+    h.marca.mockResolvedValue({ nome: "Produto", origens: { nome: "padrao", cor: "padrao" } });
     await iniciarConexaoUmClique(admin, ctx, opcoes);
     expect(h.garantirPerfil.mock.calls[0]?.[1]).toMatchObject({ marca: null });
   });
