@@ -17,8 +17,10 @@ import { logger } from "@/lib/logger";
 import { metadataInicialDoCanal } from "@/lib/ai/elegibilidade/pre-go-live";
 
 import { ARCHIVED_AT, queryTolerantToMissingArchived } from "./archived";
+import { decryptWebhookSecret } from "@/lib/webhooks/secrets";
 import { CHANNEL_PROVIDER_ZERNIO } from "./capabilities";
-import { zernioBaseUrl } from "./zernio/credentials";
+import { apagarWebhook, desconectarConta, garantirWebhook } from "./zernio/conexao-pela-instalacao";
+import { chaveDaInstalacao, zernioBaseUrl } from "./zernio/credentials";
 import type { ChannelProvider } from "./types";
 
 /**
@@ -194,10 +196,16 @@ export interface PartnerSession {
   webhookPathToken: string | null;
   hasApiKey: boolean;
   archivedAt: string | null;
+  /** Fala pela chave da INSTALAÇÃO (conexão por um clique), não por uma chave própria. */
+  pelaInstalacao: boolean;
+  /** Perfil do provedor em que a conta foi conectada (só a conexão por um clique o grava). */
+  profileId: string | null;
+  /** Assinatura de webhook que a instalação registrou. Nulo = configurada à mão. */
+  webhookId: string | null;
 }
 
 const COLUNAS =
-  "id, zernio_account_id, phone_number, display_name, status, webhook_path_token, zernio_token_encrypted";
+  "id, zernio_account_id, phone_number, display_name, status, webhook_path_token, zernio_token_encrypted, zernio_credencial_da_instalacao, zernio_profile_id, zernio_webhook_id";
 
 function toPartnerSession(row: Record<string, unknown> | null): PartnerSession | null {
   if (!row) return null;
@@ -210,6 +218,9 @@ function toPartnerSession(row: Record<string, unknown> | null): PartnerSession |
     webhookPathToken: (row.webhook_path_token as string) ?? null,
     hasApiKey: !!row.zernio_token_encrypted,
     archivedAt: (row.archived_at as string) ?? null,
+    pelaInstalacao: row.zernio_credencial_da_instalacao === true,
+    profileId: (row.zernio_profile_id as string) ?? null,
+    webhookId: (row.zernio_webhook_id as string) ?? null,
   };
 }
 
@@ -233,12 +244,16 @@ export async function findPartnerSession(
 }
 
 /**
- * Grava (ou ressuscita) a sessão.
+ * Grava (ou ressuscita) a sessão. Devolve o id dela.
  *
  * `archived_at: null` sempre: reconectar por cima de um canal excluído precisa
  * trazê-lo de volta. Sem isso o update deixaria a coluna no lugar e o canal
  * "conectado" ficaria invisível para o webhook, o envio e os seletores — todos
  * filtrados por ela.
+ *
+ * A credencial é UMA das duas (CHECK da migration 0713): a chave própria
+ * cifrada, ou o ponteiro para a chave da instalação. Gravar uma apaga a outra,
+ * e o webhook registrado pela instalação só fica quando quem grava o informa.
  */
 export async function savePartnerSession(
   admin: SupabaseClient,
@@ -246,18 +261,22 @@ export async function savePartnerSession(
     organizationId: string;
     existingId: string | null;
     accountId: string;
-    apiKeyEncrypted: string;
+    credencial: { tipo: "propria"; apiKeyEncrypted: string } | { tipo: "instalacao"; profileId: string };
     webhookPathToken: string;
     webhookSecretEncrypted: string;
     phoneNumber: string | null;
     displayName: string;
   },
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; id: string | null }> {
+  const pelaInstalacao = input.credencial.tipo === "instalacao";
   const linha = {
     organization_id: input.organizationId,
     provider: PARTNER_CHANNEL_PROVIDER,
     zernio_account_id: input.accountId,
-    zernio_token_encrypted: input.apiKeyEncrypted,
+    zernio_token_encrypted: input.credencial.tipo === "propria" ? input.credencial.apiKeyEncrypted : null,
+    zernio_credencial_da_instalacao: pelaInstalacao,
+    zernio_profile_id: input.credencial.tipo === "instalacao" ? input.credencial.profileId : null,
+    zernio_webhook_id: null,
     webhook_path_token: input.webhookPathToken,
     webhook_secret_encrypted: input.webhookSecretEncrypted,
     phone_number: input.phoneNumber,
@@ -299,11 +318,124 @@ export async function savePartnerSession(
     }
   }
 
-  const { error } = input.existingId
-    ? await admin.from("channel_sessions").update(linha).eq("id", input.existingId)
-    : await admin
-        .from("channel_sessions")
-        .insert({ ...linha, metadata: metadataInicialDoCanal() });
+  if (input.existingId) {
+    const { error } = await admin
+      .from("channel_sessions")
+      .update(linha)
+      .eq("id", input.existingId)
+      .eq("organization_id", input.organizationId);
+    return { error: error?.message ?? null, id: error ? null : input.existingId };
+  }
+  const { data, error } = await admin
+    .from("channel_sessions")
+    .insert({ ...linha, metadata: metadataInicialDoCanal() })
+    .select("id")
+    .single();
+  return { error: error?.message ?? null, id: (data as { id: string } | null)?.id ?? null };
+}
 
-  return { error: error?.message ?? null };
+/**
+ * O segredo de webhook que a sessão JÁ tem, em claro — para reconectar sem
+ * trocar a assinatura que está entregando (nenhum evento se perde no caminho).
+ * `null` quando não há sessão ou a cifra não abre: aí quem chama gera outro.
+ */
+export async function segredoAtualDoWebhook(
+  admin: SupabaseClient,
+  organizationId: string,
+  sessionId: string,
+): Promise<string | null> {
+  const { data, error } = await admin
+    .from("channel_sessions")
+    .select("webhook_secret_encrypted")
+    .eq("organization_id", organizationId)
+    .eq("id", sessionId)
+    .maybeSingle();
+  const cifrado = (data as { webhook_secret_encrypted?: string } | null)?.webhook_secret_encrypted;
+  if (error || !cifrado) return null;
+  return decryptWebhookSecret(admin, cifrado);
+}
+
+/**
+ * Registra no provedor o webhook do número, FILTRADO à conta, e grava o id na
+ * sessão. Devolve o id, ou `null` quando o provedor não aceitou — a chave pode
+ * não ter permissão de webhook — e aí a tela volta a mostrar o que colar.
+ * Nunca lança: a conexão já está gravada, e um webhook a configurar à mão é
+ * melhor que uma conexão desfeita.
+ */
+export async function registrarWebhookDoNumero(
+  admin: SupabaseClient,
+  input: {
+    organizationId: string;
+    sessionId: string;
+    apiKey: string;
+    accountId: string;
+    url: string;
+    segredo: string;
+    segredoNovo: boolean;
+  },
+): Promise<string | null> {
+  try {
+    const webhookId = await garantirWebhook(input.apiKey, {
+      url: input.url,
+      segredo: input.segredo,
+      segredoNovo: input.segredoNovo,
+      accountId: input.accountId,
+      nome: `CRM WhatsApp ${input.accountId.slice(-8)}`,
+    });
+    const { error } = await admin
+      .from("channel_sessions")
+      .update({ zernio_webhook_id: webhookId })
+      .eq("organization_id", input.organizationId)
+      .eq("id", input.sessionId);
+    if (error) throw new Error(error.message);
+    return webhookId;
+  } catch (erro) {
+    logger.warn("[channels.connect] webhook do número não registrado no provedor", {
+      session_id: input.sessionId,
+      detail: erro instanceof Error ? erro.message : String(erro),
+    });
+    return null;
+  }
+}
+
+/**
+ * Desfaz, no provedor, o que a INSTALAÇÃO fez por esta sessão: apaga a
+ * assinatura de webhook que ela registrou e, na conexão por um clique,
+ * desconecta o número da conta da instalação — senão ele continuaria contando
+ * na fatura do provedor depois de sair do CRM.
+ *
+ * Numa conexão por chave própria a conta é da organização: o número fica lá.
+ * Roda ANTES do patch de exclusão (que gira o token). Erro do provedor LANÇA;
+ * quem chama decide seguir em best-effort.
+ */
+export async function desfazerNoProvedor(
+  admin: SupabaseClient,
+  organizationId: string,
+  sessionId: string,
+): Promise<"desfeito" | "nada_a_desfazer" | "sem_credencial"> {
+  const { data, error } = await admin
+    .from("channel_sessions")
+    .select("zernio_account_id, zernio_token_encrypted, zernio_credencial_da_instalacao, zernio_webhook_id")
+    .eq("organization_id", organizationId)
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (error) throw new Error(`sessão não lida: ${error.message}`);
+  const linha = data as {
+    zernio_account_id: string | null;
+    zernio_token_encrypted: string | null;
+    zernio_credencial_da_instalacao: boolean | null;
+    zernio_webhook_id: string | null;
+  } | null;
+  if (!linha) return "nada_a_desfazer";
+  const pelaInstalacao = linha.zernio_credencial_da_instalacao === true;
+  if (!linha.zernio_webhook_id && !pelaInstalacao) return "nada_a_desfazer";
+  const chave = pelaInstalacao
+    ? await chaveDaInstalacao()
+    : linha.zernio_token_encrypted
+      ? await decryptWebhookSecret(admin, linha.zernio_token_encrypted)
+      : null;
+  if (!chave) return "sem_credencial";
+  if (linha.zernio_webhook_id) await apagarWebhook(chave, linha.zernio_webhook_id);
+  if (pelaInstalacao && linha.zernio_account_id) await desconectarConta(chave, linha.zernio_account_id);
+  return "desfeito";
 }

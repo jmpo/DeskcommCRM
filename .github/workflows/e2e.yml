@@ -1197,6 +1197,7 @@ jobs:
         marca-logo.spec.ts
         suporte-temporario.spec.ts
         campanha-com-modelo-aprovado.spec.ts
+        numero-oficial-um-clique.spec.ts
         inbox-selecionada-no-escuro.spec.ts
         inbox-anuncio-de-origem.spec.ts
 

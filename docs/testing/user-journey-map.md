@@ -3631,3 +3631,24 @@ do commit (resposta perdida, processo reiniciado) e retomada pela segunda tentat
 partir da lápide, com o 500 que não diz "nada foi apagado": medida por unidade em
 `lib/tenants/exclusao.test.ts` e `…/delete/route.test.ts`, e o inventário da lápide em
 `tests/invariants/gestao-de-tenants.test.ts`.
+
+## J51 — Conectar o número oficial com um clique, sem conta no provedor `[P0]` (2026-10-20)
+
+Primeira impressão de quem compra de um revendedor: a empresa não tem — e não deve ter —
+acesso à conta do provedor parceiro da instalação. Com a chave dessa conta em Painel ›
+Configuração (`ZERNIO_PLATFORM_API_KEY`), Conexões › Provedor parceiro mostra «Conectar meu
+WhatsApp»: página de cadastro do provedor → volta por outro site (cookie Strict não vem,
+ponte same-origin) → a tela conclui. Spec: `tests/e2e/numero-oficial-um-clique.spec.ts`,
+contra um dublê HTTP do provedor (porta 3996) que guarda perfis, contas e assinaturas.
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J51.1 | Instalação com a chave, empresa sem conexão | o botão de um clique, com a escolha «já usa o app WhatsApp Business» / «número novo»; o campo de chave própria só a pedido | **PASS pela tela (local)** — `evidence/numero-oficial-um-clique/01-botao-de-um-clique.png` |
+| J51.2 | Clicar, concluir no provedor e voltar | «Conectado» com o número; webhook «configurado automaticamente»; a sessão aponta para a chave da instalação (nenhuma cópia dela); a assinatura no provedor é filtrada à conta, na URL do token da sessão | **PASS pela tela (local)** — `evidence/numero-oficial-um-clique/02-conectado-webhook-automatico.png` |
+| J51.3 | Mensagem do cliente assinada com o segredo registrado | entra (200) e vira mensagem | **PASS (local)** — mesma spec |
+| J51.4 | Excluir a conexão | apaga a assinatura e desconecta o número da conta da instalação | **PASS (local)** — mesma spec |
+| J51.5 | Volta forjada, vencida, de outra organização, ou conta fora do perfil | nada é gravado | **PASS (unit)** — `lib/channels/conexao-um-clique.test.ts`, `tests/unit/parceiro-volta-da-conexao.test.ts` |
+| J51.6 | Plano sem vaga de número | recusa ANTES de abrir a página da Meta (o número não entra na fatura da instalação para o CRM recusar no fim) | **PASS (unit)** — `lib/channels/conexao-um-clique.test.ts` |
+
+Não provado pela tela: a janela real da Meta (QR da coexistência, código do número) — só
+com um número de verdade, e é a prova manual que fecha esta jornada.
