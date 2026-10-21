@@ -44,9 +44,7 @@ const admin = {
         return {
           select: () => ({
             maybeSingle: async () =>
-              erroInsert
-                ? { data: null, error: erroInsert }
-                : { data: { id: "log-1" }, error: null },
+              erroInsert ? { data: null, error: erroInsert } : { data: { id: "log-1" }, error: null },
           }),
         };
       },
@@ -104,10 +102,7 @@ describe("o arquivo do corpo cru", () => {
     // parsear perderia exatamente o payload que se quer investigar.
     const id = await abrir("<html>erro do proxy</html>", new Headers());
     expect(id).toBe("log-1");
-    expect(inserido).toMatchObject({
-      raw_body: "<html>erro do proxy</html>",
-      payload_parsed: null,
-    });
+    expect(inserido).toMatchObject({ raw_body: "<html>erro do proxy</html>", payload_parsed: null });
   });
 
   it("payload que é LISTA não vai para a coluna de objeto", async () => {
@@ -127,9 +122,7 @@ describe("o arquivo do corpo cru", () => {
     await abrir("{}", h);
     const cabecalhos = inserido?.headers as Record<string, string>;
     expect(cabecalhos["x-zernio-signature"]).toBe("abc123");
-    expect(Object.keys(cabecalhos), "vazou credencial para o arquivo").not.toContain(
-      "authorization",
-    );
+    expect(Object.keys(cabecalhos), "vazou credencial para o arquivo").not.toContain("authorization");
     expect(Object.keys(cabecalhos)).not.toContain("x-api-key");
     expect(Object.keys(cabecalhos)).not.toContain("cookie");
   });

@@ -166,7 +166,10 @@ export async function valorDaInstalacao(chave: string): Promise<ValorDaInstalaca
 /**
  * O estado de uma chave para a tela — sem nunca devolver segredo.
  */
-export async function estadoParaTela(chave: string, ehSegredo: boolean): Promise<EstadoParaTela> {
+export async function estadoParaTela(
+  chave: string,
+  ehSegredo: boolean,
+): Promise<EstadoParaTela> {
   const linha = await lerLinha(chave);
   const cru = linha === "erro" ? null : linha;
   const { valor, fonte } = resolver(cru ? emClaro(cru) : null, doAmbiente(chave));
@@ -181,7 +184,8 @@ export async function estadoParaTela(chave: string, ehSegredo: boolean): Promise
 }
 
 export type ResultadoDaEscrita =
-  { ok: true } | { ok: false; motivo: "sem_chave_de_cifra" | "banco_recusou"; detalhe: string };
+  | { ok: true }
+  | { ok: false; motivo: "sem_chave_de_cifra" | "banco_recusou"; detalhe: string };
 
 /**
  * Grava pela tela. Zera `semeado_do_env` — a partir daqui o `.env` não
@@ -231,9 +235,7 @@ export async function gravarPelaTela(
     // `upsert` e nunca `update`: a linha pode não existir ainda, e um `update`
     // que casa zero linhas devolve sucesso sem ter escrito nada — armadilha que
     // este projeto já pagou em `organizations`.
-    const { error } = await createAdminClient()
-      .from("platform_config")
-      .upsert(linha, { onConflict: "chave" });
+    const { error } = await createAdminClient().from("platform_config").upsert(linha, { onConflict: "chave" });
     if (error) return { ok: false, motivo: "banco_recusou", detalhe: error.message };
     return { ok: true };
   } catch (erro) {

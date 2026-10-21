@@ -12,7 +12,9 @@
  *      (assinaria com um segredo que ninguém mais tem);
  *   5. o filtro sai da base DEPOIS de escrever: se uma conexão entrou no meio, a
  *      passada se repete;
- *   6. a remoção (sem URL) só ajusta a que existe: não cria assinatura.
+ *   6. a remoção (sem URL) só ajusta a que existe: não cria assinatura;
+ *   7. acima de 50 perfis (o teto do filtro no provedor) a assinatura fica sem
+ *      filtro em vez de ser recusada.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,6 +38,7 @@ vi.mock("@/lib/instalacao/config", () => ({
 import {
   CHAVE_DO_ID,
   CHAVE_DO_SEGREDO,
+  MAXIMO_DE_PERFIS_NO_FILTRO,
   perfisDaInstalacao,
   sincronizarWebhookDaInstalacao,
 } from "./webhook-da-instalacao";
@@ -214,6 +217,28 @@ describe("sincronizarWebhookDaInstalacao", () => {
     const { admin } = banco(["p1"], ["p1", "p2"], ["p1", "p2"]);
     await sincronizarWebhookDaInstalacao(admin, "k", alvo);
     expect(escritas().map((c) => c.corpo?.profileIds)).toEqual([["p1"], ["p1", "p2"]]);
+  });
+
+  it("acima do teto do filtro: a assinatura fica SEM filtro, e no teto ainda filtra", async () => {
+    h.config.set(CHAVE_DO_SEGREDO, "s".repeat(64));
+    h.config.set(CHAVE_DO_ID, "w-9");
+    assinaturas = [{ _id: "w-9", url: URL_DA_ENTRADA, isActive: true }];
+    const perfis = (n: number) =>
+      Array.from({ length: n }, (_, i) => `p${String(i).padStart(3, "0")}`);
+    expect(MAXIMO_DE_PERFIS_NO_FILTRO).toBe(50);
+
+    await sincronizarWebhookDaInstalacao(banco(perfis(50)).admin, "k", alvo);
+    expect(escritas()[0]?.corpo?.profileIds).toEqual(perfis(50));
+
+    chamadas = [];
+    expect(await sincronizarWebhookDaInstalacao(banco(perfis(51)).admin, "k", alvo)).toBe("w-9");
+    expect(escritas()).toEqual([
+      {
+        metodo: "PUT",
+        caminho: "webhooks/settings",
+        corpo: { webhookId: "w-9", profileIds: [], isActive: true, url: URL_DA_ENTRADA },
+      },
+    ]);
   });
 
   it("sem cifra para guardar o segredo, não registra nada", async () => {

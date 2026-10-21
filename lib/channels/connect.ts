@@ -127,8 +127,7 @@ export async function validatePartnerCredentials(
       // `{"accounts":[]}` — a chave presta, mas não lista nada sozinha.
       return {
         ok: false,
-        reason:
-          "A chave não lista nenhuma conta. Confira o perfil e a conta no painel do provedor.",
+        reason: "A chave não lista nenhuma conta. Confira o perfil e a conta no painel do provedor.",
       };
     }
     // A chave presta, mas não alcança esta conta. É diferente de chave inválida,
@@ -136,8 +135,7 @@ export async function validatePartnerCredentials(
     // corrigir.
     return {
       ok: false,
-      reason:
-        "Conta fora do alcance desta chave. Confira se a conta pertence ao perfil desta chave.",
+      reason: "Conta fora do alcance desta chave. Confira se a conta pertence ao perfil desta chave.",
     };
   }
 
@@ -268,8 +266,7 @@ export async function savePartnerSession(
     organizationId: string;
     existingId: string | null;
     accountId: string;
-    credencial:
-      { tipo: "propria"; apiKeyEncrypted: string } | { tipo: "instalacao"; profileId: string };
+    credencial: { tipo: "propria"; apiKeyEncrypted: string } | { tipo: "instalacao"; profileId: string };
     webhookPathToken: string;
     webhookSecretEncrypted: string;
     phoneNumber: string | null;
@@ -281,8 +278,7 @@ export async function savePartnerSession(
     organization_id: input.organizationId,
     provider: PARTNER_CHANNEL_PROVIDER,
     zernio_account_id: input.accountId,
-    zernio_token_encrypted:
-      input.credencial.tipo === "propria" ? input.credencial.apiKeyEncrypted : null,
+    zernio_token_encrypted: input.credencial.tipo === "propria" ? input.credencial.apiKeyEncrypted : null,
     zernio_credencial_da_instalacao: pelaInstalacao,
     zernio_profile_id: input.credencial.tipo === "instalacao" ? input.credencial.profileId : null,
     zernio_webhook_id: null,
@@ -478,9 +474,7 @@ export async function desfazerNoProvedor(
 ): Promise<"desfeito" | "nada_a_desfazer" | "sem_credencial"> {
   const { data, error } = await admin
     .from("channel_sessions")
-    .select(
-      "zernio_account_id, zernio_token_encrypted, zernio_credencial_da_instalacao, zernio_webhook_id",
-    )
+    .select("zernio_account_id, zernio_token_encrypted, zernio_credencial_da_instalacao, zernio_webhook_id")
     .eq("organization_id", organizationId)
     .eq("id", sessionId)
     .maybeSingle();

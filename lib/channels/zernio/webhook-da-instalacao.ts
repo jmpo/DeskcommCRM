@@ -22,6 +22,13 @@
  * ativa, o webhook é DESLIGADO (`isActive: false`), nunca atualizado com `[]`:
  * isso o abriria para todas as contas da instalação.
  *
+ * ⚠️ O FILTRO ACEITA NO MÁXIMO 50 PERFIS (`profileIds`, items <= 50 na
+ * referência da API). Passou disso, a assinatura fica SEM filtro — recebe todos
+ * os perfis da conta — em vez de ser recusada: com a recusa, nenhuma conexão
+ * nova entraria. É o desenho que o provedor recomenda para quem atende muitos
+ * clientes, e a entrada da instalação já descarta, com 200 e sem gravar nada,
+ * todo evento que não é de uma conexão de um clique ativa.
+ *
  * ─── O segredo ──────────────────────────────────────────────────────────────
  *
  * Gerado uma vez e guardado cifrado em `platform_config`, sem passar pela tela
@@ -41,6 +48,9 @@ import { EVENTOS_DO_WEBHOOK, apagarWebhook } from "./conexao-pela-instalacao";
 
 export const CHAVE_DO_SEGREDO = "ZERNIO_PLATFORM_WEBHOOK_SECRET";
 export const CHAVE_DO_ID = "ZERNIO_PLATFORM_WEBHOOK_ID";
+
+/** Teto do provedor para `profileIds` numa assinatura. */
+export const MAXIMO_DE_PERFIS_NO_FILTRO = 50;
 
 /** Onde o provedor entrega. Público, sem token: quem autentica é a assinatura. */
 export const CAMINHO_DA_ENTRADA_DA_INSTALACAO = "/api/v1/webhooks/canal-da-instalacao";
@@ -133,6 +143,15 @@ async function aplicar(
     return achada?._id ?? null;
   }
 
+  // Acima do teto, sem filtro (lista vazia = todos os perfis): ver o cabeçalho.
+  const filtro = perfis.length > MAXIMO_DE_PERFIS_NO_FILTRO ? [] : perfis;
+  if (filtro.length === 0) {
+    logger.warn("[webhook-da-instalacao] mais perfis que o teto do filtro; assinatura sem filtro", {
+      perfis: perfis.length,
+      teto: MAXIMO_DE_PERFIS_NO_FILTRO,
+    });
+  }
+
   let id: string;
   if (achada) {
     await pedirAoProvedor(
@@ -140,7 +159,7 @@ async function aplicar(
       "webhooks/settings",
       {
         webhookId: achada._id,
-        profileIds: perfis,
+        profileIds: filtro,
         isActive: true,
         ...(alvo.url ? { url: alvo.url } : {}),
       },
@@ -155,7 +174,7 @@ async function aplicar(
         url: alvo.url,
         secret: segredo.valor,
         events: [...EVENTOS_DO_WEBHOOK],
-        profileIds: perfis,
+        profileIds: filtro,
         isActive: true,
       }),
     );
