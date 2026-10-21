@@ -166,10 +166,7 @@ export async function valorDaInstalacao(chave: string): Promise<ValorDaInstalaca
 /**
  * O estado de uma chave para a tela — sem nunca devolver segredo.
  */
-export async function estadoParaTela(
-  chave: string,
-  ehSegredo: boolean,
-): Promise<EstadoParaTela> {
+export async function estadoParaTela(chave: string, ehSegredo: boolean): Promise<EstadoParaTela> {
   const linha = await lerLinha(chave);
   const cru = linha === "erro" ? null : linha;
   const { valor, fonte } = resolver(cru ? emClaro(cru) : null, doAmbiente(chave));
@@ -184,8 +181,7 @@ export async function estadoParaTela(
 }
 
 export type ResultadoDaEscrita =
-  | { ok: true }
-  | { ok: false; motivo: "sem_chave_de_cifra" | "banco_recusou"; detalhe: string };
+  { ok: true } | { ok: false; motivo: "sem_chave_de_cifra" | "banco_recusou"; detalhe: string };
 
 /**
  * Grava pela tela. Zera `semeado_do_env` — a partir daqui o `.env` não
@@ -235,7 +231,9 @@ export async function gravarPelaTela(
     // `upsert` e nunca `update`: a linha pode não existir ainda, e um `update`
     // que casa zero linhas devolve sucesso sem ter escrito nada — armadilha que
     // este projeto já pagou em `organizations`.
-    const { error } = await createAdminClient().from("platform_config").upsert(linha, { onConflict: "chave" });
+    const { error } = await createAdminClient()
+      .from("platform_config")
+      .upsert(linha, { onConflict: "chave" });
     if (error) return { ok: false, motivo: "banco_recusou", detalhe: error.message };
     return { ok: true };
   } catch (erro) {
@@ -263,6 +261,57 @@ export async function voltarAoAmbiente(chave: string): Promise<ResultadoDaEscrit
       detalhe: erro instanceof Error ? erro.message : String(erro),
     };
   }
+}
+
+/**
+ * Grava SÓ se a chave ainda não tem linha, e devolve o valor que ficou — o
+ * gravado agora ou o que outra escrita pôs antes. É para o valor que o próprio
+ * sistema gera uma vez (o segredo de um webhook da instalação): duas primeiras
+ * gravações simultâneas com `gravarPelaTela` deixariam vencer a última, e o
+ * provedor assinaria com o segredo da outra.
+ *
+ * `null` quando nada ficou: sem chave de cifra (falha fechada, como a da tela)
+ * ou banco que recusou.
+ */
+export async function gravarSeAusente(
+  chave: string,
+  valor: string,
+  opcoes: { ehSegredo: boolean },
+): Promise<string | null> {
+  const linha: Record<string, unknown> = {
+    chave,
+    eh_segredo: opcoes.ehSegredo,
+    semeado_do_env: false,
+  };
+  if (opcoes.ehSegredo) {
+    try {
+      const envelope = encryptKey(valor);
+      linha.ciphertext = bufToBytea(envelope.ciphertext);
+      linha.iv = bufToBytea(envelope.iv);
+      linha.tag = bufToBytea(envelope.tag);
+      linha.last4 = envelope.last4;
+    } catch (erro) {
+      aviso(chave, "sem chave de cifra, nada gravado", erro);
+      return null;
+    }
+  } else {
+    linha.valor = valor;
+  }
+  try {
+    const { error } = await createAdminClient()
+      .from("platform_config")
+      .upsert(linha, { onConflict: "chave", ignoreDuplicates: true });
+    if (error) {
+      aviso(chave, "o banco recusou a gravação", error.message);
+      return null;
+    }
+  } catch (erro) {
+    aviso(chave, "a gravação falhou", erro);
+    return null;
+  }
+  const gravada = await lerLinha(chave);
+  if (gravada === null || gravada === "erro") return null;
+  return emClaro(gravada)?.valor ?? null;
 }
 
 /** Reexportado para quem semeia a partir do `.env` na primeira leitura. */

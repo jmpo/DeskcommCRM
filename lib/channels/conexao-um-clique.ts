@@ -15,13 +15,18 @@
  *      e é a volta que se perdeu no meio (o provedor aceita um WhatsApp por
  *      perfil, então mandar de novo à Meta terminaria em recusa);
  *   3. a sessão é gravada ANTES do webhook: a primeira entrega procura a sessão
- *      pelo token, e um webhook sem sessão responderia 404 ao provedor;
- *   4. o segredo da sessão é reaproveitado ao reconectar, e a assinatura que já
- *      entrega só recebe o filtro: nenhum evento se perde na troca.
+ *      pela conta, e uma entrega sem sessão é descartada;
+ *   4. o número entra no webhook ÚNICO da instalação (o filtro ganha o perfil
+ *      da organização). Reconectar não troca a assinatura que já entrega:
+ *      nenhum evento se perde na troca.
+ *
+ * O perfil leva a marca da INSTALAÇÃO no nome (`nomeDoPerfil`): a conta do
+ * provedor pode ser compartilhada com outros sistemas do mesmo dono.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomBytes } from "node:crypto";
 
+import { marcaDaSaida } from "@/lib/branding/saida";
 import { lerLimiteDoPlano, mensagemDoLimite } from "@/lib/cobranca/limites";
 import type { Idioma } from "@/lib/i18n/idiomas";
 import { encryptWebhookSecret } from "@/lib/webhooks/secrets";
@@ -30,7 +35,7 @@ import { CHANNEL_PROVIDER_WACALLS } from "./capabilities";
 import {
   PARTNER_CHANNEL_LABEL,
   findPartnerSession,
-  registrarWebhookDoNumero,
+  registrarNoWebhookDaInstalacao,
   savePartnerSession,
   segredoAtualDoWebhook,
   type PartnerSession,
@@ -82,6 +87,15 @@ export interface ConexaoConcluida {
   displayName: string;
   /** `false` quando o provedor recusou o webhook: o número envia, mas não recebe. */
   webhookRegistrado: boolean;
+}
+
+/**
+ * A marca da INSTALAÇÃO para o nome do perfil e do webhook, ou `null` quando é a
+ * do produto (sem marca própria, o perfil fica sem prefixo). Nunca lança.
+ */
+async function marcaDaInstalacaoParaOProvedor(): Promise<string | null> {
+  const marca = await marcaDaSaida(null);
+  return marca.origens.nome === "padrao" ? null : marca.nome;
 }
 
 async function chaveOuRecusa(): Promise<string> {
@@ -148,6 +162,9 @@ async function gravarConexao(
   conta: ContaConectada,
   existente: PartnerSession | null,
 ): Promise<ConexaoConcluida> {
+  // Token e segredo próprios continuam na linha, como em toda sessão do canal,
+  // mas o provedor entrega pelo webhook da instalação: nenhum dos dois é
+  // registrado em lugar nenhum.
   const token = existente?.webhookPathToken ?? randomBytes(16).toString("hex");
   const segredoAtual = existente
     ? await segredoAtualDoWebhook(admin, ctx.organizationId, existente.id)
@@ -172,14 +189,14 @@ async function gravarConexao(
   });
   // A mensagem crua sobe: é ela que carrega o limite do plano para a rota traduzir.
   if (error || !id) throw new Error(error ?? "a sessão não foi gravada");
-  const webhookId = await registrarWebhookDoNumero(admin, {
+  const marca = await marcaDaInstalacaoParaOProvedor();
+  const webhookId = await registrarNoWebhookDaInstalacao(admin, {
     organizationId: ctx.organizationId,
     sessionId: id,
     apiKey: chave,
-    accountId: conta.accountId,
-    url: `${ctx.publicBase}/api/v1/webhooks/channel/${token}`,
-    segredo,
-    segredoNovo: segredoAtual === null,
+    publicBase: ctx.publicBase,
+    nome: `${marca ?? "CRM"} · um clique`,
+    legado: existente?.pelaInstalacao ? existente.webhookId : null,
   });
   return {
     channelSessionId: id,
@@ -208,6 +225,7 @@ export async function iniciarConexaoUmClique(
   const profileId = await garantirPerfil(chave, {
     id: ctx.organizationId,
     nome: ctx.organizationNome,
+    marca: await marcaDaInstalacaoParaOProvedor(),
     perfilGravado: existente?.profileId ?? null,
   });
   const jaNoPerfil = await whatsappDoPerfil(chave, profileId);

@@ -14,10 +14,14 @@ import { expect, test } from "./helpers/test";
  *
  * O caminho que a pessoa faz de verdade, pela tela: Conexões › Provedor parceiro
  * › «Conectar meu WhatsApp» → página de cadastro do provedor → volta ao CRM por
- * outro site (o cookie Strict não vem) → a tela conclui → conectado, com o
- * webhook registrado sozinho e filtrado ao número. Depois, uma mensagem do
- * cliente assinada com o segredo que a instalação registrou ENTRA, e excluir a
- * conexão apaga o webhook e desconecta o número no provedor.
+ * outro site (o cookie Strict não vem) → a tela conclui → conectado.
+ *
+ * Os eventos chegam pelo webhook ÚNICO da instalação (um para todas as
+ * conexões de um clique, filtrado aos PERFIS delas). Para provar o roteamento,
+ * uma SEGUNDA organização já está conectada por um clique antes do caso: a
+ * conexão da primeira entra no mesmo webhook (o filtro passa a ter os dois
+ * perfis), e a mensagem de cada conta cai na organização DELA. Excluir a
+ * primeira desconecta o número dela e deixa o webhook entregando à segunda.
  *
  * O provedor é um dublê HTTP de verdade (porta 3996), que guarda perfis, contas
  * e assinaturas como o provedor guarda. O servidor do CRM precisa nascer com
@@ -38,6 +42,12 @@ const SUFIXO = String(Date.now()).slice(-7);
 const PERFIL = "6e2e0000000000000000ab01";
 const CONTA = "6e2e0000000000000000cd01";
 const TELEFONE = `+5959811${SUFIXO.slice(-5)}`;
+// A outra organização, conectada por um clique antes do caso.
+const PERFIL_B = "6e2e0000000000000000ab02";
+const CONTA_B = "6e2e0000000000000000cd02";
+const TELEFONE_B = `+5959813${SUFIXO.slice(-5)}`;
+const ENTRADA = "/api/v1/webhooks/canal-da-instalacao";
+const CHAVES_DO_WEBHOOK = ["ZERNIO_PLATFORM_WEBHOOK_SECRET", "ZERNIO_PLATFORM_WEBHOOK_ID"];
 
 type Creds = CredsE2E & { org_id: string };
 
@@ -58,10 +68,21 @@ const provedor = {
     url: string;
     secret: string;
     events: string[];
+    profileIds: string[];
     accountIds: string[];
     isActive: boolean;
   }[],
 };
+
+/** A conta da organização B, no perfil dela. */
+const contaB = () => ({
+  _id: CONTA_B,
+  platform: "whatsapp",
+  username: TELEFONE_B,
+  displayName: "Loja B",
+  isActive: true,
+  profileId: { _id: PERFIL_B },
+});
 let servidor: http.Server | null = null;
 
 function responder(res: http.ServerResponse, status: number, corpo: unknown) {
@@ -107,6 +128,7 @@ function dubleDoProvedor(): http.Server {
       if (metodo === "GET" && r === "/cadastro") {
         const perfil = url.searchParams.get("perfil") ?? "";
         provedor.contas = [
+          ...provedor.contas.filter((c) => c._id !== CONTA),
           {
             _id: CONTA,
             platform: "whatsapp",
@@ -142,11 +164,21 @@ function dubleDoProvedor(): http.Server {
           url: String(corpo?.url),
           secret: String(corpo?.secret),
           events: (corpo?.events as string[]) ?? [],
+          profileIds: (corpo?.profileIds as string[]) ?? [],
           accountIds: (corpo?.accountIds as string[]) ?? [],
           isActive: true,
         };
         provedor.webhooks.push(w);
         return responder(res, 200, { success: true, webhook: { _id: w._id } });
+      }
+      if (metodo === "PUT" && r === "/v1/webhooks/settings") {
+        const w = provedor.webhooks.find((x) => x._id === corpo?.webhookId);
+        if (!w) return responder(res, 404, { error: "Webhook not found" });
+        if (Array.isArray(corpo?.profileIds)) w.profileIds = corpo.profileIds as string[];
+        if (Array.isArray(corpo?.accountIds)) w.accountIds = corpo.accountIds as string[];
+        if (typeof corpo?.isActive === "boolean") w.isActive = corpo.isActive;
+        if (typeof corpo?.url === "string") w.url = corpo.url;
+        return responder(res, 200, { success: true, webhook: w });
       }
       if (metodo === "DELETE" && r === "/v1/webhooks/settings") {
         const id = url.searchParams.get("webhookId");
@@ -175,6 +207,7 @@ test.describe("Conexões — número oficial com um clique, pela conta do proved
   });
   let creds: Creds;
   let sessaoId = "";
+  let orgB = "";
 
   test.beforeAll(async () => {
     creds = JSON.parse(fs.readFileSync(CREDS_PATH, "utf8")) as Creds;
@@ -188,13 +221,89 @@ test.describe("Conexões — número oficial com um clique, pela conta do proved
       .eq("organization_id", creds.org_id)
       .eq("provider", "zernio")
       .is("archived_at", null);
+    // O webhook da instalação nasce nesta rodada: um segredo de rodada anterior
+    // não estaria no dublê, que começa vazio.
+    await admin.from("platform_config").delete().in("chave", CHAVES_DO_WEBHOOK);
+
+    // A organização B, já conectada por um clique (o que a tela gravaria).
+    const o = await admin
+      .from("organizations")
+      .insert({
+        slug: `um-clique-b-${SUFIXO}`,
+        legal_name: "Loja B",
+        display_name: "Loja B",
+        onboarded_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+    if (o.error) throw o.error;
+    orgB = (o.data as { id: string }).id;
+    const sB = await admin.from("channel_sessions").insert({
+      organization_id: orgB,
+      provider: "zernio",
+      zernio_account_id: CONTA_B,
+      zernio_credencial_da_instalacao: true,
+      zernio_profile_id: PERFIL_B,
+      webhook_path_token: `um-clique-b-${SUFIXO}`,
+      webhook_secret_encrypted: "\\x00",
+      phone_number: TELEFONE_B,
+      display_name: "Loja B",
+      status: "WORKING",
+    });
+    if (sB.error) throw sB.error;
+    provedor.perfis.push({ _id: PERFIL_B, name: `Loja B · ${orgB.slice(0, 8)}` });
+    provedor.contas.push(contaB());
   });
 
   test.afterAll(async () => {
     await new Promise<void>((ok) => (servidor ? servidor.close(() => ok()) : ok()));
+    if (orgB) await admin.from("organizations").delete().eq("id", orgB);
+    await admin.from("platform_config").delete().in("chave", CHAVES_DO_WEBHOOK);
   });
 
-  test("conecta pela tela, com a volta passando por outro site, e o webhook nasce filtrado", async ({
+  /** Um evento de mensagem recebida da conta, assinado com o segredo do webhook. */
+  async function entregar(
+    page: import("@playwright/test").Page,
+    conta: string,
+    wamid: string,
+    segredo: string,
+  ) {
+    const evento = JSON.stringify({
+      id: `evt_${wamid}`,
+      event: "message.received",
+      account: { id: conta },
+      message: {
+        id: `m_${wamid}`,
+        conversationId: conta === CONTA ? "6e2e0000000000000000ef01" : "6e2e0000000000000000ef02",
+        platform: "whatsapp",
+        platformMessageId: wamid,
+        direction: "incoming",
+        text: "hola, quiero info",
+        attachments: [],
+        sender: { phoneNumber: `+5959822${SUFIXO.slice(-5)}`, name: "Cliente E2E" },
+        sentAt: new Date().toISOString(),
+        isRead: false,
+      },
+    });
+    return page.request.post(ENTRADA, {
+      data: evento,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Zernio-Signature": createHmac("sha256", segredo).update(evento, "utf8").digest("hex"),
+      },
+    });
+  }
+
+  const mensagensEm = async (org: string, wamid: string) =>
+    (
+      await admin
+        .from("messages")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", org)
+        .eq("external_id", wamid)
+    ).count;
+
+  test("conecta pela tela, entra no webhook ÚNICO da instalação, e cada mensagem cai na sua organização", async ({
     page,
   }) => {
     fs.mkdirSync(EVIDENCIA, { recursive: true });
@@ -231,7 +340,7 @@ test.describe("Conexões — número oficial com um clique, pela conta do proved
       pedidos.every((p) => p.caminho === "/cadastro" || p.autorizacao === `Bearer ${CHAVE}`),
     ).toBe(true);
     const perfil = pedidos.find((p) => p.metodo === "POST" && p.caminho === "/v1/profiles");
-    expect(String(perfil?.corpo?.name)).toContain(` · ${creds.org_id.slice(0, 8)}`);
+    expect(String(perfil?.corpo?.name).endsWith(` · ${creds.org_id.slice(0, 8)}`)).toBe(true);
     const conexao = pedidos.find((p) => p.caminho === "/v1/connect/whatsapp");
     expect(conexao?.query).toMatchObject({
       profileId: PERFIL,
@@ -261,77 +370,61 @@ test.describe("Conexões — número oficial com um clique, pela conta do proved
     });
     sessaoId = (linha as { id: string }).id;
 
-    // A assinatura: filtrada à conta, na URL do token desta sessão.
+    // UMA assinatura para a instalação, na entrada da instalação, filtrada aos
+    // PERFIS das duas conexões — nunca à conta, nunca uma por número.
     expect(provedor.webhooks).toHaveLength(1);
     const assinatura = provedor.webhooks[0]!;
-    expect(assinatura.accountIds).toEqual([CONTA]);
-    expect(assinatura.url).toBe(
-      `${origem}/api/v1/webhooks/channel/${(linha as { webhook_path_token: string }).webhook_path_token}`,
-    );
+    expect(assinatura.url).toBe(`${origem}${ENTRADA}`);
+    expect([...assinatura.profileIds].sort()).toEqual([PERFIL, PERFIL_B].sort());
+    expect(assinatura.accountIds).toEqual([]);
+    expect(assinatura.isActive).toBe(true);
     expect(assinatura.events).toContain("message.received");
 
-    // A mensagem do cliente assinada com o segredo registrado ENTRA.
-    const wamid = `wamid.E2E-UM-CLIQUE-${SUFIXO}`;
-    const evento = JSON.stringify({
-      id: `evt_${SUFIXO}`,
-      event: "message.received",
-      account: { id: CONTA },
-      message: {
-        id: `m_${SUFIXO}`,
-        conversationId: "6e2e0000000000000000ef01",
-        platform: "whatsapp",
-        platformMessageId: wamid,
-        direction: "incoming",
-        text: "hola, quiero info",
-        attachments: [],
-        sender: { phoneNumber: `+5959822${SUFIXO.slice(-5)}`, name: "Cliente E2E" },
-        sentAt: new Date().toISOString(),
-        isRead: false,
-      },
-    });
-    const entrega = await page.request.post(new URL(assinatura.url).pathname, {
-      data: evento,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Zernio-Signature": createHmac("sha256", assinatura.secret)
-          .update(evento, "utf8")
-          .digest("hex"),
-      },
-    });
-    expect(entrega.status()).toBe(200);
-    await expect
-      .poll(
-        async () =>
-          (
-            await admin
-              .from("messages")
-              .select("id", { count: "exact", head: true })
-              .eq("organization_id", creds.org_id)
-              .eq("external_id", wamid)
-          ).count,
-        { timeout: 20_000 },
-      )
-      .toBe(1);
+    // A mensagem de cada conta cai na organização DELA.
+    const wamidA = `wamid.E2E-UM-CLIQUE-A-${SUFIXO}`;
+    const wamidB = `wamid.E2E-UM-CLIQUE-B-${SUFIXO}`;
+    expect((await entregar(page, CONTA, wamidA, assinatura.secret)).status()).toBe(200);
+    expect((await entregar(page, CONTA_B, wamidB, assinatura.secret)).status()).toBe(200);
+    await expect.poll(() => mensagensEm(creds.org_id, wamidA), { timeout: 20_000 }).toBe(1);
+    await expect.poll(() => mensagensEm(orgB, wamidB), { timeout: 20_000 }).toBe(1);
+    expect(await mensagensEm(orgB, wamidA)).toBe(0);
+    expect(await mensagensEm(creds.org_id, wamidB)).toBe(0);
+
+    // Conta de ninguém: 200 e nada gravado. Segredo errado: 401.
+    const wamidX = `wamid.E2E-UM-CLIQUE-X-${SUFIXO}`;
+    const ninguem = await entregar(page, "6e2e0000000000000000cd99", wamidX, assinatura.secret);
+    expect(ninguem.status()).toBe(200);
+    expect(((await ninguem.json()) as { data: { reason: string } }).data.reason).toBe(
+      "conta_desconhecida",
+    );
+    expect(
+      (await entregar(page, CONTA, `${wamidA}-forjada`, "segredo-de-outra-pessoa-123")).status(),
+    ).toBe(401);
   });
 
-  test("excluir a conexão apaga o webhook e desconecta o número no provedor", async ({ page }) => {
+  test("excluir a conexão desconecta o número e deixa o webhook entregando à outra organização", async ({
+    page,
+  }) => {
     test.skip(!sessaoId, "depende do caso anterior");
     // O dono da organização tem o fator TOTP: a rota de conexão exige a sessão verificada.
     creds = { ...creds, ...(await loginComoAdmin(page, creds)) };
     const r = await page.request.delete(`/api/v1/channel-sessions/${sessaoId}`);
     expect(r.status()).toBe(200);
     expect(
-      pedidos.some(
-        (p) =>
-          p.metodo === "DELETE" &&
-          p.caminho === "/v1/webhooks/settings" &&
-          p.query.webhookId === "wh-e2e-1",
-      ),
-    ).toBe(true);
+      pedidos.some((p) => p.metodo === "DELETE" && p.caminho === "/v1/webhooks/settings"),
+    ).toBe(false);
     expect(
       pedidos.some((p) => p.metodo === "DELETE" && p.caminho === `/v1/accounts/${CONTA}`),
     ).toBe(true);
-    expect(provedor.webhooks).toHaveLength(0);
-    expect(provedor.contas).toHaveLength(0);
+    expect(provedor.webhooks).toHaveLength(1);
+    expect(provedor.webhooks[0]).toMatchObject({ profileIds: [PERFIL_B], isActive: true });
+    expect(provedor.contas.map((c) => c._id)).toEqual([CONTA_B]);
+
+    // A outra organização segue recebendo pelo mesmo webhook.
+    const wamidB2 = `wamid.E2E-UM-CLIQUE-B2-${SUFIXO}`;
+    expect((await entregar(page, CONTA_B, wamidB2, provedor.webhooks[0]!.secret)).status()).toBe(
+      200,
+    );
+    await expect.poll(() => mensagensEm(orgB, wamidB2), { timeout: 20_000 }).toBe(1);
   });
 });

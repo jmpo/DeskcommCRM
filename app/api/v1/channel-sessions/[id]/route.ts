@@ -180,15 +180,17 @@ export async function GET(
     req.nextUrl.searchParams.get("impact") === "1"
       ? await loadDeletionImpact(activeOrg.orgId, id)
       : null;
-  const comImpacto = <T extends object>(corpo: T): T & { deletion_impact?: ChannelDeletionImpact } =>
+  const comImpacto = <T extends object>(
+    corpo: T,
+  ): T & { deletion_impact?: ChannelDeletionImpact } =>
     impact ? { ...corpo, deletion_impact: impact } : corpo;
 
-  if (user.support?.access_mode === "support_readonly") return ok(comImpacto({ ...session, waha_configured: false }), { requestId });
+  if (user.support?.access_mode === "support_readonly")
+    return ok(comImpacto({ ...session, waha_configured: false }), { requestId });
   const waha = getWahaClient();
   // Canal oficial não tem sessão no transporte para consultar — `waha_session_name`
   // é NULL nele por CHECK, e perguntar assim mesmo pediria `/api/sessions/null`.
-  const nomeSessao =
-    session.provider === CHANNEL_PROVIDER_WAHA ? session.waha_session_name : null;
+  const nomeSessao = session.provider === CHANNEL_PROVIDER_WAHA ? session.waha_session_name : null;
   if (!waha || !nomeSessao) {
     // Nada a checar ao vivo (transporte fora do ar, ou canal que não vive nele):
     // devolve o que está no DB, sinalizando que o estado não foi confirmado agora.
@@ -210,7 +212,12 @@ export async function GET(
       gravado: phoneNumber,
     });
   } catch {
-    return fail("connection_status_failed", "Não foi possível conferir a conexão. Tente novamente.", 502, { requestId });
+    return fail(
+      "connection_status_failed",
+      "Não foi possível conferir a conexão. Tente novamente.",
+      502,
+      { requestId },
+    );
   }
 
   // Sincroniza o DB: sempre carimba o health check; atualiza status/telefone só se válido.
@@ -332,7 +339,8 @@ export async function DELETE(
   if (!authz.ok) return authz.response;
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org: activeOrg } = authz;
-  if (await mfaEmDivida()) return fail("mfa_required", "Confirme a verificação em duas etapas.", 403, { requestId });
+  if (await mfaEmDivida())
+    return fail("mfa_required", "Confirme a verificação em duas etapas.", 403, { requestId });
 
   const supabase = await createClient();
   const { data: session } = await supabase
@@ -369,14 +377,17 @@ export async function DELETE(
    * estava fora do ar e a exclusão seguiu em best-effort.
    */
   let socialWebhook: "apagada" | "sem_integracao" | "falhou" | "nao_social" = "nao_social";
-  let parceiro: "desfeito" | "nada_a_desfazer" | "sem_credencial" | "falhou" | "nao_parceiro" = "nao_parceiro";
+  let parceiro: "desfeito" | "nada_a_desfazer" | "sem_credencial" | "falhou" | "nao_parceiro" =
+    "nao_parceiro";
 
   if (session.provider === CHANNEL_PROVIDER_WAHA) {
     const waha = getWahaClient();
     if (!waha) {
       return fail(
         "waha_not_configured",
-        t("O WhatsApp (WAHA) não está configurado neste ambiente (faltam WAHA_API_BASE_URL e/ou WAHA_API_KEY) — sem ele o número não pode ser desconectado do aparelho."),
+        t(
+          "O WhatsApp (WAHA) não está configurado neste ambiente (faltam WAHA_API_BASE_URL e/ou WAHA_API_KEY) — sem ele o número não pode ser desconectado do aparelho.",
+        ),
         503,
         { requestId },
       );
@@ -386,9 +397,22 @@ export async function DELETE(
       await waha.logoutSession(session.waha_session_name as string);
       await waha.deleteSession(session.waha_session_name as string);
     } catch (err) {
-      if (err instanceof ChannelConnectionError) return fail(err.code, "Uma conexão está em andamento. Aguarde e tente novamente.", err.status, { requestId });
-      await supabase.from("channel_sessions").update({ status: "FAILED", status_reason: "connection_repair_required", last_status_change_at: now })
-        .eq("organization_id", activeOrg.orgId).eq("id", id);
+      if (err instanceof ChannelConnectionError)
+        return fail(
+          err.code,
+          "Uma conexão está em andamento. Aguarde e tente novamente.",
+          err.status,
+          { requestId },
+        );
+      await supabase
+        .from("channel_sessions")
+        .update({
+          status: "FAILED",
+          status_reason: "connection_repair_required",
+          last_status_change_at: now,
+        })
+        .eq("organization_id", activeOrg.orgId)
+        .eq("id", id);
       return fail("waha_error", wahaFriendlyError(err), 502, { requestId });
     }
   } else if (session.provider === CHANNEL_PROVIDER_SOCIAL) {
@@ -423,11 +447,13 @@ export async function DELETE(
   } else if (session.provider === PARTNER_CHANNEL_PROVIDER) {
     // ─── O QUE A INSTALAÇÃO FEZ NO PROVEDOR PARCEIRO NÃO FICA ÓRFÃO ──────────
     //
-    // A conexão por um clique registrou o webhook do número e conectou o número
-    // na conta da INSTALAÇÃO; a por chave própria pode ter tido o webhook
-    // registrado pela rota. `desfazerNoProvedor` apaga a assinatura e, no um
-    // clique, desconecta o número — senão ele seguiria na fatura do provedor da
-    // instalação depois de sair do CRM. Webhook colado à mão não é tocado.
+    // A conexão por um clique pôs o perfil da organização no webhook ÚNICO da
+    // instalação e conectou o número na conta DELA; a por chave própria pode ter
+    // tido o webhook do número registrado pela rota. `desfazerNoProvedor` tira o
+    // perfil do filtro (o webhook segue entregando as outras conexões) e
+    // desconecta o número — senão ele seguiria na fatura do provedor da
+    // instalação depois de sair do CRM —, ou apaga a assinatura do número na
+    // chave própria. Webhook colado à mão não é tocado.
     //
     // Antes do patch, que gira o token; best-effort como o ramo social: provedor
     // fora do ar vai para o log e para a auditoria (`parceiro`), e NÃO desfaz a
@@ -470,10 +496,7 @@ export async function DELETE(
     // organização desta instalação — e desfazê-la apagaria o webhook deles.
     if (session.meta_token_encrypted && session.meta_phone_number_id) {
       try {
-        const token = await decryptWebhookSecret(
-          createAdminClient(),
-          session.meta_token_encrypted,
-        );
+        const token = await decryptWebhookSecret(createAdminClient(), session.meta_token_encrypted);
         if (!token) {
           // Credencial ilegível (cifra de outro ambiente, por exemplo): sem token
           // não há como falar com a Meta pela linha. Fica registrado que o override

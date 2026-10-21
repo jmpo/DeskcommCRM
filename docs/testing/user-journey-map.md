@@ -3641,12 +3641,17 @@ WhatsApp»: página de cadastro do provedor → volta por outro site (cookie Str
 ponte same-origin) → a tela conclui. Spec: `tests/e2e/numero-oficial-um-clique.spec.ts`,
 contra um dublê HTTP do provedor (porta 3996) que guarda perfis, contas e assinaturas.
 
+Desde a 0714 os eventos de TODAS as conexões de um clique chegam por um webhook ÚNICO da
+instalação (`/api/v1/webhooks/canal-da-instalacao`), filtrado aos perfis delas: o provedor
+limita as assinaturas por conta. A spec conecta a empresa pela tela com uma SEGUNDA empresa
+já conectada, e prova o roteamento pela conta do evento.
+
 | # | Caso | Expectativa | Resultado |
 |---|------|-------------|-----------|
 | J51.1 | Instalação com a chave, empresa sem conexão | o botão de um clique, com a escolha «já usa o app WhatsApp Business» / «número novo»; o campo de chave própria só a pedido | **PASS pela tela (local)** — `evidence/numero-oficial-um-clique/01-botao-de-um-clique.png` |
-| J51.2 | Clicar, concluir no provedor e voltar | «Conectado» com o número; webhook «configurado automaticamente»; a sessão aponta para a chave da instalação (nenhuma cópia dela); a assinatura no provedor é filtrada à conta, na URL do token da sessão | **PASS pela tela (local)** — `evidence/numero-oficial-um-clique/02-conectado-webhook-automatico.png` |
-| J51.3 | Mensagem do cliente assinada com o segredo registrado | entra (200) e vira mensagem | **PASS (local)** — mesma spec |
-| J51.4 | Excluir a conexão | apaga a assinatura e desconecta o número da conta da instalação | **PASS (local)** — mesma spec |
+| J51.2 | Clicar, concluir no provedor e voltar | «Conectado» com o número; webhook «configurado automaticamente»; a sessão aponta para a chave da instalação (nenhuma cópia dela); UMA assinatura no provedor, na entrada da instalação, filtrada aos perfis das duas empresas; o perfil termina com o começo do id da organização (e leva a marca da instalação na frente, quando há marca própria) | **PASS pela tela (local)** — `evidence/numero-oficial-um-clique/02-conectado-webhook-automatico.png` |
+| J51.3 | Mensagem de cada conta, assinada com o segredo do webhook da instalação | cai na organização DELA e em nenhuma outra; conta de ninguém → 200 sem gravar; segredo errado → 401 | **PASS (local)** — mesma spec |
+| J51.4 | Excluir a conexão | desconecta o número da conta da instalação; a assinatura NÃO é apagada — o filtro fica só com a outra empresa, que segue recebendo | **PASS (local)** — mesma spec |
 | J51.5 | Volta forjada, vencida, de outra organização, ou conta fora do perfil | nada é gravado | **PASS (unit)** — `lib/channels/conexao-um-clique.test.ts`, `tests/unit/parceiro-volta-da-conexao.test.ts` |
 | J51.6 | Plano sem vaga de número | recusa ANTES de abrir a página da Meta (o número não entra na fatura da instalação para o CRM recusar no fim) | **PASS (unit)** — `lib/channels/conexao-um-clique.test.ts` |
 

@@ -62,7 +62,7 @@ interface Estado {
   um_clique?: boolean;
   /** A conexão atual fala com o provedor pela chave da instalação. */
   pela_instalacao?: boolean;
-  /** O webhook foi registrado pela instalação, filtrado ao número. */
+  /** O webhook foi registrado pela instalação (o da chave própria, ou o único das conexões de um clique). */
   webhook_automatico?: boolean;
 }
 
@@ -386,7 +386,7 @@ export function CanalParceiroClient() {
           <h3 className="text-sm font-semibold">{t("Webhook configurado")}</h3>
           <p className="text-xs text-muted-foreground">
             {t(
-              "A instalação registrou o webhook no provedor, filtrado a este número. Não há nada para colar.",
+              "A instalação registrou o webhook no provedor: só os eventos deste número chegam a esta organização. Não há nada para colar.",
             )}
           </p>
         </Card>
@@ -425,7 +425,7 @@ export function CanalParceiroClient() {
         <Card className="flex flex-col gap-1 p-4">
           <h3 className="text-sm font-semibold">Webhook</h3>
           <p className="text-xs text-muted-foreground">
-            {t("Configurado automaticamente no provedor, filtrado a este número.")}
+            {t("Configurado automaticamente no provedor: só os eventos deste número chegam aqui.")}
           </p>
         </Card>
       )}

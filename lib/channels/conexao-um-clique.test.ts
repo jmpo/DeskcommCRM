@@ -10,8 +10,11 @@
  *   3. o perfil que já tem o número conclui sem passar pela Meta;
  *   4. a volta só conclui com o estado DESTA organização, no prazo, com o
  *      perfil assinado e a conta confirmada pelo provedor naquele perfil;
- *   5. reconectar reaproveita token e segredo (`segredoNovo: false`): a
- *      assinatura que entrega não é trocada.
+ *   5. a conexão entra no webhook ÚNICO da instalação (nunca uma assinatura
+ *      por número), e reconectar uma sessão do primeiro desenho entrega a
+ *      assinatura própria dela para ser apagada (`legado`);
+ *   6. o perfil e o webhook levam a marca da INSTALAÇÃO no nome; sem marca
+ *      própria, o perfil fica sem prefixo.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,6 +29,7 @@ const h = vi.hoisted(() => ({
   urlDaPagina: vi.fn(),
   contaNoPerfil: vi.fn(),
   limite: vi.fn(),
+  marca: vi.fn(),
 }));
 
 vi.mock("./zernio/credentials", () => ({ chaveDaInstalacao: h.chave }));
@@ -34,8 +38,9 @@ vi.mock("./connect", () => ({
   findPartnerSession: h.find,
   savePartnerSession: h.save,
   segredoAtualDoWebhook: h.segredoAtual,
-  registrarWebhookDoNumero: h.registrar,
+  registrarNoWebhookDaInstalacao: h.registrar,
 }));
+vi.mock("@/lib/branding/saida", () => ({ marcaDaSaida: h.marca }));
 vi.mock("./zernio/conexao-pela-instalacao", async (original) => ({
   ...(await original<typeof import("./zernio/conexao-pela-instalacao")>()),
   garantirPerfil: h.garantirPerfil,
@@ -123,6 +128,7 @@ beforeEach(() => {
     nome: "Loja da Ana",
   });
   h.limite.mockResolvedValue(null);
+  h.marca.mockResolvedValue({ nome: "Chatea APP", origens: { nome: "banco", cor: "banco" } });
 });
 
 async function recusa(p: Promise<unknown>): Promise<ErroDaConexaoUmClique> {
@@ -166,8 +172,18 @@ describe("iniciar", () => {
     expect(h.garantirPerfil).toHaveBeenCalledWith("chave-da-instalacao", {
       id: ORG,
       nome: "Loja da Ana",
+      marca: "Chatea APP",
       perfilGravado: PERFIL,
     });
+    // A marca da INSTALAÇÃO, nunca a da organização: é ela que separa este
+    // sistema de outros que usam a mesma conta do provedor.
+    expect(h.marca).toHaveBeenCalledWith(null);
+  });
+
+  it("sem marca própria (a do produto), o perfil fica sem prefixo", async () => {
+    h.marca.mockResolvedValue({ nome: "DeskcommCRM", origens: { nome: "padrao", cor: "padrao" } });
+    await iniciarConexaoUmClique(admin, ctx, opcoes);
+    expect(h.garantirPerfil.mock.calls[0]?.[1]).toMatchObject({ marca: null });
   });
 
   it("perfil sem número: devolve a página, com a volta assinada para ESTA organização e ESTE perfil", async () => {
@@ -285,7 +301,7 @@ describe("concluir", () => {
     expect(h.save).not.toHaveBeenCalled();
   });
 
-  it("conexão nova: token e segredo novos, webhook com segredo novo na URL do token", async () => {
+  it("conexão nova: entra no webhook ÚNICO da instalação, sem assinatura própria", async () => {
     const c = await concluirConexaoUmClique(admin, ctx, {
       estado: estadoValido(),
       accountId: CONTA,
@@ -297,29 +313,17 @@ describe("concluir", () => {
       displayName: "Loja da Ana",
       webhookRegistrado: true,
     });
-    const gravado = h.save.mock.calls[0]?.[1] as {
-      webhookPathToken: string;
-      webhookSecretEncrypted: string;
-    };
-    const registro = h.registrar.mock.calls[0]?.[1] as {
-      url: string;
-      segredo: string;
-      segredoNovo: boolean;
-      apiKey: string;
-    };
-    expect(registro.url).toBe(
-      `https://crm.exemplo.com/api/v1/webhooks/channel/${gravado.webhookPathToken}`,
-    );
-    expect(gravado.webhookSecretEncrypted).toBe(`cifrado:${registro.segredo}`);
-    expect(registro).toMatchObject({
-      segredoNovo: true,
-      apiKey: "chave-da-instalacao",
-      accountId: CONTA,
+    expect(h.registrar.mock.calls[0]?.[1]).toEqual({
+      organizationId: ORG,
       sessionId: "sessao-nova",
+      apiKey: "chave-da-instalacao",
+      publicBase: "https://crm.exemplo.com",
+      nome: "Chatea APP · um clique",
+      legado: null,
     });
   });
 
-  it("reconectar reaproveita token e segredo: a assinatura que entrega não é trocada", async () => {
+  it("reconectar reaproveita token e segredo, e a assinatura própria do primeiro desenho sai", async () => {
     h.find.mockResolvedValue(sessaoDaInstalacao);
     h.segredoAtual.mockResolvedValue("segredo-que-ja-assina");
     h.save.mockResolvedValue({ error: null, id: "sessao-1" });
@@ -334,10 +338,7 @@ describe("concluir", () => {
       webhookSecretEncrypted: "cifrado:segredo-que-ja-assina",
       displayName: "Loja",
     });
-    expect(h.registrar.mock.calls[0]?.[1]).toMatchObject({
-      segredo: "segredo-que-ja-assina",
-      segredoNovo: false,
-    });
+    expect(h.registrar.mock.calls[0]?.[1]).toMatchObject({ sessionId: "sessao-1", legado: "w-1" });
   });
 
   it("webhook recusado pelo provedor: conectado, mas a resposta diz que não recebe", async () => {

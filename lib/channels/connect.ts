@@ -21,6 +21,11 @@ import { decryptWebhookSecret } from "@/lib/webhooks/secrets";
 import { CHANNEL_PROVIDER_ZERNIO } from "./capabilities";
 import { apagarWebhook, desconectarConta, garantirWebhook } from "./zernio/conexao-pela-instalacao";
 import { chaveDaInstalacao, zernioBaseUrl } from "./zernio/credentials";
+import {
+  CAMINHO_DA_ENTRADA_DA_INSTALACAO,
+  idDoWebhookDaInstalacao,
+  sincronizarWebhookDaInstalacao,
+} from "./zernio/webhook-da-instalacao";
 import type { ChannelProvider } from "./types";
 
 /**
@@ -122,7 +127,8 @@ export async function validatePartnerCredentials(
       // `{"accounts":[]}` — a chave presta, mas não lista nada sozinha.
       return {
         ok: false,
-        reason: "A chave não lista nenhuma conta. Confira o perfil e a conta no painel do provedor.",
+        reason:
+          "A chave não lista nenhuma conta. Confira o perfil e a conta no painel do provedor.",
       };
     }
     // A chave presta, mas não alcança esta conta. É diferente de chave inválida,
@@ -130,7 +136,8 @@ export async function validatePartnerCredentials(
     // corrigir.
     return {
       ok: false,
-      reason: "Conta fora do alcance desta chave. Confira se a conta pertence ao perfil desta chave.",
+      reason:
+        "Conta fora do alcance desta chave. Confira se a conta pertence ao perfil desta chave.",
     };
   }
 
@@ -261,7 +268,8 @@ export async function savePartnerSession(
     organizationId: string;
     existingId: string | null;
     accountId: string;
-    credencial: { tipo: "propria"; apiKeyEncrypted: string } | { tipo: "instalacao"; profileId: string };
+    credencial:
+      { tipo: "propria"; apiKeyEncrypted: string } | { tipo: "instalacao"; profileId: string };
     webhookPathToken: string;
     webhookSecretEncrypted: string;
     phoneNumber: string | null;
@@ -273,7 +281,8 @@ export async function savePartnerSession(
     organization_id: input.organizationId,
     provider: PARTNER_CHANNEL_PROVIDER,
     zernio_account_id: input.accountId,
-    zernio_token_encrypted: input.credencial.tipo === "propria" ? input.credencial.apiKeyEncrypted : null,
+    zernio_token_encrypted:
+      input.credencial.tipo === "propria" ? input.credencial.apiKeyEncrypted : null,
     zernio_credencial_da_instalacao: pelaInstalacao,
     zernio_profile_id: input.credencial.tipo === "instalacao" ? input.credencial.profileId : null,
     zernio_webhook_id: null,
@@ -399,12 +408,66 @@ export async function registrarWebhookDoNumero(
 }
 
 /**
- * Desfaz, no provedor, o que a INSTALAÇÃO fez por esta sessão: apaga a
- * assinatura de webhook que ela registrou e, na conexão por um clique,
- * desconecta o número da conta da instalação — senão ele continuaria contando
- * na fatura do provedor depois de sair do CRM.
+ * Põe o perfil desta conexão de um clique no webhook ÚNICO da instalação e grava
+ * na sessão o id da assinatura que a entrega. Devolve o id, ou `null` quando o
+ * provedor recusou. Nunca lança: a conexão já está gravada, e o webhook se
+ * corrige na próxima conexão ou remoção (o filtro sai sempre da base).
  *
- * Numa conexão por chave própria a conta é da organização: o número fica lá.
+ * Uma sessão do primeiro desenho, com assinatura PRÓPRIA (`legado`), perde a
+ * dela: as duas entregariam o mesmo evento.
+ */
+export async function registrarNoWebhookDaInstalacao(
+  admin: SupabaseClient,
+  input: {
+    organizationId: string;
+    sessionId: string;
+    apiKey: string;
+    publicBase: string;
+    nome: string;
+    legado: string | null;
+  },
+): Promise<string | null> {
+  try {
+    const webhookId = await sincronizarWebhookDaInstalacao(admin, input.apiKey, {
+      url: `${input.publicBase}${CAMINHO_DA_ENTRADA_DA_INSTALACAO}`,
+      nome: input.nome,
+    });
+    if (!webhookId) throw new Error("o webhook da instalação ficou sem a conexão");
+    if (input.legado && input.legado !== webhookId) {
+      await apagarWebhook(input.apiKey, input.legado).catch((erro: unknown) =>
+        logger.warn("[channels.connect] assinatura antiga do número não apagada", {
+          session_id: input.sessionId,
+          detail: erro instanceof Error ? erro.message : String(erro),
+        }),
+      );
+    }
+    const { error } = await admin
+      .from("channel_sessions")
+      .update({ zernio_webhook_id: webhookId })
+      .eq("organization_id", input.organizationId)
+      .eq("id", input.sessionId);
+    if (error) throw new Error(error.message);
+    return webhookId;
+  } catch (erro) {
+    logger.warn("[channels.connect] conexão fora do webhook da instalação", {
+      session_id: input.sessionId,
+      detail: erro instanceof Error ? erro.message : String(erro),
+    });
+    return null;
+  }
+}
+
+/**
+ * Desfaz, no provedor, o que a INSTALAÇÃO fez por esta sessão.
+ *
+ *   - por chave própria: apaga a assinatura que a rota registrou para o número
+ *     (a conta é da organização, o número fica lá);
+ *   - por um clique: tira o perfil do webhook ÚNICO da instalação (que segue
+ *     entregando as outras conexões — nunca é apagado aqui) e desconecta o
+ *     número da conta da instalação, senão ele continuaria na fatura do
+ *     provedor depois de sair do CRM. A assinatura própria do primeiro desenho,
+ *     se a sessão tiver uma, é apagada.
+ *
  * Roda ANTES do patch de exclusão (que gira o token). Erro do provedor LANÇA;
  * quem chama decide seguir em best-effort.
  */
@@ -415,7 +478,9 @@ export async function desfazerNoProvedor(
 ): Promise<"desfeito" | "nada_a_desfazer" | "sem_credencial"> {
   const { data, error } = await admin
     .from("channel_sessions")
-    .select("zernio_account_id, zernio_token_encrypted, zernio_credencial_da_instalacao, zernio_webhook_id")
+    .select(
+      "zernio_account_id, zernio_token_encrypted, zernio_credencial_da_instalacao, zernio_webhook_id",
+    )
     .eq("organization_id", organizationId)
     .eq("id", sessionId)
     .maybeSingle();
@@ -435,7 +500,15 @@ export async function desfazerNoProvedor(
       ? await decryptWebhookSecret(admin, linha.zernio_token_encrypted)
       : null;
   if (!chave) return "sem_credencial";
-  if (linha.zernio_webhook_id) await apagarWebhook(chave, linha.zernio_webhook_id);
-  if (pelaInstalacao && linha.zernio_account_id) await desconectarConta(chave, linha.zernio_account_id);
+  if (!pelaInstalacao) {
+    if (linha.zernio_webhook_id) await apagarWebhook(chave, linha.zernio_webhook_id);
+    return "desfeito";
+  }
+  const compartilhado = await idDoWebhookDaInstalacao();
+  if (linha.zernio_webhook_id && linha.zernio_webhook_id !== compartilhado) {
+    await apagarWebhook(chave, linha.zernio_webhook_id);
+  }
+  if (linha.zernio_account_id) await desconectarConta(chave, linha.zernio_account_id);
+  await sincronizarWebhookDaInstalacao(admin, chave, { nome: "", excluirSessao: sessionId });
   return "desfeito";
 }

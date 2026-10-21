@@ -7,8 +7,9 @@
  *   2. a página de conexão é a HOSPEDADA, no idioma da organização, com a tela
  *      da Meta escolhida (coexistência ou só nuvem) e a cor só quando é válida;
  *   3. a conta da volta só vale se estiver NO PERFIL, for de WhatsApp e ativa;
- *   4. o webhook nasce FILTRADO à conta, e o achado pela URL recebe o filtro em
- *      vez de virar uma segunda assinatura;
+ *   4. o webhook da CHAVE PRÓPRIA nasce filtrado à conta, e o achado pela URL
+ *      recebe o filtro em vez de virar uma segunda assinatura (o do um clique é
+ *      o único da instalação: `webhook-da-instalacao.test.ts`);
  *   5. apagar converge no 404 e lança em qualquer outra falha.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -106,6 +107,24 @@ describe("garantirPerfil", () => {
     expect(chamadas.find((c) => c.metodo === "POST")?.corpo).toEqual({
       name: "Loja da Ana · 0f1e2d3c",
     });
+  });
+
+  it("com marca própria, a marca da INSTALAÇÃO vem na frente — o perfil não se confunde com o de outro sistema na mesma conta", async () => {
+    responder((c) => (c.metodo === "GET" ? { status: 200, body: { profiles: [] } } : undefined));
+    responder((c) =>
+      c.metodo === "POST" ? { status: 201, body: { profile: { _id: PERFIL } } } : undefined,
+    );
+    await garantirPerfil("k", { ...ORG, marca: "  Chatea   APP ", perfilGravado: null });
+    expect(chamadas.find((c) => c.metodo === "POST")?.corpo).toEqual({
+      name: "Chatea APP · Loja da Ana · 0f1e2d3c",
+    });
+  });
+
+  it("marca e nome longos são cortados; sem marca, o formato sem prefixo", () => {
+    const nome = nomeDoPerfil({ id: ORG.id, nome: "N".repeat(80), marca: "M".repeat(80) });
+    expect(nome).toBe(`${"M".repeat(30)} · ${"N".repeat(40)} · 0f1e2d3c`);
+    expect(nomeDoPerfil({ ...ORG, marca: null })).toBe("Loja da Ana · 0f1e2d3c");
+    expect(nomeDoPerfil({ ...ORG, marca: "   " })).toBe("Loja da Ana · 0f1e2d3c");
   });
 
   it("409 na criação converge para o perfil que já existe", async () => {

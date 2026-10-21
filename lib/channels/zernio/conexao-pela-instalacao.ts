@@ -18,9 +18,13 @@
  *   3. na volta, a conta só vale se estiver NAQUELE perfil
  *      (`contaConectadaNoPerfil`). É o que impede uma volta forjada de prender
  *      à organização um número que não é dela;
- *   4. o webhook registrado pela instalação e FILTRADO à conta
- *      (`garantirWebhook`). Sem o filtro, a assinatura de cada número
- *      receberia os eventos de todos os números da conta da instalação.
+ *   4. os eventos chegam pelo webhook ÚNICO da instalação, filtrado aos perfis
+ *      das conexões de um clique (`webhook-da-instalacao.ts`), e a rota de
+ *      entrada roteia pela conta. Uma assinatura por número esgotava o teto de
+ *      assinaturas do provedor em poucas dezenas de clientes.
+ *
+ * `garantirWebhook` (uma assinatura por número, filtrada à conta) fica para a
+ * conexão por CHAVE PRÓPRIA: ali a conta do provedor é da organização.
  *
  * Tudo aqui fala só com o provedor: quem grava no banco é `connect.ts`.
  */
@@ -62,13 +66,19 @@ export const EVENTOS_DO_WEBHOOK = [
 export const ID_DO_PROVEDOR = /^[a-f0-9]{24}$/;
 
 /**
- * Nome do perfil: o da organização, e o começo do id para o nome ser único no
- * time (o provedor recusa nome repetido com 409) mesmo com duas organizações
- * chamadas "Loja".
+ * Nome do perfil: a marca da INSTALAÇÃO, o nome da organização e o começo do id
+ * — único no time (o provedor recusa nome repetido com 409) mesmo com duas
+ * organizações chamadas "Loja".
+ *
+ * A marca vem na frente porque a conta do provedor pode ser compartilhada com
+ * outros sistemas do mesmo dono, que também criam um perfil por cliente; sem
+ * ela, no painel do provedor não dá para saber de qual sistema é cada perfil.
+ * Sem marca própria (`marca` nula), fica o formato sem prefixo.
  */
-export function nomeDoPerfil(org: { id: string; nome: string }): string {
+export function nomeDoPerfil(org: { id: string; nome: string; marca?: string | null }): string {
   const nome = org.nome.trim().replace(/\s+/g, " ").slice(0, 40) || "Organização";
-  return `${nome} · ${org.id.slice(0, 8)}`;
+  const marca = (org.marca ?? "").trim().replace(/\s+/g, " ").slice(0, 30);
+  return marca ? `${marca} · ${nome} · ${org.id.slice(0, 8)}` : `${nome} · ${org.id.slice(0, 8)}`;
 }
 
 const perfisSchema = z.object({
@@ -84,7 +94,7 @@ const perfisSchema = z.object({
  */
 export async function garantirPerfil(
   chave: string,
-  org: { id: string; nome: string; perfilGravado: string | null },
+  org: { id: string; nome: string; marca?: string | null; perfilGravado: string | null },
 ): Promise<string> {
   const perfis = perfisSchema.parse(await pedirAoProvedor(chave, "profiles")).profiles;
   if (org.perfilGravado && perfis.some((p) => p._id === org.perfilGravado))
