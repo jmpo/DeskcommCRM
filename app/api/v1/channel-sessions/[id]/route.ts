@@ -423,11 +423,13 @@ export async function DELETE(
   } else if (session.provider === PARTNER_CHANNEL_PROVIDER) {
     // ─── O QUE A INSTALAÇÃO FEZ NO PROVEDOR PARCEIRO NÃO FICA ÓRFÃO ──────────
     //
-    // A conexão por um clique registrou o webhook do número e conectou o número
-    // na conta da INSTALAÇÃO; a por chave própria pode ter tido o webhook
-    // registrado pela rota. `desfazerNoProvedor` apaga a assinatura e, no um
-    // clique, desconecta o número — senão ele seguiria na fatura do provedor da
-    // instalação depois de sair do CRM. Webhook colado à mão não é tocado.
+    // A conexão por um clique pôs o perfil da organização no webhook ÚNICO da
+    // instalação e conectou o número na conta DELA; a por chave própria pode ter
+    // tido o webhook do número registrado pela rota. `desfazerNoProvedor` tira o
+    // perfil do filtro (o webhook segue entregando as outras conexões) e
+    // desconecta o número — senão ele seguiria na fatura do provedor da
+    // instalação depois de sair do CRM —, ou apaga a assinatura do número na
+    // chave própria. Webhook colado à mão não é tocado.
     //
     // Antes do patch, que gira o token; best-effort como o ramo social: provedor
     // fora do ar vai para o log e para a auditoria (`parceiro`), e NÃO desfaz a

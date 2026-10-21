@@ -7,9 +7,13 @@
  *      (o CHECK da 0713 recusaria as duas juntas), e o update é filtrado pela
  *      organização;
  *   2. o webhook recusado pelo provedor não desfaz a conexão: devolve `null`;
- *   3. excluir a conexão por um clique apaga o webhook E desconecta o número
- *      da conta da instalação; a por chave própria só apaga o webhook que a
- *      rota registrou, e o webhook colado à mão não é tocado.
+ *   3. excluir a conexão por um clique tira o perfil do webhook ÚNICO da
+ *      instalação (sem apagá-lo: ele entrega as outras conexões) e desconecta o
+ *      número da conta da instalação; a assinatura própria do primeiro desenho,
+ *      se houver, sai. A por chave própria só apaga o webhook que a rota
+ *      registrou, e o webhook colado à mão não é tocado;
+ *   4. a conexão por um clique entra no webhook da instalação e grava o id da
+ *      assinatura compartilhada na sessão; recusa do provedor não desfaz nada.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,6 +22,13 @@ const h = vi.hoisted(() => ({
   apagarWebhook: vi.fn(),
   desconectarConta: vi.fn(),
   chave: vi.fn(),
+  sincronizar: vi.fn(),
+  idCompartilhado: vi.fn(),
+}));
+vi.mock("./zernio/webhook-da-instalacao", () => ({
+  CAMINHO_DA_ENTRADA_DA_INSTALACAO: "/api/v1/webhooks/canal-da-instalacao",
+  sincronizarWebhookDaInstalacao: h.sincronizar,
+  idDoWebhookDaInstalacao: h.idCompartilhado,
 }));
 vi.mock("./zernio/conexao-pela-instalacao", () => ({
   garantirWebhook: h.garantirWebhook,
@@ -31,7 +42,12 @@ vi.mock("./zernio/credentials", () => ({
 vi.mock("@/lib/webhooks/secrets", () => ({ decryptWebhookSecret: async () => "chave-propria" }));
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 
-import { desfazerNoProvedor, registrarWebhookDoNumero, savePartnerSession } from "./connect";
+import {
+  desfazerNoProvedor,
+  registrarNoWebhookDaInstalacao,
+  registrarWebhookDoNumero,
+  savePartnerSession,
+} from "./connect";
 
 const ORG = "org-1";
 
@@ -70,7 +86,12 @@ function dbFalso(linha: Record<string, unknown> | null = null, erroNoUpdate: str
   return { db: db as never, escritas };
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  h.apagarWebhook.mockResolvedValue(undefined);
+  h.idCompartilhado.mockResolvedValue("w-instalacao");
+  h.sincronizar.mockResolvedValue("w-instalacao");
+});
 
 describe("savePartnerSession pela instalação", () => {
   it("chave própria nula, ponteiro ligado, perfil gravado e update filtrado pela organização", async () => {
@@ -165,16 +186,33 @@ describe("desfazerNoProvedor", () => {
     zernio_webhook_id: null,
   };
 
-  it("um clique: apaga o webhook e desconecta o número da conta da instalação", async () => {
+  it("um clique: tira o perfil do webhook da instalação, SEM apagá-lo, e desconecta o número", async () => {
     h.chave.mockResolvedValue("chave-da-instalacao");
     const { db } = dbFalso({
       ...base,
       zernio_credencial_da_instalacao: true,
-      zernio_webhook_id: "w-1",
+      zernio_webhook_id: "w-instalacao",
     });
     expect(await desfazerNoProvedor(db, ORG, "sessao-1")).toBe("desfeito");
-    expect(h.apagarWebhook).toHaveBeenCalledWith("chave-da-instalacao", "w-1");
+    expect(h.apagarWebhook).not.toHaveBeenCalled();
     expect(h.desconectarConta).toHaveBeenCalledWith("chave-da-instalacao", "conta-1");
+    expect(h.sincronizar).toHaveBeenCalledWith(db, "chave-da-instalacao", {
+      nome: "",
+      excluirSessao: "sessao-1",
+    });
+  });
+
+  it("um clique do primeiro desenho: a assinatura própria do número sai, e o filtro é recalculado", async () => {
+    h.chave.mockResolvedValue("chave-da-instalacao");
+    const { db } = dbFalso({
+      ...base,
+      zernio_credencial_da_instalacao: true,
+      zernio_webhook_id: "w-do-numero",
+    });
+    expect(await desfazerNoProvedor(db, ORG, "sessao-1")).toBe("desfeito");
+    expect(h.apagarWebhook).toHaveBeenCalledWith("chave-da-instalacao", "w-do-numero");
+    expect(h.apagarWebhook).not.toHaveBeenCalledWith("chave-da-instalacao", "w-instalacao");
+    expect(h.sincronizar).toHaveBeenCalledTimes(1);
   });
 
   it("chave própria com webhook da rota: apaga só o webhook, o número fica na conta da organização", async () => {
@@ -186,6 +224,7 @@ describe("desfazerNoProvedor", () => {
     expect(await desfazerNoProvedor(db, ORG, "sessao-1")).toBe("desfeito");
     expect(h.apagarWebhook).toHaveBeenCalledWith("chave-propria", "w-2");
     expect(h.desconectarConta).not.toHaveBeenCalled();
+    expect(h.sincronizar).not.toHaveBeenCalled();
   });
 
   it("webhook colado à mão: nada a desfazer, nenhuma chamada ao provedor", async () => {
@@ -204,5 +243,47 @@ describe("desfazerNoProvedor", () => {
     });
     expect(await desfazerNoProvedor(db, ORG, "sessao-1")).toBe("sem_credencial");
     expect(h.apagarWebhook).not.toHaveBeenCalled();
+  });
+});
+
+describe("registrarNoWebhookDaInstalacao", () => {
+  const entrada = {
+    organizationId: ORG,
+    sessionId: "sessao-1",
+    apiKey: "chave-da-instalacao",
+    publicBase: "https://crm.exemplo.com",
+    nome: "Chatea APP · um clique",
+    legado: null,
+  };
+
+  it("entra no webhook da instalação pela rota ÚNICA e grava o id compartilhado na sessão desta organização", async () => {
+    const { db, escritas } = dbFalso();
+    expect(await registrarNoWebhookDaInstalacao(db, entrada)).toBe("w-instalacao");
+    expect(h.sincronizar).toHaveBeenCalledWith(db, "chave-da-instalacao", {
+      url: "https://crm.exemplo.com/api/v1/webhooks/canal-da-instalacao",
+      nome: "Chatea APP · um clique",
+    });
+    expect(h.garantirWebhook).not.toHaveBeenCalled();
+    expect(escritas).toEqual([
+      {
+        tabela: "channel_sessions",
+        op: "update",
+        valor: { zernio_webhook_id: "w-instalacao" },
+        filtros: { organization_id: ORG, id: "sessao-1" },
+      },
+    ]);
+  });
+
+  it("sessão do primeiro desenho: a assinatura própria dela é apagada", async () => {
+    const { db } = dbFalso();
+    await registrarNoWebhookDaInstalacao(db, { ...entrada, legado: "w-do-numero" });
+    expect(h.apagarWebhook).toHaveBeenCalledWith("chave-da-instalacao", "w-do-numero");
+  });
+
+  it("provedor recusa: devolve null e não lança — a conexão já está gravada", async () => {
+    h.sincronizar.mockRejectedValue(new Error("502"));
+    const { db, escritas } = dbFalso();
+    expect(await registrarNoWebhookDaInstalacao(db, entrada)).toBeNull();
+    expect(escritas).toHaveLength(0);
   });
 });
