@@ -3641,7 +3641,7 @@ WhatsApp»: página de cadastro do provedor → volta por outro site (cookie Str
 ponte same-origin) → a tela conclui. Spec: `tests/e2e/numero-oficial-um-clique.spec.ts`,
 contra um dublê HTTP do provedor (porta 3996) que guarda perfis, contas e assinaturas.
 
-Desde a 0714 os eventos de TODAS as conexões de um clique chegam por um webhook ÚNICO da
+Desde a 0721 os eventos de TODAS as conexões de um clique chegam por um webhook ÚNICO da
 instalação (`/api/v1/webhooks/canal-da-instalacao`), filtrado aos perfis delas: o provedor
 limita as assinaturas por conta. A spec conecta a empresa pela tela com uma SEGUNDA empresa
 já conectada, e prova o roteamento pela conta do evento.

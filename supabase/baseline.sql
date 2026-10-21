@@ -55938,8 +55938,8 @@ comment on column public.channel_sessions.zernio_credencial_da_instalacao is
   'true = a sessão fala com o provedor pela chave da INSTALAÇÃO (platform_config), resolvida na hora; zernio_token_encrypted fica nulo. false = chave própria da organização, cifrada em zernio_token_encrypted. Migration 0713.';
 
 
--- ---- o webhook da conexão por um clique é ÚNICO na instalação (migration 0714) ----
--- 0714 — o webhook da conexão por um clique passa a ser ÚNICO na instalação.
+-- ---- o webhook da conexão por um clique é ÚNICO na instalação (migration 0721) ----
+-- 0721 — o webhook da conexão por um clique passa a ser ÚNICO na instalação.
 --
 -- A 0713 gravava em `zernio_webhook_id` a assinatura que a instalação registrava
 -- PARA CADA NÚMERO. O provedor limita as assinaturas por conta e recomenda um
@@ -55950,7 +55950,7 @@ comment on column public.channel_sessions.zernio_credencial_da_instalacao is
 --
 -- Só documentação no banco: nenhum dado muda, nenhuma coluna nova.
 comment on column public.channel_sessions.zernio_webhook_id is
-  'Assinatura de webhook que entrega os eventos desta conta, registrada pela INSTALAÇÃO. Na conexão por um clique é o webhook ÚNICO da instalação (compartilhado, filtrado aos perfis das conexões ativas; id em platform_config): a remoção do canal tira o perfil do filtro e NÃO apaga a assinatura. Na chave própria é a assinatura do número (filtrada à conta), apagada na remoção. Nulo quando o operador configurou o webhook à mão. Migrations 0713 e 0714.';
+  'Assinatura de webhook que entrega os eventos desta conta, registrada pela INSTALAÇÃO. Na conexão por um clique é o webhook ÚNICO da instalação (compartilhado, filtrado aos perfis das conexões ativas; id em platform_config): a remoção do canal tira o perfil do filtro e NÃO apaga a assinatura. Na chave própria é a assinatura do número (filtrada à conta), apagada na remoção. Nulo quando o operador configurou o webhook à mão. Migrations 0713 e 0721.';
 
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
