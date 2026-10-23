@@ -79,6 +79,7 @@ function stub(tabelas: Record<string, { data: unknown; error?: { message: string
         select: () => q,
         eq: (c: string, v: unknown) => (registro.filtros.push(["eq", c, v]), q),
         is: (c: string, v: unknown) => (registro.filtros.push(["is", c, v]), q),
+        in: (c: string, v: unknown) => (registro.filtros.push(["in", c, v]), q),
         maybeSingle: async () => resultado,
         then: (ok: (v: unknown) => unknown, ko?: (e: unknown) => unknown) => Promise.resolve(resultado).then(ok, ko),
       };
@@ -146,5 +147,284 @@ describe("carregarDestinatariosDaMensagem", () => {
     expect(await carregarDestinatariosDaMensagem(stub({}).db, "org-1", "conv-x")).toBeNull();
     const { db } = stub({ conversations: { data: null, error: { message: "boom" } } });
     await expect(carregarDestinatariosDaMensagem(db, "org-1", "conv-1")).rejects.toThrow("boom");
+  });
+});
+
+describe("destinatariosDaMensagem — a IA e o plantão (regra pura)", () => {
+  it("'ninguem' não avisa pessoa nenhuma", () => {
+    expect(usuarioRecebeAviso({ tipo: "ninguem" }, ADMIN)).toBe(false);
+  });
+
+  it("responsável vence a IA e o plantão", () => {
+    expect(
+      destinatariosDaMensagem({
+        atribuidoA: "u-ana",
+        donosDeNegocioAberto: [],
+        admins: [ADMIN],
+        iaConduz: true,
+        filaDistribuida: { dePlantao: [], gestores: ["u-gerente"] },
+      }),
+    ).toEqual({ tipo: "restrito", userIds: ["u-ana", ADMIN] });
+  });
+
+  it("sem responsável e a IA conduzindo → ninguém", () => {
+    expect(
+      destinatariosDaMensagem({ atribuidoA: null, donosDeNegocioAberto: [], admins: [], iaConduz: true }),
+    ).toEqual({ tipo: "ninguem" });
+  });
+
+  it("fila distribuída: quem está de plantão; ninguém de plantão → gestores; nem gestores → todos", () => {
+    const base = { atribuidoA: null, donosDeNegocioAberto: [], admins: [] };
+    expect(destinatariosDaMensagem({ ...base, filaDistribuida: { dePlantao: ["u-ana"], gestores: [ADMIN] } })).toEqual({
+      tipo: "restrito",
+      userIds: ["u-ana"],
+    });
+    expect(destinatariosDaMensagem({ ...base, filaDistribuida: { dePlantao: [], gestores: [ADMIN] } })).toEqual({
+      tipo: "restrito",
+      userIds: [ADMIN],
+    });
+    expect(destinatariosDaMensagem({ ...base, filaDistribuida: { dePlantao: [], gestores: [] } })).toEqual({
+      tipo: "todos",
+    });
+  });
+});
+
+// Domingo 03:00 em São Paulo (06:00Z) — fora de uma jornada de seg a sex 09-18.
+const DOMINGO_MADRUGADA = new Date("2026-10-18T06:00:00Z");
+const JORNADA_COMERCIAL = {
+  timezone: "America/Sao_Paulo",
+  windows: [1, 2, 3, 4, 5].map((dow) => ({ dow, start: "09:00", end: "18:00" })),
+};
+
+const SEM_DONO = {
+  assigned_to_user_id: null,
+  contact_id: "ct-1",
+  is_group: false,
+  status: "open",
+  bot_silenced_until: null,
+  channel_session_id: "ch-1",
+};
+const AGENTE_NO_AR = {
+  id: "ag-1",
+  kind: "mcp_agent",
+  is_active: true,
+  paused_at: null,
+  published_version_id: "v1",
+  archived_at: null,
+  operation_mode: "automatic",
+};
+/** A IA só conduz onde o dreno roda o turno: versão publicada NO número da conversa. */
+const VERSAO_NO_NUMERO = { id: "v1", channel_session_id: "ch-1" };
+/** O que a leitura de elegibilidade embute na conversa (org operante, canal aberto). */
+const ELEGIVEL = { organizations: { status: "active" }, contacts: { force_human: false, ai_opt_out: false }, channel_sessions: { metadata: {} } };
+const MEMBROS = [
+  { user_id: "u-ana", role: "agent" },
+  { user_id: "u-bia", role: "agent" },
+  { user_id: "u-gerente", role: "manager" },
+  { user_id: ADMIN, role: "admin" },
+];
+
+const tabelasLidas = (consultas: Array<{ tabela: string }>) => consultas.map((c) => c.tabela);
+
+describe("carregarDestinatariosDaMensagem — fila, plantão e IA", () => {
+  it("(i) modo manual, ninguém disponível → todos, sem ler disponibilidade", async () => {
+    const { db, consultas } = stub({
+      conversations: { data: SEM_DONO },
+      crm_leads: { data: [] },
+      contacts: { data: { force_human: false, is_blocked: false } },
+      ai_agents: { data: [] },
+      organizations: { data: { settings: {} } },
+      channel_routing_policies: { data: null },
+      attendant_availability: { data: [{ user_id: "u-ana", schedule: {} }] },
+    });
+    expect(await carregarDestinatariosDaMensagem(db, "org-1", "conv-1")).toEqual({ tipo: "todos" });
+    expect(tabelasLidas(consultas)).not.toContain("attendant_availability");
+  });
+
+  it("(ii-a) rodízio: só quem está de plantão (is_available + sem jornada)", async () => {
+    const { db, consultas } = stub({
+      conversations: { data: SEM_DONO },
+      crm_leads: { data: [] },
+      ai_agents: { data: [] },
+      organizations: { data: { settings: { routing: { mode: "round_robin" } } } },
+      channel_routing_policies: { data: null },
+      attendant_availability: { data: [{ user_id: "u-ana", schedule: {} }] },
+      user_organizations: { data: MEMBROS },
+    });
+    expect(await carregarDestinatariosDaMensagem(db, "org-1", "conv-1")).toEqual({ tipo: "restrito", userIds: ["u-ana"] });
+    const disp = consultas.find((c) => c.tabela === "attendant_availability")!.filtros;
+    expect(disp).toContainEqual(["eq", "organization_id", "org-1"]);
+    expect(disp).toContainEqual(["eq", "is_available", true]);
+    const membros = consultas.find((c) => c.tabela === "user_organizations")!.filtros;
+    expect(membros).toContainEqual(["eq", "organization_id", "org-1"]);
+    expect(membros).toContainEqual(["is", "revoked_at", null]);
+  });
+
+  it("(ii-b) rodízio, disponível mas fora da jornada → gestores; viewer de plantão não entra", async () => {
+    const { db } = stub({
+      conversations: { data: SEM_DONO },
+      crm_leads: { data: [] },
+      ai_agents: { data: [] },
+      organizations: { data: { settings: { routing: { mode: "round_robin" } } } },
+      channel_routing_policies: { data: null },
+      attendant_availability: {
+        data: [
+          { user_id: "u-ana", schedule: JORNADA_COMERCIAL },
+          { user_id: "u-viewer", schedule: {} },
+        ],
+      },
+      user_organizations: { data: MEMBROS },
+    });
+    expect(await carregarDestinatariosDaMensagem(db, "org-1", "conv-1", null, DOMINGO_MADRUGADA)).toEqual({
+      tipo: "restrito",
+      userIds: ["u-gerente", ADMIN],
+    });
+  });
+
+  it("(ii-c) a regra do NÚMERO vence a da organização, nos dois sentidos", async () => {
+    const comCanal = (orgMode: string, canal: string) =>
+      stub({
+        conversations: { data: SEM_DONO },
+        crm_leads: { data: [] },
+        ai_agents: { data: [] },
+        organizations: { data: { settings: { routing: { mode: orgMode } } } },
+        channel_routing_policies: { data: { id: "pol-1", distribution_mode: canal, default_assignee_user_id: null } },
+        channel_routing_responsibles: { data: [{ user_id: "u-ana" }] },
+        attendant_availability: { data: [{ user_id: "u-ana", schedule: {} }] },
+        user_organizations: { data: MEMBROS },
+      }).db;
+    expect(await carregarDestinatariosDaMensagem(comCanal("manual", "load"), "org-1", "conv-1")).toEqual({
+      tipo: "restrito",
+      userIds: ["u-ana"],
+    });
+    expect(await carregarDestinatariosDaMensagem(comCanal("round_robin", "manual"), "org-1", "conv-1")).toEqual({
+      tipo: "todos",
+    });
+  });
+
+  it("(ii-d) canal com responsáveis: de plantão fora da lista do canal não conta", async () => {
+    const { db, consultas } = stub({
+      conversations: { data: SEM_DONO },
+      crm_leads: { data: [] },
+      ai_agents: { data: [] },
+      organizations: { data: { settings: { routing: { mode: "round_robin" } } } },
+      channel_routing_policies: { data: { id: "pol-1", distribution_mode: null, default_assignee_user_id: null } },
+      channel_routing_responsibles: { data: [{ user_id: "u-bia" }] },
+      attendant_availability: { data: [{ user_id: "u-ana", schedule: {} }] },
+      user_organizations: { data: MEMBROS },
+    });
+    expect(await carregarDestinatariosDaMensagem(db, "org-1", "conv-1")).toEqual({
+      tipo: "restrito",
+      userIds: ["u-gerente", ADMIN],
+    });
+    // `filter`/`every`: a regra do número também lê `channel_routing_policies`.
+    for (const t of ["channel_routing_policies", "channel_routing_responsibles"]) {
+      const lidas = consultas.filter((c) => c.tabela === t);
+      expect(lidas.length).toBeGreaterThan(0);
+      expect(lidas.every((c) => c.filtros.some((f) => f[1] === "organization_id" && f[2] === "org-1"))).toBe(true);
+    }
+  });
+
+  it("(iii-a) sem responsável, IA no ar e conversa sem trava → ninguém", async () => {
+    const { db, consultas } = stub({
+      conversations: { data: { ...SEM_DONO, ...ELEGIVEL, status: "ai_handling" } },
+      crm_leads: { data: [] },
+      contacts: { data: { force_human: false, is_blocked: false } },
+      ai_agents: { data: [AGENTE_NO_AR] },
+      ai_agent_versions: { data: [VERSAO_NO_NUMERO] },
+    });
+    expect(await carregarDestinatariosDaMensagem(db, "org-1", "conv-1")).toEqual({ tipo: "ninguem" });
+    const contato = consultas.find((c) => c.tabela === "contacts")!.filtros;
+    expect(contato).toContainEqual(["eq", "id", "ct-1"]);
+    expect(contato).toContainEqual(["eq", "organization_id", "org-1"]);
+    expect(tabelasLidas(consultas)).not.toContain("attendant_availability");
+  });
+
+  it.each([
+    ["agente pausado", { ai_agents: { data: [{ ...AGENTE_NO_AR, paused_at: "2026-10-01T00:00:00Z" }] } }],
+    ["depois da passagem (silêncio durável)", { conversations: { data: { ...SEM_DONO, bot_silenced_until: "infinity" } } }],
+    ["leitura dos agentes falhou", { ai_agents: { data: null, error: { message: "fora" } } }],
+    ["contato travado em humano", { contacts: { data: { force_human: true, is_blocked: false } } }],
+  ])("(iii) %s → regra da fila (todos no manual)", async (_caso, troca) => {
+    const { db } = stub({
+      conversations: { data: SEM_DONO },
+      crm_leads: { data: [] },
+      contacts: { data: { force_human: false, is_blocked: false } },
+      ai_agents: { data: [AGENTE_NO_AR] },
+      organizations: { data: { settings: {} } },
+      ...troca,
+    });
+    expect(await carregarDestinatariosDaMensagem(db, "org-1", "conv-1")).toEqual({ tipo: "todos" });
+  });
+
+  // O dreno só roda o turno onde o NÚMERO da conversa tem quem atenda
+  // (`haQuemAtendaASessao`) e a conversa passa na elegibilidade. Fora disso a IA
+  // não responde, e calar o aviso deixaria o cliente sem ninguém.
+  const IA_NO_AR = {
+    conversations: { data: { ...SEM_DONO, ...ELEGIVEL } },
+    crm_leads: { data: [] },
+    contacts: { data: { force_human: false, is_blocked: false } },
+    ai_agents: { data: [AGENTE_NO_AR] },
+    ai_agent_versions: { data: [VERSAO_NO_NUMERO] },
+    organizations: { data: { settings: {} } },
+  };
+
+  it("(iii-b) controle: o mesmo cenário com a versão no número da conversa → ninguém", async () => {
+    expect(await carregarDestinatariosDaMensagem(stub(IA_NO_AR).db, "org-1", "conv-1")).toEqual({ tipo: "ninguem" });
+  });
+
+  it("(iii-c) roteador ativo no número com membro publicado → ninguém; filtros da org nas leituras", async () => {
+    const { db, consultas } = stub({
+      ...IA_NO_AR,
+      ai_agent_versions: { data: [{ id: "v1", channel_session_id: "ch-outro" }] },
+      ai_routers: { data: [{ id: "r-1", fallback_agent_id: null }] },
+      ai_router_members: { data: [{ agent_id: "ag-1" }] },
+    });
+    expect(await carregarDestinatariosDaMensagem(db, "org-1", "conv-1")).toEqual({ tipo: "ninguem" });
+    for (const t of ["ai_agents", "ai_agent_versions", "ai_routers", "ai_router_members"]) {
+      expect(consultas.filter((c) => c.tabela === t).every((c) => c.filtros.some((f) => f[1] === "organization_id" && f[2] === "org-1"))).toBe(true);
+    }
+    expect(consultas.find((c) => c.tabela === "ai_routers")!.filtros).toContainEqual(["eq", "channel_session_id", "ch-1"]);
+  });
+
+  it.each([
+    ["agente publicado em OUTRO número, sem roteador no desta", { ai_agent_versions: { data: [{ id: "v1", channel_session_id: "ch-outro" }] }, ai_routers: { data: [] } }],
+    ["roteador do número sem membro que execute", { ai_agent_versions: { data: [{ id: "v1", channel_session_id: "ch-outro" }] }, ai_routers: { data: [{ id: "r-1", fallback_agent_id: "ag-pausado" }] }, ai_router_members: { data: [] } }],
+    ["versão apontada não está publicada", { ai_agent_versions: { data: [] } }],
+    ["agente no modo assistido (o rascunho espera uma pessoa)", { ai_agents: { data: [{ ...AGENTE_NO_AR, operation_mode: "assisted" }] } }],
+    ["conversa sem número", { conversations: { data: { ...SEM_DONO, ...ELEGIVEL, channel_session_id: null } } }],
+    ["contato marcado para sempre atendimento humano", { conversations: { data: { ...SEM_DONO, ...ELEGIVEL, contacts: { force_human: false, ai_opt_out: true } } } }],
+    ["canal com acesso restrito e contato não autorizado", { conversations: { data: { ...SEM_DONO, ...ELEGIVEL, channel_sessions: { metadata: { ai_gate: "allowlist" } } } } }],
+  ])("(iii-d) %s → regra da fila, nunca ninguém", async (_caso, troca) => {
+    expect(await carregarDestinatariosDaMensagem(stub({ ...IA_NO_AR, ...troca }).db, "org-1", "conv-1")).toEqual({
+      tipo: "todos",
+    });
+  });
+
+  it("(iv-a) conversa atribuída: responsável + admins, sem ler agentes nem plantão", async () => {
+    const { db, consultas } = stub({
+      conversations: { data: { ...SEM_DONO, assigned_to_user_id: "u-ana" } },
+      ai_agents: { data: [AGENTE_NO_AR] },
+      user_organizations: { data: [{ user_id: ADMIN }] },
+    });
+    expect(await carregarDestinatariosDaMensagem(db, "org-1", "conv-1")).toEqual({
+      tipo: "restrito",
+      userIds: ["u-ana", ADMIN],
+    });
+    expect(tabelasLidas(consultas)).toEqual(["conversations", "user_organizations"]);
+  });
+
+  it("(iv-b) dono de negócio aberto, com IA no ar → dono + admins (a precedência não muda)", async () => {
+    const { db, consultas } = stub({
+      conversations: { data: SEM_DONO },
+      crm_leads: { data: [{ owner_user_id: "u-bia" }] },
+      ai_agents: { data: [AGENTE_NO_AR] },
+      user_organizations: { data: [{ user_id: ADMIN }] },
+    });
+    expect(await carregarDestinatariosDaMensagem(db, "org-1", "conv-1")).toEqual({
+      tipo: "restrito",
+      userIds: ["u-bia", ADMIN],
+    });
+    expect(tabelasLidas(consultas)).not.toContain("ai_agents");
   });
 });

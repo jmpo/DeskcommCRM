@@ -10,6 +10,7 @@ import {
 } from "react";
 import { Providers } from "@/app/providers";
 import { definirOrgDaAba } from "@/lib/auth/org-da-aba";
+import { encerrarPushDesteAparelho } from "@/lib/notifications/push_client";
 import { createClient, resetRealtimeAuthentication } from "@/lib/supabase/browser";
 import type { AuthUser, ActiveOrg, Role } from "@/lib/auth/types";
 import { ROLE_RANK } from "@/lib/auth/types";
@@ -91,6 +92,9 @@ export function AuthProvider({
       refreshing,
       signOut: async () => {
         resetRealtimeAuthentication();
+        // Antes da action: o DELETE da inscrição precisa do cookie que ela
+        // apaga. `encerrarPushDesteAparelho` nunca lança, então não segura a saída.
+        await encerrarPushDesteAparelho();
         const { signOut } = await import("@/app/actions/auth/signOut");
         await signOut();
       },
@@ -182,4 +186,23 @@ export function usePermission(action: string): boolean {
   const required = ACTION_MIN_ROLE[action];
   if (!required) return false;
   return ROLE_RANK[activeOrg.role] >= ROLE_RANK[required];
+}
+
+/**
+ * O país da organização ativa, SEM exigir o provider: telas que também
+ * renderizam isoladas (testes, prévias) leem `null` — o Brasil, o padrão de
+ * todo leitor de país (`perfilDoPais(null)`) — em vez de lançar como
+ * `useActiveOrg`.
+ */
+export function usePaisDaOrgAtiva(): string | null {
+  return useContext(Ctx)?.activeOrg?.country ?? null;
+}
+
+/**
+ * A moeda da organização ativa (`organizations.currency`) — a do campo
+ * personalizado de moeda. Tolerante como o leitor de país: fora do provider,
+ * `null`, e quem lê cai no `MOEDA_PADRAO`.
+ */
+export function useMoedaDaOrgAtiva(): string | null {
+  return useContext(Ctx)?.activeOrg?.currency ?? null;
 }

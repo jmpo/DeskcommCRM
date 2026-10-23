@@ -514,11 +514,15 @@ beforeAll(() => {
         if not exists (select 1 from public.external_db_connections where organization_id = v_org) then
           insert into public.external_db_connections
             (organization_id, label, host, port, database_name, username,
-             password_encrypted, password_iv, password_tag)
+             password_encrypted, password_iv, password_tag,
+             receitas)
             values (v_org, 'RLS invariant fonte externa', 'db.invariante.interno', 5432,
                     'outro_crm', 'leitor',
                     '\\x00'::bytea, '\\x000000000000000000000000'::bytea,
-                    '\\x00000000000000000000000000000000'::bytea);
+                    '\\x00000000000000000000000000000000'::bytea,
+                    case when v_org = 'aaaaaaaa-0000-4000-8000-000000000001'::uuid
+                      then '[{"id":"00000000-0000-4000-8000-000000000001","receita":"woocommerce-produtos","rotulo":"Invariante loja","descricao":"Apenas org A","fixos":{"prefixo":"wp_"},"ativa":true}]'::jsonb
+                      else '[]'::jsonb end);
         end if;
 
         -- migrations 0374/0375 -- a campanha e quem ela alcancou. A tabela
@@ -611,6 +615,18 @@ beforeAll(() => {
           returning id into v_regra;
           perform public.fn_automation_rodizio_atribuir(v_org, v_regra,
             (select id from public.crm_leads where organization_id = v_org limit 1));
+        end if;
+
+        -- migration 0721 (#2869): o traco do turno do agente. Semeado pelo
+        -- harness (service_role) com a chave da PREVIA: a linha de turno real
+        -- exige job_id, e um job de verdade nao cabe numa semente que roda
+        -- duas vezes. A leitura e org-scoped sem gate de papel -- o agent
+        -- semeado e controle positivo legitimo (quem investiga o turno na tela
+        -- e a equipe) --, e a escrita e so do motor: a sessao tem so select.
+        if not exists (select 1 from public.agent_turn_traces where organization_id = v_org) then
+          insert into public.agent_turn_traces
+            (organization_id, preview_run_id, conversation_id, contact_id, is_dry_run, status, messages_sent)
+          values (v_org, 'rls-invariant-' || v_org::text, v_conv, v_contact, true, 'completed', 0);
         end if;
       end loop;
     end
@@ -798,6 +814,13 @@ export const TABLES = [
   // só a função `fn_automation_rodizio_atribuir`, com service_role, grava. Esse
   // segundo eixo é medido em rodizio-da-acao-atribuir.test.ts.
   "automation_rodizio_atribuicoes",
+  // migration 0721 (#2869) — o traço do turno do agente: o que aconteceu numa
+  // execução (ferramentas chamadas, skills ativadas, custo, erro). Vazar a linha
+  // entrega ao vizinho o texto do erro e os ids das fontes de conhecimento do
+  // outro. A LEITURA é org-scoped sem gate de papel (o `agent` semeado é
+  // controle positivo legítimo: quem investiga o turno é a equipe); a ESCRITA é
+  // só do motor, e `authenticated` tem só `select` (o molde da 0692).
+  "agent_turn_traces",
   // ⚠️ `cobranca_assinaturas` (migration 0583) NÃO entra nesta lista, pelo mesmo
   // motivo de `webhook_lead_captures`: a leitura é só do `admin` e o usuário
   // semeado aqui é `agent`, então o controle positivo falharia por ACERTO. A
@@ -830,6 +853,49 @@ describe("RLS tenant isolation (fn_user_org_ids pattern)", () => {
     expect(countAs(USER_B,
       `select count(*) from public.ai_reply_drafts where organization_id = '${ORG_A}';`,
     )).toBe(0);
+  });
+
+  it("external_db_connections: org B lê 0 linhas de org A (cross-tenant, RLS)", () => {
+    // A pergunta certa: USER_B (agent da org B) tentando ler a linha de org A
+    // na tabela-base. Sem RLS isso vazaria; com RLS é 0. Ler a própria org B
+    // com `[]` dá 0 sem RLS — não prova nada.
+    const crossTenant = countAs(USER_B,
+      `select count(*) from public.external_db_connections
+       where organization_id = '${ORG_A}';`);
+    expect(crossTenant).toBe(0);
+
+    // Controle positivo: USER_A lê a própria linha na tabela-base (≥ 1, pois
+    // a semente a gravou com receitas não vazias).
+    const own = countAs(USER_A,
+      `select count(*) from public.external_db_connections
+       where organization_id = '${ORG_A}';`);
+    expect(own).toBeGreaterThanOrEqual(1);
+  });
+
+  it("external_db_connections_safe: receitas não sai pela view, receitas_count sim", () => {
+    // A coluna `receitas` NÃO existe na view _safe (D3 da Spec 23 / D3 da Spec 25).
+    const colunas = sql(`
+      select column_name from information_schema.columns
+      where table_schema = 'public' and table_name = 'external_db_connections_safe'
+      order by ordinal_position;
+    `);
+    const nomes = colunas.split("\n").map((l) => l.trim()).filter(Boolean);
+    expect(nomes).not.toContain("receitas");
+    expect(nomes).toContain("receitas_count");
+  });
+
+  it("external_db_connections_safe: org B lê 0 de org A; org A lê receitas_count ≥ 1", () => {
+    // Cross-tenant na view: USER_B não vê a linha de org A.
+    const crossTenant = countAs(USER_B,
+      `select count(*) from public.external_db_connections_safe
+       where organization_id = '${ORG_A}';`);
+    expect(crossTenant).toBe(0);
+
+    // Controle positivo: USER_A vê `receitas_count` da própria linha na view.
+    const countA = countAs(USER_A,
+      `select receitas_count from public.external_db_connections_safe
+       where organization_id = '${ORG_A}';`);
+    expect(Number(countA)).toBeGreaterThanOrEqual(1);
   });
 
   it("ai_reply_drafts: os dois tenants têm linhas antes de testar as cercas", () => {
