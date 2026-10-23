@@ -224,6 +224,7 @@ function paraDecisao(row: DecisionRow): UltimaDecisaoHumana | null {
 }
 
 interface HistoryRow {
+  id?: string;
   direction: 'inbound' | 'outbound';
   type: string;
   body: string | null;
@@ -232,6 +233,36 @@ interface HistoryRow {
   media_mime: string | null;
   media_derived_text: string | null;
   sent_at: Date;
+  /** A última plantilha da conversa, trazida de FORA da janela — ver `PLANTILHA_FIXADA_DIAS`. */
+  fixada?: boolean;
+}
+
+/**
+ * ─── A ÚLTIMA PLANTILHA QUE O CLIENTE RECEBEU ENTRA NO HISTÓRICO ────────────
+ *
+ * O histórico é a janela do ATENDIMENTO atual (inbound da demanda corrente,
+ * outbound desde `service_started_at`), cortada nas últimas `historyLimit`
+ * mensagens. Uma plantilha de oferta pode cair fora dos dois cortes:
+ *
+ *   - o cliente responde dias depois ("Sí, lo quiero" no botão), quando o
+ *     atendimento anterior já fechou: a resposta abre um atendimento novo, e a
+ *     plantilha é de antes do `service_started_at`;
+ *   - a conversa seguiu depois da oferta e ela passou das últimas N mensagens.
+ *
+ * Nos dois casos o agente respondia ao "sim" sem saber a que o cliente disse
+ * sim — medido: oferta de ₲125.000 aceita e o agente confirmou ₲135.000, o
+ * preço cheio, e ainda se apresentou de novo. A última plantilha enviada nos
+ * últimos `PLANTILHA_FIXADA_DIAS` dias entra então na MESMA consulta (sem
+ * leitura nova em voo), marcada `fixada`, e é a última a cair no orçamento de
+ * tokens. Uma mensagem a mais, no máximo; quando ela já está na janela, nada
+ * muda.
+ */
+const PLANTILHA_FIXADA_DIAS = 30;
+
+/** Ordem cronológica, sem a cópia fixada de uma plantilha que já está na janela. */
+export function historicoComAPlantilhaFixada(linhasDaMaisNova: HistoryRow[]): HistoryRow[] {
+  const naJanela = new Set(linhasDaMaisNova.filter((l) => !l.fixada && l.id).map((l) => l.id));
+  return linhasDaMaisNova.filter((l) => !(l.fixada && l.id && naJanela.has(l.id))).reverse();
 }
 
 export async function getLeadContext(
@@ -285,20 +316,32 @@ export async function getLeadContext(
       conversationId
         ? db
             .query<HistoryRow>(
-              `select direction, type, body, media_url, media_storage_path, media_mime,
-                      media_derived_text, sent_at
-               from messages
-               where organization_id = $1 and conversation_id = $2
-                 and direction in ('inbound', 'outbound')
-                 and exists(select 1 from conversations c where c.organization_id=$1 and c.id=$2
-                   and ((messages.direction='inbound' and messages.service_revision=c.service_revision
-                     and messages.demanda_id is not distinct from c.current_demanda_id)
-                     or (messages.direction='outbound' and messages.sent_at >= c.service_started_at)))
-               order by sent_at desc, id desc
-               limit $3`,
-              [input.tenantId, conversationId, knobs.historyLimit],
+              `select * from (
+                (select id, direction, type, body, media_url, media_storage_path, media_mime,
+                        media_derived_text, sent_at, false as fixada
+                 from messages
+                 where organization_id = $1 and conversation_id = $2
+                   and direction in ('inbound', 'outbound')
+                   and exists(select 1 from conversations c where c.organization_id=$1 and c.id=$2
+                     and ((messages.direction='inbound' and messages.service_revision=c.service_revision
+                       and messages.demanda_id is not distinct from c.current_demanda_id)
+                       or (messages.direction='outbound' and messages.sent_at >= c.service_started_at)))
+                 order by sent_at desc, id desc
+                 limit $3)
+                union all
+                (select id, direction, type, body, media_url, media_storage_path, media_mime,
+                        media_derived_text, sent_at, true as fixada
+                 from messages
+                 where organization_id = $1 and conversation_id = $2
+                   and direction = 'outbound' and type = 'template'
+                   and sent_at >= now() - make_interval(days => $4::int)
+                 order by sent_at desc, id desc
+                 limit 1)
+               ) h
+               order by sent_at desc, id desc`,
+              [input.tenantId, conversationId, knobs.historyLimit, PLANTILHA_FIXADA_DIAS],
             )
-            .then((r) => r.rows.reverse())
+            .then((r) => historicoComAPlantilhaFixada(r.rows))
         : Promise.resolve<HistoryRow[]>([]),
       db.query<{ desfecho: string }>(
         `select distinct d.desfecho from demandas d join demanda_conversas dc on dc.demanda_id=d.id and dc.organization_id=d.organization_id
@@ -544,9 +587,13 @@ function fitToBudget(
   const over = (msgs: LeadContextMessage[]): boolean =>
     countPayloadTokens(JSON.stringify(build(msgs))) > maxTokens;
 
-  while (messages.length > 1 && over(messages)) {
-    messages = messages.slice(1);
+  // A plantilha fixada (sempre a mais antiga, quando veio de fora da janela) é
+  // a última a cair: é dela que sai o preço que o cliente está aceitando.
+  const fixada = history[0]?.fixada === true;
+  while (messages.length > (fixada ? 2 : 1) && over(messages)) {
+    messages = fixada ? [messages[0]!, ...messages.slice(2)] : messages.slice(1);
   }
+  if (fixada && messages.length === 2 && over(messages)) messages = messages.slice(1);
   while (messages.length === 1 && messages[0]!.body.length > 0 && over(messages)) {
     messages = [{ ...messages[0]!, body: messages[0]!.body.slice(0, Math.floor(messages[0]!.body.length / 2)) }];
   }
