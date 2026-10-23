@@ -11,6 +11,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PACING_DEFAULTS, type PacingKnobs } from "@/lib/agent-engine/pacing/defaults";
+import type * as Capabilities from "@/lib/channels/capabilities";
+
+const { OFICIAL_DO_TESTE } = vi.hoisted(() => ({ OFICIAL_DO_TESTE: "oficial-do-teste" }));
 
 const mundo = vi.hoisted(() => ({
   knobs: null as unknown as PacingKnobs,
@@ -31,6 +34,17 @@ vi.mock("@/lib/agent-engine/pacing/store", () => ({
     mundo.ledger.set(sessionId, [...(mundo.ledger.get(sessionId) ?? []), quando]);
   },
 }));
+// O número oficial do teste: sem risco de banimento (quem limita é a plataforma),
+// como a capability dos canais oficiais declara. Sem nomear provider fora de
+// `lib/channels/` — a cerca `lint:channels` não deixa.
+vi.mock("@/lib/channels/capabilities", async (original) => {
+  const real = await original<typeof Capabilities>();
+  return {
+    ...real,
+    canalTemRiscoDeBanimento: (provider: string | null | undefined) =>
+      provider === OFICIAL_DO_TESTE ? false : real.canalTemRiscoDeBanimento(provider),
+  };
+});
 vi.mock("@/lib/atendimento/origem", () => ({
   beginServiceAtOrigin: async (_admin: unknown, _org: string, contato: string, sessionId: string) => ({
     conversation_id: `conv:${contato}:${sessionId}`,
@@ -377,8 +391,8 @@ describe("rodada: a campanha RÁPIDA fala em rajada, e o número dela sai do rod
       channel_sessions: [
         canal("pr", "STOPPED"),
         canal("pg", "STOPPED"),
-        { ...canal("V", "WORKING"), provider: "zernio" },
-        { ...canal("X", "WORKING"), provider: "zernio" },
+        { ...canal("V", "WORKING"), provider: OFICIAL_DO_TESTE },
+        { ...canal("X", "WORKING"), provider: OFICIAL_DO_TESTE },
       ],
     });
   }
