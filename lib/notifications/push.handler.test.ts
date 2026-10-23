@@ -366,14 +366,37 @@ describe("webPushInboundHandler", () => {
     });
 
     it("menção: o texto da nota é conteúdo, então não declara corpo sem prévia", async () => {
+      // Fork: o handler lê `organizations` (o idioma do aviso) antes da menção.
+      fromMock.mockImplementation(() => ({
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+      }));
       await webPushInboundHandler.handle({
         ...inbound({ to_user_id: "u-1", body_preview: "nota" }),
         event_type: "user.mentioned",
       });
       expect(enviarPushAQuemVeAConversaMock.mock.calls[0]![2]).not.toHaveProperty("corpoSemPrevia");
+      fromMock.mockReset();
     });
 
-    it.each(["lead.assigned", "lead.won", "lead.lost"])("%s: o título do negócio é quem, e pode aparecer", async (tipo) => {
+    // Fork: `lead.won` é o aviso de VENDA (`push-de-venda.ts`): o corpo é a etapa e
+    // a soma do dia, uma frase nossa — por isso o mesmo corpo vale sem prévia.
+    it("lead.won (fork): a venda declara o próprio corpo como corpo sem prévia", async () => {
+      fromMock.mockImplementation(() => {
+        const q = {
+          select: () => q,
+          eq: () => q,
+          maybeSingle: async () => ({ data: { title: "Pedido da Ana", owner_user_id: "u-dono", pipeline_id: "p1" }, error: null }),
+        };
+        return q;
+      });
+      await webPushInboundHandler.handle({ ...inbound({ lead_id: "l1", to_user_id: "u-dono" }), event_type: "lead.won" });
+      const payload = enviarPushAoUsuarioMock.mock.calls[0]![2] as { title: string; body: string; corpoSemPrevia?: string };
+      expect(payload.title).toContain("Venda ganha");
+      expect(payload.corpoSemPrevia).toBe(payload.body);
+      fromMock.mockReset();
+    });
+
+    it.each(["lead.assigned", "lead.lost"])("%s: o título do negócio é quem, e pode aparecer", async (tipo) => {
       fromMock.mockImplementation(() => {
         const q = {
           select: () => q,
