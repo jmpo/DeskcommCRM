@@ -11,7 +11,7 @@ import { desfechoDaTransmissao } from "./transmissao";
  */
 
 const item = (x: Partial<DestinatarioDaTransmissao>): DestinatarioDaTransmissao => ({
-  telefone: "595991733685",
+  telefone: "5511987654321",
   status: "sent",
   idDaMensagem: "wamid.X",
   codigoDoErro: null,

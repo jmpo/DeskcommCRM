@@ -1,10 +1,13 @@
 "use client";
 
+import { CartaoDaCarteira } from "@/components/contacts/CartaoDaCarteira";
 import { RoteirosDoContato } from "@/components/contacts/RoteirosDoContato";
 import { AcervoSearch } from "./AcervoSearch";
 import { LeadEnrichment } from "./LeadEnrichment";
 import { AnuncioDoContato, type AnuncioDeOrigem, type AnuncioMaisRecente } from "./AnuncioDoContato";
+import { UltimasComprasDoContato } from "@/components/contacts/UltimasCompras";
 import type { ProspectEnrichment } from "@/lib/prospecting/schema";
+import type { PersonalizacaoProspeccao } from "@/lib/prospecting/personalizar";
 import { useAuth } from "@/hooks/auth/AuthProvider";
 import { roleAtLeast } from "@/lib/auth/types";
 import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
@@ -247,7 +250,7 @@ function MarcarProximoPasso({ demandaId, onPronto }: { demandaId: string; onPron
         placeholder={t("O que acontece a seguir?")}
         aria-label={t("Próximo passo desta demanda")}
         data-testid="campo-proximo-passo"
-        className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-hidden focus:ring-1 focus:ring-ring"
+        className="w-full rounded-md border border-input bg-background px-2 py-1 text-base focus:outline-hidden focus:ring-1 focus:ring-ring md:text-xs"
       />
       <div className="flex gap-1.5">
         <Button
@@ -665,6 +668,7 @@ function CamposDoFunil({
         value={customFields}
         onChange={setCustomFields}
         mode="lead"
+        leadId={leadId}
         className="gap-3 md:grid-cols-1"
       />
       <Button
@@ -741,6 +745,12 @@ export function CRMSidePanel({ conversation, recolhido = false, onAlternarRecolh
   // pelo mesmo motivo de `podeCriarTarefa` acima — os dublês de `useAuth` dos
   // testes deste painel não expõem `usePermission`, e a semântica é a mesma.
   const podeLevarParaOutroFunil = (user.is_platform_admin && !user.support) || roleAtLeast(activeOrg?.role, "agent");
+  // O MESMO piso da ficha do contato para o bloco da carteira (#2591): `agent`+
+  // é quem LÊ a carteira (o GET da rota cobra `requireRole("agent")`), e o
+  // `viewer` receberia 403. Escrever é outra régua (`manager`+) e mora dentro do
+  // `CartaoDaCarteira`, que só desenha o seletor para `manager`+. Aqui só se
+  // decide se o bloco existe — nunca se oferece um botão que o servidor recusaria.
+  const podeVerCarteira = (user.is_platform_admin && !user.support) || roleAtLeast(activeOrg?.role, "agent");
   const localeDaData = useLocaleDeData();
   const t = useT();
   const contact = conversation?.contacts ?? null;
@@ -755,6 +765,8 @@ export function CRMSidePanel({ conversation, recolhido = false, onAlternarRecolh
 
   const [enrichment, setEnrichment] = useState<(ProspectEnrichment & { collected_at: string }) | null>(null);
   const [enrichmentError, setEnrichmentError] = useState(false);
+  const [personalizacao, setPersonalizacao] =
+    useState<PersonalizacaoProspeccao | null>(null);
   const [leads, setLeads] = useState<LeadRow[] | null>(null);
   const [orders, setOrders] = useState<OrderRow[] | null>(null);
   const [activities, setActivities] = useState<ActivityRow[] | null>(null);
@@ -818,6 +830,7 @@ export function CRMSidePanel({ conversation, recolhido = false, onAlternarRecolh
           data: {
             enrichment?: (ProspectEnrichment & { collected_at: string }) | null;
             enrichment_error?: boolean;
+            personalizacao?: PersonalizacaoProspeccao | null;
             leads: LeadRow[];
             orders: OrderRow[];
             activities: ActivityRow[];
@@ -832,6 +845,7 @@ export function CRMSidePanel({ conversation, recolhido = false, onAlternarRecolh
         setSummaryContactId(contactId);
         setEnrichment(r.data.enrichment ?? null);
         setEnrichmentError(r.data.enrichment_error ?? false);
+        setPersonalizacao(r.data.personalizacao ?? null);
         setLeads(r.data.leads);
         // A TROCA DE FUNIL cria um negócio que ESTE painel nunca viu, e o
         // diálogo reusado do Kanban não devolve o id dele. O negócio novo é o
@@ -1024,6 +1038,35 @@ export function CRMSidePanel({ conversation, recolhido = false, onAlternarRecolh
         </Card>
       </section>
 
+      {/* O BLOCO CARTEIRA NO PAINEL DO INBOX (#3026) — de quem é este cliente,
+          respondido onde quem atende está. Antes a carteira só aparecia nesta
+          tela como faixa de aviso (`FaixaDaCarteira`, no cabeçalho) e só quando
+          o dono era OUTRA pessoa; pôr o cliente na própria carteira exigia sair
+          da conversa, abrir o contato e voltar.
+
+          O componente é o MESMO da ficha (`CartaoDaCarteira`) e a gravação sai
+          pela MESMA porta (`PATCH /api/v1/contacts/[id]/carteira` ->
+          `fn_definir_carteira_do_cliente`): nada de segunda regra, nada de
+          segunda porta, nada de componente duplicado. Duas garantias vêm de
+          graça, e é por isso que reusar importa: leitura que FALHA não vira
+          "Sem carteira" (o cartão se abstém em vez de afirmar ausência) e o
+          seletor só é desenhado para `manager`+.
+
+          O `<section>` não tem título próprio de propósito: a manchete
+          "Carteira" mora DENTRO do cartão, então um erro de leitura não deixa
+          uma seção vazia anunciando conteúdo que não veio.
+
+          O piso do BLOCO é `agent`+ (`podeVerCarteira`), o mesmo da ficha e o
+          mesmo do `GET` da rota — `viewer` não vê o bloco em vez de levar 403.
+
+          Ordenação/escolha dos blocos do painel é o #3008; aqui a Carteira entra
+          no lugar certo (logo abaixo do contato), e a ordem fica com ele. */}
+      {contactId && podeVerCarteira && (
+        <section data-testid="inbox-bloco-carteira">
+          <CartaoDaCarteira contactId={contactId} papelDoUsuario={activeOrg?.role ?? null} />
+        </section>
+      )}
+
       {contactId && summaryContactId === contactId && !erro && (
         <AnuncioDoContato contactId={contactId} origem={anuncios.origem} recente={anuncios.recente} />
       )}
@@ -1033,6 +1076,7 @@ export function CRMSidePanel({ conversation, recolhido = false, onAlternarRecolh
         loading={sectionsLoading}
         error={erro || (summaryContactId === contactId && enrichmentError)}
         onRetry={recarregar}
+        sobrescritaVocabulario={personalizacao?.vocabulario ?? null}
       />
 
       {contactId && defaultPipeline.data && (
@@ -1041,6 +1085,9 @@ export function CRMSidePanel({ conversation, recolhido = false, onAlternarRecolh
           onOpenChange={setLeadDialogOpen}
           pipelineId={defaultPipeline.data.pipeline.id}
           stages={defaultPipeline.data.stages}
+          // #3038: mesmo recorte do funil — os campos exigidos pela etapa vão
+          // no `settings` do funil padrão que este painel já carregou.
+          settings={defaultPipeline.data.pipeline.settings}
           contactId={contactId}
           onCreated={() => {
             setLeadAtivoId(null);
@@ -1176,6 +1223,13 @@ export function CRMSidePanel({ conversation, recolhido = false, onAlternarRecolh
           <SemLista vazio="Sem leads." erro={erro} onTentarDeNovo={() => setTentativa((n) => n + 1)} />
         )}
       </section>
+
+      {/* AS ÚLTIMAS COMPRAS (issue #3179): o que este cliente JÁ comprou — negócios
+          ganhos em TODOS os funis, com data, título, valor, os campos escolhidos
+          pela organização e o atalho para abrir o negócio. Em agência de viagens é
+          a pergunta mais comum do atendimento ("para onde esse cliente já foi?"),
+          e ela não tinha resposta no painel onde a equipe atende. */}
+      {contactId && !contact?.is_anonymized && <UltimasComprasDoContato contactId={contactId} />}
 
       <Separator />
 

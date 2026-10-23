@@ -1,5 +1,5 @@
 /**
- * A TRANSMISSÃO DO PROVEDOR (migration 0709): o provedor recebe a lista inteira
+ * A TRANSMISSÃO DO PROVEDOR (migration 0712): o provedor recebe a lista inteira
  * e um modelo aprovado, manda a todos de uma vez e devolve o relatório por
  * destinatário. É a terceira velocidade da campanha, ao lado da gradual e da
  * rápida — e a única em que quem dispara é o provedor, não a rodada.

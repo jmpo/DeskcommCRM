@@ -302,6 +302,13 @@ export async function resolverDestinosDosAvisos<T extends ReferenciaDoAviso>(
 }
 
 /**
+ * O papel mínimo para enxergar a Central de avisos: a lista, o contador do sino,
+ * o resolver de um aviso e o "Marcar todos resolvidos" exigem este papel, e o
+ * push dos avisos (`lib/notifications/push-dos-avisos.ts`) usa o mesmo.
+ */
+export const PAPEL_MINIMO_DA_CENTRAL: Role = "agent";
+
+/**
  * Quem ENXERGA um aviso da Central (migration 0689, doc de decisão 162): sem
  * `para_user_id` é da empresa inteira; com ele, só daquela pessoa. É o filtro
  * `.or()` do PostgREST que a lista, o contador do sino, o "Marcar todos

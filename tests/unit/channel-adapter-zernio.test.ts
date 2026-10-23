@@ -258,6 +258,20 @@ describe("send — mídia", () => {
     expect(corpo()).toMatchObject({ attachmentType: "audio", voiceNote: true });
   });
 
+  it("áudio com legenda NÃO manda message — a bolha de voz não leva legenda (#3266)", async () => {
+    respondeOk();
+    await zernioAdapter.send({
+      organizationId: ORG,
+      sessionRef: CREDS.accountId,
+      to: "5959",
+      providerConversationId: THREAD,
+      kind: "audio",
+      media: { ...media, mime: "audio/ogg", filename: "a.ogg", caption: "olha" },
+    });
+    expect(corpo()).toMatchObject({ attachmentType: "audio", voiceNote: true });
+    expect(corpo()).not.toHaveProperty("message");
+  });
+
   it("documento cai em file, não em image", async () => {
     respondeOk();
     await zernioAdapter.send({
@@ -317,13 +331,13 @@ describe("sendTemplate — o contrato conferido decide onde cada valor vai", () 
   // Antes, só as chaves numéricas do corpo saíam: a imagem trocada e o valor do
   // cabeçalho se perdiam sem aviso.
   const contrato = deriveTemplateContract({
-    name: "oferta_pico",
-    language: "es",
+    name: "oferta_cafeteira",
+    language: "pt_BR",
     parameter_format: "POSITIONAL",
     components: [
       { type: "HEADER", format: "IMAGE" },
-      { type: "BODY", text: "Hola {{1}}, tu {{2}}" },
-      { type: "BUTTONS", buttons: [{ type: "URL", text: "Ver", url: "https://pedilo.com/{{1}}" }] },
+      { type: "BODY", text: "Olá {{1}}, sua {{2}}" },
+      { type: "BUTTONS", buttons: [{ type: "URL", text: "Ver", url: "https://loja.exemplo.com.br/{{1}}" }] },
     ] as never,
   });
 
@@ -332,17 +346,17 @@ describe("sendTemplate — o contrato conferido decide onde cada valor vai", () 
     await zernioAdapter.sendTemplate!({
       organizationId: ORG,
       sessionRef: CREDS.accountId,
-      to: "595981000680",
-      name: "oferta_pico",
-      language: "es",
-      values: { "button0:1": "pico", "2": "pedido", "1": "Ana", "header:1": "https://cdn.x/p.jpg" },
+      to: "5511900000710",
+      name: "oferta_cafeteira",
+      language: "pt_BR",
+      values: { "button0:1": "cafeteira", "2": "encomenda", "1": "Ana", "header:1": "https://cdn.x/p.jpg" },
       contrato,
     });
     expect(ultimaChamada().url).toBe(`${CREDS.baseUrl}/v1/inbox/conversations`);
     expect(corpo()).toMatchObject({
-      templateName: "oferta_pico",
-      templateLanguage: "es",
-      templateParams: ["Ana", "pedido", "pico"],
+      templateName: "oferta_cafeteira",
+      templateLanguage: "pt_BR",
+      templateParams: ["Ana", "encomenda", "cafeteira"],
       headerMedia: { type: "image", link: "https://cdn.x/p.jpg" },
     });
   });
@@ -358,10 +372,10 @@ describe("sendTemplate — o contrato conferido decide onde cada valor vai", () 
       zernioAdapter.sendTemplate!({
         organizationId: ORG,
         sessionRef: CREDS.accountId,
-        to: "595981000680",
-        name: "oferta_pico",
-        language: "es",
-        values: { "1": "Ana", "2": "x", "button0:1": "pico" },
+        to: "5511900000710",
+        name: "oferta_cafeteira",
+        language: "pt_BR",
+        values: { "1": "Ana", "2": "x", "button0:1": "cafeteira" },
         contrato,
       }),
     ).rejects.toThrow(/\[plataforma:132015\]/);

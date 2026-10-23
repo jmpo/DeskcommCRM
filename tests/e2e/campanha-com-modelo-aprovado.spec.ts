@@ -1,5 +1,5 @@
 /**
- * CAMPANHA PELO NÚMERO OFICIAL, COM MODELO APROVADO (#1330, fatia 4; migration 0707).
+ * CAMPANHA PELO NÚMERO OFICIAL, COM MODELO APROVADO (#1330, fatia 4; migration 0710).
  *
  * Pela tela, como quem opera faria: escolhe o número oficial, o campo de texto
  * dá lugar aos modelos aprovados daquele número; escolhe o modelo, diz de onde
@@ -16,7 +16,7 @@
  * O dublê recebe o pedido e a spec confere o que chegou: o nome e o idioma do
  * modelo, a lista de valores na ordem do contrato e a imagem do cabeçalho.
  *
- * ENVIO RÁPIDO (migration 0708): o número oficial oferece "Rápido" no ritmo; a
+ * ENVIO RÁPIDO (migration 0711): o número oficial oferece "Rápido" no ritmo; a
  * confirmação diz em quantos minutos sai; e — com o dublê — UMA rodada do cron
  * manda a lista inteira, cada um com o próprio nome, e conclui a campanha.
  */
@@ -52,20 +52,20 @@ const NOMES_DO_BROADCAST = ["Dora", "Eva", "Flor"];
 const TRANSMISSAO = `BC-E2E-${SUFIXO}`;
 const MODELO = "oferta_e2e_campanha";
 const PAUSADO = "pausado_e2e_campanha";
-const IMAGEM_SALVA = "https://example.com/e2e/pico.jpg";
+const IMAGEM_SALVA = "https://example.com/e2e/cafeteira.jpg";
 const NUMERO_DO_CANAL = `Número oficial E2E ${SUFIXO}`;
 const NOME_DA_CAMPANHA = `Campanha com modelo E2E ${SUFIXO}`;
 const COMPONENTES = [
   { type: "HEADER", format: "IMAGE" },
-  { type: "BODY", text: "¡Hola {{1}}! El {{2}} sale ₲125.000 con envío gratis. ¿Te lo reservamos?" },
-  { type: "FOOTER", text: "Pedilo" },
-  { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Sí, lo quiero" }, { type: "QUICK_REPLY", text: "No, gracias" }] },
+  { type: "BODY", text: "Olá {{1}}! A {{2}} sai por R$ 189,90 com frete grátis. Quer que a gente separe uma?" },
+  { type: "FOOTER", text: "Loja Exemplo" },
+  { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Sim, quero" }, { type: "QUICK_REPLY", text: "Não, obrigado" }] },
 ];
 
 const recebidos: { metodo: string; caminho: string; corpo: Record<string, unknown> | null }[] = [];
 let servidor: http.Server | null = null;
 
-/** O broadcast que o dublê guarda: os telefones recebidos e o estado (migration 0709). */
+/** O broadcast que o dublê guarda: os telefones recebidos e o estado (migration 0712). */
 const transmissao = { telefones: [] as string[], estado: "draft" };
 
 /**
@@ -175,7 +175,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
         webhook_path_token: `e2e-campanha-modelo-${SUFIXO}`,
         webhook_secret_encrypted: "\\x00",
         display_name: NUMERO_DO_CANAL,
-        phone_number: `+59597${SUFIXO}`,
+        phone_number: `+551197${SUFIXO}`,
         status: "WORKING",
       })
       .select("id")
@@ -198,7 +198,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
         channel_session_id: sessaoId,
         waba_id: CONTA,
         name: MODELO,
-        language: "es",
+        language: "pt_BR",
         status: "APPROVED",
         category: "MARKETING",
         components: COMPONENTES,
@@ -211,7 +211,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
         channel_session_id: sessaoId,
         waba_id: CONTA,
         name: PAUSADO,
-        language: "es",
+        language: "pt_BR",
         status: "PAUSED",
         category: "MARKETING",
         components: [{ type: "BODY", text: "Modelo pausado" }],
@@ -226,15 +226,15 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     const { error: erroContatos } = await admin.from("contacts").insert([
       {
         organization_id: creds.org_id,
-        display_name: `María José E2E ${SUFIXO}`,
-        phone_number: `+59598${SUFIXO}1`,
+        display_name: `Maria José E2E ${SUFIXO}`,
+        phone_number: `+55119${SUFIXO}1`,
         tags: [ETIQUETA],
       },
       {
-        // Nome que é só telefone: "¡Hola +595…!" é pior do que não mandar.
+        // Nome que é só telefone: "Olá +55…!" é pior do que não mandar.
         organization_id: creds.org_id,
-        display_name: `+595 98${SUFIXO}2`,
-        phone_number: `+59598${SUFIXO}2`,
+        display_name: `+55 11 9${SUFIXO}2`,
+        phone_number: `+55119${SUFIXO}2`,
         tags: [ETIQUETA],
       },
     ]);
@@ -244,7 +244,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
       NOMES_DA_RAPIDA.map((nome, i) => ({
         organization_id: creds.org_id,
         display_name: `${nome} E2E ${SUFIXO}`,
-        phone_number: `+59599${SUFIXO}${i}`,
+        phone_number: `+55118${SUFIXO}${i}`,
         tags: [ETIQUETA_RAPIDA],
       })),
     );
@@ -254,7 +254,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
       NOMES_DO_BROADCAST.map((nome, i) => ({
         organization_id: creds.org_id,
         display_name: `${nome} E2E ${SUFIXO}`,
-        phone_number: `+59596${SUFIXO}${i}`,
+        phone_number: `+55117${SUFIXO}${i}`,
         tags: [ETIQUETA_BROADCAST],
       })),
     );
@@ -296,8 +296,8 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     await expect(page.getByLabel("Texto da mensagem")).toHaveCount(0);
     const seletor = page.locator("#modelo");
     // O pausado aparece, mas não dá para escolher.
-    await expect(seletor.locator(`option[value="${PAUSADO}|es"]`)).toBeDisabled();
-    await seletor.selectOption(`${MODELO}|es`);
+    await expect(seletor.locator(`option[value="${PAUSADO}|pt_BR"]`)).toBeDisabled();
+    await seletor.selectOption(`${MODELO}|pt_BR`);
 
     // A imagem do cabeçalho já vem com o link salvo na aba de modelos.
     const variaveis = page.getByTestId("variaveis-do-modelo");
@@ -307,12 +307,12 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
 
     await page.getByLabel("Origem: {{1}}", { exact: true }).selectOption("contact_first_name");
     await page.getByLabel("Origem: {{2}}", { exact: true }).selectOption("fixed");
-    await page.getByLabel("Texto fixo: {{2}}", { exact: true }).fill("Pico de Alta Presión");
+    await page.getByLabel("Texto fixo: {{2}}", { exact: true }).fill("Cafeteira Elétrica");
     await expect(page.getByTestId("variaveis-incompletas")).toHaveCount(0);
 
     const previa = page.getByTestId("previa-modelo");
-    await expect(previa).toContainText("¡Hola [Primeiro nome do contato]! El Pico de Alta Presión sale ₲125.000");
-    await expect(previa).toContainText("Sí, lo quiero");
+    await expect(previa).toContainText("Olá [Primeiro nome do contato]! A Cafeteira Elétrica sai por R$ 189,90");
+    await expect(previa).toContainText("Sim, quero");
     await expect(previa.locator("img")).toHaveAttribute("src", IMAGEM_SALVA);
     await page.screenshot({ path: path.join(EVIDENCIA, "01-modelo-escolhido-com-previa.png"), fullPage: true });
 
@@ -336,18 +336,18 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
       message_mode: "template",
       message_body: null,
       provider_template_name: MODELO,
-      provider_template_language: "es",
+      provider_template_language: "pt_BR",
       provider_template_variables: {
         "header:1": { kind: "fixed", value: IMAGEM_SALVA },
         "1": { kind: "contact_first_name" },
-        "2": { kind: "fixed", value: "Pico de Alta Presión" },
+        "2": { kind: "fixed", value: "Cafeteira Elétrica" },
       },
     });
 
     // O detalhe mostra o modelo e a prévia, não um texto vazio.
     const noDetalhe = page.getByTestId("modelo-no-detalhe");
     await expect(noDetalhe).toContainText(MODELO);
-    await expect(noDetalhe.getByTestId("previa-modelo")).toContainText("Pico de Alta Presión");
+    await expect(noDetalhe.getByTestId("previa-modelo")).toContainText("Cafeteira Elétrica");
     await page.screenshot({ path: path.join(EVIDENCIA, "03-detalhe-do-rascunho.png"), fullPage: true });
   });
 
@@ -368,9 +368,9 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
       rendered_body: string | null;
     }>;
     const elegivel = lista.find((d) => d.status === "pending");
-    expect(elegivel?.variables.modelo).toEqual({ "header:1": IMAGEM_SALVA, "1": "María", "2": "Pico de Alta Presión" });
+    expect(elegivel?.variables.modelo).toEqual({ "header:1": IMAGEM_SALVA, "1": "Maria", "2": "Cafeteira Elétrica" });
     // O texto que fica na conversa — o que o agente lê quando o cliente responde.
-    expect(elegivel?.rendered_body).toBe("¡Hola María! El Pico de Alta Presión sale ₲125.000 con envío gratis. ¿Te lo reservamos?");
+    expect(elegivel?.rendered_body).toBe("Olá Maria! A Cafeteira Elétrica sai por R$ 189,90 com frete grátis. Quer que a gente separe uma?");
     expect(lista.find((d) => d.status === "skipped")?.exclusion_reason).toBe("variavel_ausente");
     await page.screenshot({ path: path.join(EVIDENCIA, "04-lista-preparada.png"), fullPage: true });
   });
@@ -380,7 +380,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     await login(page, creds.users.manager!.email, creds.password);
     await page.goto(`/app/campaigns/${campanhaId}`);
     await page.getByRole("button", { name: "Enviar teste" }).click();
-    await page.getByLabel("Contato do teste").fill(`María José E2E ${SUFIXO}`);
+    await page.getByLabel("Contato do teste").fill(`Maria José E2E ${SUFIXO}`);
     await page.getByRole("button", { name: "Enviar para este" }).first().click();
 
     await expect.poll(() => recebidos.filter((r) => r.caminho === "/v1/inbox/conversations").length, { timeout: 30_000 }).toBe(1);
@@ -388,8 +388,8 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     expect(pedido).toMatchObject({
       accountId: CONTA,
       templateName: MODELO,
-      templateLanguage: "es",
-      templateParams: ["María", "Pico de Alta Presión"],
+      templateLanguage: "pt_BR",
+      templateParams: ["Maria", "Cafeteira Elétrica"],
       headerMedia: { type: "image", link: IMAGEM_SALVA },
     });
 
@@ -405,7 +405,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     expect(msg).toMatchObject({
       type: "template",
       template_name: MODELO,
-      body: "¡Hola María! El Pico de Alta Presión sale ₲125.000 con envío gratis. ¿Te lo reservamos?",
+      body: "Olá Maria! A Cafeteira Elétrica sai por R$ 189,90 com frete grátis. Quer que a gente separe uma?",
     });
     await page.screenshot({ path: path.join(EVIDENCIA, "05-teste-enviado.png"), fullPage: true });
   });
@@ -441,10 +441,10 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     await page.locator("#nome").fill(`Rápida E2E ${SUFIXO}`);
     await page.locator("#canal").selectOption(sessaoId);
     await expect(page.getByTestId("modelo-da-campanha")).toBeVisible({ timeout: 30_000 });
-    await page.locator("#modelo").selectOption(`${MODELO}|es`);
+    await page.locator("#modelo").selectOption(`${MODELO}|pt_BR`);
     await page.getByLabel("Origem: {{1}}", { exact: true }).selectOption("contact_first_name");
     await page.getByLabel("Origem: {{2}}", { exact: true }).selectOption("fixed");
-    await page.getByLabel("Texto fixo: {{2}}", { exact: true }).fill("Pico de Alta Presión");
+    await page.getByLabel("Texto fixo: {{2}}", { exact: true }).fill("Cafeteira Elétrica");
     await page.getByLabel("Com alguma destas etiquetas").fill(ETIQUETA_RAPIDA);
     await page.getByTestId("velocidade-da-campanha").getByRole("radio", { name: "Rápido" }).check();
     await page.getByRole("button", { name: "Salvar rascunho" }).click();
@@ -499,10 +499,10 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     await page.locator("#nome").fill(`Broadcast E2E ${SUFIXO}`);
     await page.locator("#canal").selectOption(sessaoId);
     await expect(page.getByTestId("modelo-da-campanha")).toBeVisible({ timeout: 30_000 });
-    await page.locator("#modelo").selectOption(`${MODELO}|es`);
+    await page.locator("#modelo").selectOption(`${MODELO}|pt_BR`);
     await page.getByLabel("Origem: {{1}}", { exact: true }).selectOption("contact_first_name");
     await page.getByLabel("Origem: {{2}}", { exact: true }).selectOption("fixed");
-    await page.getByLabel("Texto fixo: {{2}}", { exact: true }).fill("Pico de Alta Presión");
+    await page.getByLabel("Texto fixo: {{2}}", { exact: true }).fill("Cafeteira Elétrica");
 
     // O nome muda de pessoa para pessoa: o broadcast aparece, travado, e diz por quê.
     const velocidade = page.getByTestId("velocidade-da-campanha");
@@ -519,7 +519,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     await broadcast.check();
     await expect(page.getByTestId("broadcast-travado")).toHaveCount(0);
     await expect(page.getByTestId("broadcast-texto-fixo")).toContainText("«amiga»");
-    await expect(page.getByTestId("broadcast-texto-fixo")).toContainText("«Pico de Alta Presión»");
+    await expect(page.getByTestId("broadcast-texto-fixo")).toContainText("«Cafeteira Elétrica»");
     // A lista sai inteira: intervalo e tetos não valem, e a tela não os oferece.
     await expect(page.locator("#intervalo")).toHaveCount(0);
     await expect(page.locator("#teto")).toHaveCount(0);
@@ -536,11 +536,11 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     await page.locator("#nome").fill(`Broadcast E2E ${SUFIXO}`);
     await page.locator("#canal").selectOption(sessaoId);
     await expect(page.getByTestId("modelo-da-campanha")).toBeVisible({ timeout: 30_000 });
-    await page.locator("#modelo").selectOption(`${MODELO}|es`);
+    await page.locator("#modelo").selectOption(`${MODELO}|pt_BR`);
     await page.getByLabel("Origem: {{1}}", { exact: true }).selectOption("fixed");
     await page.getByLabel("Texto fixo: {{1}}", { exact: true }).fill("amiga");
     await page.getByLabel("Origem: {{2}}", { exact: true }).selectOption("fixed");
-    await page.getByLabel("Texto fixo: {{2}}", { exact: true }).fill("Pico de Alta Presión");
+    await page.getByLabel("Texto fixo: {{2}}", { exact: true }).fill("Cafeteira Elétrica");
     await page.getByLabel("Com alguma destas etiquetas").fill(ETIQUETA_BROADCAST);
     await page.getByTestId("velocidade-da-campanha").getByRole("radio", { name: "Broadcast" }).check();
     await page.getByRole("button", { name: "Salvar rascunho" }).click();
@@ -579,15 +579,15 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
       platform: "whatsapp",
       template: {
         name: MODELO,
-        language: "es",
+        language: "pt_BR",
         // O valor já escrito: o provedor não completa variável por destinatário.
         components: expect.arrayContaining([
           { type: "header", parameters: [{ type: "image", image: { link: IMAGEM_SALVA } }] },
-          { type: "body", parameters: [{ type: "text", text: "amiga" }, { type: "text", text: "Pico de Alta Presión" }] },
+          { type: "body", parameters: [{ type: "text", text: "amiga" }, { type: "text", text: "Cafeteira Elétrica" }] },
         ]),
       },
     });
-    expect(transmissao.telefones.sort()).toEqual(NOMES_DO_BROADCAST.map((_, i) => `+59596${SUFIXO}${i}`).sort());
+    expect(transmissao.telefones.sort()).toEqual(NOMES_DO_BROADCAST.map((_, i) => `+55117${SUFIXO}${i}`).sort());
     expect(desta.some((r) => r.metodo === "POST" && r.caminho === `/v1/broadcasts/${TRANSMISSAO}/send`)).toBe(true);
 
     const { data: entregue } = await admin

@@ -142,7 +142,7 @@ export async function zernioCredsForAccountId(
 
   if (!data) return null;
 
-  // Ponteiro, não cópia (migration 0713): a sessão conectada por um clique fala
+  // Ponteiro, não cópia (migration 0760): a sessão conectada por um clique fala
   // pela chave da instalação, resolvida agora. Sem ela configurada, `null` — o
   // mesmo "sem chave gravada" de sempre, e o chamador cai no env.
   if (data.zernio_credencial_da_instalacao === true) {

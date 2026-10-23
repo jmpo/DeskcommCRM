@@ -176,7 +176,7 @@ export async function PATCH(
     mudanca.content_version = campanha.content_version + 1;
   }
 
-  // ═══ O conteúdo segue o que o número aceita (migration 0707) ═══
+  // ═══ O conteúdo segue o que o número aceita (migration 0710) ═══
   //
   // Trocar o número, o modelo, o mapa de variáveis ou os números extras passa
   // pela MESMA decisão da criação: texto livre no QR, modelo aprovado e
@@ -237,7 +237,7 @@ export async function PATCH(
     }
   }
 
-  // ═══ A velocidade segue o conteúdo (migrations 0708 e 0709) ═══
+  // ═══ A velocidade segue o conteúdo (migrations 0711 e 0712) ═══
   // Rápida e broadcast só com modelo. Pedida num número por QR, recusa; uma
   // campanha que trocou para um número por QR volta a gradual (a única que ali
   // existe). O broadcast pede ainda o número que o faz e variáveis de texto fixo

@@ -456,7 +456,7 @@ function RitmoDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
   const [fim, setFim] = useState(texto(campanha.janela_fim_hora));
   const [velocidade, setVelocidade] = useState<Velocidade>(campanha.velocidade ?? "gradual");
   const ehOficial = campanha.message_mode === "template";
-  // O broadcast só existe quando o provedor do número o faz (migration 0709), e
+  // O broadcast só existe quando o provedor do número o faz (migration 0712), e
   // as variáveis que decidem se ele serve são as do modelo desta campanha.
   const doCanal = useModelosDaCampanha(ehOficial ? campanha.channel_session_id : "");
   const transmissaoNoNumero = ehOficial && doCanal.data?.transmissao === true;

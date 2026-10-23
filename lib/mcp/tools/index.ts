@@ -53,7 +53,9 @@ import {
 import { crmListContactOrders, crmSearchProducts } from "./comercio";
 import { crmGetHonorariosContrato, crmListHonorariosParcelas } from "./honorarios";
 import { crmDescribeExternalData, crmQueryExternalData } from "./dados-externos";
+import { crmConsultarReceita } from "./receitas-externas";
 import { crmListPrivacyRequests } from "./privacidade";
+import { crmGetProspectingSiteAudit } from "./prospeccao-site";
 import {
   crmArchiveStage,
   crmCreateStage,
@@ -126,7 +128,9 @@ export const allTools: ReadonlyArray<McpToolDefinition> = [
   crmPrepararProposta,
   crmDescribeExternalData,
   crmQueryExternalData,
+  crmConsultarReceita,
   crmListPrivacyRequests,
+  crmGetProspectingSiteAudit,
   // read — organizar a operação (W4)
   crmListStages,
   crmListTags,

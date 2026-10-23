@@ -218,7 +218,7 @@ export async function loadPacingState(
 
 /** Registra um envio efetivado — chamado pela cadeia de envio (F2-13) após o accept do CRM. */
 /**
- * Os envios de uma TRANSMISSÃO (migration 0709) no mesmo livro: a lista sai
+ * Os envios de uma TRANSMISSÃO (migration 0712) no mesmo livro: a lista sai
  * pelo provedor de uma vez, e o número precisa contar cada mensagem para o ritmo
  * do agente e das outras campanhas — uma linha por mensagem, como `recordSend`.
  */

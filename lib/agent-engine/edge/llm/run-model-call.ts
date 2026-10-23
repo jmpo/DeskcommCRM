@@ -323,6 +323,16 @@ export type ResultadoDoModeloDoSeam = Pick<
 >;
 
 /**
+ * O `usage` cru do provedor em cada passo do laço de ferramentas — é onde mora a
+ * divisão da gravação de cache por TTL. Sem passos (resposta de um passo só),
+ * vale o `usage` do resultado.
+ */
+export function usosCrusDosPassos(result: { usage: { raw?: unknown }; steps?: ReadonlyArray<{ usage?: { raw?: unknown } }> }): unknown[] {
+  const dosPassos = (result.steps ?? []).map((s) => s.usage?.raw).filter((r) => r !== undefined);
+  return dosPassos.length > 0 ? dosPassos : [result.usage.raw];
+}
+
+/**
  * Texto do aviso de limiar. É PONTEIRO, não retrato: manda ver os números na
  * tela em vez de congelar um "80%" que envelhece no mesmo minuto em que o gasto
  * sobe. O statement do gate insere este item de dentro do banco, junto com a

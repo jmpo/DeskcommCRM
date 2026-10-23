@@ -83,7 +83,7 @@ const VAZIA: ResultadoDaRodada = {
 };
 
 /** Teto de números atendidos por rodada — a rodada é de um minuto, não de um dia. */
-const NUMEROS_POR_RODADA = 10;
+export const NUMEROS_POR_RODADA = 10;
 
 /** Teto de agendadas promovidas por rodada: a sobra vira `running` no minuto seguinte. */
 const PROMOVIDAS_POR_RODADA = 100;
@@ -101,13 +101,13 @@ interface CampanhaRow {
   janela_fim_hora: number | null;
   teto_diario: number | null;
   teto_horario: number | null;
-  /** Migration 0707: `template` = modelo aprovado pelo número oficial. */
+  /** Migration 0710: `template` = modelo aprovado pelo número oficial. */
   message_mode: string;
   provider_template_name: string | null;
   provider_template_language: string | null;
-  /** Migration 0708: `rapida` = rajada na rodada (só com modelo); `gradual` = uma por rodada. */
+  /** Migration 0711: `rapida` = rajada na rodada (só com modelo); `gradual` = uma por rodada. */
   velocidade: string;
-  /** Migration 0709: com `velocidade = transmissao`, as origens das variáveis e o id no provedor. */
+  /** Migration 0712: com `velocidade = transmissao`, as origens das variáveis e o id no provedor. */
   provider_template_variables: unknown;
   provider_broadcast_id: string | null;
   started_at: string | null;
@@ -167,37 +167,47 @@ export async function rodarUmaRodadaDeCampanha(
     return promovidas > 0 ? { ...VAZIA, promovidas, detalhe: "promovidas" } : VAZIA;
   }
 
-  const numerosAtendidos = new Set<string>();
+  // Dois conjuntos, e não um (#3112). `principaisOcupados` decide se a campanha
+  // inteira espera a vez (regra do #3107, `ocupaONumero`); `numerosQueFalaram`
+  // só tira o número do RODÍZIO das campanhas seguintes. Juntá-los pulava a
+  // campanha cujo principal é o vinculado que outra usou, mesmo com outro número
+  // dela livre — e ela ficava em zero até a outra terminar.
+  const principaisOcupados = new Set<string>();
+  const numerosQueFalaram = new Set<string>();
   const total: ResultadoDaRodada = { ...VAZIA, promovidas, detalhe: "" };
   const detalhes: string[] = [];
 
   for (const campanha of emExecucao) {
     // Um número, uma mensagem por rodada. A campanha mais antiga do número ganha
     // a vez: sem isso, a última criada poderia monopolizar a fila para sempre.
-    if (numerosAtendidos.has(campanha.channel_session_id)) continue;
-    if (numerosAtendidos.size >= NUMEROS_POR_RODADA) break;
+    if (principaisOcupados.has(campanha.channel_session_id)) continue;
+    // O teto conta os principais, não a união com `numerosQueFalaram`: toda
+    // campanha que fala ocupa o principal dela (e eles são distintos), então
+    // |numerosQueFalaram| <= |principaisOcupados|. A união contava 2 por campanha
+    // que sai pelo vinculado e matava de fome a 6ª em diante.
+    if (principaisOcupados.size >= NUMEROS_POR_RODADA) break;
 
     try {
       const r = emTransmissao(campanha)
         ? await rodarCampanhaEmTransmissao(admin, campanha, agora)
         : emRajada(campanha)
-          ? await rodarCampanhaEmRajada(admin, campanha)
-          : await rodarUmaCampanha(admin, campanha, agora);
+          ? await rodarCampanhaEmRajada(admin, campanha, numerosQueFalaram)
+          : await rodarUmaCampanha(admin, campanha, agora, numerosQueFalaram);
       total.enviadas += r.enviadas;
       total.pulados += r.pulados;
       total.concluidas += r.concluidas;
       detalhes.push(`${campanha.id.slice(0, 8)}:${r.detalhe}`);
-      // Só ocupa o número quem de fato enviou: campanha parada por ritmo não
-      // pode impedir a campanha seguinte do mesmo número de ser avaliada... mas
-      // se o veto foi do CANAL, a seguinte receberia o mesmo veto. Ocupar em
-      // ambos os casos economiza a consulta; o que não pode é ocupar quando a
-      // campanha só CONCLUIU (aí o número está livre de verdade).
-      if (r.concluidas === 0) numerosAtendidos.add(campanha.channel_session_id);
+      if (ocupaONumero(r)) principaisOcupados.add(campanha.channel_session_id);
+      // O número que FALOU nesta rodada, que no rodízio pode não ser o principal
+      // (#3112): sem isto, outra campanha que divide o vinculado mandava por ele
+      // de novo no mesmo tique. A rajada fala em vários envios, e pode ter saído
+      // por mais de um número: entram todos.
+      for (const numero of numerosQueAFalaUsou(r)) numerosQueFalaram.add(numero);
     } catch (err) {
       const motivo = err instanceof Error ? err.message : String(err);
       logger.warn("[campanha] rodada falhou", { campanha: campanha.id, motivo });
       detalhes.push(`${campanha.id.slice(0, 8)}:erro`);
-      numerosAtendidos.add(campanha.channel_session_id);
+      principaisOcupados.add(campanha.channel_session_id);
     }
   }
 
@@ -264,6 +274,32 @@ interface DestinatarioRow {
   } | null;
 }
 
+/**
+ * A campanha avaliada nesta rodada ocupa o número para as seguintes?
+ *
+ * Só ocupa quem usou o número (enviou, ou pulou um destinatário no caminho) ou
+ * foi vetado pelo CANAL: a seguinte do mesmo número receberia o mesmo veto, e
+ * ocupar economiza a consulta. NÃO ocupa quem parou pelo ritmo DELA (`ritmo:*`
+ * — teto diário/horário, intervalo, janela da campanha), quem só está
+ * esperando `next_attempt_at` (`aguardando`) nem quem concluiu: nesses casos o
+ * número segue livre, e a campanha seguinte tem o próprio ritmo.
+ *
+ * Até a #3102 a regra era `concluidas === 0`, e o comentário já dizia isto:
+ * a campanha mais antiga batia o teto do dia às 9h37 e a seguinte do mesmo
+ * número não mandava nada até a primeira terminar — dias depois.
+ */
+export function ocupaONumero(r: { concluidas: number; detalhe: string }): boolean {
+  if (r.concluidas > 0) return false;
+  if (r.detalhe.startsWith("ritmo:")) return false;
+  if (r.detalhe === "aguardando" || r.detalhe === "ja_concluida") return false;
+  return true;
+}
+
+/** Por onde a campanha falou na rodada: o envio de sempre devolve um número; a rajada, todos os dela. */
+function numerosQueAFalaUsou(r: { numero?: string; numeros?: readonly string[] }): readonly string[] {
+  return r.numeros ?? (r.numero ? [r.numero] : []);
+}
+
 /** Os próximos pendentes da campanha cuja vez chegou, na ordem da fila. */
 async function pendentesDaCampanha(
   admin: SupabaseClient,
@@ -285,7 +321,7 @@ async function pendentesDaCampanha(
   return (data ?? []) as unknown as DestinatarioRow[];
 }
 
-/** Velocidade rápida só com modelo: o CHECK da 0708 garante, e o despacho confere de novo. */
+/** Velocidade rápida só com modelo: o CHECK da 0711 garante, e o despacho confere de novo. */
 function emRajada(campanha: CampanhaRow): boolean {
   return campanha.velocidade === "rapida" && campanha.message_mode === "template";
 }
@@ -301,20 +337,26 @@ function emTransmissao(campanha: CampanhaRow): boolean {
 /**
  * A rodada de uma campanha RÁPIDA: o envio de sempre, repetido em rajada no
  * prazo da rodada. As regras (ritmo, lotes, quando parar) estão em `rajada.ts`.
+ *
+ * `numerosJaUsados` são os números por onde OUTRAS campanhas já falaram nesta
+ * rodada (#3112): saem do rodízio de cada envio da rajada. Os que a própria
+ * rajada usa não entram ali durante ela — senão ela parava no segundo envio —, e
+ * voltam no desfecho (`numeros`), para as campanhas seguintes da rodada.
  */
 async function rodarCampanhaEmRajada(
   admin: SupabaseClient,
   campanha: CampanhaRow,
-): Promise<{ enviadas: number; pulados: number; concluidas: number; detalhe: string }> {
+  numerosJaUsados: ReadonlySet<string>,
+): Promise<{ enviadas: number; pulados: number; concluidas: number; detalhe: string; numeros: string[] }> {
   return rodarEmRajada<DestinatarioRow>(
     {
       buscarLote: (quantos) => pendentesDaCampanha(admin, campanha.id, new Date(), quantos),
-      enviarUm: (alvo) => rodarUmaCampanha(admin, campanha, new Date(), alvo),
+      enviarUm: (alvo) => rodarUmaCampanha(admin, campanha, new Date(), numerosJaUsados, alvo),
       aindaEmAndamento: async () => {
         const { data } = await admin.from("campaigns").select("status").eq("id", campanha.id).maybeSingle();
         return (data as { status?: string } | null)?.status === "running";
       },
-      concluirSeAcabou: () => rodarUmaCampanha(admin, campanha, new Date()),
+      concluirSeAcabou: () => rodarUmaCampanha(admin, campanha, new Date(), numerosJaUsados),
       agora: () => Date.now(),
       esperar: (ms) => new Promise((ok) => setTimeout(ok, ms)),
     },
@@ -326,9 +368,10 @@ async function rodarUmaCampanha(
   admin: SupabaseClient,
   campanha: CampanhaRow,
   agora: Date,
+  numerosJaUsados: ReadonlySet<string>,
   /** A rajada escolhe o destinatário do lote; sem ele, o primeiro da fila. */
   escolhido?: DestinatarioRow,
-): Promise<{ enviadas: number; pulados: number; concluidas: number; detalhe: string }> {
+): Promise<{ enviadas: number; pulados: number; concluidas: number; detalhe: string; numero?: string }> {
   // Campanha com modelo: uma falha que vale para o ENVIO INTEIRO (modelo
   // pausado, número restringido, pagamento) chega pelo webhook, depois do envio.
   // Cada envio seguinte seria a mesma falha, e o número perde qualidade a cada
@@ -507,7 +550,11 @@ async function rodarUmaCampanha(
         linha.daily_message_limit === null
           ? null
           : Math.max(0, linha.daily_message_limit - estadoDoNumero.sentToday),
-      podeAgora: decisao.allow,
+      // `allow` com `waitMs > 0` é "ainda não": falta o intervalo do número.
+      // A rodada não espera dentro do tique (o `before-send` do agente espera;
+      // a prospecção reagenda) — o número fica de fora e volta no próximo. E o
+      // número que já falou nesta rodada, por outra campanha, também (#3112).
+      podeAgora: decisao.allow && decisao.waitMs === 0 && !numerosJaUsados.has(sessionId),
       ultimoEnvio: estadoDoNumero.lastSentAt,
     });
   }
@@ -665,10 +712,18 @@ async function rodarUmaCampanha(
       pulados: 0,
       concluidas: 0,
       detalhe: `enviado:${status ?? "?"}:${escolha.motivo}`,
+      numero: sessionEscolhida,
     };
   } catch (err) {
     logger.warn("[campanha] envio falhou", { campanha: campanha.id, destinatario: alvo.id });
-    return { enviadas: 0, pulados: 0, concluidas: 0, detalhe: await registrarExcecaoDoEnvio(admin, alvo.id, err) };
+    // A exceção pode ter vindo depois de a mensagem sair: o número conta como usado.
+    return {
+      enviadas: 0,
+      pulados: 0,
+      concluidas: 0,
+      detalhe: await registrarExcecaoDoEnvio(admin, alvo.id, err),
+      numero: sessionEscolhida,
+    };
   }
 }
 

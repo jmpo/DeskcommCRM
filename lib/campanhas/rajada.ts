@@ -1,5 +1,5 @@
 /**
- * O ENVIO RÁPIDO DE UMA CAMPANHA: a rodada manda em RAJADA (migration 0708).
+ * O ENVIO RÁPIDO DE UMA CAMPANHA: a rodada manda em RAJADA (migration 0711).
  *
  * ═══ O que muda em relação ao gradual ═══
  *
@@ -54,6 +54,13 @@ export interface DesfechoDeUm {
   pulados: number;
   concluidas: number;
   detalhe: string;
+  /** Por onde o envio saiu, quando chegou a sair (o rodízio pode não usar o principal). */
+  numero?: string;
+}
+
+/** O desfecho da rajada inteira: a soma dos envios e todos os números por onde ela falou. */
+export interface DesfechoDaRajada extends DesfechoDeUm {
+  numeros: string[];
 }
 
 export interface DependenciasDaRajada<T> {
@@ -86,10 +93,12 @@ export async function rodarEmRajada<T>(
     tamanhoDoLote: number;
     prazoMs: number;
   } = RAJADA,
-): Promise<DesfechoDeUm> {
+): Promise<DesfechoDaRajada> {
   const inicio = dep.agora();
-  const total: DesfechoDeUm = { enviadas: 0, pulados: 0, concluidas: 0, detalhe: "" };
+  const total: DesfechoDaRajada = { enviadas: 0, pulados: 0, concluidas: 0, detalhe: "", numeros: [] };
+  const numeros = new Set<string>();
   const motivos = new Map<string, number>();
+  let ultimoDetalhe: string | null = null;
   let parada: string | null = null;
   let ultimoInicio = -Infinity;
   const noPrazo = () => dep.agora() - inicio < config.prazoMs;
@@ -100,6 +109,8 @@ export async function rodarEmRajada<T>(
     total.concluidas += r.concluidas;
     const chave = r.detalhe.split(":")[0] ?? r.detalhe;
     motivos.set(chave, (motivos.get(chave) ?? 0) + 1);
+    ultimoDetalhe = r.detalhe;
+    if (r.numero) numeros.add(r.numero);
   };
 
   // Uma vaga de início por vez, espaçadas: o teto é de INÍCIOS por segundo, e
@@ -145,6 +156,17 @@ export async function rodarEmRajada<T>(
       }
     };
     await Promise.all(Array.from({ length: Math.min(config.concorrencia, lote.length) }, faixa));
+  }
+
+  // Nada saiu e ninguém foi pulado: a rajada não usou o número. O desfecho volta
+  // CRU (`ritmo:*`, `aguardando`…), para a rodada decidir se o número fica ocupado
+  // pela mesma régua da gradual (`ocupaONumero`, #3102) — embrulhado em
+  // `rajada:0:…`, a campanha rápida parada no próprio teto seguraria a vez das
+  // outras do mesmo número.
+  total.numeros = [...numeros];
+  if (total.enviadas === 0 && total.pulados === 0 && ultimoDetalhe !== null) {
+    total.detalhe = ultimoDetalhe;
+    return total;
   }
 
   const resumo = [...motivos].map(([k, n]) => `${k}×${n}`).join(",");

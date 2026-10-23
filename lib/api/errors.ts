@@ -127,6 +127,11 @@ export const ApiErrorCodes = {
 
   // 422 — semântica
   unprocessable_entity: "unprocessable_entity",
+  // 422, e é PRODUTO, não erro: o aviso do art. 12.º vale só para organizações
+  // FORA do Brasil (decisão de 2026-10-16). A organização brasileira não recebe
+  // "recusa parcial" — recebe a porta fechada, e a recebe ANTES de o e-mail
+  // sair, de o `due_at` ser tocado e de a auditoria registrar o aviso.
+  lgpd_art12_so_fora_do_brasil: "lgpd_art12_so_fora_do_brasil",
   plano_invalido: "plano_invalido", // plano inexistente, arquivado, de outro intervalo, ou cobrança desligada
   // #2846: cobrança ligada, planos oferecidos e nenhum plano padrão — a empresa
   // não nasce sem plano (doc 146). Quem administra define um padrão.
@@ -172,6 +177,11 @@ export const ApiErrorCodes = {
   pagamento_do_periodo_pendente: "pagamento_do_periodo_pendente",
   channel_without_session: "channel_without_session", // operação de sessão (reiniciar, parear) pedida a canal que não tem sessão no transporte — o oficial
   janela_fechada: "janela_fechada", // POST /messages por token/agente com texto livre fora das 24h em canal com restrição (131047) — a saída é modelo aprovado (#1614)
+  // POST /api/v1/messages/{id}/retry (lib/messaging/reenvio.ts): a regra não permite reenviar (403),
+  // a mensagem pode ter chegado e falta a confirmação (409), ou outro toque já travou a linha (409).
+  reenvio_indisponivel: "reenvio_indisponivel",
+  confirmacao_necessaria: "confirmacao_necessaria",
+  reenvio_em_curso: "reenvio_em_curso",
   invalid_state_transition: "invalid_state_transition",
   invalid_owner: "invalid_owner", // novo dono não é membro ativo agent+ da org (bulk assign, G3-04)
   trigger_kind_not_implemented: "trigger_kind_not_implemented", // publish de followup-flow com kind sem motor de enrollment (stage_change/conversation_end)
@@ -333,15 +343,15 @@ export const ApiErrorCodes = {
   campanha_agenda_invalida: "campanha_agenda_invalida", // 422: data no passado
   campanha_conteudo_invalido: "campanha_conteudo_invalido", // 422: texto vazio ou variável que não existe
   campanha_base_legal_invalida: "campanha_base_legal_invalida", // 422: interesse legítimo sem referência da LIA
-  // Migration 0707 (#1330, fatia 4): campanha pelo número oficial com modelo aprovado.
+  // Migration 0710 (#1330, fatia 4): campanha pelo número oficial com modelo aprovado.
   campanha_modo_do_canal: "campanha_modo_do_canal", // 422: texto livre em número oficial, ou modelo em número por QR
   campanha_modelo_um_numero: "campanha_modelo_um_numero", // 422: modelo aprovado sai por um número só
   campanha_modelo_inexistente: "campanha_modelo_inexistente", // 422: o modelo não existe neste número
   campanha_modelo_nao_aprovado: "campanha_modelo_nao_aprovado", // 422: modelo pausado, recusado ou em análise
   campanha_modelo_variaveis: "campanha_modelo_variaveis", // 422: variável sem origem, ou origem que não serve
-  // Migration 0708: envio rápido (rajada) só pelo número oficial, com modelo aprovado.
+  // Migration 0711: envio rápido (rajada) só pelo número oficial, com modelo aprovado.
   campanha_velocidade_do_canal: "campanha_velocidade_do_canal", // 422: envio rápido ou broadcast pedido num número que não o faz
-  campanha_transmissao_variavel: "campanha_transmissao_variavel", // 422: broadcast com variável que muda por pessoa (migration 0709)
+  campanha_transmissao_variavel: "campanha_transmissao_variavel", // 422: broadcast com variável que muda por pessoa (migration 0712)
   campanha_transmissao_entregue: "campanha_transmissao_entregue", // 409: a velocidade não muda depois que a lista foi entregue ao provedor
 
   // 500 / upstream

@@ -256,7 +256,7 @@ export async function findPartnerSession(
  * "conectado" ficaria invisível para o webhook, o envio e os seletores — todos
  * filtrados por ela.
  *
- * A credencial é UMA das duas (CHECK da migration 0713): a chave própria
+ * A credencial é UMA das duas (CHECK da migration 0760): a chave própria
  * cifrada, ou o ponteiro para a chave da instalação. Gravar uma apaga a outra,
  * e o webhook registrado pela instalação só fica quando quem grava o informa.
  */

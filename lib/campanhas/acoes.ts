@@ -58,14 +58,14 @@ export interface CampanhaCarregada {
   teto_diario: number | null;
   teto_horario: number | null;
   description: string | null;
-  /** Migration 0707: `template` = modelo aprovado pelo número oficial. */
+  /** Migration 0710: `template` = modelo aprovado pelo número oficial. */
   message_mode: ModoDaMensagem;
   provider_template_name: string | null;
   provider_template_language: string | null;
   provider_template_variables: unknown;
-  /** Migration 0708: `rapida` = rajada na rodada (só com modelo); 0709: `transmissao`. */
+  /** Migration 0711: `rapida` = rajada na rodada (só com modelo); 0712: `transmissao`. */
   velocidade: VelocidadeDaCampanha;
-  /** Migration 0709: o id da transmissão no provedor, depois que a lista foi entregue. */
+  /** Migration 0712: o id da transmissão no provedor, depois que a lista foi entregue. */
   provider_broadcast_id: string | null;
 }
 
@@ -410,7 +410,7 @@ export async function cancelarAcao(
     .in("status", ["pending", "queued"])
     .select("id");
   // Por broadcast, a lista está com o provedor: cancelar lá o que ainda não
-  // saiu, trazer o último retrato e fechar quem ficou `sending` (migration 0709).
+  // saiu, trazer o último retrato e fechar quem ficou `sending` (migration 0712).
   await encerrarTransmissao(admin, c, agora);
   return { ok: true, cancelados: (cancelados ?? []).length };
 }

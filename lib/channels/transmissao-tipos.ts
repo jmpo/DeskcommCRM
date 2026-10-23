@@ -77,7 +77,7 @@ export class ErroDaTransmissao extends Error {
   }
 }
 
-/** Só os dígitos: `+595 991-733685` e `595991733685` são o mesmo destinatário. */
+/** Só os dígitos: `+55 11 98765-4321` e `5511987654321` são o mesmo destinatário. */
 export function digitosDoTelefone(telefone: string | null | undefined): string {
   return (telefone ?? "").replace(/\D/g, "");
 }

@@ -1,5 +1,5 @@
 /**
- * MIGRATION 0708 — campanha com envio rápido.
+ * MIGRATION 0711 — campanha com envio rápido.
  *
  * O que só o banco prova: `velocidade` é vocabulário FECHADO, toda campanha
  * que já existia fica `gradual`, e rápida só existe com modelo aprovado — a
@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { GOV_ORG, GOV_SESSION, seedGov, sql } from "./gov-helpers";
 
-describe("0708: campanha com envio rápido", () => {
+describe("0711: campanha com envio rápido", () => {
   it("velocidade nasce `gradual` para toda campanha que já existia", () => {
     const def = sql(
       `select column_default || '|' || is_nullable from information_schema.columns
@@ -28,7 +28,7 @@ describe("0708: campanha com envio rápido", () => {
              (organization_id, name, channel_session_id, base_legal, message_mode,
               provider_template_name, provider_template_language, velocidade)
              values ('${GOV_ORG}', 'velocidade inventada', '${GOV_SESSION}', 'consent', 'template',
-                     'oferta', 'es', 'turbo');`),
+                     'oferta', 'pt_BR', 'turbo');`),
     ).toThrow(/campaigns_velocidade_check/);
   });
 
@@ -46,7 +46,7 @@ describe("0708: campanha com envio rápido", () => {
            (organization_id, name, channel_session_id, base_legal, message_mode,
             provider_template_name, provider_template_language, velocidade)
            values ('${GOV_ORG}', 'rajada oficial', '${GOV_SESSION}', 'consent', 'template',
-                   'oferta', 'es', 'rapida');`);
+                   'oferta', 'pt_BR', 'rapida');`);
     expect(sql(`select velocidade from public.campaigns where name = 'rajada oficial';`)).toBe("rapida");
   });
 });

@@ -200,7 +200,7 @@
       "lane": "api",
       "col": 5,
       "type": "service",
-      "label": "GET /api/v1/campaigns/modelos — o modo do número e os modelos DESTA conexão, com as variáveis (0707)"
+      "label": "GET /api/v1/campaigns/modelos — o modo do número e os modelos DESTA conexão, com as variáveis (0710)"
     },
     {
       "id": "modelo-da-campanha",
@@ -228,14 +228,14 @@
       "lane": "motor",
       "col": 3,
       "type": "logic",
-      "label": "rajada.ts — envio rápido (0708): 6 inícios/s, 4 em voo, até 38 s por rodada; para no 1º desfecho que vale para todos"
+      "label": "rajada.ts — envio rápido (0711): 6 inícios/s, 4 em voo, até 38 s por rodada; para no 1º desfecho que vale para todos"
     },
     {
       "id": "transmissao",
       "lane": "motor",
       "col": 4,
       "type": "logic",
-      "label": "transmissao.ts — broadcast do provedor (0709): entrega a lista numa chamada, grava o id antes dos telefones e traz o relatório por destinatário a cada rodada"
+      "label": "transmissao.ts — broadcast do provedor (0712): entrega a lista numa chamada, grava o id antes dos telefones e traz o relatório por destinatário a cada rodada"
     },
     {
       "id": "transmissao-do-canal",
