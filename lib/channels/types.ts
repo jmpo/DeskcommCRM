@@ -69,6 +69,7 @@ export interface ChannelCapabilities {
    * para todos — o provedor não recebe valor por destinatário.
    */
   transmissao: boolean;
+  /**
    * O canal deixa LER, em bloco e paginado, a AGENDA DE CONTATOS do aparelho
    * pareado — o que o número da empresa salvou no celular?
    *
