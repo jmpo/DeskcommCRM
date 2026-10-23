@@ -92,7 +92,8 @@ describe("push: todo push vira notificação", () => {
     const [titulo, opcoes] = sw.showNotification.mock.calls[0] ?? [];
     expect(titulo).toBe("Maria");
     expect(opcoes).toMatchObject({ tag: "msg:c1", silent: false, renotify: true, data: { href: "/app/inbox?id=c1" } });
-    expect(opcoes).not.toHaveProperty("badge");
+    // Fork: o selo monocromático da barra de status do Android (`/icone/selo`).
+    expect(opcoes).toMatchObject({ badge: expect.stringMatching(/\/icone\/selo$/) });
   });
 
   it("com o app à vista, AINDA mostra — calado, porque a página já tocou o som", async () => {

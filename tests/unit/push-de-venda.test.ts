@@ -88,6 +88,8 @@ describe("o texto do push de venda", () => {
     ).toEqual({
       title: "🎉 ¡Nueva venta! Gs. 125.000",
       body: "Pedido confirmado · Hoy: 3 ventas (Gs. 375.000)",
+      // A frase é nossa (etapa e soma do dia), nunca texto do cliente.
+      corpoSemPrevia: "Pedido confirmado · Hoy: 3 ventas (Gs. 375.000)",
       tag: "aviso:i1",
       href: "/app/pipelines/p1",
       icon: "/icone/192",

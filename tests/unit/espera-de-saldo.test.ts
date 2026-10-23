@@ -199,9 +199,12 @@ describe("o aviso vai ao celular", () => {
         return cadeia;
       },
     } as unknown as SupabaseClient;
-    expect(await pushDoAvisoDaCentral(admin, "org-1", "aviso-1")).toEqual({
+    // Desde a 1.87 o aviso volta com o destino (`para`) ao lado do payload, e o
+    // payload declara o corpo sem prévia: a frase é fixa, sem dado de cliente.
+    expect((await pushDoAvisoDaCentral(admin, "org-1", "aviso-1"))?.payload).toEqual({
       title: "La IA se quedó sin saldo en el proveedor",
       body: "Recarga el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva.",
+      corpoSemPrevia: "Recarga el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva.",
       tag: "aviso:aviso-1",
       href: "/app/ai/credentials",
     });
