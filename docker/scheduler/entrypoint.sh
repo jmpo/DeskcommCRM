@@ -47,6 +47,11 @@ APP_ORIGIN="http://app:3000"
 # ⚠️ E o comentário fica AQUI, fora da string: dentro de CRONS= ele não seria
 # comentário, seria DADO — e crase em prosa dentro de aspas duplas o shell
 # EXECUTA. Foi o que quebrou o entrypoint na primeira tentativa desta linha.
+#
+# A DEVOLUÇÃO AO RODÍZIO (issue #2985) entra na MESMA cadência do irmão
+# `handoff-devolucao`, 5 em 5 minutos, pelo mesmo motivo: o piso do prazo é
+# 5 min e uma varredura por minuto seriam 60 varreduras/h em toda instalação
+# para um prazo que a maioria deixa em dezenas de minutos.
 CRONS="
 * * * * *|240|api/v1/cron/prospecting
 * * * * *|25|api/v1/cron/agent-dispatcher
@@ -59,6 +64,7 @@ CRONS="
 */5 * * * *|25|api/v1/cron/storage-redaction?limit=50
 */5 * * * *|25|api/v1/cron/snooze-watcher
 */5 * * * *|60|api/v1/cron/handoff-devolucao
+*/5 * * * *|60|api/v1/cron/rodizio-devolucao
 # A CAMPANHA. Minuto a minuto, e a rodada manda no máximo uma mensagem por
 # número: é o cron que dá a cadência base, e o ritmo da campanha e do canal
 # (channel_knobs + pacing_ledger) só sabem torná-la mais lenta.
@@ -109,6 +115,11 @@ CRONS="
 # no dia errado metade do mundo e de madrugada boa parte do resto. Barato: quem
 # não configurou a automação não chega a ser varrido.
 7 * * * *|60|api/v1/cron/contact-birthdays
+# O RESUMO DAS 7H DO AVISO DE AGENDAMENTO (0707). De dez em dez minutos pelo
+# mesmo motivo do aniversário — a hora é a do relógio de CADA organização —, e
+# mais curto porque a janela é 7h–10h: se o número estiver parado às 7h, o
+# resumo sai assim que ele voltar. Quem não ligou o aviso não chega a ser varrido.
+*/10 * * * *|60|api/v1/cron/agenda-resumo-do-dia
 # A DATA DO FUNIL (#989). Mesma cadência e mesmo motivo do aniversário: de hora
 # em hora, e quem decide o momento é o relógio de parede de CADA organização —
 # a rodada só age naquela que marca a hora da varredura. Minuto diferente do

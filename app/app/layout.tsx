@@ -1,7 +1,13 @@
 import { InterfaceRefresh } from "@/hooks/auth/InterfaceRefresh";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { isMfaEnrolled, loadAuthUser, requiresMfa, resolveActiveOrg } from "@/lib/auth/server";
+import {
+  exigirProvaDeMfa,
+  isMfaEnrolled,
+  loadAuthUser,
+  requiresMfa,
+  resolveActiveOrg,
+} from "@/lib/auth/server";
 import { DEFAULT_VISIBILITY_MODE, roleAtLeast, type VisibilityMode } from "@/lib/auth/types";
 import { clientePelaAgendaLigado } from "@/lib/schemas/settings";
 import { AuthProvider } from "@/hooks/auth/AuthProvider";
@@ -24,6 +30,7 @@ import {
 } from "@/components/app/ImpersonateBanner";
 import { ConexaoCaidaBanner } from "@/components/app/ConexaoCaidaBanner";
 import { FaixaDaCobranca } from "@/components/cobranca/FaixaDaCobranca";
+import { FaixasDeCima } from "@/components/shell/FaixasDeCima";
 import { faixaDaCobranca, type FaixaDaCobranca as Faixa } from "@/lib/cobranca/faixa";
 import { logger } from "@/lib/logger";
 import { IdiomaProvider } from "@/lib/i18n/IdiomaProvider";
@@ -76,6 +83,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   if (activeOrg) {
     const admin = createAdminClient();
+    // O tema de extensão NUNCA derruba a casca. A leitura ARRANCA aqui, junto
+    // com o lote abaixo, mas só é ESPERADA depois do portão de organização
+    // (suspensa / onboarding / ilegível): o portão continua decidindo o destino
+    // antes de qualquer resultado dela ser usado. Em fila, depois do lote, ela
+    // somava mais uma ida ao banco a TODA tela de `/app`. `lerCssDoTemaDaExtensao`
+    // nunca rejeita — uma falha (tabela ausente numa instalação antiga, RLS,
+    // formato inesperado) desce para `null`, e quem a escolheu só perde a pintura
+    // naquele render. No caminho raro do `redirect`, a leitura corre à toa.
+    const temaDaExtensao = lerCssDoTemaDaExtensao(admin, activeOrg.orgId);
+
     /**
      * As cinco consultas que TODA página de `/app` paga, disparadas juntas.
      *
@@ -189,35 +206,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       cssDaOrganizacao = cssDaMarca(marca.cor, ESCOPO_DA_ORGANIZACAO).css;
     }
 
-    // O tema de extensão NUNCA derruba a casca — e por isso a leitura fica FORA
-    // do `Promise.all` lá de cima: o portão de organização (suspensa / onboarding
-    // / ilegível) decide o destino ANTES de qualquer consulta nova, e uma leitura
-    // que falhe aqui (tabela ausente numa instalação antiga, RLS, formato
-    // inesperado) desce para `null` em vez de trocar o `redirect` do portão por
-    // um 500. Quem não escolheu tema fica exatamente como está; quem escolheu só
-    // perde a pintura naquele render.
-    try {
-      const temaTrace = await admin
-        .from("organization_extensions")
-        .select(
-          "configuration," +
-            "extension_installations!organization_extensions_installation_id_fkey(" +
-            "extension_artifacts!extension_installations_artifact_id_fkey(manifest))",
-        )
-        .eq("organization_id", activeOrg.orgId)
-        .eq("enabled", true)
-        .limit(50);
-      if (!temaTrace.error) {
-        const linhas = (temaTrace.data ?? [])
-          .map(linhaBrutaDeTema)
-          .filter((linha): linha is NonNullable<typeof linha> => linha !== null);
-        const temaEscolhido = temaAplicavel(linhas);
-        cssDoTemaDaExtensao =
-          temaEscolhido === null ? null : cssDaExtensaoDeTema(temaEscolhido).css;
-      }
-    } catch {
-      cssDoTemaDaExtensao = null;
-    }
+    cssDoTemaDaExtensao = await temaDaExtensao;
 
     // Desce para o menu CAMPO A CAMPO, e só o campo que a organização definiu.
     // Sem a condição por campo, `marca.name` seria o nome da instalação (ou o
@@ -255,6 +244,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     enrolled = isEnrolled;
     needsMfaGate = mfaRequired;
   }
+
+  // Cadastrar e provar são perguntas diferentes: o `MfaEnrollGate` abaixo cuida
+  // de quem a política obriga a cadastrar; isto, de quem JÁ tem fator e ainda
+  // não o provou nesta sessão — com ou sem política.
+  await exigirProvaDeMfa();
 
   // Read sidebar collapsed state SSR to avoid flash.
   const store = await cookies();
@@ -321,9 +315,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div data-marca-org="" className="contents">
         <EstiloDaMarcaDaOrganizacao css={cssDaOrganizacao} />
         <EstiloDoTemaDaExtensao css={cssDoTemaDaExtensao} />
-        <ImpersonateBanner impersonating={impersonating} />
-        <ConexaoCaidaBanner caidas={conexoesCaidas} />
-        {faixa !== null && <FaixaDaCobranca faixa={faixa} fuso={orgFuso} />}
+        {/* As faixas medidas: a casca e o Inbox descontam a altura delas. */}
+        <FaixasDeCima>
+          <ImpersonateBanner impersonating={impersonating} />
+          <ConexaoCaidaBanner caidas={conexoesCaidas} />
+          {faixa !== null && <FaixaDaCobranca faixa={faixa} fuso={orgFuso} />}
+        </FaixasDeCima>
         {needsMfaGate ? (
           // Gate always mounted for MFA-required roles; it latches the blocking
           // decision client-side so the enroll Server Action's revalidation
@@ -337,4 +334,31 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     </AuthProvider>
     </IdiomaProvider>
   );
+}
+
+/** O CSS do tema de extensão escolhido pela organização, ou `null`. Nunca rejeita. */
+async function lerCssDoTemaDaExtensao(
+  admin: ReturnType<typeof createAdminClient>,
+  orgId: string,
+): Promise<string | null> {
+  try {
+    const temaTrace = await admin
+      .from("organization_extensions")
+      .select(
+        "configuration," +
+          "extension_installations!organization_extensions_installation_id_fkey(" +
+          "extension_artifacts!extension_installations_artifact_id_fkey(manifest))",
+      )
+      .eq("organization_id", orgId)
+      .eq("enabled", true)
+      .limit(50);
+    if (temaTrace.error) return null;
+    const linhas = (temaTrace.data ?? [])
+      .map(linhaBrutaDeTema)
+      .filter((linha): linha is NonNullable<typeof linha> => linha !== null);
+    const temaEscolhido = temaAplicavel(linhas);
+    return temaEscolhido === null ? null : cssDaExtensaoDeTema(temaEscolhido).css;
+  } catch {
+    return null;
+  }
 }

@@ -12,8 +12,10 @@
  * A lógica de decisão (manual/round_robin/no-eligible/replay) é pura em
  * lib/routing/decide.ts; aqui só há I/O.
  */
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { filtrarCandidatosExcluidos } from "@/lib/escalacao/devolucao-ao-rodizio";
 import { logger } from "@/lib/logger";
 import { decideRouting, resolverRoteamentoPorNumero, type RegraDoNumero } from "@/lib/routing/decide";
 import { loadEligibleAttendants, InvalidRoutingChannel } from "@/lib/routing/eligibles";
@@ -145,7 +147,7 @@ async function processEvent(event: EventRow, now: Date): Promise<RoutingOutcome>
 
   const { data: conv, error: convError } = await admin
     .from("conversations")
-    .select("id, organization_id, contact_id, channel_session_id, assigned_to_user_id, status")
+    .select("id, organization_id, contact_id, channel_session_id, assigned_to_user_id, status, metadata")
     .eq("id", conversationId)
     .eq("organization_id", orgId)
     .maybeSingle();
@@ -205,10 +207,19 @@ async function processEvent(event: EventRow, now: Date): Promise<RoutingOutcome>
     }
   }
 
+  // A EXCLUSÃO DE 24 H DA DEVOLUÇÃO AO RODÍZIO (issue #2985). Quem recebeu esta
+  // conversa do rodízio e não respondeu no prazo fica fora dela por um dia
+  // (`conversations.metadata.devolucao_ao_rodizio`, escrito pelo cron
+  // `rodizio-devolucao`). Sem este corte, o cron devolveria a conversa e o
+  // próximo tick deste worker a entregaria à MESMA pessoa — numa instalação com
+  // um atendente só, sempre ela. A regra da marca é pura e mora em
+  // `lib/escalacao/devolucao-ao-rodizio.ts`.
+  const elegiveis = filtrarCandidatosExcluidos(eligibles, conv.metadata, now.getTime());
+
   const action = decideRouting({
     mode: efetivo.mode,
     alreadyAssigned,
-    eligibles,
+    eligibles: elegiveis,
     config,
     defaultAssigneeUserId: efetivo.defaultAssigneeUserId,
     attempts: event.attempts,
@@ -365,8 +376,8 @@ function strOrNull(v: unknown): string | null {
  * instalação existente: as duas colunas nasceram nulas. Devolver `null` (e não
  * um objeto default) é o que faz o worker cair no comportamento da organização.
  */
-async function carregarRegraDoNumero(
-  admin: ReturnType<typeof createAdminClient>,
+export async function carregarRegraDoNumero(
+  admin: Pick<SupabaseClient, "from">,
   orgId: string,
   channelSessionId: string | null,
 ): Promise<RegraDoNumero | null> {

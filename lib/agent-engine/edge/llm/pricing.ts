@@ -166,6 +166,21 @@ export interface TokenUsage {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /**
+   * Quantos dos `cacheWriteTokens` foram gravados com TTL de 1 HORA; o resto foi
+   * de 5 minutos. Quando o provedor diz (a Anthropic manda
+   * `usage.cache_creation.ephemeral_1h_input_tokens` e `…_5m_…` em cada
+   * resposta), cada parcela é cobrada pela sua tarifa e o `cacheTtl` não decide
+   * nada. Sem ele, vale o `cacheTtl` para a gravação inteira.
+   *
+   * Por que existe: medido contra a fatura da Anthropic (01–17/10/2026, uma
+   * organização), ~80% da gravação de cache do agente foi de 5 MINUTOS — os
+   * pontos de cache do histórico não levam o TTL longo do prefixo estável — e o
+   * custo cobrava tudo a 1 hora: US$ 30,50 de gravação contra US$ 21,38 na
+   * fatura, 16% a mais no total do mês. Entrada, leitura e saída batiam no
+   * centavo.
+   */
+  cacheWrite1hTokens?: number;
 }
 
 /**
@@ -243,7 +258,8 @@ export function temPrecoNoMotor(model: string): boolean {
  * descontada e cobrada pela tarifa de cache.
  *
  * `cacheTtl` é o TTL com que o prefixo estável foi gravado (knob `LLM_CACHE_TTL`);
- * o default repete a doutrina ('1h') para quem chama sem ele.
+ * o default repete a doutrina ('1h') para quem chama sem ele. Só decide quando o
+ * provedor NÃO disse a divisão (`usage.cacheWrite1hTokens`).
  *
  * `em` é o instante da chamada. Sem ele, vale agora — é o que grava
  * `llm_calls.cost_cents`. Só os ids de PROMOCOES trocam de tarifa com ele
@@ -260,15 +276,58 @@ export function costCents(
   if (p === undefined) {
     return null;
   }
-  const cacheWrite = cacheTtl === '5m' ? p.cacheWrite5m : p.cacheWrite1h;
   const noCacheInput = Math.max(0, usage.inputTokens - usage.cacheReadTokens - usage.cacheWriteTokens);
   const usd =
     (noCacheInput * p.input +
       usage.cacheReadTokens * p.cacheRead +
-      usage.cacheWriteTokens * cacheWrite +
+      custoDaGravacao(p, usage, cacheTtl) +
       usage.outputTokens * p.output) /
     1_000_000;
   return usd * 100;
+}
+
+/** A gravação de cache em USD × milhão de tokens: dividida por TTL quando o provedor disse. */
+function custoDaGravacao(p: Preco, usage: TokenUsage, cacheTtl: CacheTtl): number {
+  if (usage.cacheWrite1hTokens === undefined) {
+    return usage.cacheWriteTokens * (cacheTtl === '5m' ? p.cacheWrite5m : p.cacheWrite1h);
+  }
+  const umaHora = Math.min(Math.max(0, usage.cacheWrite1hTokens), usage.cacheWriteTokens);
+  return umaHora * p.cacheWrite1h + (usage.cacheWriteTokens - umaHora) * p.cacheWrite5m;
+}
+
+/**
+ * Quantos tokens da gravação de cache foram de 1 hora, lidos do `usage` CRU do
+ * provedor em cada passo da chamada (`step.usage.raw` no AI SDK). A Anthropic
+ * manda `cache_creation: { ephemeral_5m_input_tokens, ephemeral_1h_input_tokens }`
+ * (tipo `CacheCreation` do SDK dela).
+ *
+ * Devolve a parcela de 1 hora PROPORCIONAL sobre `totalGravado` — o total que o
+ * motor grava em `cache_write_tokens` —, para a soma das duas parcelas nunca
+ * passar dele mesmo que o usage agregado e os passos discordem. `undefined`
+ * quando nenhum passo traz a divisão (outro provedor, ou o campo sumiu): aí o
+ * custo volta ao `cacheTtl`, que é o comportamento de antes.
+ */
+export function gravacaoDeUmaHora(
+  usosCrus: ReadonlyArray<unknown>,
+  totalGravado: number,
+): number | undefined {
+  let cincoMin = 0;
+  let umaHora = 0;
+  let viu = false;
+  for (const cru of usosCrus) {
+    const divisao = (cru as { cache_creation?: unknown } | null | undefined)?.cache_creation;
+    if (!divisao || typeof divisao !== 'object') continue;
+    const d = divisao as { ephemeral_5m_input_tokens?: unknown; ephemeral_1h_input_tokens?: unknown };
+    const c = Number(d.ephemeral_5m_input_tokens ?? 0);
+    const u = Number(d.ephemeral_1h_input_tokens ?? 0);
+    if (!Number.isFinite(c) || !Number.isFinite(u)) continue;
+    viu = true;
+    cincoMin += Math.max(0, c);
+    umaHora += Math.max(0, u);
+  }
+  if (!viu) return undefined;
+  if (cincoMin + umaHora === 0) return 0;
+  return Math.round((totalGravado * umaHora) / (cincoMin + umaHora));
 }
 
 /**
