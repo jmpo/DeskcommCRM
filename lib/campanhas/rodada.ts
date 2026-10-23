@@ -296,7 +296,7 @@ export function ocupaONumero(r: { concluidas: number; detalhe: string }): boolea
 }
 
 /** Por onde a campanha falou na rodada: o envio de sempre devolve um número; a rajada, todos os dela. */
-function numerosQueAFalaUsou(r: { numero?: string; numeros?: readonly string[] }): readonly string[] {
+function numerosQueAFalaUsou(r: { detalhe: string; numero?: string; numeros?: readonly string[] }): readonly string[] {
   return r.numeros ?? (r.numero ? [r.numero] : []);
 }
 
