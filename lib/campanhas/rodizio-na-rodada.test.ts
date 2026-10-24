@@ -8,7 +8,7 @@
  * falta o intervalo, e a rodada lia só o `allow`. Hoje o espaçamento real virava
  * "um por principal por rodada" × cadência do cron — não o throttle do número.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PACING_DEFAULTS, type PacingKnobs } from "@/lib/agent-engine/pacing/defaults";
 import type * as Capabilities from "@/lib/channels/capabilities";
@@ -356,6 +356,14 @@ describe("rodada: a campanha RÁPIDA fala em rajada, e o número dela sai do rod
    */
   beforeEach(() => {
     mundo.knobs = { ...PACING_DEFAULTS, throttleMs: 0, jitterMaxMs: 0 };
+    // Cada envio da rajada lê o relógio de verdade (`new Date()`), não o `agora`
+    // da rodada. Sem fixar só o `Date`, à noite a janela anti-ban barra a rajada
+    // e o caso reprova por horário, sem defeito nenhum (medido às 01h de Assunção).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(AGORA);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   const comModelo = (id: string, campanhaId: string, contato: string): Linha => ({

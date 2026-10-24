@@ -1480,6 +1480,7 @@ jobs:
         comercial-no-celular.spec.ts
         inbox-mensagem-por-modelo.spec.ts
         numero-oficial-um-clique.spec.ts
+        aviso-pelo-numero-oficial.spec.ts
 
       # ─── FORA_DO_CI — as que ficaram fora, e o motivo de cada uma ───
       #

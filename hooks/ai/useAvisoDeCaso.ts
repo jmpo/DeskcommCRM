@@ -42,6 +42,8 @@ export interface ConfigDoAvisoNaTela {
   rotulo: string | null;
   ligado: boolean;
   resposta_whatsapp_habilitada: boolean;
+  /** O modelo aprovado que leva o aviso pela conexão que só manda modelo (0762). */
+  modelo_id?: string | null;
   atualizado_em: string;
 }
 
@@ -112,6 +114,8 @@ export interface EntradaDoSalvar {
   resposta_whatsapp_habilitada: boolean;
   /** `true` = "eu sei que esse número é um cliente meu, e quero mesmo assim". */
   confirma_contato?: boolean;
+  /** `null` = sem modelo (texto livre). Ver a rota. */
+  modelo_id?: string | null;
 }
 
 export function useSalvarAvisoDeCaso() {
