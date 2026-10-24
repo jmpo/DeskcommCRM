@@ -5,7 +5,7 @@
  *
  * ## As três coisas que esta tela faz, nesta ordem
  *
- * 1. **Diz o estado efetivo** (`AlertasDoAviso`): onze situações em que a
+ * 1. **Diz o estado efetivo** (`AlertasDoAviso`): doze situações em que a
  *    configuração é aceita e nenhum aviso chega. Elas vêm antes do formulário
  *    de propósito — ler "seus números não servem para isso" depois de preencher
  *    tudo é a definição de tela que não avisou.
@@ -19,9 +19,12 @@
  *
  * ## O seletor filtra por CAPACIDADE, nunca por provedor
  *
- * A lista só oferece conexões com `aceitaMensagemLivre`, e essa resposta vem
- * resolvida de `lib/channels/`. Esta tela não sabe — e não pode saber — o nome
- * de nenhum provedor: `pnpm lint:channels` reprova, inclusive em comentário.
+ * A lista oferece as conexões com `aceitaMensagemLivre` e, desde a migration
+ * 0762, as que só mandam modelo mas têm um modelo aprovado que leva o aviso
+ * (`conexaoServeParaAviso`). Para essas, a tela pede o modelo — o aviso vai
+ * dentro dele. As duas respostas vêm resolvidas de `lib/channels/` e de
+ * `lib/escalacao/modelo-do-aviso.ts`. Esta tela não sabe — e não pode saber — o
+ * nome de nenhum provedor: `pnpm lint:channels` reprova, inclusive em comentário.
  *
  * ## `aviso_numero_de_cliente` é uma PERGUNTA
  *
@@ -60,7 +63,12 @@ import {
   type EstadoDoAviso,
 } from "@/hooks/ai/useAvisoDeCaso";
 import { ApiError } from "@/lib/api/types";
-import { normalizarTelefoneDeAviso, telefoneDeAvisoValido } from "@/lib/escalacao/estado-do-aviso";
+import {
+  conexaoServeParaAviso,
+  normalizarTelefoneDeAviso,
+  telefoneDeAvisoValido,
+  type ConexaoParaAviso,
+} from "@/lib/escalacao/estado-do-aviso";
 import { FRASE_DO_ERRO_DO_AVISO } from "@/lib/escalacao/vocabulario-do-aviso";
 import { CheckCircle, PaperPlaneTilt, WarningOctagon } from "@/lib/ui/icons";
 
@@ -79,7 +87,7 @@ const FRASE_EXTRA_DO_TESTE = {
 } as const;
 
 const RASCUNHO_VAZIO = {
-  canal: "", telefone: "", rotulo: "", ligado: false, respostaWhatsappHabilitada: false,
+  canal: "", telefone: "", rotulo: "", ligado: false, respostaWhatsappHabilitada: false, modelo: "",
 };
 type Rascunho = typeof RASCUNHO_VAZIO;
 
@@ -91,7 +99,19 @@ function rascunhoDoEstado(estado: EstadoDoAviso | undefined): Rascunho {
     rotulo: estado.config.rotulo ?? "",
     ligado: estado.config.ligado,
     respostaWhatsappHabilitada: estado.config.resposta_whatsapp_habilitada,
+    modelo: estado.config.modelo_id ?? "",
   };
+}
+
+/**
+ * O modelo que entra quando a pessoa troca de conexão: o único, se só há um —
+ * escolher por ela o que não tem alternativa poupa um clique sem decidir nada.
+ * Trocar de conexão sempre descarta o modelo anterior: ele é DAQUELA conexão.
+ */
+function modeloAoTrocarDeConexao(conexao: ConexaoParaAviso | undefined): string {
+  if (!conexao || conexao.aceitaMensagemLivre) return "";
+  const modelos = conexao.modelos ?? [];
+  return modelos.length === 1 ? modelos[0]!.id : "";
 }
 
 export function AvisoNoWhatsApp() {
@@ -169,9 +189,15 @@ function FormularioDoAviso({ estado }: { estado: EstadoDoAviso }) {
    */
   const [confirmarRemocao, setConfirmarRemocao] = useState(false);
 
-  const oferecidas = estado.conexoes.filter((c) => c.aceitaMensagemLivre);
+  const oferecidas = estado.conexoes.filter(conexaoServeParaAviso);
   const telefoneOk = telefoneDeAvisoValido(rascunho.telefone);
-  const podeSalvar = rascunho.canal !== "" && telefoneOk && !salvar.isPending;
+  const escolhida = oferecidas.find((c) => c.id === rascunho.canal);
+  /** A conexão escolhida só manda modelo: o aviso precisa de um (migration 0762). */
+  const precisaModelo = escolhida !== undefined && !escolhida.aceitaMensagemLivre;
+  const modelosDaConexao = precisaModelo ? (escolhida.modelos ?? []) : [];
+  const modeloEscolhido = modelosDaConexao.find((m) => m.id === rascunho.modelo);
+  const modeloOk = !precisaModelo || modeloEscolhido !== undefined;
+  const podeSalvar = rascunho.canal !== "" && telefoneOk && modeloOk && !salvar.isPending;
   /**
    * O switch, e por que ele NÃO é `estado.pode_ligar` sozinho nem um `||` com o
    * rascunho.
@@ -187,7 +213,7 @@ function FormularioDoAviso({ estado }: { estado: EstadoDoAviso }) {
    * rascunho precisa ter uma conexão que serve e um número completo.
    */
   const semEnderecoPublico = estado.avisos.some((a) => a.codigo === "sem_endereco_publico");
-  const canalServe = oferecidas.some((c) => c.id === rascunho.canal);
+  const canalServe = escolhida !== undefined && modeloOk;
   const podeLigar = !semEnderecoPublico && canalServe && telefoneOk;
   const jaSalvo = Boolean(estado.config?.channel_session_id);
 
@@ -199,6 +225,9 @@ function FormularioDoAviso({ estado }: { estado: EstadoDoAviso }) {
         rotulo: rascunho.rotulo.trim() === "" ? null : rascunho.rotulo.trim(),
         ligado: rascunho.ligado,
         resposta_whatsapp_habilitada: rascunho.respostaWhatsappHabilitada,
+        // Sempre enviado, inclusive `null`: é o que tira o modelo de uma conexão
+        // antiga quando a pessoa troca para uma de texto livre.
+        modelo_id: precisaModelo ? rascunho.modelo : null,
         ...(confirma ? { confirma_contato: true } : {}),
       });
       setConfirmarContato(null);
@@ -258,7 +287,13 @@ function FormularioDoAviso({ estado }: { estado: EstadoDoAviso }) {
         <Label htmlFor="conexao">{t("Conexão que envia os avisos")}</Label>
         <Select
           value={rascunho.canal}
-          onValueChange={(v) => setRascunho((r) => ({ ...r, canal: v }))}
+          onValueChange={(v) =>
+            setRascunho((r) => ({
+              ...r,
+              canal: v,
+              modelo: modeloAoTrocarDeConexao(oferecidas.find((c) => c.id === v)),
+            }))
+          }
           disabled={oferecidas.length === 0}
         >
           <SelectTrigger id="conexao" className="w-full sm:w-96">
@@ -267,15 +302,51 @@ function FormularioDoAviso({ estado }: { estado: EstadoDoAviso }) {
           <SelectContent>
             {oferecidas.map((c) => (
               <SelectItem key={c.id} value={c.id}>
-                {c.nome}
+                {c.aceitaMensagemLivre ? c.nome : `${c.nome} · ${t("só modelo aprovado")}`}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">
-          {t("Só aparecem aqui os números que conseguem mandar uma mensagem a qualquer hora.")}
+          {t(
+            "Aparecem aqui os números que mandam mensagem a qualquer hora e os números oficiais que já têm um modelo aprovado com uma variável.",
+          )}
         </p>
       </div>
+
+      {precisaModelo ? (
+        <div className="flex flex-col gap-1.5" data-testid="bloco-do-modelo">
+          <Label htmlFor="modelo">{t("Modelo aprovado que leva o aviso")}</Label>
+          <Select
+            value={rascunho.modelo}
+            onValueChange={(v) => setRascunho((r) => ({ ...r, modelo: v }))}
+          >
+            <SelectTrigger id="modelo" className="w-full sm:w-96">
+              <SelectValue placeholder={t("Escolha um modelo aprovado")} />
+            </SelectTrigger>
+            <SelectContent>
+              {modelosDaConexao.map((m) => (
+                <SelectItem key={m.id} value={m.id}>
+                  {`${m.nome} · ${m.idioma}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {modeloEscolhido ? (
+            <p
+              className="whitespace-pre-line rounded-md border bg-muted/40 p-2 text-xs"
+              data-testid="previa-do-modelo"
+            >
+              {modeloEscolhido.corpo}
+            </p>
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "Fora das 24 horas este número só manda modelo aprovado. O aviso vai dentro dele, numa linha só, no lugar da variável. Cada aviso é uma mensagem cobrada pela plataforma do número oficial.",
+            )}
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="telefone">{t("Número que recebe os avisos")}</Label>

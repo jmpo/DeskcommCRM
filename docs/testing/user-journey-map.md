@@ -3976,3 +3976,26 @@ já conectada, e prova o roteamento pela conta do evento.
 
 Não provado pela tela: a janela real da Meta (QR da coexistência, código do número) — só
 com um número de verdade, e é a prova manual que fecha esta jornada.
+
+## J61 — Avisar a equipe pelo número oficial, com modelo aprovado `[P1]` (2026-10-23)
+
+Quem só tem o número oficial estável não conseguia avisar a equipe: fora da janela de 24 h ele
+só manda modelo aprovado, e Configurações › Casos › Aviso no WhatsApp só oferecia número de
+texto livre — o aviso de caso era condenado (`canal_nao_aceita_aviso_livre`) e a ação "Mensagem
+para a equipe" pulava em todo disparo. Desde a 0762 a configuração guarda o modelo aprovado
+(`config_aviso_de_caso.modelo_id`), com UMA variável no corpo, e o texto do aviso entra nela numa
+linha só. Regra única em `lib/escalacao/modelo-do-aviso.ts`. Spec:
+`tests/e2e/aviso-pelo-numero-oficial.spec.ts` (sem rede: o teste é recusado antes do provedor).
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J61.1 | Número oficial com um modelo aprovado de uma variável | aparece no seletor marcado «só modelo aprovado»; a tela pede o modelo, já escolhido quando é o único, com a prévia do texto e o aviso de que cada mensagem é cobrada; o de duas variáveis não é oferecido | spec acima — `evidence/aviso-pelo-numero-oficial/10-oficial-com-modelo.png` |
+| J61.2 | Salvar | o banco guarda o modelo DESTA conexão; recarregar mostra o mesmo modelo | spec acima — `20-salvo.png` |
+| J61.3 | Enviar aviso de teste | passa da barreira do canal: a recusa que sobra é a do endereço público da bancada, não «só envia mensagens aprovadas» | spec acima — `30-teste-passa-do-canal.png` |
+| J61.4 | O modelo volta para revisão na plataforma | bloqueio «Escolha o modelo aprovado que leva o aviso», switch travado | spec acima — `40-modelo-em-revisao-trava.png` |
+| J61.5 | Modelo de outra organização ou de outro número | o RPC recusa (`aviso_de_caso_modelo_invalido`); a linha sem conexão da conta oficial serve só ao número dela | **PASS (test:db)** — `tests/invariants/aviso-por-modelo-aprovado.test.ts` |
+| J61.6 | Aviso de caso e "Mensagem para a equipe" pelo número oficial | saem DENTRO do modelo, conferido no envio; sem modelo que sirva, o mesmo motivo de antes | **PASS (unit)** — `tests/unit/aviso-de-caso-decide.test.ts`, `tests/unit/aviso-por-modelo-acao-equipe.test.ts` |
+
+Não provado pela tela: a entrega real no celular por um número oficial de verdade (precisa de
+um modelo aprovado pela plataforma) e o comando RESPONDER/PERGUNTAR por esse número, que segue
+fora do escopo.
