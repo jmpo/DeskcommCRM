@@ -3989,10 +3989,10 @@ linha só. Regra única em `lib/escalacao/modelo-do-aviso.ts`. Spec:
 
 | # | Caso | Expectativa | Resultado |
 |---|------|-------------|-----------|
-| J61.1 | Número oficial com um modelo aprovado de uma variável | aparece no seletor marcado «só modelo aprovado»; a tela pede o modelo, já escolhido quando é o único, com a prévia do texto e o aviso de que cada mensagem é cobrada; o de duas variáveis não é oferecido | spec acima — `evidence/aviso-pelo-numero-oficial/10-oficial-com-modelo.png` |
-| J61.2 | Salvar | o banco guarda o modelo DESTA conexão; recarregar mostra o mesmo modelo | spec acima — `20-salvo.png` |
-| J61.3 | Enviar aviso de teste | passa da barreira do canal: a recusa que sobra é a do endereço público da bancada, não «só envia mensagens aprovadas» | spec acima — `30-teste-passa-do-canal.png` |
-| J61.4 | O modelo volta para revisão na plataforma | bloqueio «Escolha o modelo aprovado que leva o aviso», switch travado | spec acima — `40-modelo-em-revisao-trava.png` |
+| J61.1 | Número oficial com um modelo aprovado de uma variável | aparece no seletor marcado «só modelo aprovado»; a tela pede o modelo, já escolhido quando é o único, com a prévia do texto e o aviso de que cada mensagem é cobrada; o de duas variáveis não é oferecido | **PASS pela tela (local)** — `evidence/aviso-pelo-numero-oficial/10-oficial-com-modelo.png` |
+| J61.2 | Salvar | o banco guarda o modelo DESTA conexão; recarregar mostra o mesmo modelo | **PASS pela tela (local)** — `evidence/aviso-pelo-numero-oficial/20-salvo.png` |
+| J61.3 | Enviar aviso de teste | passa da barreira do canal: a recusa que sobra é a do endereço público da bancada, não «só envia mensagens aprovadas» | **PASS pela tela (local)** — `evidence/aviso-pelo-numero-oficial/30-teste-passa-do-canal.png` |
+| J61.4 | O modelo volta para revisão na plataforma | bloqueio «Escolha o modelo aprovado que leva o aviso», switch travado; a conexão salva segue no seletor e diz que não tem modelo; em 390px sem rolagem lateral (`evidence/aviso-pelo-numero-oficial/50-telefone.png`) | **PASS pela tela (local)** — `evidence/aviso-pelo-numero-oficial/40-modelo-em-revisao-trava.png` |
 | J61.5 | Modelo de outra organização ou de outro número | o RPC recusa (`aviso_de_caso_modelo_invalido`); a linha sem conexão da conta oficial serve só ao número dela | **PASS (test:db)** — `tests/invariants/aviso-por-modelo-aprovado.test.ts` |
 | J61.6 | Aviso de caso e "Mensagem para a equipe" pelo número oficial | saem DENTRO do modelo, conferido no envio; sem modelo que sirva, o mesmo motivo de antes | **PASS (unit)** — `tests/unit/aviso-de-caso-decide.test.ts`, `tests/unit/aviso-por-modelo-acao-equipe.test.ts` |
 
