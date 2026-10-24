@@ -48,12 +48,14 @@
  *
  * (`DELETE` é a exceção, e está declarada acima: não existe RPC de remoção.)
  *
- * `fn_definir_aviso_de_caso` faz, dentro da MESMA transação da escrita, sete
- * guardas que uma rota faria em sete idas ao banco com uma janela de corrida
- * entre cada duas: papel, suporte, MFA, E.164, canal da organização, recusa do
- * número da própria organização e recusa de número que já é um cliente. Um
- * `upsert` daqui repetiria as sete e divergiria delas no primeiro dia em que
- * alguém mudasse uma.
+ * `fn_definir_aviso_de_caso` faz, dentro da MESMA transação da escrita, oito
+ * guardas que uma rota faria em oito idas ao banco com uma janela de corrida
+ * entre cada duas: papel, suporte, MFA, E.164, canal da organização, modelo da
+ * organização e da conexão (0762), recusa do número da própria organização e
+ * recusa de número que já é um cliente. Um `upsert` daqui repetiria as oito e
+ * divergiria delas no primeiro dia em que alguém mudasse uma. O que o banco NÃO
+ * pergunta sobre o modelo — aprovado, uma variável só — a rota pergunta antes
+ * (`lib/escalacao/modelo-do-aviso.ts`).
  *
  * ## …E mesmo assim a rota chama `requireSupportWrite()` na primeira linha
  *

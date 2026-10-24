@@ -9,7 +9,7 @@
  *    configuração é aceita e nenhum aviso chega. Elas vêm antes do formulário
  *    de propósito — ler "seus números não servem para isso" depois de preencher
  *    tudo é a definição de tela que não avisou.
- * 2. **Salva pelo RPC**, que é quem faz as sete guardas na mesma transação — e
+ * 2. **Salva pelo RPC**, que é quem faz as oito guardas na mesma transação — e
  *    **remove** pelo `DELETE`, a ação que devolve o número à ingestão normal
  *    (issue #3338). As duas são coisas diferentes de propósito: desligar o
  *    switch PRESERVA o número e ele continua interno (o que chega dele não vira

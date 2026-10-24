@@ -432,7 +432,7 @@
       "col": 5,
       "type": "ui",
       "label": "/app/ai/cases/avisos",
-      "sublabel": "liga o aviso, prova por envio real e diz os 11 estados em que ele não sai"
+      "sublabel": "liga o aviso, prova por envio real e diz os 12 estados em que ele não sai"
     },
     {
       "id": "avisoSuporteRota",
@@ -633,6 +633,14 @@
       "type": "service",
       "label": "followup-turn: o passo 'Classificar (IA)' do follow-up (lib/ai/decisao/followup.ts)",
       "sublabel": "só com resposta ao envio do fluxo: a mesma pergunta da IA de sempre (followup_classify), em paralelo — as saídas do passo como opções, sem 'nenhuma', só o texto digitado pelo cliente por scrubMessage (mídia não sai); SÓ OBSERVA nesta versão: a saída que move o fluxo é sempre a da IA de sempre, e ninguém espera por ele"
+    },
+    {
+      "id": "modeloDoAviso",
+      "lane": "regra",
+      "col": 5,
+      "type": "lib",
+      "label": "lib/escalacao/modelo-do-aviso.ts",
+      "sublabel": "o modelo aprovado que leva o aviso pelo número oficial (0762) — uma variável só, o texto numa linha"
     }
   ],
   "edges": [
@@ -1471,6 +1479,21 @@
       "from": "prazoConfig",
       "to": "atendimentoManual",
       "label": "manual_reply_silence_minutes (5 min a 24 h; null = 60): quanto a IA fica calada depois de uma resposta pelo celular — lido a cada pausa por lerPrazoDoSilencioManualMinutos (diagnóstico de @gaberaldo-svg, #2005)"
+    },
+    {
+      "from": "avisoSuporteRota",
+      "to": "modeloDoAviso",
+      "label": "confere o modelo escolhido antes do RPC"
+    },
+    {
+      "from": "avisoSuporteMotor",
+      "to": "modeloDoAviso",
+      "label": "o número oficial avisa DENTRO do modelo, conferido no envio"
+    },
+    {
+      "from": "modeloDoAviso",
+      "to": "avisoSuporteRegistro",
+      "label": "lê config_aviso_de_caso.modelo_id"
     }
   ],
   "cards": [
