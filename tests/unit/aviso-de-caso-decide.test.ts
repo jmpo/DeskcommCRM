@@ -358,13 +358,14 @@ describe("aviso ao suporte — o que impede o envio", () => {
       modelo_id: MODELO_ID,
     };
 
-    function comModelo(modelo: typeof MODELO | null) {
+    function comModelo(modelo: typeof MODELO | null | "indeterminado") {
       const montado = monta({ canal: SO_MODELO, cfg: CFG });
       const chamadas: Array<{ org: string; canal: string; modeloId: string }> = [];
       const opcoes: unknown[] = [];
       montado.deps.db.carregaModeloDoAviso = async (org, canal, modeloId) => {
         chamadas.push({ org, canal, modeloId });
-        return modelo;
+        if (modelo === "indeterminado") return { ok: false, motivo: "indeterminado" };
+        return modelo ? { ok: true, modelo } : { ok: false, motivo: "nao_aprovado" };
       };
       montado.deps.transporte.envia = async (_org, _canal, to, body, op) => {
         montado.estado.enviados.push({ to, body });
@@ -391,13 +392,22 @@ describe("aviso ao suporte — o que impede o envio", () => {
       expect(estado.patches.at(-1)).toMatchObject({ erro_codigo: "canal_nao_aceita_aviso_livre" });
     });
 
+    it("a leitura do modelo que FALHOU volta mais tarde — não condena o aviso", async () => {
+      const { deps, estado } = comModelo("indeterminado");
+      const r = await aplicaAvisoDeCaso(deps, evento());
+      expect(r.status).toBe("retry");
+      expect(estado.enviados).toHaveLength(0);
+      expect(estado.patches.at(-1)).toMatchObject({ erro_codigo: "indeterminado" });
+      expect(estado.patches.at(-1)).not.toHaveProperty("status");
+    });
+
     it("canal de texto livre NUNCA consulta nem usa o modelo, mesmo gravado", async () => {
       const montado = monta({ cfg: CFG });
       let consultou = false;
       const opcoes: unknown[] = [];
       montado.deps.db.carregaModeloDoAviso = async () => {
         consultou = true;
-        return MODELO;
+        return { ok: true, modelo: MODELO };
       };
       montado.deps.transporte.envia = async (_org, _canal, to, body, ...resto) => {
         montado.estado.enviados.push({ to, body });

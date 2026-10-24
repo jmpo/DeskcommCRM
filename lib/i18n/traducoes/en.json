@@ -9407,5 +9407,6 @@
   "Não foi possível conferir o modelo agora. Tente de novo em instantes.": "Couldn't check the template right now. Try again in a moment.",
   "O modelo precisa ter uma variável só, no texto — é nela que o aviso entra.": "The template needs exactly one variable, in its text — that's where the alert goes.",
   "Seus números atuais só enviam mensagem para quem falou com você nas últimas 24 horas, e nenhum tem um modelo aprovado com uma variável para levar o aviso. Crie esse modelo na aba de modelos do número, em Conexões, ou conecte um número pelo QR code.": "Your current numbers only message people who talked to you in the last 24 hours, and none has an approved one-variable template to carry the alert. Create that template in the number's templates tab, under Connections, or connect a number by QR code.",
-  "só modelo aprovado": "approved templates only"
+  "só modelo aprovado": "approved templates only",
+  "Esta conexão não tem nenhum modelo aprovado com uma variável. Crie um na aba de modelos do número, em Conexões, ou escolha outra conexão.": "This connection has no approved template with one variable. Create one in the number's templates tab, under Connections, or choose another connection."
 }

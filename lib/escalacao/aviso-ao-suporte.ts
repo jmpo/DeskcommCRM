@@ -59,7 +59,7 @@ import type { EventRow } from "@/lib/event-log/dispatcher";
 import type { Idioma } from "@/lib/i18n/idiomas";
 import { logger } from "@/lib/logger";
 
-import type { ModeloDoAviso } from "./modelo-do-aviso";
+import type { AvaliacaoDoModelo, ModeloDoAviso } from "./modelo-do-aviso";
 import { montarAvisoDeCaso } from "./texto-do-aviso";
 import { linkDoCaso, urlPublicaUsavel } from "./url-publica";
 import {
@@ -225,14 +225,15 @@ export interface AvisoDb {
   marcaDaOrganizacao(orgId: string): Promise<{ nome: string; idioma: Idioma }>;
   /**
    * O modelo `modeloId` ainda serve para avisar por esta conexão AGORA
-   * (`lib/escalacao/modelo-do-aviso.ts`)? `null` = não serve. Opcional: quem não
-   * o implementa é tratado como "sem modelo", o comportamento de antes da 0762.
+   * (`lib/escalacao/modelo-do-aviso.ts`)? `motivo: "indeterminado"` é a leitura
+   * que falhou — não o modelo que não serve. Opcional: quem não o implementa é
+   * tratado como "sem modelo", o comportamento de antes da 0762.
    */
   carregaModeloDoAviso?(
     orgId: string,
     channelSessionId: string,
     modeloId: string,
-  ): Promise<ModeloDoAviso | null>;
+  ): Promise<AvaliacaoDoModelo>;
 }
 
 /**
@@ -462,7 +463,18 @@ export async function aplicaAvisoDeCaso(
   let modelo: ModeloDoAviso | null = null;
   if (!canal.aceitaMensagemLivre) {
     if (cfg.modelo_id && deps.db.carregaModeloDoAviso) {
-      modelo = await deps.db.carregaModeloDoAviso(orgId, channelSessionId, cfg.modelo_id);
+      const avaliacao = await deps.db.carregaModeloDoAviso(orgId, channelSessionId, cfg.modelo_id);
+      // Leitura que falhou não é modelo que não serve: condenar aqui perderia
+      // o aviso por um engasgo do banco. Volta mais tarde, como o transporte
+      // fora do ar, até o teto de tentativas.
+      if (!avaliacao.ok && avaliacao.motivo === "indeterminado") {
+        if (tentativas >= TETO_DE_TENTATIVAS_DE_ENVIO) {
+          return await condena(deps, orgId, caso, entrega, "indeterminado", null, agora);
+        }
+        await deps.db.atualizaEntrega(orgId, entrega.id, { tentativas, erro_codigo: "indeterminado" });
+        return retry(new Date(agora.getTime() + ADIAMENTO_DO_CANAL_MS), "modelo do aviso não conferido");
+      }
+      modelo = avaliacao.ok ? avaliacao.modelo : null;
     }
     if (!modelo) {
       return await condena(deps, orgId, caso, entrega, "canal_nao_aceita_aviso_livre", null, agora);
@@ -861,12 +873,7 @@ export function createSupabaseAvisoDb(admin: SupabaseClient): AvisoDb {
      */
     async carregaModeloDoAviso(orgId, channelSessionId, modeloId) {
       const { carregarModeloDoAviso } = await import("./modelo-do-aviso");
-      const avaliacao = await carregarModeloDoAviso(admin, {
-        organizationId: orgId,
-        channelSessionId,
-        modeloId,
-      });
-      return avaliacao.ok ? avaliacao.modelo : null;
+      return carregarModeloDoAviso(admin, { organizationId: orgId, channelSessionId, modeloId });
     },
 
     /**

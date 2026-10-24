@@ -137,11 +137,14 @@ export async function enviarAvisoDeTeste(
   let modelo: ModeloDoAviso | null = null;
   if (!canal.aceitaMensagemLivre) {
     if (entrada.modeloId && deps.db.carregaModeloDoAviso) {
+      let avaliacao: Awaited<ReturnType<NonNullable<AvisoDb["carregaModeloDoAviso"]>>>;
       try {
-        modelo = await deps.db.carregaModeloDoAviso(orgId, channelSessionId, entrada.modeloId);
+        avaliacao = await deps.db.carregaModeloDoAviso(orgId, channelSessionId, entrada.modeloId);
       } catch {
         return recusa("indeterminado");
       }
+      if (!avaliacao.ok && avaliacao.motivo === "indeterminado") return recusa("indeterminado");
+      modelo = avaliacao.ok ? avaliacao.modelo : null;
     }
     if (!modelo) return recusa("canal_nao_aceita_aviso_livre");
   }

@@ -14374,6 +14374,8 @@ export const DICIONARIO: Traducoes = {
     { es: "La conexión elegida solo envía plantillas aprobadas fuera de las 24 horas. Elige abajo una plantilla suya con una variable: el aviso va dentro de ella. Si no hay ninguna, créala en la pestaña de plantillas del número, en Conexiones." },
   "Aparecem aqui os números que mandam mensagem a qualquer hora e os números oficiais que já têm um modelo aprovado com uma variável.":
     { es: "Aquí aparecen los números que envían mensajes a cualquier hora y los números oficiales que ya tienen una plantilla aprobada con una variable." },
+  "Esta conexão não tem nenhum modelo aprovado com uma variável. Crie um na aba de modelos do número, em Conexões, ou escolha outra conexão.":
+    { es: "Esta conexión no tiene ninguna plantilla aprobada con una variable. Crea una en la pestaña de plantillas del número, en Conexiones, o elige otra conexión." },
   "Escolha o modelo aprovado que leva o aviso":
     { es: "Elige la plantilla aprobada que lleva el aviso" },
   "Escolha um modelo aprovado":

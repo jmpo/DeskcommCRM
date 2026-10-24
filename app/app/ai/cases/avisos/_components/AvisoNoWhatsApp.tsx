@@ -189,7 +189,11 @@ function FormularioDoAviso({ estado }: { estado: EstadoDoAviso }) {
    */
   const [confirmarRemocao, setConfirmarRemocao] = useState(false);
 
-  const oferecidas = estado.conexoes.filter(conexaoServeParaAviso);
+  // A conexão SALVA fica na lista mesmo quando deixou de servir (o modelo dela
+  // voltou para revisão): sem ela o seletor apareceria vazio com uma
+  // configuração gravada, e o bloco do modelo não teria onde dizer o que falta.
+  const salva = estado.config?.channel_session_id ?? null;
+  const oferecidas = estado.conexoes.filter((c) => conexaoServeParaAviso(c) || c.id === salva);
   const telefoneOk = telefoneDeAvisoValido(rascunho.telefone);
   const escolhida = oferecidas.find((c) => c.id === rascunho.canal);
   /** A conexão escolhida só manda modelo: o aviso precisa de um (migration 0762). */
@@ -332,6 +336,13 @@ function FormularioDoAviso({ estado }: { estado: EstadoDoAviso }) {
               ))}
             </SelectContent>
           </Select>
+          {modelosDaConexao.length === 0 ? (
+            <p className="text-xs text-destructive" data-testid="conexao-sem-modelo">
+              {t(
+                "Esta conexão não tem nenhum modelo aprovado com uma variável. Crie um na aba de modelos do número, em Conexões, ou escolha outra conexão.",
+              )}
+            </p>
+          ) : null}
           {modeloEscolhido ? (
             <p
               className="whitespace-pre-line rounded-md border bg-muted/40 p-2 text-xs"

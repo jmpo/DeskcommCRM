@@ -169,6 +169,10 @@ test.describe("aviso à equipe pelo número oficial", () => {
     await expect(trava).toBeVisible({ timeout: ESPERA });
     await expect(trava).toHaveAttribute("data-bloqueia", "sim");
     await expect(trava).toContainText("modelo dela com uma variável");
+    // A conexão salva continua no seletor, e o bloco do modelo diz o que falta.
+    await expect(page.locator("#conexao")).toContainText(NOME_DA_CONEXAO);
+    await expect(page.getByTestId("conexao-sem-modelo")).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Salvar$/ })).toBeDisabled();
     await expect(page.getByRole("switch", { name: "Receber avisos no WhatsApp" })).toBeDisabled();
     await captura(page, "40-modelo-em-revisao-trava");
 

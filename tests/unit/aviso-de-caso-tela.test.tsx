@@ -137,6 +137,13 @@ describe("o número oficial com modelo aprovado (migration 0762)", () => {
     expect(screen.getByRole("button", { name: "Salvar" })).toBeDisabled();
   });
 
+  it("a conexão SALVA cujo modelo saiu de vigor continua no seletor, e diz o que falta", () => {
+    montar(estado({ conexoes: [{ ...oficialComModelo, modelos: [] }], config: configOficial(MODELO.id) }));
+    expect(screen.getByTestId("conexao-sem-modelo").textContent).toContain("nenhum modelo aprovado");
+    expect(screen.getByRole("button", { name: "Salvar" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Receber avisos no WhatsApp" })).toBeDisabled();
+  });
+
   it("a conexão de texto livre não pede modelo nenhum", () => {
     montar(estado({ conexoes: [estado().conexoes[0]!, oficialComModelo] }));
     expect(screen.queryByTestId("bloco-do-modelo")).toBeNull();

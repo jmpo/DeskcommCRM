@@ -169,7 +169,7 @@ describe("as recusas, cada uma com o seu código", () => {
 
   it("canal que só manda modelo, COM o modelo salvo: o teste sai dentro do modelo (0762)", async () => {
     const modelo = { id: "m-1", name: "aviso_da_equipe", language: "pt_BR", chave: "1", corpo: "Aviso: {{1}}" };
-    const carregaModeloDoAviso = vi.fn(async () => modelo);
+    const carregaModeloDoAviso = vi.fn(async () => ({ ok: true as const, modelo }));
     const opcoes: unknown[] = [];
     const d = deps({
       db: {
@@ -195,7 +195,7 @@ describe("as recusas, cada uma com o seu código", () => {
         carregaCanal: vi.fn(async () => ({ ...canalSaudavel, aceitaMensagemLivre: false })),
         marcaDaOrganizacao: vi.fn(),
         destinoEhDaPropriaOrganizacao: vi.fn(),
-        carregaModeloDoAviso: vi.fn(async () => null),
+        carregaModeloDoAviso: vi.fn(async () => ({ ok: false as const, motivo: "nao_aprovado" as const })),
       },
     } as Partial<DepsDoAvisoDeTeste>);
     await expect(enviarAvisoDeTeste(d.deps, { ...entrada, modeloId: "m-1" })).resolves.toMatchObject({
