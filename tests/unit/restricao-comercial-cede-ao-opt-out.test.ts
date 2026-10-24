@@ -13,7 +13,7 @@
  * O controle (mensagem só comercial → passagem comercial) é o que impede o
  * verde por ausência: prova que a restrição está LIGADA neste harness.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PublishedAgentConfig } from '@/lib/agent-engine/agent/agent-config';
 
 const mocks = vi.hoisted(() => ({
@@ -122,6 +122,15 @@ beforeEach(() => {
   mocks.aviso.mockResolvedValue({ avisado: true });
   mocks.avisoLendo.mockResolvedValue({ avisado: true });
   mocks.passagem.mockResolvedValue(undefined);
+  // O turno do modo automático passa pela janela anti-ban, que lê o relógio de
+  // verdade: à noite ele lançava `JobSettledError` ("fora da janela anti-ban") e o
+  // caso reprovava por horário (medido às 01h de Assunção). Só o `Date` é falso.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-20T14:00:00.000Z')); // terça, 11h em São Paulo
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('restrição comercial cede ao opt-out e ao pedido de humano', () => {
