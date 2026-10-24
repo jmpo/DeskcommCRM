@@ -104,7 +104,7 @@ export interface ZernioInboundMessage {
   sentVia?: string | null;
   /**
    * A transmissão que mandou esta mensagem (`message.broadcastId`, só com
-   * `sentVia = broadcast`). É por ele que o eco volta à campanha (migration 0709).
+   * `sentVia = broadcast`). É por ele que o eco volta à campanha (migration 0712).
    */
   broadcastId?: string | null;
 }

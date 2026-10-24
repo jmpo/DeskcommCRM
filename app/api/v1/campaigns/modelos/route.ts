@@ -1,10 +1,10 @@
 /**
  * GET /api/v1/campaigns/modelos?channel_session_id=… — o que uma campanha pode
- * mandar por ESTE número (migration 0707, issue #1330 fatia 4).
+ * mandar por ESTE número (migration 0710, issue #1330 fatia 4).
  *
  * Devolve o modo do número (`text` = texto livre, número por QR; `template` =
  * modelo aprovado, número oficial; `null` = canal que não faz campanha), se ele
- * faz broadcast (`transmissao`, migration 0709) e, no
+ * faz broadcast (`transmissao`, migration 0712) e, no
  * oficial, os modelos espelhados DESTA conexão com as variáveis de cada um —
  * o rótulo, o tipo e as origens que servem — para a tela montar o mapa sem
  * reimplementar o contrato.
@@ -88,7 +88,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       };
     });
     // `transmissao`: o provedor deste número faz broadcast (a terceira
-    // velocidade, migration 0709) — a tela só oferece a opção quando é verdade.
+    // velocidade, migration 0712) — a tela só oferece a opção quando é verdade.
     return ok({ modo: canal.modo, transmissao: canal.transmissao, modelos }, { requestId });
   } catch (err) {
     return fail("internal_error", err instanceof Error ? err.message : String(err), 500, { requestId });

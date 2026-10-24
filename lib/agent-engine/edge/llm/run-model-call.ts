@@ -307,6 +307,11 @@ export interface RunModelCallDeps {
  * `satisfies` aqui, tirar (ou jamais adicionar) qualquer campo que o motor lê
  * vira erro de tipo NA HORA, não um turno mudo em produção.
  */
+export type ResultadoDoModeloDoSeam = Pick<
+  Awaited<ReturnType<typeof generateText>>,
+  'text' | 'usage' | 'response' | 'responseMessages' | 'steps' | 'toolCalls' | 'finishReason'
+>;
+
 /**
  * O `usage` cru do provedor em cada passo do laço de ferramentas — é onde mora a
  * divisão da gravação de cache por TTL. Sem passos (resposta de um passo só),
@@ -316,11 +321,6 @@ export function usosCrusDosPassos(result: { usage: { raw?: unknown }; steps?: Re
   const dosPassos = (result.steps ?? []).map((s) => s.usage?.raw).filter((r) => r !== undefined);
   return dosPassos.length > 0 ? dosPassos : [result.usage.raw];
 }
-
-export type ResultadoDoModeloDoSeam = Pick<
-  Awaited<ReturnType<typeof generateText>>,
-  'text' | 'usage' | 'response' | 'responseMessages' | 'steps' | 'toolCalls' | 'finishReason'
->;
 
 /**
  * Texto do aviso de limiar. É PONTEIRO, não retrato: manda ver os números na

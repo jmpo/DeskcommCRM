@@ -105,7 +105,7 @@ describe("decidirVelocidade", () => {
         ...oficial,
         pedida: "transmissao",
         atual: "gradual",
-        variaveis: { "1": { kind: "fixed", value: "Pico de alta presión" } },
+        variaveis: { "1": { kind: "fixed", value: "Cafeteira Elétrica" } },
       }),
     ).toEqual({ ok: true, velocidade: "transmissao" });
   });
@@ -115,7 +115,7 @@ describe("decidirVelocidade", () => {
       ...oficial,
       pedida: "transmissao",
       atual: "gradual",
-      variaveis: { "1": { kind: "contact_first_name" }, "2": { kind: "fixed", value: "Pico" } },
+      variaveis: { "1": { kind: "contact_first_name" }, "2": { kind: "fixed", value: "Cafeteira" } },
     });
     expect(r).toMatchObject({ ok: false, codigo: "campanha_transmissao_variavel", status: 422 });
     const frase = r.ok ? "" : fraseDaRecusa(r, (x) => x);

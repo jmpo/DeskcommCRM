@@ -28,7 +28,7 @@ export interface CampanhaDaLista {
   cancelled_at: string | null;
   created_at: string;
   created_by: string | null;
-  /** Migration 0707: `template` = modelo aprovado pelo número oficial. */
+  /** Migration 0710: `template` = modelo aprovado pelo número oficial. */
   message_mode?: "text" | "template";
   provider_template_name?: string | null;
 }
@@ -58,9 +58,9 @@ export interface CampanhaDetalhada extends CampanhaDaLista {
   janela_fim_hora: number | null;
   teto_diario: number | null;
   teto_horario: number | null;
-  /** Migration 0708: `rapida` = tudo de uma vez pelo número oficial; `gradual` = uma por minuto. */
+  /** Migration 0711: `rapida` = tudo de uma vez pelo número oficial; `gradual` = uma por minuto. */
   velocidade?: "gradual" | "rapida" | "transmissao";
-  /** Migration 0709: o id do broadcast no provedor, depois que a lista foi entregue. */
+  /** Migration 0712: o id do broadcast no provedor, depois que a lista foi entregue. */
   provider_broadcast_id?: string | null;
 }
 

@@ -59,6 +59,7 @@ import { sendTemplateForSession } from "@/lib/channels/meta/send-template-for-se
 import { emitirFalhaDeEntrega } from "@/lib/messaging/falha-de-entrega";
 import { previaDaMensagem } from "@/lib/messaging/previa-da-mensagem";
 import { aplicarAssinatura, configAssinatura, linhaDeAssinatura } from "@/lib/messaging/assinatura";
+import { nomeDoAgenteDeIA } from "@/lib/messaging/nome-do-agente-de-ia";
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { nomesDosAtendentes } from "@/lib/users/nome-do-atendente";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -210,7 +211,7 @@ export function origemDaMensagem(actor: Actor): "user" | "ai" | "automation" | "
 }
 
 const MSG_COLS =
-  "id, organization_id, conversation_id, channel_session_id, contact_id, external_id, type, direction, status, ack, error_code, error_message, body, media_url, media_mime, media_size_bytes, media_storage_path, media_derived_text, media_derived_status, sent_via, sent_by_user_id, sent_on_behalf_of_user_id, sent_at, delivered_at, read_at, metadata, edited_at, revoked_at, reply_to_message_id, created_at, template_name, template_language";
+  "id, organization_id, conversation_id, channel_session_id, contact_id, external_id, type, direction, status, ack, error_code, error_message, body, media_url, media_mime, media_size_bytes, media_storage_path, media_derived_text, media_derived_status, sent_via, sent_by_user_id, sent_on_behalf_of_user_id, sent_at, delivered_at, read_at, metadata, edited_at, revoked_at, reply_to_message_id, created_at, template_name, template_language, updated_at";
 
 /**
  * `Actor.type` → o vocabulário de `messages.sent_via` (o CHECK da coluna:
@@ -659,7 +660,15 @@ export async function sendMessageHandler(
       if (origemDoEmissor === "user" && ctx.actor.type === "user") {
         nomeDoAtendente = (await nomesDosAtendentes([ctx.actor.id])).get(ctx.actor.id) ?? null;
       }
-      assinatura = linhaDeAssinatura(configAss, origemDoEmissor, nomeDoAtendente);
+      // #3310: com `por_agente` ligado, a IA assina com o nome do AGENTE QUE
+      // ENVIOU (`ai_agents.name`) — com dois agentes no mesmo número, o cliente
+      // lia o nome de um e a conversa seguia com outro. `nome_ia` fica como
+      // reserva (mensagem sem agente, leitura que falhou). Desligado, nem lê.
+      const nomeDoAgente =
+        origemDoEmissor === "ai" && configAss.porAgente && ctx.actor.type === "ai_agent"
+          ? await nomeDoAgenteDeIA(supabase, ctx.organization_id, ctx.actor.id)
+          : null;
+      assinatura = linhaDeAssinatura(configAss, origemDoEmissor, nomeDoAtendente, nomeDoAgente);
     }
   }
 

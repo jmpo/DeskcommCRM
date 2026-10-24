@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * A VELOCIDADE DA CAMPANHA (migrations 0708 e 0709): gradual, rápida ou
+ * A VELOCIDADE DA CAMPANHA (migrations 0711 e 0712): gradual, rápida ou
  * broadcast.
  *
  * Só o número oficial oferece a escolha — por QR, rajada é banimento, e a tela

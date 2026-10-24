@@ -73,9 +73,13 @@ export function montarPushDeVenda(input: {
 
   // `icon` é o ícone grande da notificação no Android — o logo da marca, no
   // lugar do avatar de contato que as mensagens usam. O iOS usa o ícone do app.
+  // O corpo é uma frase nossa (etapa e soma do dia), nunca texto do cliente:
+  // vale também no modo "só quem mandou" (`corpoSemPrevia`).
+  const body = truncar(partes.join(" · "));
   return {
     title: truncar(title),
-    body: truncar(partes.join(" · ")),
+    body,
+    corpoSemPrevia: body,
     tag: input.tag,
     href: input.href,
     icon: ICONE_DA_MARCA,

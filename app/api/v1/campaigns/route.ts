@@ -129,7 +129,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
   // O conteúdo segue o que o número aceita: texto livre no QR, modelo aprovado
-  // no oficial (migration 0707). O modelo escolhido é conferido inteiro aqui.
+  // no oficial (migration 0710). O modelo escolhido é conferido inteiro aqui.
   const conteudo = await decidirConteudo(supabase, {
     organizationId: org.orgId,
     channelSessionId: entrada.channel_session_id,
@@ -140,7 +140,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!conteudo.ok) {
     return fail(conteudo.codigo, t(conteudo.mensagem), conteudo.status, { requestId });
   }
-  // Rápida e broadcast só com modelo aprovado (migrations 0708 e 0709); o
+  // Rápida e broadcast só com modelo aprovado (migrations 0711 e 0712); o
   // broadcast, só no número que o faz e com variáveis de texto fixo.
   const velocidade = decidirVelocidade({
     pedida: entrada.velocidade,

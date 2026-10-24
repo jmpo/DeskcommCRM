@@ -3,8 +3,8 @@
  *
  * O Safari (iOS e Mac) cancela a assinatura depois de 3 pushes sem
  * notificação, sem erro nenhum: os avisos simplesmente param. O service worker
- * pulava a bandeja quando havia janela visível — certo no Chrome, onde a
- * página já avisa, e fatal no iPhone de quem usa o app o dia todo.
+ * pulava a bandeja quando havia janela visível — fatal no iPhone de quem usa o
+ * app o dia todo. Hoje ele mostra sempre, calado com o app à vista.
  *
  * O teste EXECUTA `public/notify-sw.js` num `self` de mentira, em vez de ler o
  * texto: o que importa é o `showNotification` acontecer.
@@ -64,9 +64,14 @@ describe("push com o app aberto", () => {
     expect(await push(SAFARI_MAC, true)).toHaveBeenCalledTimes(1);
   });
 
-  it("Chrome (Android e Mac) com a janela visível: a página avisa, a bandeja não repete", async () => {
-    expect(await push(CHROME_ANDROID, true)).not.toHaveBeenCalled();
-    expect(await push(CHROME_MAC, true)).not.toHaveBeenCalled();
+  // Desde a 1.87 a upstream mostra a notificação em TODO navegador com o app à
+  // vista, calada (`silent`) — a página já tocou o som. O Chrome deixou de ser
+  // exceção: o caso dele mora em `tests/unit/notify-sw.test.ts`.
+  it("Chrome (Android e Mac) com a janela visível: mostra, calada", async () => {
+    for (const ua of [CHROME_ANDROID, CHROME_MAC]) {
+      const mostrar = await push(ua, true);
+      expect(mostrar).toHaveBeenCalledTimes(1);
+    }
   });
 
   it("app fechado: mostra em todo lugar, com o selo da marca", async () => {

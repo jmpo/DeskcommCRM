@@ -62,12 +62,12 @@ describe("criar", () => {
     respostas = [CONTAS, { status: 200, corpo: { success: true, broadcast: { id: "bc_1", status: "draft" } } }];
     const ops = (await transmissaoDoParceiro(admin, { organizationId: "org-1", channelSessionId: "sess-1" }))!;
     const { id } = await ops.criar({
-      nome: "Oferta del Pico",
+      nome: "Oferta da Cafeteira",
       modelo: {
         name: "recordatorio_pedido_web",
-        language: "es",
-        components: [{ type: "body", parameters: [{ type: "text", text: "Pico de alta presión" }] }],
-        valoresDoCorpo: ["Pico de alta presión"],
+        language: "pt_BR",
+        components: [{ type: "body", parameters: [{ type: "text", text: "Cafeteira Elétrica" }] }],
+        valoresDoCorpo: ["Cafeteira Elétrica"],
       },
     });
     expect(id).toBe("bc_1");
@@ -77,14 +77,14 @@ describe("criar", () => {
       profileId: "perfil_1",
       accountId: "acc_1",
       platform: "whatsapp",
-      name: "Oferta del Pico",
+      name: "Oferta da Cafeteira",
       template: {
         name: "recordatorio_pedido_web",
-        language: "es",
-        components: [{ type: "body", parameters: [{ type: "text", text: "Pico de alta presión" }] }],
+        language: "pt_BR",
+        components: [{ type: "body", parameters: [{ type: "text", text: "Cafeteira Elétrica" }] }],
         // Medido: o mapeamento não é aplicado — o texto de `components` é o que
         // sai. Ele vai com o MESMO valor para não dizer outra coisa se um dia for.
-        variableMapping: { "1": { field: "custom", customValue: "Pico de alta presión" } },
+        variableMapping: { "1": { field: "custom", customValue: "Cafeteira Elétrica" } },
       },
     });
   });
@@ -92,9 +92,9 @@ describe("criar", () => {
   it("modelo sem variável vai só com nome e idioma", async () => {
     respostas = [CONTAS, { status: 200, corpo: { success: true, broadcast: { id: "bc_2" } } }];
     const ops = (await transmissaoDoParceiro(admin, { organizationId: "org-1", channelSessionId: "sess-1" }))!;
-    await ops.criar({ nome: "x", modelo: { name: "oferta_pico_125", language: "es", components: [], valoresDoCorpo: [] } });
+    await ops.criar({ nome: "x", modelo: { name: "oferta_cafeteira", language: "pt_BR", components: [], valoresDoCorpo: [] } });
     const corpo = chamadas.at(-1)!.corpo as { template: unknown };
-    expect(corpo.template).toEqual({ name: "oferta_pico_125", language: "es" });
+    expect(corpo.template).toEqual({ name: "oferta_cafeteira", language: "pt_BR" });
   });
 });
 
@@ -102,10 +102,10 @@ describe("adicionar, enviar, ler", () => {
   it("telefones vão em E.164 com o `+`, e o desfecho volta somado", async () => {
     respostas = [{ status: 200, corpo: { success: true, added: 2, skipped: 1 } }];
     const ops = (await transmissaoDoParceiro(admin, { organizationId: "org-1", channelSessionId: "sess-1" }))!;
-    const r = await ops.adicionar("bc_1", ["+595991733685", "595982461017", "+595 981 000 000"]);
+    const r = await ops.adicionar("bc_1", ["+5511987654321", "5511912345678", "+55 11 90000 0000"]);
     expect(r).toEqual({ adicionados: 2, pulados: 1 });
     expect(chamadas[0]!.url).toBe("https://parceiro.test/api/v1/broadcasts/bc_1/recipients");
-    expect(chamadas[0]!.corpo).toEqual({ phones: ["+595991733685", "+595982461017", "+595981000000"] });
+    expect(chamadas[0]!.corpo).toEqual({ phones: ["+5511987654321", "+5511912345678", "+5511900000000"] });
   });
 
   it("o estado que o envio devolve é lido; estado desconhecido é erro, não `completed` inventado", async () => {
@@ -136,8 +136,8 @@ describe("o relatório por destinatário", () => {
     expect(
       destinatarioDoParceiro({
         id: "6ad297966c6c507b49d606a0",
-        platformIdentifier: "595982461017",
-        contactName: "+595982461017",
+        platformIdentifier: "5511912345678",
+        contactName: "+5511912345678",
         status: "delivered",
         messageId: "wamid.HBgMNTk1OTgyNDYxMDE3",
         error: null,
@@ -147,7 +147,7 @@ describe("o relatório por destinatário", () => {
         readAt: null,
       }),
     ).toEqual({
-      telefone: "595982461017",
+      telefone: "5511912345678",
       status: "delivered",
       idDaMensagem: "wamid.HBgMNTk1OTgyNDYxMDE3",
       codigoDoErro: null,
@@ -161,7 +161,7 @@ describe("o relatório por destinatário", () => {
   it("falha traz o código numérico como texto e a explicação na frente da mensagem curta", () => {
     expect(
       destinatarioDoParceiro({
-        platformIdentifier: "595981000000",
+        platformIdentifier: "5511900000000",
         status: "failed",
         errorCode: 131049,
         error: "Message failed",
@@ -172,7 +172,7 @@ describe("o relatório por destinatário", () => {
 
   it("linha sem telefone ou com status fora do vocabulário é ignorada", () => {
     expect(destinatarioDoParceiro({ status: "sent" })).toBeNull();
-    expect(destinatarioDoParceiro({ platformIdentifier: "595981000000", status: "queued_somewhere" })).toBeNull();
+    expect(destinatarioDoParceiro({ platformIdentifier: "5511900000000", status: "queued_somewhere" })).toBeNull();
   });
 
   it("a página diz quantas linhas vieram — é o que avança `pular`, legíveis ou não", async () => {
@@ -181,7 +181,7 @@ describe("o relatório por destinatário", () => {
         status: 200,
         corpo: {
           success: true,
-          recipients: [{ platformIdentifier: "595991733685", status: "read" }, { status: "estranho" }],
+          recipients: [{ platformIdentifier: "5511987654321", status: "read" }, { status: "estranho" }],
           pagination: { total: 3, limit: 2, skip: 0, hasMore: true },
         },
       },

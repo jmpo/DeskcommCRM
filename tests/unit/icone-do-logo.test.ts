@@ -245,6 +245,6 @@ describe("o celular vê a marca da instalação", () => {
   it("o iPhone recebe ícone de tela inicial e o nome da marca", () => {
     const layout = fs.readFileSync(path.join(RAIZ, "app/layout.tsx"), "utf8");
     expect(layout).toMatch(/apple:\s*"\/icone\/180"/);
-    expect(layout).toMatch(/appleWebApp:\s*\{\s*title:\s*name\s*\}/);
+    expect(layout).toMatch(/appleWebApp:\s*\{[^}]*\btitle:\s*name\b[^}]*\}/);
   });
 });

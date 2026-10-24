@@ -116,12 +116,14 @@ export async function generateMetadata(): Promise<Metadata> {
     // Com um ícone subido em `/admin/marca` (migration 0443), o link aponta para
     // o arquivo no storage da instalação — ver `iconeDaAba`.
     //
-    // `apple` é o ícone da tela inicial do iPhone, que é também o ícone de
-    // TODA notificação no iOS (ele ignora o `icon` do push). Sem ele o iPhone
-    // usava um print da página. Ver `app/icone/[lado]/route.tsx`.
+    // Fork: `apple` é o ícone da tela inicial do iPhone, que é também o ícone de
+    // TODA notificação no iOS (ele ignora o `icon` do push). Ele desenha o LOGO
+    // da instalação (`app/icone/[lado]/route.tsx`); o `/app-icon/180` da upstream
+    // lê só o favicon e, sem ele, mostra a inicial.
     icons: { icon: iconeDaAba(linha?.favicon_path), apple: "/icone/180" },
-    // O nome embaixo do ícone no iPhone, e no topo de cada notificação.
-    appleWebApp: { title: name },
+    // O iPhone não lê o nome do manifest: sem `apple-mobile-web-app-title`, a
+    // tela de início ganharia o título longo acima.
+    appleWebApp: { capable: true, title: name, statusBarStyle: "default" },
   };
 }
 

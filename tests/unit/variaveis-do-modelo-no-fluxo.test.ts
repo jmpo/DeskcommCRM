@@ -34,8 +34,8 @@ const corpo = (key: string) => ({
   contextAfter: "",
 });
 const DADOS: DadosParaVariaveis = {
-  nomeDoContato: "María José Pérez",
-  camposDoNegocio: { producto_nombre: "Parasol Tipo Sombrilla", precio: 135000, vacio: "   " },
+  nomeDoContato: "Maria José Pereira",
+  camposDoNegocio: { produto_nome: "Cafeteira Elétrica", precio: 18990, vacio: "   " },
 };
 
 describe("1. resolução das variáveis", () => {
@@ -45,7 +45,7 @@ describe("1. resolução das variáveis", () => {
       {
         "1": { kind: "contact_first_name" },
         "2": { kind: "contact_name" },
-        "3": { kind: "lead_custom", key: "producto_nombre" },
+        "3": { kind: "lead_custom", key: "produto_nome" },
         "4": { kind: "lead_custom", key: "precio" },
       },
       DADOS,
@@ -53,10 +53,10 @@ describe("1. resolução das variáveis", () => {
     expect(r).toEqual({
       ok: true,
       values: {
-        "1": "María",
-        "2": "María José Pérez",
-        "3": "Parasol Tipo Sombrilla",
-        "4": "135000",
+        "1": "Maria",
+        "2": "Maria José Pereira",
+        "3": "Cafeteira Elétrica",
+        "4": "18990",
       },
     });
   });
@@ -108,7 +108,7 @@ describe("1. resolução das variáveis", () => {
       contrato([corpo("1")]),
       { "1": { kind: "contact_first_name" } },
       {
-        nomeDoContato: "+595 981 123 456",
+        nomeDoContato: "+55 11 98765-4321",
         camposDoNegocio: {},
       },
     );
@@ -123,7 +123,7 @@ describe("2. o grafo guarda o mapa", () => {
       template_id: "22222222-2222-4222-8222-222222222222",
       template_values: {
         "1": { kind: "contact_first_name" },
-        "2": { kind: "lead_custom", key: "producto_nombre" },
+        "2": { kind: "lead_custom", key: "produto_nome" },
       },
     });
     expect(r.success).toBe(true);
@@ -158,7 +158,7 @@ describe("3. o motor leva o mapa do nó até o pedido de envio", () => {
   const NOW = new Date("2026-10-02T12:00:00.000Z");
   const MAPA = {
     "1": { kind: "contact_first_name" },
-    "2": { kind: "lead_custom", key: "producto_nombre" },
+    "2": { kind: "lead_custom", key: "produto_nome" },
   } as const;
 
   const enrollment: EnrollmentRow = {

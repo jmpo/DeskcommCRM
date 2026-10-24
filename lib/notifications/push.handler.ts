@@ -2,7 +2,8 @@ import type { EventHandler, EventRow, HandlerResult } from "@/lib/event-log/disp
 import { marcaDaSaida } from "@/lib/branding/saida";
 import { canalDoEventoDesativado } from "@/lib/channels/desativado";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { montarPayloadDeInbound, truncar } from "./push_payload";
+import { NOTIFY_KINDS } from "./kinds";
+import { corpoDoAvisoDeMensagem, montarPayloadDeInbound, truncar } from "./push_payload";
 import { enviarPushAoUsuario, enviarPushAQuemVeAConversa, enviarPushDaOrg } from "./web_push";
 import { carregarDestinatariosDaMensagem, type DestinatariosDaMensagem } from "./destinatarios-da-mensagem";
 import { logger } from "@/lib/logger";
@@ -14,6 +15,13 @@ import type { PushPayload } from "./push_payload";
 import { rotuloDoContato, SEM_NOME } from "@/lib/contacts/rotulo-do-contato";
 
 export const WEB_PUSH_INBOUND_KEY = "web-push-inbound.v1";
+
+/** Corpo do aviso de mensagem a partir do evento (`body_preview` + `type`). */
+function corpoDoEvento(row: EventRow): { body: string; corpoSemPrevia: string } {
+  const previa = typeof row.payload.body_preview === "string" ? row.payload.body_preview : null;
+  const tipo = typeof row.payload.type === "string" ? row.payload.type : "text";
+  return corpoDoAvisoDeMensagem(tipo, previa);
+}
 
 async function handleInbound(row: EventRow): Promise<HandlerResult> {
   // Canal DESATIVADO (#2329): a lei do #2318 vale nos dois sentidos — o canal
@@ -29,13 +37,16 @@ async function handleInbound(row: EventRow): Promise<HandlerResult> {
   if (!conversationId) {
     return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "sem_conversa" };
   }
-  const previewRaw = row.payload.body_preview;
-  const preview = typeof previewRaw === "string" && previewRaw.trim() ? previewRaw : "Nova mensagem";
-  const type = typeof row.payload.type === "string" ? row.payload.type : "text";
-  const body = type === "text" ? preview : "Mídia";
+  const contactId = typeof row.payload.contact_id === "string" ? row.payload.contact_id : null;
+  // Decidido antes de montar o payload: conversa que a IA conduz não avisa a
+  // ninguém, e então nem nome nem foto do contato precisam ser lidos.
+  const destino = await destinatariosDoInbound(row.organization_id, conversationId, contactId);
+  if (destino.tipo === "ninguem") {
+    return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "ia_conduz" };
+  }
+  const { body, corpoSemPrevia } = corpoDoEvento(row);
 
   const marca = await marcaDaSaida(row.organization_id);
-  const contactId = typeof row.payload.contact_id === "string" ? row.payload.contact_id : null;
   let contactName: string | null = null;
   let icon: string | null = null;
   if (contactId) {
@@ -84,8 +95,8 @@ async function handleInbound(row: EventRow): Promise<HandlerResult> {
     preview: body,
     contactName,
     icon,
+    corpoSemPrevia,
   });
-  const destino = await destinatariosDoInbound(row.organization_id, conversationId, contactId);
   // Quem DEVE ser avisado (`destino`) nunca alarga quem PODE ver: nome e prévia
   // só saem para quem a RLS de `conversations` deixaria abrir a conversa.
   const soUsuarios = destino.tipo === "restrito" ? destino.userIds : undefined;
@@ -96,7 +107,8 @@ async function handleInbound(row: EventRow): Promise<HandlerResult> {
 
 /**
  * Para quem vai o push da mensagem recebida — regra em
- * `./destinatarios-da-mensagem.ts` (responsável + admins, ou todos).
+ * `./destinatarios-da-mensagem.ts` (responsável + admins, ninguém quando a IA
+ * conduz, quem está de plantão, ou todos).
  *
  * Falha de leitura cai para "todos", de propósito: era o comportamento antes
  * da regra, e um aviso a mais é um incômodo, enquanto um aviso a menos é
@@ -146,15 +158,13 @@ async function handleGroupInbound(row: EventRow): Promise<HandlerResult> {
   if (!conversationId) {
     return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "sem_conversa" };
   }
-  const previewRaw = row.payload.body_preview;
-  const preview = typeof previewRaw === "string" && previewRaw.trim() ? previewRaw : "Nova mensagem";
-  const type = typeof row.payload.type === "string" ? row.payload.type : "text";
-  const body = type === "text" ? preview : "Mídia";
+  const { body, corpoSemPrevia } = corpoDoEvento(row);
 
   const payload: PushPayload = {
     title: "Nova mensagem no grupo",
-    body: truncar(body),
-    tag: `msg:${conversationId}`,
+    body,
+    corpoSemPrevia,
+    tag: `${NOTIFY_KINDS.message_inbound.tagPrefix}:${conversationId}`,
     href: `/app/inbox?id=${conversationId}`,
   };
   const { sent } = await enviarPushAQuemVeAConversa(row.organization_id, conversationId, payload);
@@ -165,11 +175,11 @@ async function handleGroupInbound(row: EventRow): Promise<HandlerResult> {
 async function handleAvisoQuePedeGente(row: EventRow): Promise<HandlerResult> {
   const id = typeof row.payload.item_id === "string" ? row.payload.item_id : row.entity_id;
   if (!id) return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "sem_alvo" };
-  const payload = await pushDoAvisoDaCentral(createAdminClient(), row.organization_id, id);
-  if (payload === null) {
+  const aviso = await pushDoAvisoDaCentral(createAdminClient(), row.organization_id, id);
+  if (aviso === null) {
     return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "aviso_fora_do_celular" };
   }
-  const { sent } = await enviarPushDaOrg(row.organization_id, payload);
+  const { sent } = await enviarPushDaOrg(row.organization_id, aviso.payload, aviso.para);
   return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "ok", detail: `sent:${sent}` };
 }
 
@@ -276,10 +286,11 @@ export const webPushInboundHandler: EventHandler = {
       const { sent } = await enviarPushAQuemVeAConversa(
         row.organization_id,
         conversationId,
+        // Sem corpo sem prévia: o texto da nota é conteúdo.
         {
           title: titulo,
           body: truncar(preview),
-          tag: `mention:${conversationId}`,
+          tag: `${NOTIFY_KINDS.mention.tagPrefix}:${conversationId}`,
           href: `/app/inbox/${conversationId}`,
         },
         [toUserId],
@@ -301,7 +312,8 @@ export const webPushInboundHandler: EventHandler = {
       return enviarParaUsuario(row.organization_id, toUserId, {
         title: traduzir("Lead atribuído a você", idioma),
         body: truncar(lead.title),
-        tag: `lead-assigned:${leadId}`,
+        corpoSemPrevia: truncar(lead.title),
+        tag: `${NOTIFY_KINDS.lead_assigned.tagPrefix}:${leadId}`,
         href,
       });
     }
@@ -317,7 +329,7 @@ export const webPushInboundHandler: EventHandler = {
         etapa: await nomeDaEtapa(row.organization_id, lead.stageId),
         hoje: await ganhasDeHoje(createAdminClient(), row.organization_id, valor?.moeda ?? null, inicioDoDia(new Date(), fuso)),
         idioma,
-        tag: `lead-won:${leadId}`,
+        tag: `${NOTIFY_KINDS.lead_won.tagPrefix}:${leadId}`,
         href,
       });
       if (lead.ownerUserId) return enviarParaUsuario(row.organization_id, lead.ownerUserId, payload);
@@ -327,7 +339,8 @@ export const webPushInboundHandler: EventHandler = {
     return enviarParaUsuario(row.organization_id, lead.ownerUserId, {
       title: traduzir("Lead perdido", idioma),
       body: truncar(lead.title),
-      tag: `lead-lost:${leadId}`,
+      corpoSemPrevia: truncar(lead.title),
+      tag: `${NOTIFY_KINDS.lead_lost.tagPrefix}:${leadId}`,
       href,
     });
   },

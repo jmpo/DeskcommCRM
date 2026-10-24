@@ -1,6 +1,6 @@
 /**
  * CAMPANHA COM MODELO APROVADO — de onde sai cada variável, e o valor de cada
- * contato (issue #1330, fatia 4; migration 0707).
+ * contato (issue #1330, fatia 4; migration 0710).
  *
  * ─── Por que existe ─────────────────────────────────────────────────────────
  *
@@ -19,7 +19,7 @@
  * TEXTO FIXO — o mesmo para todos ("20% de desconto", o link da imagem do
  * cabeçalho, o sufixo do link do botão). Variável vazia neste contato não vira
  * parâmetro em branco: a pessoa sai da lista com `variavel_ausente`, como no
- * texto livre. Mandar "¡Hola !" é pior do que não mandar.
+ * texto livre. Mandar "Olá !" é pior do que não mandar.
  *
  * Puro e sem I/O: a tela, a rota e a preparação importam daqui.
  */

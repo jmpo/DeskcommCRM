@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * O ECO DA TRANSMISSÃO (migration 0709) — a mensagem que o provedor mandou por
+ * O ECO DA TRANSMISSÃO (migration 0712) — a mensagem que o provedor mandou por
  * broadcast volta pelo webhook como uma saída que o CRM não mandou.
  *
  * Medido em produção em 16/10/2026, antes deste conserto, com 2 destinatários:
@@ -79,7 +79,7 @@ const saida = (message: Record<string, unknown> = {}) => ({
   id: "evt_1",
   event: "message.sent",
   account: { id: "acc_1" },
-  conversation: { participantId: "595982461017" },
+  conversation: { participantId: "5511912345678" },
   message: {
     id: "m_1",
     conversationId: "6ad297966c6c507b49d606a1",
@@ -88,7 +88,7 @@ const saida = (message: Record<string, unknown> = {}) => ({
     direction: "outgoing",
     text: "[Template: recordatorio_pedido_web]",
     attachments: [],
-    sender: { id: "acc_1", name: "Pedilo" },
+    sender: { id: "acc_1", name: "Loja Exemplo" },
     sentAt: "2026-10-16T21:31:04.508Z",
     sentVia: "broadcast",
     broadcastId: "6ad297966c6c507b49d6069a",
@@ -99,9 +99,9 @@ const saida = (message: Record<string, unknown> = {}) => ({
 const ECO: EcoDaTransmissao = {
   campanhaId: "camp-1",
   destinatarioId: "dest-1",
-  corpo: "¡Hola! 👋 Te escribimos de Pedilo por tu pedido de Pico de alta presión en pedilo.com.",
+  corpo: "Olá! 👋 Aqui é da Loja Exemplo, sobre o seu pedido da Cafeteira Elétrica.",
   modelo: "recordatorio_pedido_web",
-  idioma: "es",
+  idioma: "pt_BR",
   versaoDoConteudo: 3,
   transmissaoId: "6ad297966c6c507b49d6069a",
 };
@@ -128,7 +128,7 @@ describe("o aviso de saída diz de onde ela veio", () => {
 
   it("na entrada os dois ficam de fora — nenhuma transmissão produz mensagem do cliente", () => {
     const m = parseZernioInbound({
-      ...saida({ direction: "incoming", sender: { phoneNumber: "+595982461017" } }),
+      ...saida({ direction: "incoming", sender: { phoneNumber: "+5511912345678" } }),
       event: "message.received",
     });
     expect(m?.direction).toBe("inbound");
@@ -148,7 +148,7 @@ describe("o eco de uma transmissão de campanha", () => {
       transmissaoId: "6ad297966c6c507b49d6069a",
       contactId: "contact-1",
       // O outro lado da saída (`conversation.participantId`), para achar pela lista.
-      telefone: "+595982461017",
+      telefone: "+5511912345678",
     });
     const ins = insertDaMensagem();
     expect(ins.body).toBe(ECO.corpo);

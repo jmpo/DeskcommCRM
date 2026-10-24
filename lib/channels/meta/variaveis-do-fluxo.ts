@@ -5,8 +5,8 @@
  *
  * O passo "modelo de mensagem" de um fluxo só mandava modelo SEM variável: o
  * motor não tinha de onde tirar o valor de `{{1}}` e recusava o passo. Para uma
- * loja, isso obrigava a um modelo por produto ("Recibimos tu pedido del
- * Parasol…", "…del Pico…") e a um ramo do fluxo por modelo — com dez produtos,
+ * loja, isso obrigava a um modelo por produto ("Recebemos seu pedido del
+ * Cafeteira…", "…da Lavadora…") e a um ramo do fluxo por modelo — com dez produtos,
  * dez aprovações na plataforma e dez ramos. O dado que faltava já estava no
  * CRM: o nome do contato e os campos do negócio (o produto, o preço, a cidade
  * que o formulário mandou).
@@ -21,7 +21,7 @@
  *
  * Variável sem origem configurada, ou cuja origem está vazia neste contato, NÃO
  * vira parâmetro em branco: o passo é recusado com o motivo, como já era com
- * qualquer variável. Mandar `¡Hola !` ou o marcador cru ao cliente é pior do que
+ * qualquer variável. Mandar `Olá !` ou o marcador cru ao cliente é pior do que
  * não mandar. Variável que não é texto (imagem do cabeçalho, sufixo de link de
  * botão) também é recusada: contato e negócio não têm de onde tirar uma imagem.
  *
@@ -36,7 +36,7 @@ import type { ParamSlot, TemplateContract } from "./template-contract";
 export const fonteDeVariavelSchema = z.discriminatedUnion("kind", [
   /** O nome do contato como a tela mostra (nunca um identificador técnico). */
   z.strictObject({ kind: z.literal("contact_name") }),
-  /** Só a primeira palavra do nome — "¡Hola María!" em vez de "¡Hola María José Pérez!". */
+  /** Só a primeira palavra do nome — "Olá Maria!" em vez de "Olá Maria José Pereira!". */
   z.strictObject({ kind: z.literal("contact_first_name") }),
   /** Um campo do negócio mais recente do contato (`crm_leads.custom_fields[key]`). */
   z.strictObject({
@@ -80,7 +80,7 @@ export function valorParaParametro(bruto: string): string {
 /**
  * Nome de GENTE, para saudar. A tela aceita telefone formatado como rótulo do
  * contato (`nomeDoContato`), e a entrada por formulário grava o telefone no nome
- * quando o nome não veio — "¡Hola +595981123456!" é pior que não mandar.
+ * quando o nome não veio — "Olá +5511987654321!" é pior que não mandar.
  */
 function nomeParaSaudar(nome: string | null): string | null {
   return nome !== null && /\p{L}/u.test(nome) ? nome : null;
