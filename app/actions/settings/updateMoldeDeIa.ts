@@ -9,6 +9,7 @@ import { audit } from "@/lib/audit";
 import { escritaDeAdminOuRecusa } from "@/lib/auth/escritaDeAdminOuRecusa";
 import type { RecusaDeEscritaDeAdmin } from "@/lib/auth/recusa-de-escrita-de-admin";
 import { ipDoCliente } from "@/lib/http/ip-do-cliente";
+import { ehOperante } from "@/lib/organizacao/operante";
 import { gravarMoldeDeIa, lerMoldeDeIa, resumoDoMoldeNoBanco } from "@/lib/instalacao/molde-de-ia-servidor";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -75,7 +76,9 @@ export async function updateMoldeDeIa(input: z.infer<typeof entradaSchema>): Pro
       .eq("id", moldeId)
       .maybeSingle();
     if (error) return { ok: false, error: "write_failed" };
-    if (!org || (org as { status: string }).status !== "active") return { ok: false, error: "molde_invalido" };
+    if (!org || !ehOperante((org as { status: string | null }).status)) {
+      return { ok: false, error: "molde_invalido" };
+    }
     resumo = await resumoDoMoldeNoBanco(admin, moldeId);
   }
 

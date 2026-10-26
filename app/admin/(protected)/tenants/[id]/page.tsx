@@ -58,12 +58,12 @@ async function lerIaDoMolde(orgId: string): Promise<IaDoMolde | null> {
   };
   let nomeDoMolde: string | null = null;
   if (typeof meta.molde_org_id === "string") {
-    const { data: molde } = await admin
+    const { data: moldeOrg } = await admin
       .from("organizations")
       .select("display_name")
       .eq("id", meta.molde_org_id)
       .maybeSingle();
-    nomeDoMolde = (molde as { display_name?: string | null } | null)?.display_name?.trim() || null;
+    nomeDoMolde = (moldeOrg as { display_name?: string | null } | null)?.display_name?.trim() || null;
   }
   const usuario = await loadAuthUser();
   return {

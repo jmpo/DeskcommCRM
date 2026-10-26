@@ -26,6 +26,7 @@ import {
   type ResumoDoMolde,
 } from "@/lib/ai/molde-de-ia";
 import { logger } from "@/lib/logger";
+import { ehOperante, STATUS_OPERANTE } from "@/lib/organizacao/operante";
 
 /**
  * O molde em vigor. `null` = nenhum (cada empresa nasce com o padrão do
@@ -63,16 +64,18 @@ export async function empresasParaMolde(
     const { data, error } = await db
       .from("organizations")
       .select("id, display_name, status")
-      .or(moldeAtual ? `status.eq.active,id.eq.${moldeAtual}` : "status.eq.active")
+      .or(moldeAtual ? `status.eq.${STATUS_OPERANTE},id.eq.${moldeAtual}` : `status.eq.${STATUS_OPERANTE}`)
       .order("display_name");
     if (error) {
       logger.warn("molde de IA: não deu para listar as empresas", { codigo: error.code, detalhe: error.message });
       return null;
     }
-    return ((data ?? []) as { id: string; display_name: string | null; status: string }[]).map((o) => ({
-      id: o.id,
-      nome: o.display_name?.trim() || o.id,
-      ativa: o.status === "active",
+    // `org` no nome de propósito: é o nome da ORGANIZAÇÃO, com cadeia própria — não o
+    // rótulo de contato que `tests/unit/rotulo-do-contato.test.ts` proíbe remontar.
+    return ((data ?? []) as { id: string; display_name: string | null; status: string }[]).map((org) => ({
+      id: org.id,
+      nome: org.display_name?.trim() || org.id,
+      ativa: ehOperante(org.status),
     }));
   } catch (erro) {
     logger.warn("molde de IA: listagem falhou", { detalhe: erro instanceof Error ? erro.message : String(erro) });
