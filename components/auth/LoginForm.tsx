@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { signInWithPassword } from "@/app/actions/auth/signInWithPassword";
 import { Eye, EyeSlash } from "@/lib/ui/icons";
 import { AvisoSemResposta, useEnvioComTeto } from "@/components/auth/teto-da-espera";
+import { ReenviarConfirmacao } from "@/components/auth/ReenviarConfirmacao";
 
 export function LoginForm({ next }: { next?: string }) {
   const t = useT();
@@ -20,6 +21,9 @@ export function LoginForm({ next }: { next?: string }) {
   const { pendente: isPending, semResposta, enviar } = useEnvioComTeto();
   const [serverError, setServerError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  // A conta existe, a senha está certa e falta o clique no link: a saída é
+  // reenviar, não "senha incorreta". Guarda o e-mail para o botão.
+  const [naoConfirmado, setNaoConfirmado] = useState<string | null>(null);
 
   const {
     register,
@@ -32,6 +36,7 @@ export function LoginForm({ next }: { next?: string }) {
 
   const onSubmit = (values: LoginInput) => {
     setServerError(null);
+    setNaoConfirmado(null);
     // Server Action redirects on success — no return value reaches here.
     // On failure, an error discriminator is returned and rendered inline.
     void enviar(() => signInWithPassword(values, next), (res) => {
@@ -47,7 +52,12 @@ export function LoginForm({ next }: { next?: string }) {
         router.replace(`/login/mfa${params.toString() ? `?${params}` : ""}`);
         return;
       }
-      if (res.error === "invalid_credentials") {
+      if (res.error === "email_nao_confirmado") {
+        setNaoConfirmado(values.email);
+        setServerError(
+          t("Falta confirmar o seu e-mail. Abra o link que enviamos quando você criou a conta."),
+        );
+      } else if (res.error === "invalid_credentials") {
         setServerError(t("Email ou senha incorretos."));
       } else if (res.error === "rate_limited") {
         setServerError(t("Muitas tentativas. Aguarde alguns minutos."));
@@ -109,6 +119,7 @@ export function LoginForm({ next }: { next?: string }) {
           {serverError}
         </div>
       )}
+      {naoConfirmado && <ReenviarConfirmacao email={naoConfirmado} />}
       {semResposta && <AvisoSemResposta />}
       <Button type="submit" className="w-full" disabled={isPending}>
         {isPending ? t("Entrando...") : t("Entrar")}
