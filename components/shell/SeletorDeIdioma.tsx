@@ -35,7 +35,15 @@ import { Check } from "@/lib/ui/icons";
  * em vigor é metade da pergunta de quem procura este botão.
  */
 
-export function SeletorDeIdioma() {
+export function SeletorDeIdioma({
+  trocar = trocarIdioma,
+}: {
+  /**
+   * Quem grava a escolha. O padrão é a preferência da pessoa; o wizard passa a
+   * sua (`trocarIdiomaNoOnboarding`), que leva junto o idioma da empresa nova.
+   */
+  trocar?: (idioma: Idioma) => Promise<{ ok: true } | { ok: false; error: string }>;
+} = {}) {
   const t = useT();
   const idioma = useIdioma();
   const emVigor = idiomaVisivelPorCodigo(idioma);
@@ -49,7 +57,7 @@ export function SeletorDeIdioma() {
     // round-trip. Se o servidor recusar, voltamos ao anterior e dizemos.
     aplicar(novo);
     startTransition(async () => {
-      const r = await trocarIdioma(novo);
+      const r = await trocar(novo);
       if (!r.ok) {
         aplicar(anterior);
         toast.error(t("Não foi possível trocar o idioma. Tente de novo."));

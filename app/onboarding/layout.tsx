@@ -14,6 +14,8 @@ import { baseDoStorage } from "@/lib/branding/logo";
 import { passosVisiveis } from "@/lib/onboarding/passos";
 import { env } from "@/lib/env";
 import { IdiomaProvider } from "@/lib/i18n/IdiomaProvider";
+import { SeletorDeIdioma } from "@/components/shell/SeletorDeIdioma";
+import { trocarIdiomaNoOnboarding } from "@/app/actions/onboarding/trocarIdiomaNoOnboarding";
 
 export default async function OnboardingLayout({ children }: { children: React.ReactNode }) {
   const user = await requireAuth();
@@ -85,6 +87,11 @@ export default async function OnboardingLayout({ children }: { children: React.R
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {/* O idioma À VISTA desde o primeiro passo: no QA de 26/10/2026 o
+                  wizard inteiro abria em português para quem se cadastrou em
+                  espanhol, e não havia onde trocar. Aqui ele leva junto o
+                  idioma da empresa nova (`trocarIdiomaNoOnboarding`). */}
+              <SeletorDeIdioma trocar={trocarIdiomaNoOnboarding} />
               {/*
                 A SAÍDA, para quem tem outra organização. Ver o cabeçalho de
                 `OutrasOrganizacoes`: sem ela, trocar de organização pelo seletor

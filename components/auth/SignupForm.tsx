@@ -7,6 +7,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
 
 import { useT } from "@/hooks/i18n/useT";
+import { useIdioma } from "@/lib/i18n/IdiomaProvider";
+import { fusoDoNavegador } from "@/lib/tempo/fuso-do-navegador";
 import {
   signupSchema,
   signupComConviteSchema,
@@ -20,6 +22,7 @@ import { signUp } from "@/app/actions/auth/signUp";
 import { Eye, EyeSlash } from "@/lib/ui/icons";
 import { PasswordStrength } from "@/components/auth/PasswordStrength";
 import { AvisoSemResposta, useEnvioComTeto } from "@/components/auth/teto-da-espera";
+import { ReenviarConfirmacao } from "@/components/auth/ReenviarConfirmacao";
 import type { PlanoDoCadastro } from "@/lib/cobranca/cadastro";
 
 /**
@@ -44,6 +47,7 @@ export function SignupForm({
   planoInicial?: string;
 }) {
   const t = useT();
+  const idioma = useIdioma();
   const router = useRouter();
   const { pendente: isPending, semResposta, enviar } = useEnvioComTeto();
   const [serverError, setServerError] = useState<string | null>(null);
@@ -91,7 +95,9 @@ export function SignupForm({
           password_confirm: values.password_confirm,
         }
       : values;
-    void enviar(() => signUp(entrada, convite?.token), (res) => {
+    // O idioma desta tela e o fuso do navegador: a empresa nasce com eles
+    // quando o e-mail for confirmado (`lib/auth/perfil-da-empresa-nova.ts`).
+    void enviar(() => signUp(entrada, convite?.token, { idioma, fuso: fusoDoNavegador() }), (res) => {
       if (res.ok) {
         /**
          * ⚠️ O PROVEDOR JÁ DEIXOU A PESSOA ENTRAR — não existe e-mail para ela
@@ -180,12 +186,13 @@ export function SignupForm({
 
   if (sentTo) {
     return (
-      <div className="space-y-2 rounded-md border bg-muted/40 px-4 py-6 text-center" role="status">
+      <div className="space-y-3 rounded-md border bg-muted/40 px-4 py-6 text-center" role="status">
         <p className="text-sm font-medium">{t("Confirme seu e-mail")}</p>
         <p className="text-sm text-muted-foreground">
           {t("Enviamos um link de confirmação para")} <strong>{sentTo}</strong>.{" "}
           {t("Abra o e-mail e clique no link para ativar sua conta.")}
         </p>
+        <ReenviarConfirmacao email={sentTo} />
       </div>
     );
   }

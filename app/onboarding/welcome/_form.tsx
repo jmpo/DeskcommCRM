@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { useT } from "@/hooks/i18n/useT";
 
@@ -16,19 +16,33 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { FUSO_PADRAO, FUSOS_DO_ONBOARDING } from "@/lib/tempo/fusos";
+import { fusoDoNavegador } from "@/lib/tempo/fuso-do-navegador";
 
 
 export function WelcomeForm({
   defaultOrgName,
   orgId,
+  fusoInicial = null,
 }: {
   defaultOrgName: string;
   orgId: string;
+  /** O fuso da empresa, quando está entre as opções — já vem marcado. */
+  fusoInicial?: string | null;
 }) {
   const t = useT();
   const [displayName, setDisplayName] = useState(defaultOrgName);
   const [oQueFaz, setOQueFaz] = useState("");
-  const [timezone, setTimezone] = useState(FUSO_PADRAO);
+  const [timezone, setTimezone] = useState(fusoInicial ?? FUSO_PADRAO);
+
+  // Sem fuso da empresa entre as opções, o do NAVEGADOR (se for um oferecido)
+  // vem marcado no lugar de São Paulo: quem está em Assunção não precisa
+  // procurar a própria cidade. Num efeito, e não no estado inicial, porque o
+  // servidor não sabe o fuso do navegador — e a hidratação divergiria.
+  useEffect(() => {
+    if (fusoInicial) return;
+    const doNavegador = fusoDoNavegador();
+    if (doNavegador && FUSOS_DO_ONBOARDING.some((f) => f.id === doNavegador)) setTimezone(doNavegador);
+  }, [fusoInicial]);
   const [accepted, setAccepted] = useState(false);
   const [pending, startTransition] = useTransition();
 

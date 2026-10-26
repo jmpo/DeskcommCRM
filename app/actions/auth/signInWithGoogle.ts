@@ -65,7 +65,7 @@ export type SignInWithGoogleResult = {
  * navegador sai daqui direto para o Google.
  */
 export async function signInWithGoogle(
-  params: { next?: string; convite?: string } = {},
+  params: { next?: string; convite?: string; idioma?: string; fuso?: string } = {},
 ): Promise<SignInWithGoogleResult> {
   const hdrs = await headers();
   const requestId = hdrs.get("x-request-id");

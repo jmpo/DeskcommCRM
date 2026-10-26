@@ -2,6 +2,13 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit } from "@/lib/audit";
+import {
+  CHAVE_FUSO_DO_CADASTRO,
+  CHAVE_IDIOMA_DO_CADASTRO,
+  perfilDaEmpresaNova,
+  type PistasDoCadastro,
+} from "@/lib/auth/perfil-da-empresa-nova";
+import { localizarSemeadura } from "@/lib/onboarding/semeadura-no-idioma";
 
 /** Normaliza o nome da empresa para um slug candidato (citext unique no DB). */
 export function slugify(name: string): string {
@@ -29,6 +36,14 @@ type ProvisionUser = {
  */
 type ProvisionOptions = {
   source?: "signup" | "recovery";
+  /**
+   * De onde a pessoa está chegando — idioma da tela, fuso do navegador e o
+   * `Accept-Language`. O cadastro por e-mail as guarda no `user_metadata`
+   * (`signUp`); a entrada com Google as traz na URL de volta. As do metadado
+   * vencem as daqui, porque foram gravadas no momento em que a pessoa leu a tela.
+   * Ver `lib/auth/perfil-da-empresa-nova.ts`.
+   */
+  pistas?: PistasDoCadastro;
 };
 
 /**
@@ -98,6 +113,22 @@ export async function ensureTenantForUser(
     "Minha empresa";
   const base = slugify(orgName);
 
+  // Idioma, fuso e moeda de quem está chegando. Em `pt-BR` o perfil é só
+  // `{ locale: "pt-BR" }`, o mesmo valor do default da coluna: a empresa
+  // brasileira nasce exatamente como nascia.
+  const meta = user.user_metadata ?? {};
+  const perfil = perfilDaEmpresaNova({
+    idioma:
+      (typeof meta[CHAVE_IDIOMA_DO_CADASTRO] === "string" ? (meta[CHAVE_IDIOMA_DO_CADASTRO] as string) : null) ??
+      options.pistas?.idioma ??
+      null,
+    fuso:
+      (typeof meta[CHAVE_FUSO_DO_CADASTRO] === "string" ? (meta[CHAVE_FUSO_DO_CADASTRO] as string) : null) ??
+      options.pistas?.fuso ??
+      null,
+    acceptLanguage: options.pistas?.acceptLanguage ?? null,
+  });
+
   // ponytail: check-then-insert tem janela de corrida se o mesmo link for
   // confirmado 2x em paralelo (pior caso: org duplicada órfã). Advisory lock
   // por user_id se isso aparecer na prática.
@@ -112,6 +143,7 @@ export async function ensureTenantForUser(
         legal_name: orgName,
         status: "active",
         created_by: user.id,
+        ...perfil,
         ...(typeof user.user_metadata?.cobranca_plan_id === "string" ? { settings: { cobranca_signup_plan_id: user.user_metadata.cobranca_plan_id } } : {}),
       })
       .select("id, slug")
@@ -134,6 +166,13 @@ export async function ensureTenantForUser(
     throw new Error(`signup provisioning: membership insert failed: ${memberError.message}`);
   }
 
+  // Os nomes que os gatilhos semearam (funil "Pedidos", tipos de agendamento)
+  // estão em português no banco. Fora do `pt-BR` eles são trocados aqui, logo
+  // depois do nascimento — nunca lança, e nunca toca nome que alguém mudou.
+  if (perfil.locale !== "pt-BR") {
+    await localizarSemeadura(admin, org.id, perfil.locale);
+  }
+
   void audit({
     action:
       options.source === "recovery" ? "tenant.created_by_recovery" : "tenant.created_by_signup",
@@ -142,7 +181,7 @@ export async function ensureTenantForUser(
     resourceType: "organization",
     resourceId: org.id,
     bypassedRls: true,
-    metadata: { slug: org.slug },
+    metadata: { slug: org.slug, ...perfil },
   });
 
   return { provisioned: true, organizationId: org.id };
