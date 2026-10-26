@@ -4000,3 +4000,25 @@ linha só. Regra única em `lib/escalacao/modelo-do-aviso.ts`. Spec:
 Não provado pela tela: a entrega real no celular por um número oficial de verdade (precisa de
 um modelo aprovado pela plataforma) e o comando RESPONDER/PERGUNTAR por esse número, que segue
 fora do escopo.
+
+## J62 — A empresa nova nasce com a IA do molde escolhido pelo dono do servidor `[P1]` (2026-10-26)
+
+Numa instalação que hospeda várias empresas, toda empresa nova nascia sem escolha de modelo por
+função e com o padrão do produto, e o dono do servidor copiava a configuração de IA de uma
+empresa de referência à mão, por script. Desde a 0780 (fork), Recursos opcionais › "IA das
+empresas novas" escolhe uma empresa ativa como molde
+(`platform_settings.molde_de_ia_org_id`), e o gatilho `fn_molde_de_ia_na_org_nova` copia as
+funções copiáveis com `credential_id` nulo — regra única em `lib/ai/molde-de-ia.ts`. Spec:
+`tests/e2e/molde-de-ia-empresas-novas.spec.ts`.
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J62.1 | Sem molde (o padrão) | a tela diz que cada empresa nova começa com o padrão do produto; a empresa nasce sem funções | **não medido pela tela localmente** (Docker fora do ar) — CI `e2e` parte 7; banco: `tests/invariants/molde-de-ia-empresas-novas.test.ts` (CI `invariants`) |
+| J62.2 | Escolher o molde | a tela mostra quantas funções e quais modelos vão ser copiados, o padrão e o que fica de fora; recarregar mostra a escolha salva | **não medido pela tela localmente** — CI `e2e` parte 7 |
+| J62.3 | Criar a empresa em Empresas › Nova | o formulário avisa de que empresa vem a IA; a página da nova mostra "IA copiada do molde" | **não medido pela tela localmente** — CI `e2e` parte 7 |
+| J62.4 | Agente de IA › Provedores da empresa nova | as funções copiadas com o modelo do molde; a de endereço próprio não veio e herda o padrão do molde | **não medido pela tela localmente** — CI `e2e` parte 7 |
+| J62.5 | Assinatura, Jev, Google, DeepSeek, endereço próprio; molde excluído; RPC de criação; outras organizações | nada disso é copiado; molde excluído zera a coluna e criar empresa não falha; a RPC também copia; nenhuma outra organização muda | **CI `invariants`** — `tests/invariants/molde-de-ia-empresas-novas.test.ts` (não rodado localmente: sem Docker) |
+| J62.6 | A lista de provedores que a tela promete = a que o banco copia | `PROVEDORES_DO_MOLDE` = provedores com chave da instalação = literais do gatilho | **PASS (unit)** — `tests/unit/molde-de-ia.test.ts` |
+
+Não provado: que a primeira chamada de IA da empresa nova sai com a chave da instalação (o
+painel mostra modelo e origem, não faz chamada paga).

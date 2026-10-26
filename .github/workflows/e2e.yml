@@ -1470,6 +1470,11 @@ jobs:
       # semeia em toda parte comum), e nenhuma cita WAHA, Graph ou webhook.
       # Fork: `inbox-mensagem-por-modelo` e `numero-oficial-um-clique` (só do fork)
       # entram nesta parte, a menor da upstream (8 specs em 23/10/2026).
+      # `molde-de-ia-empresas-novas` (fork, migration 0780) entrou em 2026-10-26:
+      # semeia o próprio dono do servidor, o molde e as funções, e no fim devolve
+      # `platform_settings.molde_de_ia_org_id` a nulo — o molde é da instalação, e
+      # deixado escolhido faria as empresas das specs seguintes nascerem com ele.
+      # Não cita WAHA, Graph nem webhook. PREVISÃO, não medida: ~1 min de caso.
       SPECS_PARTE_7: >-
         celular-toque-nos-controles.spec.ts
         agente-novo-e-uso.spec.ts
@@ -1482,6 +1487,7 @@ jobs:
         inbox-mensagem-por-modelo.spec.ts
         numero-oficial-um-clique.spec.ts
         aviso-pelo-numero-oficial.spec.ts
+        molde-de-ia-empresas-novas.spec.ts
 
       # ─── FORA_DO_CI — as que ficaram fora, e o motivo de cada uma ───
       #
