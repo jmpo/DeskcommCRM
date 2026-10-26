@@ -16,6 +16,8 @@ import { WaitForm } from "./WaitForm";
 const H = 3_600_000;
 const COMERCIAL = { start: "08:00", end: "20:00", weekdays: [1, 2, 3, 4, 5, 6] };
 
+const horarioDe = (c: ConfigOf<"wait">) => (c.mode === "fixed" ? c.ate_o_horario : undefined);
+
 function montar(config: ConfigOf<"wait">) {
   const onChange = vi.fn();
   render(<WaitForm config={config} onChange={onChange} />);
@@ -42,11 +44,11 @@ describe("WaitForm — horário da espera", () => {
     const { ultima } = montar({ mode: "fixed", duration_ms: 24 * H, ate_o_horario: COMERCIAL });
 
     fireEvent.change(screen.getByLabelText("Fim"), { target: { value: "19:00" } });
-    expect(ultima().mode === "fixed" && ultima().ate_o_horario).toEqual({ ...COMERCIAL, end: "19:00" });
+    expect(horarioDe(ultima())).toEqual({ ...COMERCIAL, end: "19:00" });
 
     // Sábado (6) sai; os outros dias ficam.
     fireEvent.click(screen.getByRole("button", { name: "Sáb" }));
-    expect(ultima().mode === "fixed" && ultima().ate_o_horario).toEqual({ start: "08:00", end: "19:00", weekdays: [1, 2, 3, 4, 5] });
+    expect(horarioDe(ultima())).toEqual({ start: "08:00", end: "19:00", weekdays: [1, 2, 3, 4, 5] });
   });
 });
 

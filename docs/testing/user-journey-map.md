@@ -4022,3 +4022,29 @@ funções copiáveis com `credential_id` nulo — regra única em `lib/ai/molde-
 
 Não provado: que a primeira chamada de IA da empresa nova sai com a chave da instalação (o
 painel mostra modelo e origem, não faz chamada paga).
+
+## J63 — A espera do follow-up só termina em horário comercial `[P1]` (2026-10-26)
+
+Medido numa instalação real: o fluxo "boas-vindas → 24 h → lembrete → 48 h → último toque"
+mandava o lembrete à mesma hora do formulário (2h da manhã para quem se cadastrou às 2h). A
+janela do número seguraria também a boas-vindas, que precisa sair na hora. A caixa Aguardar
+(tempo fixo) ganhou "Só terminar a espera em horário comercial" (`wait.ate_o_horario`, regra em
+`lib/followup/espera-no-horario.ts`). Spec: `tests/e2e/followup-builder.spec.ts` (bloco "espera
+só termina em horário comercial").
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J63.1 | Ligar o horário no painel da espera | início, fim e dias aparecem (padrão seg–sex 09–18); o card diz "só em horário comercial" | **PASS em tela** (local, `e2e-local.sh`) |
+| J63.2 | Salvar e recarregar | o painel volta com o horário gravado, não com o padrão | **PASS em tela** |
+| J63.3 | Mudar a duração com o horário ligado | o rascunho guarda duração nova E o horário inteiro (prova pela API) | **PASS em tela** |
+| J63.4 | A espera vence de noite ou no domingo | o motor grava a próxima abertura, no fuso da organização; na saída fora do horário, espera de novo | **PASS (unit)** — `lib/followup/espera-no-horario.test.ts` |
+| J63.5 | O cliente responde no meio da noite | a resposta corta a espera na hora (o horário segura o toque proativo, não a resposta) | **PASS (unit)** |
+| J63.6 | Horário torto (fim antes do início, nenhum dia) | o rascunho aceita; o publish recusa com `horario_da_espera_invalido` | **PASS (unit)** |
+
+Evidência:
+
+- `evidence/espera-ate-o-horario/01-horario-ligado.png` — o horário ligado no painel, com o card dizendo "só em horário comercial";
+- `evidence/espera-ate-o-horario/02-recarregado.png` — depois de salvar e recarregar, seg–sáb 08:00–20:00.
+
+Não provado: um envio real atravessando a madrugada num worker em produção (o relógio do motor
+é medido em unit e no teste do motor com banco dublê).
