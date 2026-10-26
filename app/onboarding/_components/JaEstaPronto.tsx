@@ -88,3 +88,43 @@ export function JaEstaPronto({
     </section>
   );
 }
+
+/**
+ * A primeira coisa que lê quem CRIOU A CONTA pelo cadastro aberto — não quem
+ * instalou o servidor.
+ *
+ * O cartão de cima ("Você já instalou o sistema. Servidor no ar e banco de
+ * dados instalado…") é verdade para o dono da instalação e não diz nada ao
+ * cliente do revendedor, que só criou uma conta (QA de 26/10/2026). Para ele o
+ * que importa é o que vale agora: os dias de teste, até quando, e o que vem a
+ * seguir. Os dias saem da assinatura (`cobranca_assinaturas.trial_ate`),
+ * nunca de um número escrito aqui.
+ */
+export function BoasVindasDaConta({
+  testeAte,
+  diasRestantes,
+  idioma,
+}: {
+  /** A data do fim do teste já formatada no fuso da empresa, ou `null` sem teste. */
+  testeAte: string | null;
+  diasRestantes: number | null;
+  idioma: Idioma;
+}) {
+  const t = (texto: string) => traduzir(texto, idioma);
+  return (
+    <section aria-labelledby="boas-vindas-da-conta" className="rounded-lg border bg-background p-5" data-testid="boas-vindas-da-conta">
+      <h3 id="boas-vindas-da-conta" className="text-sm font-medium">
+        {testeAte && diasRestantes !== null
+          ? t("Você tem {dias} dias grátis, até {data}.")
+              .replace("{dias}", String(diasRestantes))
+              .replace("{data}", testeAte)
+          : t("Sua conta está criada.")}
+      </h3>
+      <p className="mt-2 text-sm text-muted-foreground">
+        {t(
+          "Em poucos passos: o nome do seu negócio, o WhatsApp por onde ele atende, como ele fala e onde organiza os clientes. Dá para pular e voltar depois.",
+        )}
+      </p>
+    </section>
+  );
+}

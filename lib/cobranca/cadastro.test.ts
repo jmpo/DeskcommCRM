@@ -13,7 +13,7 @@ import { lerCadastroNaTela, planoInicialDoSeletor, type PlanoDoCadastro } from "
 
 const plano = (id: string): PlanoDoCadastro => ({ id, nome: id, preco_cents: 4990, intervalo: "mes", trial_dias: 7 });
 
-function banco(p: { oferecidos: PlanoDoCadastro[]; padrao: string | null; erro?: boolean }) {
+function banco(p: { oferecidos: PlanoDoCadastro[]; padrao: string | null; erro?: boolean; trialDoPadrao?: number }) {
   return {
     from: () => {
       const q = {
@@ -21,7 +21,10 @@ function banco(p: { oferecidos: PlanoDoCadastro[]; padrao: string | null; erro?:
         is: () => q,
         eq: () => q,
         order: async () => (p.erro ? { data: null, error: { code: "57014" } } : { data: p.oferecidos, error: null }),
-        maybeSingle: async () => ({ data: p.padrao ? { id: p.padrao } : null, error: null }),
+        maybeSingle: async () => ({
+          data: p.padrao ? { id: p.padrao, trial_dias: p.trialDoPadrao ?? 0 } : null,
+          error: null,
+        }),
       };
       return q;
     },
@@ -32,7 +35,7 @@ beforeEach(() => h.ligado.mockResolvedValue(true));
 
 describe("lerCadastroNaTela — quando o Google some", () => {
   it("⭐ sem plano nenhum (nem padrão, nem oferecido): nada a escolher e o Google fica — a empresa nasce isenta", async () => {
-    expect(await lerCadastroNaTela(banco({ oferecidos: [], padrao: null }))).toEqual({ oferecidos: [], padraoId: null, exigeEscolha: false });
+    expect(await lerCadastroNaTela(banco({ oferecidos: [], padrao: null }))).toEqual({ oferecidos: [], padraoId: null, padraoTrialDias: null, exigeEscolha: false });
   });
 
   it("⭐ plano oferecido e sem padrão: o Google some e a escolha é obrigatória", async () => {
@@ -47,6 +50,15 @@ describe("lerCadastroNaTela — quando o Google some", () => {
     expect((await lerCadastroNaTela(banco({ oferecidos: [plano("a")], padrao: null, erro: true }))).exigeEscolha).toBe(false);
     h.ligado.mockResolvedValue(false);
     expect((await lerCadastroNaTela(banco({ oferecidos: [plano("a")], padrao: null }))).exigeEscolha).toBe(false);
+  });
+});
+
+describe("lerCadastroNaTela — os dias de teste que o /signup anuncia", () => {
+  it("⭐ vêm do plano PADRÃO, não de um número escrito na tela", async () => {
+    expect((await lerCadastroNaTela(banco({ oferecidos: [], padrao: "p", trialDoPadrao: 14 }))).padraoTrialDias).toBe(14);
+  });
+  it("sem padrão, não há dias a anunciar", async () => {
+    expect((await lerCadastroNaTela(banco({ oferecidos: [], padrao: null }))).padraoTrialDias).toBeNull();
   });
 });
 

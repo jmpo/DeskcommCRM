@@ -293,3 +293,38 @@ describe("Asaas no Plano e cobrança (PR 3b)", () => {
     );
   });
 });
+
+describe("empresa que não opera em reais (QA de 26/10/2026, Paraguai)", () => {
+  // O plano de teste da instalação aparecia como "1201,03 BRL por mês" com um
+  // botão "Suscribirse" que abriria um checkout em reais para quem paga em
+  // guaranis. A cobrança só cobra BRL (`lib/cobranca/vocabulario.ts`).
+  it("⭐ no teste grátis: 'Grátis até {data}' no lugar do preço em reais", () => {
+    const { container } = render(
+      <PainelDaAssinatura
+        dados={painel({ estado: "trial", trial_ate: "2026-11-09T12:00:00Z", assinaturas_vivas: 0 })}
+        idioma="pt-BR"
+        moedaDaEmpresa="PYG"
+      />,
+    );
+    expect(screen.getByTestId("gratis-ate").textContent).toMatch(/^Grátis até \d{2}\/\d{2}\/\d{4}$/);
+    expect(container.textContent).not.toMatch(/R\$|BRL|por mês/);
+  });
+
+  it("⭐ sem 'Assinar' nem troca de plano: a frase manda falar com quem administra", () => {
+    render(<AcoesDaAssinatura {...acoes({ estado: "trial", temProvedor: false, assinaturasVivas: 0, moedaDaEmpresa: "PYG" })} />);
+    expect(screen.queryByRole("button", { name: "Assinar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Trocar de plano/ })).toBeNull();
+    expect(screen.getByTestId("contratar-com-quem-administra")).toBeTruthy();
+  });
+
+  it("empresa em reais: o de sempre (preço e Assinar)", () => {
+    render(<AcoesDaAssinatura {...acoes({ estado: "trial", temProvedor: false, assinaturasVivas: 0, moedaDaEmpresa: "BRL" })} />);
+    expect(screen.getByRole("button", { name: "Assinar" })).toBeTruthy();
+    cleanup();
+    const { container } = render(
+      <PainelDaAssinatura dados={painel({ estado: "trial", trial_ate: "2026-11-09T12:00:00Z", assinaturas_vivas: 0 })} idioma="pt-BR" />,
+    );
+    expect(container.textContent).toMatch(/R\$\s?49,90 por mês/);
+    expect(screen.queryByTestId("gratis-ate")).toBeNull();
+  });
+});

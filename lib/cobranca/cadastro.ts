@@ -23,6 +23,12 @@ export interface PlanoDoCadastro {
 
 export interface PlanosDoCadastro {
   padraoId: string | null;
+  /**
+   * Os dias de teste do plano PADRÃO (o que a empresa ganha sem escolher nada).
+   * É o que o `/signup` anuncia: "14 dias grátis" lido do plano, nunca escrito
+   * na tela — o revendedor muda o plano e a frase acompanha.
+   */
+  padraoTrialDias: number | null;
   oferecidos: PlanoDoCadastro[];
 }
 
@@ -37,7 +43,7 @@ export async function lerPlanosDoCadastro(admin: SupabaseClient): Promise<Planos
       .order("preco_cents"),
     admin
       .from("cobranca_planos")
-      .select("id")
+      .select("id, trial_dias")
       .is("arquivado_em", null)
       .eq("padrao_no_cadastro", true)
       .maybeSingle(),
@@ -45,18 +51,20 @@ export async function lerPlanosDoCadastro(admin: SupabaseClient): Promise<Planos
   if (oferecidos.error || padrao.error) return null;
   return {
     padraoId: padrao.data?.id ?? null,
+    padraoTrialDias: typeof padrao.data?.trial_dias === "number" ? padrao.data.trial_dias : null,
     oferecidos: oferecidos.data ?? [],
   };
 }
 
 /** Cadastro SEM plano escolhido é recusado? O mesmo critério do gatilho. */
-export function cadastroExigeEscolhaDePlano(planos: PlanosDoCadastro): boolean {
+export function cadastroExigeEscolhaDePlano(planos: Pick<PlanosDoCadastro, "padraoId" | "oferecidos">): boolean {
   return planos.padraoId === null && planos.oferecidos.length > 0;
 }
 
 export interface CadastroNaTela {
   oferecidos: PlanoDoCadastro[];
   padraoId: string | null;
+  padraoTrialDias: number | null;
   /** O cadastro sem escolha seria recusado: o Google some e o seletor é obrigatório. */
   exigeEscolha: boolean;
 }
@@ -67,7 +75,7 @@ export interface CadastroNaTela {
  * alguma, e quem recusa é a action (e, por baixo dela, o gatilho).
  */
 export async function lerCadastroNaTela(admin: SupabaseClient): Promise<CadastroNaTela> {
-  const nada: CadastroNaTela = { oferecidos: [], padraoId: null, exigeEscolha: false };
+  const nada: CadastroNaTela = { oferecidos: [], padraoId: null, padraoTrialDias: null, exigeEscolha: false };
   if (!(await moduloLigado(admin, "cobranca"))) return nada;
   const lidos = await lerPlanosDoCadastro(admin);
   if (!lidos) return nada;

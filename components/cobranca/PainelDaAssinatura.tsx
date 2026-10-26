@@ -9,7 +9,20 @@ import type { Idioma } from "@/lib/i18n/idiomas";
  * O resumo de assinatura da empresa (spec da cobrança §9).
  * Sem hooks: é desenhado pelo servidor, no idioma de quem abriu.
  */
-export function PainelDaAssinatura({ dados, idioma }: { dados: DadosDoPainel; idioma: Idioma }) {
+export function PainelDaAssinatura({
+  dados,
+  idioma,
+  moedaDaEmpresa = null,
+}: {
+  dados: DadosDoPainel;
+  idioma: Idioma;
+  /**
+   * A moeda da empresa. Os planos são em reais (a cobrança só cobra BRL), e
+   * para quem opera em outra moeda o preço em reais não diz nada — no teste
+   * grátis, a linha vira "Grátis até {data}". Ausente = reais, como sempre.
+   */
+  moedaDaEmpresa?: string | null;
+}) {
   const t = (texto: string) => traduzir(texto, idioma);
   const data = formatadorDeData(idioma, dados.fuso, { dateStyle: "short" });
   const brl = new Intl.NumberFormat(idioma, { style: "currency", currency: "BRL" });
@@ -35,6 +48,10 @@ export function PainelDaAssinatura({ dados, idioma }: { dados: DadosDoPainel; id
   const { assinatura: a, plano: p, uso } = dados;
   const dia = (v: string | null) => (v ? data.format(new Date(v)) : "");
   const situacao = situacaoDaAssinatura(a, t, dia);
+  // Empresa em outra moeda, no teste: a data do fim no lugar do preço em reais,
+  // e sem repetir a mesma data na linha da situação.
+  const emReais = (moedaDaEmpresa ?? "BRL") === "BRL";
+  const gratisAte = !emReais && a.estado === "trial" && a.trial_ate && !a.pagamento_inicial_pendente;
 
   return (
     <Card className="max-w-xl space-y-4 p-6">
@@ -42,11 +59,17 @@ export function PainelDaAssinatura({ dados, idioma }: { dados: DadosDoPainel; id
         <h2 className="text-sm font-semibold">
           {t("Seu plano")}: {p.nome}
         </h2>
-        <p className="text-sm text-muted-foreground">
-          {brl.format(p.preco_cents / 100)} {p.intervalo === "mes" ? t("por mês") : t("por ano")}
-        </p>
+        {gratisAte ? (
+          <p className="text-sm text-muted-foreground" data-testid="gratis-ate">
+            {t("Grátis até {data}").replace("{data}", dia(a.trial_ate))}
+          </p>
+        ) : emReais ? (
+          <p className="text-sm text-muted-foreground">
+            {brl.format(p.preco_cents / 100)} {p.intervalo === "mes" ? t("por mês") : t("por ano")}
+          </p>
+        ) : null}
       </div>
-      <p className="text-sm font-medium">{situacao}</p>
+      {!gratisAte && <p className="text-sm font-medium">{situacao}</p>}
       {a.plano_agendado && (
         <p className="text-sm">
           {t("Novo plano a partir de")} {dia(a.proximo_vencimento)}: {a.plano_agendado.nome}

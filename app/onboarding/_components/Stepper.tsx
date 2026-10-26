@@ -35,7 +35,10 @@ export function Stepper({ passos }: { passos: PassoVisivel[] }) {
   const pathname = usePathname() ?? "";
   const idx = passos.findIndex((p) => pathname.includes(`/${p.segmento}`));
 
+  const atual = idx >= 0 ? passos[idx] : null;
+
   return (
+    <>
     <ol
       aria-label="onboarding steps"
       className="flex w-full items-center justify-between gap-2 px-2 py-3"
@@ -77,5 +80,18 @@ export function Stepper({ passos }: { passos: PassoVisivel[] }) {
         );
       })}
     </ol>
+    {/* No celular os rótulos somem (ver acima), e o QA de 26/10/2026 mostrou o
+        custo: seis bolinhas numeradas e nenhuma palavra. Uma linha só, com o
+        passo ATUAL por extenso, devolve a orientação sem espremer as sete. */}
+    {atual && (
+      <p className="pb-1 text-center text-xs text-muted-foreground sm:hidden" data-testid="passo-atual">
+        {t("Passo {n} de {total}")
+          .replace("{n}", String(idx + 1))
+          .replace("{total}", String(passos.length))}
+        {" · "}
+        <span className="font-medium text-foreground">{t(atual.rotulo)}</span>
+      </p>
+    )}
+    </>
   );
 }

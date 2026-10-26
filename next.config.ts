@@ -108,10 +108,14 @@ const nextConfig: NextConfig = {
           // usa getUserMedia({audio}); microphone=() bloquearia em TODA origem,
           // inclusive a própria — daria "microphone is not allowed in this document".
           // Câmera e geolocalização seguem bloqueadas (não usadas).
-          // notifications=(self): bandeja do SO quando a janela está minimizada.
+          // `notifications` NÃO é diretiva de Permissions-Policy: o navegador
+          // a recusa e escreve "Unrecognized feature: 'notifications'" no
+          // console de TODA página (QA de 26/10/2026). A bandeja do SO depende
+          // da permissão do `Notification.requestPermission()`, não deste
+          // cabeçalho — tirá-la não muda nada no aviso.
           {
             key: "Permissions-Policy",
-            value: "camera=(), microphone=(self), geolocation=(), notifications=(self)",
+            value: "camera=(), microphone=(self), geolocation=()",
           },
         ],
       },

@@ -46,7 +46,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
       </header>
       {painel ? (
         <>
-          <PainelDaAssinatura dados={painel} idioma={idioma} />
+          <PainelDaAssinatura dados={painel} idioma={idioma} moedaDaEmpresa={activeOrg.currency ?? null} />
           {painel.assinatura && (
             <AcoesDaAssinatura
               estado={painel.assinatura.estado}
@@ -63,6 +63,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
               instanteCalculo={new Date().toISOString()}
               provedor={painel.checkout.provedor}
               documentoDoCadastro={painel.checkout.documentoDoCadastro}
+              moedaDaEmpresa={activeOrg.currency ?? null}
               voltouDoCheckout={(await searchParams).voltou === "1"}
               noHub={false}
               fuso={painel.fuso}

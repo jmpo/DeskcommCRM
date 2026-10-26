@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { aplicarQuadro, pularQuadro, type QuadroAtual } from "@/app/actions/onboarding/montarQuadro";
 import { explicacaoDoPasso } from "@/lib/leads/agent-mapping";
 import { MAX_ETAPAS, MIN_ETAPAS, type PropostaDeFunil } from "@/lib/onboarding/proposta-de-funil";
-import { PACOTES } from "@/lib/onboarding/pacotes-de-funil";
+import { PACOTES, propostaNoIdioma } from "@/lib/onboarding/pacotes-de-funil";
+import { useIdioma } from "@/lib/i18n/IdiomaProvider";
 import type { Sugestao } from "@/lib/onboarding/sugerir-funil";
 
 /**
@@ -27,8 +28,11 @@ export function QuadroClient({
   sugestao: Sugestao;
 }) {
   const t = useT();
+  const idioma = useIdioma();
+  // O quadro pronto no idioma da tela: o que está na tela é o que se GRAVA, e
+  // uma empresa que fala espanhol recebia "Novo contato", "Vai levar".
   const inicial: PropostaDeFunil =
-    sugestao.origem === "ia" ? sugestao.proposta : sugestao.pacote.proposta;
+    sugestao.origem === "ia" ? sugestao.proposta : propostaNoIdioma(sugestao.pacote.proposta, idioma);
 
   const [quadro, setQuadro] = useState<PropostaDeFunil>(inicial);
   const [origem, setOrigem] = useState<"ia" | "pacote">(sugestao.origem);
@@ -70,7 +74,7 @@ export function QuadroClient({
   function usarPacote(id: string) {
     const p = PACOTES.find((x) => x.id === id);
     if (!p) return;
-    setQuadro(p.proposta);
+    setQuadro(propostaNoIdioma(p.proposta, idioma));
     // A origem acompanha: o resumo do onboarding registra de onde o quadro veio,
     // e manter "ia" depois de a pessoa escolher outro seria registrar mentira.
     setOrigem("pacote");
@@ -123,14 +127,17 @@ export function QuadroClient({
           {quadro.etapas.map((etapa, i) => {
             const explicacao = etapa.passo ? explicacaoDoPasso(etapa.passo) : null;
             return (
-              <li key={i} className="flex items-start gap-2 rounded-md border p-3">
+              <li
+                key={i}
+                className="grid grid-cols-[1.25rem_minmax(0,1fr)] items-start gap-x-2 gap-y-1 rounded-md border p-3 sm:grid-cols-[1.25rem_minmax(0,1fr)_auto]"
+              >
                 <span
                   aria-hidden
-                  className="mt-2 w-5 shrink-0 text-center text-xs text-muted-foreground"
+                  className="mt-2 w-5 text-center text-xs text-muted-foreground"
                 >
                   {i + 1}
                 </span>
-                <div className="min-w-0 flex-1 space-y-1">
+                <div className="min-w-0 space-y-1">
                   <Input
                     aria-label={`${t("Nome da coluna")} ${i + 1}`}
                     value={etapa.nome}
@@ -148,14 +155,21 @@ export function QuadroClient({
                   banco recusa o quadro inteiro, e descobrir isso no clique de
                   salvar seria pior do que não oferecer o botão.
                 */}
+                {/* No celular a ação desce para baixo do campo (2ª coluna da
+                    grade): ao lado dele, "Remover" comia um terço da linha e o
+                    nome saía cortado ("Escolhendo o produ…", QA de 26/10/2026).
+                    UM elemento só, reposicionado pela grade — duplicado, o
+                    "obrigatória" escondido viraria o primeiro da página. */}
                 {etapa.passo === "won" || etapa.passo === "lost" ? (
-                  <span className="mt-2 shrink-0 text-xs text-muted-foreground">{t("obrigatória")}</span>
+                  <span className="col-start-2 shrink-0 text-xs text-muted-foreground sm:col-start-3 sm:row-start-1 sm:mt-2">
+                    {t("obrigatória")}
+                  </span>
                 ) : (
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="mt-1 shrink-0"
+                    className="col-start-2 -ml-3 justify-self-start sm:col-start-3 sm:row-start-1 sm:ml-0 sm:mt-1"
                     onClick={() => remover(i)}
                     disabled={quadro.etapas.length <= MIN_ETAPAS}
                   >
@@ -212,7 +226,7 @@ export function QuadroClient({
               >
                 <span className="font-medium">{t(p.comoSeApresenta)}</span>
                 <span className="mt-1 block text-xs text-muted-foreground">
-                  {p.proposta.etapas.map((e) => e.nome).join(" → ")}
+                  {propostaNoIdioma(p.proposta, idioma).etapas.map((e) => e.nome).join(" → ")}
                 </span>
               </button>
             ))}
