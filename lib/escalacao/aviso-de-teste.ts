@@ -103,7 +103,7 @@ export async function enviarAvisoDeTeste(
     /** A opção de responder casos por este número, como está SALVA. */
     respostaWhatsappHabilitada?: boolean;
     /**
-     * O modelo aprovado SALVO na configuração (migration 0762). Só é lido quando
+     * O modelo aprovado SALVO na configuração (migration 0783). Só é lido quando
      * a conexão não manda texto livre — é com ele que o teste prova o caminho
      * que o aviso real vai usar.
      */

@@ -42,7 +42,7 @@ export interface ConfigDoAvisoNaTela {
   rotulo: string | null;
   ligado: boolean;
   resposta_whatsapp_habilitada: boolean;
-  /** O modelo aprovado que leva o aviso pela conexão que só manda modelo (0762). */
+  /** O modelo aprovado que leva o aviso pela conexão que só manda modelo (0783). */
   modelo_id?: string | null;
   atualizado_em: string;
 }

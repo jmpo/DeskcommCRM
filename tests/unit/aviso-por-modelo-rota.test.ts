@@ -1,5 +1,5 @@
 /**
- * PUT /api/v1/ai/cases/alerta e POST /teste com o MODELO APROVADO (migration 0762).
+ * PUT /api/v1/ai/cases/alerta e POST /teste com o MODELO APROVADO (migration 0783).
  *
  * A rota faz a pergunta que o banco não faz — o modelo está aprovado e tem uma
  * variável só? — ANTES do RPC, que só confere organização e conexão. Recusa

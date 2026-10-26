@@ -1,21 +1,22 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 /**
- * O CENTAVO INTEIRO POR CHAMADA COBRAVA 12× DO CLASSIFICADOR.
+ * O CENTAVO INTEIRO POR CHAMADA COBRAVA 12× NO CUSTO DO AGENTE.
  *
- * ─── O defeito, medido em produção ──────────────────────────────────────────
+ * ─── O defeito, medido numa instalação real ─────────────────────────────────
  *
- * `computeCost` fazia `Math.ceil(cents)` "para errar para o lado de cobrar".
- * Numa chamada grande isso arredonda centavos e ninguém nota. Mas o
- * classificador de sentimento custa ~0,08¢ por chamada — e `ceil(0.08)` = 1¢.
+ * `computeCostCents` (`lib/ai/runtime/cost.ts`, o custo de `ai_agent_runs`)
+ * fazia `Math.ceil(cents)` "para errar para o lado de cobrar". Numa chamada
+ * grande isso arredonda centavos e ninguém nota. Mas uma chamada de ~600
+ * tokens num modelo barato custa ~0,08¢ — e `ceil(0.08)` = 1¢.
  *
- * Em 14 dias: 1.284 chamadas, 1.122¢ registrados, ~103¢ de custo real. O
- * painel do provedor cobrou $3,03 no MÊS inteiro; o registro interno dizia
- * $11 só de sentimento. E o teto de gasto lê esta coluna: cortaria a IA do
- * cliente ~11× cedo demais — pagando para se proteger de um gasto que não
- * existia.
+ * Em 14 dias: 1.284 chamadas, 1.122¢ registrados, ~103¢ de custo real. E o
+ * teto de gasto por chamada (`cost_budget_cents`) compara com este número:
+ * cortaria o turno cedo demais por um gasto que não existia.
  *
- * A coluna é `numeric` e o caminho do agent-engine sempre gravou fração.
+ * O irmão `computeCost` (`lib/ai/cost.ts`) já deixou de arredondar
+ * (`custo-de-ia-nao-arredonda-para-cima.test.ts`); este arquivo cobre o
+ * runtime do agente, que tinha ficado com o ceil.
  */
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({

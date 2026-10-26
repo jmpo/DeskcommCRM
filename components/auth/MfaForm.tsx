@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import { useT } from "@/hooks/i18n/useT";
 import { TOTPInput } from "@/components/auth/TOTPInput";
 import { Button } from "@/components/ui/button";
 import { verifyMfa } from "@/app/actions/auth/verifyMfa";
+import { AvisoSemResposta, useEnvioComTeto } from "@/components/auth/teto-da-espera";
 
 interface MfaFormProps {
   next?: string;
@@ -19,7 +20,7 @@ export function MfaForm({ next }: MfaFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
-  const [isPending, startTransition] = useTransition();
+  const { pendente: isPending, semResposta, enviar } = useEnvioComTeto();
 
   useEffect(() => {
     if (!locked || secondsLeft <= 0) return;
@@ -40,8 +41,7 @@ export function MfaForm({ next }: MfaFormProps) {
     const finalCode = codeArg ?? code;
     if (finalCode.length !== 6 || locked) return;
     setError(null);
-    startTransition(async () => {
-      const res = await verifyMfa(finalCode, next, confiar);
+    void enviar(() => verifyMfa(finalCode, next, confiar), (res) => {
       if (!res) return; // server-side redirect on success
       if (res.error === "mfa_locked") {
         setLocked(true);
@@ -103,6 +103,7 @@ export function MfaForm({ next }: MfaFormProps) {
             : error}
         </div>
       )}
+      {semResposta && <AvisoSemResposta />}
 
       <Button
         type="submit"

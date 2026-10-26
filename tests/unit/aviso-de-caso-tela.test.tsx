@@ -95,7 +95,7 @@ describe("o seletor de conexão", () => {
   });
 });
 
-describe("o número oficial com modelo aprovado (migration 0762)", () => {
+describe("o número oficial com modelo aprovado (migration 0783)", () => {
   const MODELO = {
     id: "33333333-3333-4333-8333-333333333333",
     nome: "aviso_da_equipe",

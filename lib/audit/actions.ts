@@ -281,6 +281,15 @@ export const AUDIT_ACTIONS = [
   "channel.social_webhook_ressincronizado",
   "channel.ai_access_updated",
   "channel.acervo_updated",
+  // A importação do histórico do número (#999): prévia, início, cancelamento e
+  // retomada depois de erro (rotas), e o fim, concluída ou em erro (cron). A
+  // rodada que só anda o cursor não audita.
+  "channel.historico_previa",
+  "channel.historico_import_started",
+  "channel.historico_import_cancelled",
+  "channel.historico_import_resumed",
+  "channel.historico_import_completed",
+  "channel.historico_import_failed",
   "channel.reconnected",
   // Duas ações distintas de propósito: `deleted` apagou a linha (canal virgem),
   // `archived` só a escondeu porque conversas/mensagens ainda a referenciam.
@@ -780,6 +789,14 @@ export const AUDIT_ACTIONS = [
   "crm_task.updated",
   "crm_task.deleted",
 
+  // A meta mensal da empresa (migration 0756, #3025): o número pelo qual a
+  // empresa cobra o próprio time. Quem mudou o alvo, de quanto para quanto e
+  // quando é a disputa clássica do fim do mês — o metadata leva `alvo` e
+  // `alvo_anterior` justamente para a resposta ser "de 40 para 25", e não só
+  // "existe um 25".
+  "crm_meta.created",
+  "crm_meta.updated",
+
   // A proposta comercial. Rascunho, edição, ajuste pelo assistente, envio e
   // decisão do cliente — cada um muda o que o negócio vale ou o que foi
   // oferecido, e é disputa comum entre quem atende e quem fecha.
@@ -1214,6 +1231,15 @@ export const AUDIT_ACTIONS = [
   // dedicada `PATCH /contacts/[id]/carteira` (#2591) — a escrita é do servidor,
   // então o audit é a única trilha de quem mudou o dono.
   "contact.carteira_changed",
+  // A chave POR GRUPO "Permitir que a IA responda neste grupo" (#2729,
+  // migration 0653). Duas ações, e não `channel.group_enabled` com um campo no
+  // metadata: ligar o grupo (entrar na inbox, mexer no filtro do WhatsApp) e
+  // ligar a IA (passar a responder) são decisões opostas de custos opostos, e
+  // o painel de auditoria filtra por `action`, nunca por metadata — "quem
+  // deixou a IA falar neste grupo, e quando" precisa de filtro próprio para
+  // ser respondida sem vasculhar metadados.
+  "channel.group_ai_enabled",
+  "channel.group_ai_disabled",
 
   // #2593, item 1 do CR: um administrador ligou ou desligou a escrita
   // automática do telefone de ficha vazia (`organizations.settings.crm
@@ -1295,6 +1321,24 @@ export const AUDIT_ACTIONS = [
   // mesma razão do `ai.case_alert_settings_changed`: `api_audit_log` é
   // append-only e a cascata de LGPD não o alcança.
   "ai.case_alert_settings_removed",
+  "lgpd.atestado_emitido",
+  // A cadência do lembrete de caso parado (migration 0766): ligado, intervalo e
+  // teto, escolhidos na Central por quem administra. Audita porque desligar
+  // cala a cobrança da organização inteira, e "quem desligou, e quando" só tem
+  // resposta na trilha — a coluna guarda só o valor de agora.
+  "ai.lembrete_de_caso_configurado",
+  // O MOLDE DE IA da instalação trocado em `/admin/sistema`
+  // (`platform_settings.molde_de_ia_org_id`, migration 0780) — mutação de
+  // plataforma, sem `organization_id`. metadata com o molde anterior e o novo e
+  // quantas funções ele copia: "desde quando as empresas novas nascem com a IA
+  // da empresa X?" só tem resposta aqui, porque a coluna guarda o estado e não
+  // o histórico.
+  "platform.molde_de_ia_updated",
+  // O EFEITO do molde: a empresa nova nasceu com as funções e o padrão de IA
+  // do molde. Quem grava é o gatilho `fn_molde_de_ia_na_org_nova` (migration
+  // 0780), na organização NOVA, com o id do molde e as contagens no metadata;
+  // quem lê é Painel › Empresas › [empresa] ("IA copiada do molde").
+  "ai.molde_de_ia_aplicado",
 ] as const;
 
 /** Um código de auditoria. Derivado de `AUDIT_ACTIONS` — não redigite a lista. */

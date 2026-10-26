@@ -13,7 +13,7 @@
  * O controle (mensagem só comercial → passagem comercial) é o que impede o
  * verde por ausência: prova que a restrição está LIGADA neste harness.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PublishedAgentConfig } from '@/lib/agent-engine/agent/agent-config';
 
 const mocks = vi.hoisted(() => ({
@@ -83,6 +83,9 @@ const job = {
 const deps = {
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   llmCfg: {}, crmCfg: {}, knobs: {},
+  // Relógio fixo DENTRO da janela anti-ban: com o relógio real, o turno do
+  // automático é adiado à noite (antes das detecções) e o teste só passava de dia.
+  clock: () => new Date('2026-10-21T15:00:00Z'),
   channel: () => ({ send: vi.fn(async () => ({ kind: 'sent' })) }),
 } as unknown as InboundTurnDeps;
 const assistido = {
@@ -122,15 +125,6 @@ beforeEach(() => {
   mocks.aviso.mockResolvedValue({ avisado: true });
   mocks.avisoLendo.mockResolvedValue({ avisado: true });
   mocks.passagem.mockResolvedValue(undefined);
-  // O turno do modo automático passa pela janela anti-ban, que lê o relógio de
-  // verdade: à noite ele lançava `JobSettledError` ("fora da janela anti-ban") e o
-  // caso reprovava por horário (medido às 01h de Assunção). Só o `Date` é falso.
-  vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(new Date('2026-10-20T14:00:00.000Z')); // terça, 11h em São Paulo
-});
-
-afterEach(() => {
-  vi.useRealTimers();
 });
 
 describe('restrição comercial cede ao opt-out e ao pedido de humano', () => {

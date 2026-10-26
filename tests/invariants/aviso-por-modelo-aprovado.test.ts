@@ -1,5 +1,5 @@
 /**
- * 0762 — O AVISO À EQUIPE COM MODELO APROVADO, medido no banco que o kit aplica.
+ * 0783 — O AVISO À EQUIPE COM MODELO APROVADO, medido no banco que o kit aplica.
  *
  * `config_aviso_de_caso.modelo_id` é uma FK simples para `meta_templates`, e
  * FK simples não sabe de tenant nem de conexão: sozinha, ela aceitaria o
@@ -60,43 +60,43 @@ const CORPO = `'[{"type":"BODY","text":"Aviso: {{1}}"}]'::jsonb`;
 
 beforeAll(() => {
   sql(`
-    insert into auth.users (id, email) values ('${ADMIN_A}', 'aviso-0762-admin-a@invariant.test')
+    insert into auth.users (id, email) values ('${ADMIN_A}', 'aviso-0783-admin-a@invariant.test')
       on conflict do nothing;
     insert into public.organizations (id, slug, legal_name, display_name) values
-      ('${ORG_A}', 'aviso-0762-a', 'Aviso 0762 A', 'Aviso 0762 A'),
-      ('${ORG_B}', 'aviso-0762-b', 'Aviso 0762 B', 'Aviso 0762 B')
+      ('${ORG_A}', 'aviso-0783-a', 'Aviso 0783 A', 'Aviso 0783 A'),
+      ('${ORG_B}', 'aviso-0783-b', 'Aviso 0783 B', 'Aviso 0783 B')
       on conflict do nothing;
     insert into public.user_organizations (user_id, organization_id, role, accepted_at)
       values ('${ADMIN_A}', '${ORG_A}', 'admin', now()) on conflict do nothing;
 
     do $seed$ begin
       insert into public.channel_sessions (id, organization_id, waha_session_name, webhook_secret_encrypted)
-        values ('${SESSAO_A}', '${ORG_A}', 'aviso-0762-a', '\\x00'::bytea);
+        values ('${SESSAO_A}', '${ORG_A}', 'aviso-0783-a', '\\x00'::bytea);
     exception when unique_violation then null; end $seed$;
     do $seed$ begin
       insert into public.channel_sessions (id, organization_id, waha_session_name, webhook_secret_encrypted)
-        values ('${SESSAO_A2}', '${ORG_A}', 'aviso-0762-a2', '\\x00'::bytea);
+        values ('${SESSAO_A2}', '${ORG_A}', 'aviso-0783-a2', '\\x00'::bytea);
     exception when unique_violation then null; end $seed$;
     do $seed$ begin
       insert into public.channel_sessions (id, organization_id, waha_session_name, webhook_secret_encrypted)
-        values ('${SESSAO_B}', '${ORG_B}', 'aviso-0762-b', '\\x00'::bytea);
+        values ('${SESSAO_B}', '${ORG_B}', 'aviso-0783-b', '\\x00'::bytea);
     exception when unique_violation then null; end $seed$;
     do $seed$ begin
       insert into public.channel_sessions (id, organization_id, provider, meta_phone_number_id, meta_waba_id, status, webhook_secret_encrypted)
-        values ('${SESSAO_OFICIAL_A}', '${ORG_A}', 'meta_cloud', '0762-pn', '0762-conta', 'WORKING', '\\x00'::bytea);
+        values ('${SESSAO_OFICIAL_A}', '${ORG_A}', 'meta_cloud', '0783-pn', '0783-conta', 'WORKING', '\\x00'::bytea);
     exception when unique_violation then null; end $seed$;
 
     insert into public.meta_templates (id, organization_id, waba_id, name, language, status, components, contract_hash, channel_session_id) values
       ('${MODELO_A}',  '${ORG_A}', 'conta-a',    'aviso_a',  'es', 'APPROVED', ${CORPO}, '', '${SESSAO_A}'),
       ('${MODELO_A2}', '${ORG_A}', 'conta-a2',   'aviso_a2', 'es', 'APPROVED', ${CORPO}, '', '${SESSAO_A2}'),
       ('${MODELO_B}',  '${ORG_B}', 'conta-b',    'aviso_b',  'es', 'APPROVED', ${CORPO}, '', '${SESSAO_B}'),
-      ('${MODELO_DA_CONTA}', '${ORG_A}', '0762-conta', 'aviso_conta', 'es', 'APPROVED', ${CORPO}, '', null),
+      ('${MODELO_DA_CONTA}', '${ORG_A}', '0783-conta', 'aviso_conta', 'es', 'APPROVED', ${CORPO}, '', null),
       ('${MODELO_DESCARTAVEL}', '${ORG_A}', 'conta-a', 'aviso_descartavel', 'es', 'APPROVED', ${CORPO}, '', '${SESSAO_A}')
       on conflict do nothing;
   `);
 });
 
-describe("0762 — o modelo é desta organização e desta conexão", () => {
+describe("0783 — o modelo é desta organização e desta conexão", () => {
   it("CONTROLE POSITIVO: o modelo da própria conexão é gravado", () => {
     sql(define(SESSAO_A, MODELO_A));
     expect(valor(`select modelo_id from public.config_aviso_de_caso where organization_id = '${ORG_A}'`)).toBe(
@@ -141,7 +141,7 @@ describe("0762 — o modelo é desta organização e desta conexão", () => {
   });
 });
 
-describe("0762 — apagar o modelo não apaga nem trava a configuração", () => {
+describe("0783 — apagar o modelo não apaga nem trava a configuração", () => {
   it("o DELETE do modelo passa, e a configuração fica sem modelo", () => {
     sql(define(SESSAO_A, MODELO_DESCARTAVEL));
     sql(`delete from public.meta_templates where id = '${MODELO_DESCARTAVEL}';`);
@@ -151,7 +151,7 @@ describe("0762 — apagar o modelo não apaga nem trava a configuração", () =>
   });
 });
 
-describe("0762 — a assinatura nova", () => {
+describe("0783 — a assinatura nova", () => {
   it("anon não tem EXECUTE na função de 8 parâmetros", () => {
     expect(
       valor(

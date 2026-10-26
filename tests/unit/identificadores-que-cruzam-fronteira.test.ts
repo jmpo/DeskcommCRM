@@ -161,6 +161,11 @@ function caminhosCom(padrao: RegExp): string[] {
 const SITES: { arquivo: string; fronteira: string; papel?: "gerador" | "validador" }[] = [
   // Storage — a chave do objeto sai daqui e vira objeto lá.
   { arquivo: "workers/lgpd-export-worker.ts", fronteira: "storage.chave-de-objeto" },
+  // O atestado de anonimização (#2342): a chave é `{org}/{pedido}/atestado.pdf`
+  // — o primeiro pedaço é o UUID da org que o banco gera, o segundo é o id do
+  // pedido já validado como uuid pela rota, e o sufixo é fixo. Nada de texto
+  // digitado por ninguém entra na chave.
+  { arquivo: "lib/lgpd/emitir-atestado.ts", fronteira: "storage.chave-de-objeto" },
   { arquivo: "workers/media-persist-worker.ts", fronteira: "storage.chave-de-objeto" },
   { arquivo: "lib/ai/skills/install.ts", fronteira: "storage.chave-de-objeto" },
   // Herança de arquivos do pacote no save textual (#2047): a chave é montada

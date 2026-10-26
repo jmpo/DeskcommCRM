@@ -35,7 +35,7 @@ import path from "node:path";
  * e é isso que este arquivo trava.
  */
 
-// Desde o webhook único da instalação (migration 0761), o que vem depois de saber a sessão
+// Desde o webhook único da instalação (migration 0782), o que vem depois de saber a sessão
 // mora em `_entrada-do-canal.ts`, chamado pelas DUAS entradas de canal — é ali
 // que esta cerca lê. Que as rotas delegam a ele, o último caso confere.
 const ROTA = path.resolve(__dirname, "../../app/api/v1/webhooks/_entrada-do-canal.ts");

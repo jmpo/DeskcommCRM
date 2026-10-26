@@ -20,6 +20,8 @@ const mundo = vi.hoisted(() => ({
   /** O `pacing_ledger` em memória: o que `recordSend` grava, `loadPacingState` lê. */
   ledger: new Map<string, Date[]>(),
   envios: [] as string[],
+  /** O corpo de cada envio, na ordem — os balões da campanha dividida (#3329). */
+  corpos: [] as string[],
 }));
 
 vi.mock("@/lib/logger", () => ({ logger: { info: () => undefined, warn: () => undefined, error: () => undefined } }));
@@ -51,8 +53,13 @@ vi.mock("@/lib/atendimento/origem", () => ({
   }),
 }));
 vi.mock("@/app/api/v1/messages/_handler", () => ({
-  sendMessageHandler: async (_admin: unknown, ctx: { serviceBoundary: { conversation_id: string } }) => {
+  sendMessageHandler: async (
+    _admin: unknown,
+    ctx: { serviceBoundary: { conversation_id: string } },
+    input: { body?: string },
+  ) => {
     mundo.envios.push(ctx.serviceBoundary.conversation_id);
+    mundo.corpos.push(input.body ?? "");
     return { id: `msg-${mundo.envios.length}`, status: "queued" };
   },
 }));
@@ -157,6 +164,7 @@ const canal = (id: string, status: string): Linha => ({
 beforeEach(() => {
   mundo.ledger.clear();
   mundo.envios.length = 0;
+  mundo.corpos.length = 0;
 });
 
 describe("rodada: duas campanhas de principais diferentes dividindo um número vinculado", () => {
@@ -415,5 +423,59 @@ describe("rodada: a campanha RÁPIDA fala em rajada, e o número dela sai do rod
     const r = await rodarUmaRodadaDeCampanha(cenario("X"), AGORA);
     expect(mundo.envios).toEqual(["conv:rui:V", "conv:rui2:V", "conv:rui3:V", "conv:gil:X"]);
     expect(r.enviadas).toBe(4);
+  });
+});
+
+describe("rodada: campanha de texto em balões (#3329)", () => {
+  beforeEach(() => {
+    mundo.knobs = { ...PACING_DEFAULTS, throttleMs: 0, jitterMaxMs: 0 };
+  });
+
+  function cenario(dividir: boolean, tetoDoNumero: number | null) {
+    return fakeAdmin({
+      campaigns: [
+        { ...campanha("camp-a", "principal", "2026-10-20T11:00:00.000Z"), message_body: "A\n\nB\n\nC", split_messages: dividir },
+      ],
+      campaign_recipients: [pendente("r-a", "camp-a", "ana")],
+      campaign_channel_sessions: [],
+      channel_sessions: [{ ...canal("principal", "WORKING"), daily_message_limit: tetoDoNumero }],
+    });
+  }
+
+  it("⭐ ligada: três balões em ordem, e cada um conta no ledger do número", async () => {
+    const r = await rodarUmaRodadaDeCampanha(cenario(true, null), AGORA);
+    expect(mundo.corpos).toEqual(["A", "B", "C"]);
+    expect(mundo.ledger.get("principal")).toHaveLength(3);
+    expect(r.enviadas).toBe(1);
+  });
+
+  it("⭐ cada balão entra no ledger no instante em que saiu: o throttle do próximo envio conta do último", async () => {
+    mundo.knobs = { ...PACING_DEFAULTS, throttleMs: 30, jitterMaxMs: 0 };
+    await rodarUmaRodadaDeCampanha(cenario(true, null), AGORA);
+    const ledger = (mundo.ledger.get("principal") ?? []).map((d) => d.getTime() - AGORA.getTime());
+    expect(ledger).toHaveLength(3);
+    expect(ledger[0]).toBe(0);
+    expect(ledger[1]).toBeGreaterThanOrEqual(30);
+    expect(ledger[2]! - ledger[1]!).toBeGreaterThanOrEqual(30);
+  });
+
+  it("desligada: um balão só, com o texto inteiro", async () => {
+    await rodarUmaRodadaDeCampanha(cenario(false, null), AGORA);
+    expect(mundo.corpos).toEqual(["A\n\nB\n\nC"]);
+    expect(mundo.ledger.get("principal")).toHaveLength(1);
+  });
+
+  it("⭐ o teto do número é conferido para os 3 balões: com 2 de folga, não começa", async () => {
+    mundo.ledger.set("principal", [new Date(AGORA.getTime() - 3_600_000), new Date(AGORA.getTime() - 3_000_000), new Date(AGORA.getTime() - 2_000_000)]);
+    const r = await rodarUmaRodadaDeCampanha(cenario(true, 5), AGORA);
+    expect(mundo.corpos).toEqual([]);
+    expect(r.detalhe).toContain("camp-a:canal:sem_numero_livre");
+  });
+
+  it("controle: com 3 de folga, os 3 saem e o número chega ao teto", async () => {
+    mundo.ledger.set("principal", [new Date(AGORA.getTime() - 3_600_000), new Date(AGORA.getTime() - 3_000_000)]);
+    await rodarUmaRodadaDeCampanha(cenario(true, 5), AGORA);
+    expect(mundo.corpos).toEqual(["A", "B", "C"]);
+    expect(mundo.ledger.get("principal")).toHaveLength(5);
   });
 });

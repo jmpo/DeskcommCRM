@@ -47161,6 +47161,9 @@ grant  execute on function public.fn_uso_de_ia(uuid, timestamptz, timestamptz, u
 -- Racional e a história do defeito: cabeçalho da 0597. ANTES da VARREDURA anon,
 -- porque cria função. Corpo IDÊNTICO ao da migration — quem aplica a cadeia e
 -- quem aplica o baseline ficam com a mesma função (`apendice-do-baseline-nao-diverge`).
+-- Os portões de plataforma já vêm com a `_full` da 0762: a `_full` existe desde o
+-- snapshot, e esta definição intermediária não pode ficar mais fraca que a final
+-- (`baseline-funcao-intermediaria-sem-guarda`).
 --
 -- Sem chave levanta `CPF_ENCRYPTION_KEY ausente` (régua da `fn_encrypt_oauth`); o
 -- chamador grava então a linha SEM CPF, nunca `cpf_hash` sem `cpf_encrypted` —
@@ -47226,18 +47229,19 @@ begin
     raise exception 'cpf_ciphertext_invalido';
   end if;
 
-  -- Tenancy: só quem pertence à organização do contato (ou platform admin).
+  -- Tenancy: só quem pertence à organização do contato (ou o poder de
+  -- plataforma com `scope = 'full'` e a sessão confirmada — ver a 0762).
   -- `fn_user_org_ids()` devolve SETOF uuid — a spec 02 escrevia
   -- `x.organization_id`, que não compila contra a assinatura real.
   if not exists (
     select 1 from public.fn_user_org_ids() o where o = v_org
-  ) and not public.fn_is_platform_admin() then
+  ) and not public.fn_is_platform_admin_full() then
     raise exception 'forbidden_org';
   end if;
 
   -- Papel: a mesma régua de getContactHandler (manager+), conferida também
   -- dentro da função, como fazem as funções irmãs.
-  if not public.fn_role_at_least(v_org, 'manager') and not public.fn_is_platform_admin() then
+  if not public.fn_role_at_least(v_org, 'manager') and not public.fn_is_platform_admin_full() then
     raise exception 'forbidden_role';
   end if;
 
@@ -54503,6 +54507,136 @@ create trigger trg_messages_sincroniza_campanha
   when (new.direction = 'outbound')
   execute function public.fn_campanha_sincroniza_ack();
 
+-- ---- histórico do grupo no atendimento (migration 0764) ----
+
+-- Conversa de grupo que já existe nasce com o episódio datado na primeira
+-- mensagem dela: sem isto o conserto só valeria para grupo NOVO.
+update public.conversations c
+   set service_started_at = coalesce(
+         (select min(m.sent_at) from public.messages m
+           where m.organization_id = c.organization_id and m.conversation_id = c.id),
+         c.created_at)
+ where c.service_started_at is null
+   and (c.is_group or coalesce(c.group_chat_id,'') like '%@g.us');
+
+-- Carimbo retroativo das recebidas de grupo em conversa ABERTA: sem isto o
+-- histórico do grupo só passaria a existir para mensagem NOVA. Grupo não tem
+-- funil, então não há episódio anterior a distinguir — o que está aberto é o
+-- episódio corrente. Conversa encerrada fica de fora de propósito: ela pertence
+-- a um episódio fechado, e quando reabrir começa outro (o carimbo vem na
+-- reabertura, em `reabrirSeFechada`).
+update public.messages m
+   set service_revision = c.service_revision
+  from public.conversations c
+ where c.organization_id = m.organization_id
+   and c.id = m.conversation_id
+   and (c.is_group or coalesce(c.group_chat_id,'') like '%@g.us')
+   and c.status not in ('closed','resolved','archived')
+   and m.direction = 'inbound'
+   and m.service_revision is null;
+
+create or replace function public.fn_service_inbound(p_message uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+ m public.messages;
+ c public.conversations;
+ d public.demandas;
+ reopened boolean;
+ keep_owner boolean;
+ pre_contact uuid;
+begin
+ select * into m from public.messages where id = p_message;
+ if not found or m.direction <> 'inbound' or m.service_revision is not null then return; end if;
+ select * into c from public.conversations where id = m.conversation_id;
+ if not found or c.organization_id is distinct from m.organization_id
+    or c.channel_session_id is distinct from m.channel_session_id
+    or not exists(select 1 from public.channel_sessions where id=m.channel_session_id and organization_id=m.organization_id)
+ then raise exception 'service_scope_mismatch' using errcode='23503'; end if;
+ -- #2729 — GRUPO: sem demanda (grupo não tem funil, como no desenho aprovado),
+ -- mas COM o carimbo do episódio, que faltava e esvaziava o histórico do turno:
+ -- `getLeadContext` só inclui recebida com `messages.service_revision =
+ -- c.service_revision`, e a saída cedo daqui deixava TODA recebida de grupo com
+ -- revisão nula.
+ --
+ -- A conversa ENCERRADA continua saindo cedo: quem reabre grupo é o ingest
+ -- (`reabrirSeFechada`, em lib/grupos/ingest.ts), DEPOIS do insert, e carimbar
+ -- aqui poria a mensagem no episódio VELHO — a revisão sobe na reabertura.
+ if c.is_group or coalesce(c.group_chat_id,'') like '%@g.us' then
+   if c.status in ('closed','resolved','archived') then return; end if;
+   -- Conversa de grupo anterior a este carimbo nasce sem `service_started_at`, e
+   -- `messages.sent_at >= NULL` nunca é verdade: toda enviada sairia do
+   -- histórico. O campo passa a valer a partir da primeira mensagem que chega.
+   if c.service_started_at is null then
+     update public.conversations set service_started_at=m.sent_at
+      where id=c.id and organization_id=c.organization_id returning * into c;
+   end if;
+   update public.messages set service_revision=c.service_revision
+    where id=m.id and organization_id=c.organization_id;
+   return;
+ end if;
+
+ if c.contact_id is distinct from m.contact_id
+    or not exists(select 1 from public.contacts where id=m.contact_id and organization_id=m.organization_id)
+ then raise exception 'service_scope_mismatch' using errcode='23503'; end if;
+ pre_contact:=c.contact_id;
+ perform public.fn_service_lock(c.organization_id,c.contact_id);
+ select * into c from public.conversations where id=m.conversation_id and organization_id=m.organization_id for no key update;
+ if c.contact_id is distinct from pre_contact then raise exception 'service_contact_changed' using errcode='40001'; end if;
+ if m.sent_at <= c.service_closed_at then return; end if;
+ reopened := c.status in ('closed','resolved','archived');
+ -- Só quando a empresa ligou "a conversa fica com quem atendeu". O caminho é o
+ -- de lib/schemas/routing.ts, e só o booleano true liga: chave ausente ou com
+ -- outro valor = o comportamento de sempre (volta para a fila).
+ keep_owner := reopened and c.assigned_to_user_id is not null
+   and coalesce((select o.settings->'routing'->'conversation_stays_with_attendant' = 'true'::jsonb
+                   from public.organizations o where o.id = c.organization_id), false)
+   and coalesce(public.fn_member_role_in_org(c.assigned_to_user_id,c.organization_id),'none')
+     in ('agent','manager','admin');
+ if not reopened then
+   select x.* into d from public.demandas x join public.demanda_conversas dc on dc.demanda_id=x.id
+    where x.id=c.current_demanda_id and x.organization_id=c.organization_id and x.contact_id=c.contact_id
+      and dc.organization_id=c.organization_id and dc.conversation_id=c.id
+      and dc.service_revision=c.service_revision and x.fechada_em is null;
+ end if;
+ if d.id is null then
+   insert into public.demandas
+     (organization_id,contact_id,aberta_em,origem,estado,dono_kind,dono_user_id,proximo_passo)
+    values(c.organization_id,c.contact_id,m.sent_at,'inbound','aberta',
+      case when keep_owner then 'humano' else 'ia' end,
+      case when keep_owner then c.assigned_to_user_id else null end,
+      'Responder à nova mensagem do cliente') returning * into d;
+ end if;
+ if reopened then
+   update public.conversations set
+     status=case when keep_owner then 'claimed' else 'open' end,
+     status_changed_at=clock_timestamp(),
+     service_revision=service_revision+1,service_started_at=m.sent_at,
+     assigned_to_user_id=case when keep_owner then c.assigned_to_user_id else null end,
+     -- O relógio do episódio NOVO, não o do encerrado: o prazo de devolução
+     -- automática à IA (handoff_return_after_minutes) conta a partir do
+     -- último sinal humano, e assigned_at é um deles. Guardar o do episódio
+     -- antigo devolveria a conversa à IA no primeiro tick do cron.
+     assigned_at=case when keep_owner then clock_timestamp() else null end,
+     assignee_kind=case when keep_owner then 'user' else null end,
+     bot_silenced_until=case when keep_owner then 'infinity'::timestamptz else c.bot_silenced_until end,
+     active_ai_agent_id=null,
+     current_demanda_id=d.id
+    where id=c.id and organization_id=c.organization_id returning * into c;
+ else
+   update public.conversations set
+     service_revision=service_revision+case when current_demanda_id is not null and current_demanda_id<>d.id then 1 else 0 end,
+     service_started_at=case when current_demanda_id is not null and current_demanda_id<>d.id then m.sent_at else coalesce(service_started_at,m.sent_at) end,
+     current_demanda_id=d.id
+    where id=c.id and organization_id=c.organization_id returning * into c;
+ end if;
+ insert into public.demanda_conversas(organization_id,demanda_id,conversation_id,service_revision)
+  values(c.organization_id,d.id,c.id,c.service_revision) on conflict(demanda_id,conversation_id)
+  do update set service_revision=excluded.service_revision;
+ update public.messages set service_revision=c.service_revision,demanda_id=d.id,demanda_revision=d.revision
+  where id=m.id and organization_id=c.organization_id;
+end; $$;
+revoke execute on function public.fn_service_inbound(uuid) from public,anon,authenticated;
+grant execute on function public.fn_service_inbound(uuid) to service_role;
 -- ---- agenda e tarefas respeitam a visibilidade do atendente (migration 0680) ----
 -- manifest: agenda e tarefas passam a respeitar organizations.settings.visibility_mode — o agent vê e escreve só o que é dele, manager+ segue org-wide (#2902)
 --
@@ -56478,6 +56612,271 @@ begin
   return new;
 end;$fn$;
 revoke all on function public.fn_reply_inbound_revision() from public,anon,authenticated;
+
+notify pgrst, 'reload schema';
+
+-- ---- o histórico importado não é mensagem recebida (migration 0760, #999) ----
+--
+-- ─── O defeito ──────────────────────────────────────────────────────────────
+--
+-- O importador traz do celular as conversas que aconteceram ANTES de o número
+-- estar no CRM. Cada mensagem vira linha em `messages`, e `messages` tem três
+-- gatilhos de INSERT que não perguntam de onde a linha veio:
+--
+--   * `trg_messages_emit_event` → `message.received` (ou `message.sent`/
+--     `message.outbound` na saída). É o evento que acorda o agente de IA, a
+--     notificação push, o webhook de saída do cliente, a resposta de campanha
+--     e o follow-up de silêncio. Importar 2.000 mensagens seria 2.000 eventos,
+--     e a IA responderia quem falou há meses;
+--   * `trg_demanda_abre_no_inbound` → `fn_service_inbound`, que reabre a
+--     conversa encerrada (quando `sent_at` é posterior ao encerramento) e abre
+--     demanda nova com SLA ("Responder à nova mensagem do cliente");
+--   * `trg_reply_inbound_revision` → +1 na revisão de contexto.
+--
+-- Medido no banco do `baseline.sql` antes deste bloco
+-- (`tests/invariants/historico-importado-nao-dispara.test.ts`): a entrada
+-- importada nascia com `event_log` `["message.received"]` e `service_revision`
+-- carimbado; a saída importada, com `["message.sent"]`.
+--
+-- ─── A cura: o corte da reação (0684), com a chave do histórico ─────────────
+--
+-- O contrato da chave é o que a 0686 já escreveu e já respeita no
+-- `trg_mensagem_do_vendedor_e_atividade`: `metadata.historico_importado` como
+-- TEXTO `'true'`. A condição é a MESMA, letra por letra
+-- (`coalesce(new.metadata->>'historico_importado','') = 'true'`), para as quatro
+-- funções lerem a chave do mesmo jeito. Qualquer outro valor (`'false'`, ausente,
+-- booleano JSON) não corta — e o teste cobra o `'false'`.
+--
+-- O corte fica no CORPO, como na 0684, e pelas mesmas razões: o gatilho não é
+-- o único chamador e a regra mora onde é lida. A linha continua gravada — nada
+-- de recusar a escrita —, só não conta como fala: não emite evento, não chama
+-- `fn_service_inbound` (logo não ganha `service_revision` e o
+-- `trg_appointment_inbound` nunca a vê) e não mexe na revisão.
+--
+-- `trg_message_service_lock` (BEFORE INSERT) fica de fora pelo mesmo motivo da
+-- 0684: é só o mutex do atendimento, não transiciona estado nem emite evento.
+--
+-- ─── A conversa que o importador cria ───────────────────────────────────────
+--
+-- `fn_upsert_wa_conversation` cria a conversa `open`, sem dono — e
+-- `trg_conversation_routing_requested` (AFTER INSERT, `when` sem dono e
+-- `open`/`pending`) emite `conversation.routing_requested`: o worker de
+-- roteamento distribuiria uma conversa de meses atrás. A irmã nova,
+-- `fn_upsert_wa_conversation_importada`, usa a MESMA chave (organização +
+-- contato + sessão, `is_group = false`), devolve a conversa que já existe SEM
+-- tocar nela (nem `updated_at`: um UPDATE passaria pelos gatilhos de UPDATE de
+-- `conversations`), e só quando não existe cria uma `closed`, sem dono. O
+-- `when` do gatilho de roteamento não a vê. Uma mensagem NOVA de verdade do
+-- cliente, depois, passa por `fn_service_inbound` e reabre normalmente
+-- (`service_closed_at` nulo não segura nada).
+--
+-- Permissões da irmã: SECURITY DEFINER, só `service_role` executa. Aqui com
+-- `search_path = ''` e nomes qualificados (a forma que o Security Advisor pede,
+-- 0521).
+--
+-- Sem string de usuário, sem coluna, sem policy, sem RLS. Idempotente
+-- (`create or replace`; `revoke`/`grant` repetidos com a ACL da última
+-- definição de cada função).
+--
+-- Gate: `tests/invariants/historico-importado-nao-dispara.test.ts`.
+
+create or replace function public.fn_demanda_abre_no_inbound()
+returns trigger language plpgsql security definer set search_path=public as $fn$
+begin
+  -- A REAÇÃO NÃO É MENSAGEM RECEBIDA. Sem este corte, o INSERT da linha
+  -- `type='reaction'` chamava `fn_service_inbound`, que reabre a conversa
+  -- encerrada e abre uma demanda nova para um gesto que não é fala.
+  if new.type = 'reaction' then
+    return new;
+  end if;
+  -- O HISTÓRICO IMPORTADO É PASSADO, NÃO ATENDIMENTO (0760, #999). Sem este
+  -- corte, cada mensagem trazida do celular reabria a conversa e abria demanda
+  -- com SLA. Mesma chave e mesmo texto da 0686.
+  if coalesce(new.metadata->>'historico_importado','') = 'true' then
+    return new;
+  end if;
+  perform public.fn_service_inbound(new.id);
+  return new;
+end; $fn$;
+revoke execute on function public.fn_demanda_abre_no_inbound() from public,anon,authenticated;
+
+create or replace function public.fn_emit_message_event() returns trigger
+language plpgsql set search_path to 'public', 'pg_temp' as $fn$
+declare
+  v_event text;
+begin
+  -- A reação não vira evento. O `type='reaction'` sai antes de escolher o
+  -- evento: sem isto, a linha emitia `message.received` (ou, quando o operador
+  -- reagia, `message.outbound`) e acordava push, webhook de saída, campanha e
+  -- follow-up — consumidores que não filtram o tipo. Nenhum evento é a resposta
+  -- certa: reação não é mensagem, e não existe evento de reação.
+  if new.type = 'reaction' then
+    return new;
+  end if;
+  -- O histórico importado não vira evento, em NENHUMA direção (0760, #999):
+  -- `message.received` acordaria a IA para responder quem falou há meses, e
+  -- `message.sent`/`message.outbound` alimentaria webhook e métrica com o
+  -- passado. Mesma chave e mesmo texto da 0686.
+  if coalesce(new.metadata->>'historico_importado','') = 'true' then
+    return new;
+  end if;
+  if new.direction = 'inbound' then
+    if exists (select 1 from public.conversations c
+               where c.id = new.conversation_id and c.organization_id = new.organization_id and c.is_group) then
+      v_event := 'message.group_received';
+    else
+      v_event := 'message.received';
+    end if;
+  else
+    v_event := case new.status
+                 when 'sending' then 'message.sending'
+                 when 'sent' then 'message.sent'
+                 when 'failed' then 'message.failed'
+                 else 'message.outbound'
+               end;
+  end if;
+
+  perform public.fn_log_event(
+    new.organization_id, v_event,
+    jsonb_build_object(
+      'message_id', new.id, 'conversation_id', new.conversation_id,
+      'contact_id', new.contact_id, 'direction', new.direction,
+      'type', new.type, 'status', new.status, 'external_id', new.external_id,
+      'channel_session_id', new.channel_session_id,
+      'body_preview', "left"(new.body, 280)
+    )
+  );
+  return new;
+end$fn$;
+grant all on function public.fn_emit_message_event() to anon;
+grant all on function public.fn_emit_message_event() to authenticated;
+grant all on function public.fn_emit_message_event() to service_role;
+
+create or replace function public.fn_reply_inbound_revision() returns trigger language plpgsql security definer set search_path=public as $fn$
+begin
+  -- A revisão de contexto é "o cliente falou de novo" — e a reação não é fala.
+  -- Sem o corte, um 👍 somava +1 e invalidava o rascunho de resposta da tela à
+  -- toa, além de contar junto com a reabertura (que este bloco também acabou de
+  -- desligar). O histórico importado tampouco é fala de agora (0760, #999).
+  if new.direction='inbound' and new.type <> 'reaction'
+     and coalesce(new.metadata->>'historico_importado','') <> 'true' then
+    update public.conversations set reply_context_revision=reply_context_revision+1 where organization_id=new.organization_id and id=new.conversation_id and contact_id=new.contact_id;
+  end if;
+  return new;
+end;$fn$;
+revoke all on function public.fn_reply_inbound_revision() from public,anon,authenticated;
+
+create or replace function public.fn_upsert_wa_conversation_importada(
+  p_org uuid, p_contact uuid, p_session uuid, p_last_message_at timestamptz
+) returns uuid language plpgsql security definer set search_path = '' as $fn$
+declare v_id uuid;
+begin
+  -- A conversa que já existe volta INTOCADA: nem status, nem dono, nem
+  -- `updated_at` (um UPDATE passaria pelos gatilhos de UPDATE de conversations).
+  select c.id into v_id
+    from public.conversations c
+   where c.organization_id = p_org and c.contact_id = p_contact
+     and c.channel_session_id = p_session and c.is_group = false;
+  if v_id is not null then
+    return v_id;
+  end if;
+
+  -- Nasce `closed` e sem dono: o `when` de `trg_conversation_routing_requested`
+  -- (sem dono E `open`/`pending`) não a vê, e nada entra na fila do roteamento.
+  -- `last_message_at` é a data da última mensagem que o canal tem na conversa:
+  -- sem ela a inbox (`order by last_message_at desc nulls last`) jogaria toda
+  -- conversa importada para o fim da lista, sem data. Só no INSERT: conversa
+  -- existente já tem a data dela, e tocar nela passaria pelos gatilhos de UPDATE.
+  insert into public.conversations
+    (organization_id, contact_id, channel_session_id, channel, status, is_group, unread_count_for_assignee, metadata, last_message_at)
+  values (p_org, p_contact, p_session, 'whatsapp', 'closed', false, 0, '{}'::jsonb, p_last_message_at)
+  on conflict (organization_id, contact_id, channel_session_id) where is_group = false
+  do nothing
+  returning id into v_id;
+
+  -- Corrida: outro escritor criou a conversa entre o SELECT e o INSERT. A dele
+  -- vale, do jeito que ele a deixou.
+  if v_id is null then
+    select c.id into v_id
+      from public.conversations c
+     where c.organization_id = p_org and c.contact_id = p_contact
+       and c.channel_session_id = p_session and c.is_group = false;
+  end if;
+  return v_id;
+end; $fn$;
+
+comment on function public.fn_upsert_wa_conversation_importada(uuid, uuid, uuid, timestamptz) is
+  'Irmã de fn_upsert_wa_conversation para o importador de histórico do WhatsApp (#999): devolve a conversa 1:1 existente (organização + contato + sessão) sem tocar nela, ou cria uma closed e sem dono, com last_message_at = p_last_message_at — que não emite conversation.routing_requested. Só service_role.';
+
+revoke all on function public.fn_upsert_wa_conversation_importada(uuid, uuid, uuid, timestamptz) from public;
+revoke execute on function public.fn_upsert_wa_conversation_importada(uuid, uuid, uuid, timestamptz) from anon, authenticated;
+grant execute on function public.fn_upsert_wa_conversation_importada(uuid, uuid, uuid, timestamptz) to service_role;
+
+notify pgrst, 'reload schema';
+
+-- ---- estado da importação do histórico do WhatsApp (migration 0761, #999) ----
+--
+-- A importação traz do celular as conversas anteriores à conexão do número, em
+-- RODADAS curtas que retomam de onde pararam (`lib/channels/historico/rodada.ts`).
+-- O cursor e os contadores precisam sobreviver entre uma rodada e outra, e a
+-- tela precisa ler o andamento: daí a tabela.
+--
+-- Uma `rodando` por número (índice único parcial): impede duas IMPORTAÇÕES
+-- `rodando` no mesmo número, que andariam o mesmo acervo com cursores
+-- diferentes. NÃO impede duas EXECUÇÕES da mesma importação (é a mesma linha).
+-- O que a rodada faz é gravar com update condicional
+-- (`... where id = $1 and status = 'rodando'`): a importação que saiu de
+-- `rodando` durante a rodada (cancelada, por exemplo) não é sobrescrita. Duas
+-- execuções SIMULTÂNEAS, ambas vendo `rodando`, passam as duas pelo update; a
+-- deduplicação por `external_id` evita linha repetida, mas o cursor e os
+-- contadores ficam com a última. Serializar as rodadas é de quem as dispara.
+-- `previa`,
+-- `concluida`, `erro` e `cancelada` não entram no índice: o histórico de
+-- importações fica.
+--
+-- Leitura por membro da organização (`fn_user_org_ids`, o padrão das tabelas
+-- por org); escrita só pelo `service_role`: nenhuma policy de escrita e nenhum
+-- grant de escrita para `authenticated`.
+--
+-- Não cria função; fica ANTES das proteções do fim do arquivo (0325/0274), que
+-- precisam ver toda tabela de organização na primeira aplicação.
+--
+-- Gate: `tests/invariants/importacoes-de-historico-rls.test.ts`.
+
+create table if not exists public.importacoes_de_historico (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  channel_session_id uuid not null references public.channel_sessions(id) on delete cascade,
+  status text not null default 'previa'
+    check (status in ('previa', 'rodando', 'concluida', 'erro', 'cancelada')),
+  dias int not null check (dias in (30, 90, 180, 365)),
+  cursor jsonb not null default '{}'::jsonb,
+  previa jsonb,
+  conversas_feitas int not null default 0,
+  mensagens_gravadas int not null default 0,
+  mensagens_existentes int not null default 0,
+  mensagens_ignoradas int not null default 0,
+  midias_baixadas int not null default 0,
+  midias_indisponiveis int not null default 0,
+  erro text,
+  criada_por uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists importacoes_de_historico_uma_rodando_idx
+  on public.importacoes_de_historico (channel_session_id)
+  where status = 'rodando';
+create index if not exists importacoes_de_historico_org_idx
+  on public.importacoes_de_historico (organization_id, created_at desc);
+
+alter table public.importacoes_de_historico enable row level security;
+drop policy if exists tenant_isolation_importacoes_de_historico_select on public.importacoes_de_historico;
+create policy tenant_isolation_importacoes_de_historico_select on public.importacoes_de_historico
+  for select using (organization_id in (select public.fn_user_org_ids()));
+revoke all on public.importacoes_de_historico from public, anon, authenticated;
+grant select on public.importacoes_de_historico to authenticated;
+grant all on public.importacoes_de_historico to service_role;
 
 notify pgrst, 'reload schema';
 
@@ -59681,7 +60080,207 @@ $$;
 revoke execute on function public.fn_enfileirar_midia_vencida(integer) from public, anon, authenticated;
 grant execute on function public.fn_enfileirar_midia_vencida(integer) to service_role;
 
--- ---- o número oficial conectado com um clique, pela instalação (migration 0760) ----
+-- ---- leitura sensível pelo poder de plataforma pede a sessão confirmada (migration 0762) ----
+-- `decrypt_cpf` troca `fn_is_platform_admin()` por `fn_is_platform_admin_full()`
+-- (scope full + aal2 de quem tem fator, 0757). Corpo IDÊNTICO ao da migration;
+-- ANTES da VARREDURA anon, porque recria função.
+create or replace function public.decrypt_cpf(p_contact_id uuid) returns text
+    language plpgsql security definer
+    set search_path to 'public', 'private', 'extensions', 'pg_temp'
+    as $$
+declare
+  v_cipher bytea;
+  v_org    uuid;
+begin
+  select cpf_encrypted, organization_id into v_cipher, v_org
+    from public.contacts where id = p_contact_id;
+
+  -- Guardas na MESMA ordem da 0240 (#754): null, depois o piso medido, depois a
+  -- cara de pacote PGP, e só então decifra — `get_byte` em bytea vazio estoura.
+  -- `contacts.cpf_encrypted` é nullable (não há linha de enfeite), mas cifra nova
+  -- carrega guarda nova: é o que a catraca `credencial-de-enfeite` cobra.
+  if v_cipher is null then return null; end if;
+  if octet_length(v_cipher) < 66 then
+    raise exception 'cpf_ciphertext_invalido';
+  end if;
+  if get_byte(v_cipher, 0) < 128 then
+    raise exception 'cpf_ciphertext_invalido';
+  end if;
+
+  -- Tenancy: só quem pertence à organização do contato (ou o poder de
+  -- plataforma com `scope = 'full'` e a sessão confirmada — ver a 0762).
+  -- `fn_user_org_ids()` devolve SETOF uuid — a spec 02 escrevia
+  -- `x.organization_id`, que não compila contra a assinatura real.
+  if not exists (
+    select 1 from public.fn_user_org_ids() o where o = v_org
+  ) and not public.fn_is_platform_admin_full() then
+    raise exception 'forbidden_org';
+  end if;
+
+  -- Papel: a mesma régua de getContactHandler (manager+), conferida também
+  -- dentro da função, como fazem as funções irmãs.
+  if not public.fn_role_at_least(v_org, 'manager') and not public.fn_is_platform_admin_full() then
+    raise exception 'forbidden_role';
+  end if;
+
+  -- Audit antes do plaintext: decrypt sem rastro é decrypt que a LGPD não vê.
+  insert into public.api_audit_log
+    (organization_id, actor_user_id, action, resource_type, resource_id, metadata)
+  values
+    (v_org, auth.uid(), 'contact.cpf_decrypted', 'contact', p_contact_id,
+     jsonb_build_object('purpose', current_setting('app.decrypt_purpose', true)));
+
+  return pgp_sym_decrypt(v_cipher, private.fn_cpf_key());
+end$$;
+
+revoke execute on function public.decrypt_cpf(uuid) from public, anon;
+grant  execute on function public.decrypt_cpf(uuid) to authenticated, service_role;
+
+-- ---- lembrete de caso parado: relógio por espera e cadência da organização (migration 0766) ----
+-- manifest: **Lembrete de caso parado com relógio por espera e cadência da organização (#2584, parte i, de @Atlasads).** `organizations` ganha `lembrete_caso_ligado` (default true), `lembrete_caso_intervalo_horas` (default 24, CHECK 1..168) e `lembrete_caso_teto` (default 3, CHECK 1..10): o default é o comportamento que o `case-stale-watcher` já tinha, então nenhuma instalação muda sozinha. `agent_cases` ganha `espera_desde` e `cobrancas_na_espera`, mantidos pelo gatilho `trg_caso_marca_inicio_da_espera` (toda entrada em `awaiting_human` zera o relógio e o contador da espera), e `fn_casos_parados_para_lembrar` (só `service_role`) devolve os casos vencidos. `followup_attempts` continua contando a vida inteira do caso (o Índice de Atrito lê). Backfill sem rajada: caso que já espera começa a contar em `now()` e herda os avisos já gastos. Idempotente; apêndice espelhado no `baseline.sql`, antes do bloco da varredura de anon; `MANIFEST.md` é histórico e não recebe linha.
+
+-- 0766 — lembrete de caso parado: relógio por espera e cadência da organização.
+--
+-- Trabalho de @Atlasads no PR #2584 (parte dos lembretes), trazido para um PR
+-- nosso a partir da `main` e reduzido ao que o vigia que já existe precisava.
+--
+-- ─── O defeito que isto conserta ───────────────────────────────────────────
+--
+-- O `case-stale-watcher` cobrava pelo `followup_attempts`, que NUNCA zera. Um
+-- caso cobrado três vezes, que foi ao cliente (`awaiting_lead`) e voltou para
+-- a equipe, nunca mais era lembrado: a espera nova herdava o teto da antiga.
+-- E o relógio era `updated_at`, que mede "alguém mexeu na linha", não "desde
+-- quando a equipe deve uma resposta".
+--
+-- ─── O que entra ───────────────────────────────────────────────────────────
+--
+--   1. Três colunas em `organizations`, com CHECK: ligado, intervalo em horas
+--      e teto por espera. Coluna e não `settings` jsonb: o banco segura a
+--      faixa, e a tela e o vigia leem o mesmo nome. Os defaults (ligado, 24 h,
+--      3) são o comportamento de antes.
+--   2. Duas colunas em `agent_cases`: `espera_desde` (quando esta espera pela
+--      equipe começou) e `cobrancas_na_espera` (avisos já dados NESTA espera).
+--      `followup_attempts` segue sendo o total da vida do caso, porque
+--      `fn_atrito_metrics` o lê como insistência.
+--   3. O gatilho que mantém as duas: toda vez que o caso ENTRA em
+--      `awaiting_human` (nasce assim, ou volta do cliente), o relógio vai para
+--      `now()` e o contador para zero. Gatilho e não código de aplicação: cada
+--      transição de `lib/agent-engine/agent/human-cases.ts` é um UPDATE
+--      próprio, e a próxima que alguém escrever esqueceria o relógio. Não faz HTTP.
+--   4. `fn_casos_parados_para_lembrar(p_limite)`: o aviso N de uma espera
+--      vence em `espera_desde + N × intervalo`. A conta cruza a linha do caso
+--      com a da organização, e por isso mora no banco; o `LIMIT` sem ela
+--      voltaria casos ainda não vencidos e esconderia os vencidos atrás deles.
+--
+-- ─── Sem rajada na atualização ─────────────────────────────────────────────
+--
+-- O caso que JÁ espera a equipe quando esta migration roda começa a contar em
+-- `now()` (e não pelo último `lead_provided`, que dispararia de uma vez todos
+-- os avisos atrasados) e herda os avisos que já recebeu: quem já atingiu o
+-- teto não é cobrado de novo nesta espera. O `where espera_desde is null`
+-- torna o backfill seguro para o `update.sh`, que re-aplica o arquivo.
+--
+-- ─── Reaplicação ───────────────────────────────────────────────────────────
+--
+-- `add column if not exists`; as duas CHECK trocadas dentro de um bloco DO
+-- (com o `update.sh` sem ON_ERROR_STOP, `drop` e `add` soltos deixariam a
+-- coluna sem guarda se o `add` falhasse); `create or replace function`;
+-- `drop trigger if exists` + `create trigger`.
+
+alter table public.organizations
+  add column if not exists lembrete_caso_ligado boolean not null default true,
+  add column if not exists lembrete_caso_intervalo_horas smallint not null default 24,
+  add column if not exists lembrete_caso_teto smallint not null default 3;
+
+do $$
+begin
+  alter table public.organizations drop constraint if exists organizations_lembrete_caso_intervalo_check;
+  alter table public.organizations add constraint organizations_lembrete_caso_intervalo_check
+    check (lembrete_caso_intervalo_horas between 1 and 168);
+  alter table public.organizations drop constraint if exists organizations_lembrete_caso_teto_check;
+  alter table public.organizations add constraint organizations_lembrete_caso_teto_check
+    check (lembrete_caso_teto between 1 and 10);
+end
+$$;
+
+comment on column public.organizations.lembrete_caso_ligado is
+  'Se a Central lembra a equipe do caso que espera uma decisão (case-stale-watcher). Default true: o comportamento de antes da 0766.';
+comment on column public.organizations.lembrete_caso_intervalo_horas is
+  'Horas entre o início da espera e cada lembrete: o aviso N vence em espera_desde + N × intervalo. Default 24.';
+comment on column public.organizations.lembrete_caso_teto is
+  'Quantos lembretes cada espera recebe no máximo. Default 3.';
+
+alter table public.agent_cases
+  add column if not exists espera_desde timestamptz,
+  add column if not exists cobrancas_na_espera smallint not null default 0;
+
+comment on column public.agent_cases.espera_desde is
+  'Quando a espera atual pela equipe começou (o caso entrou em awaiting_human). Mantido por trg_caso_marca_inicio_da_espera.';
+comment on column public.agent_cases.cobrancas_na_espera is
+  'Lembretes dados nesta espera. Volta a zero quando o caso volta para a equipe; followup_attempts é o total da vida do caso.';
+
+-- Sem rajada: quem já espera conta a partir de agora, com o que já gastou.
+update public.agent_cases
+   set espera_desde = now(),
+       cobrancas_na_espera = followup_attempts
+ where status = 'awaiting_human'
+   and espera_desde is null;
+
+create or replace function public.fn_caso_marca_inicio_da_espera()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.status = 'awaiting_human'
+     and (tg_op = 'INSERT' or old.status is distinct from 'awaiting_human') then
+    new.espera_desde := now();
+    new.cobrancas_na_espera := 0;
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.fn_caso_marca_inicio_da_espera() from public, anon, authenticated;
+
+drop trigger if exists trg_caso_marca_inicio_da_espera on public.agent_cases;
+create trigger trg_caso_marca_inicio_da_espera
+  before insert or update of status on public.agent_cases
+  for each row execute function public.fn_caso_marca_inicio_da_espera();
+
+create or replace function public.fn_casos_parados_para_lembrar(p_limite integer default 200)
+returns table (
+  id uuid,
+  organization_id uuid,
+  title text,
+  opened_at timestamptz,
+  followup_attempts smallint,
+  cobrancas_na_espera smallint,
+  teto smallint
+)
+language sql
+stable
+set search_path = public
+as $$
+  select c.id, c.organization_id, c.title, c.opened_at, c.followup_attempts,
+         c.cobrancas_na_espera, o.lembrete_caso_teto
+    from public.agent_cases c
+    join public.organizations o on o.id = c.organization_id
+   where c.status = 'awaiting_human'
+     and o.lembrete_caso_ligado
+     and c.cobrancas_na_espera < o.lembrete_caso_teto
+     and c.espera_desde <= now()
+           - make_interval(hours => o.lembrete_caso_intervalo_horas * (c.cobrancas_na_espera + 1))
+   order by c.espera_desde
+   limit greatest(1, least(coalesce(p_limite, 200), 1000));
+$$;
+
+revoke execute on function public.fn_casos_parados_para_lembrar(integer) from public, anon, authenticated;
+grant execute on function public.fn_casos_parados_para_lembrar(integer) to service_role;
+
+notify pgrst, 'reload schema';
+
+-- ---- o número oficial conectado com um clique, pela instalação (migration 0781) ----
 --
 -- ═══ O que o cliente da instalação não conseguia ═══
 --
@@ -59720,17 +60319,17 @@ alter table public.channel_sessions
   check (not (zernio_credencial_da_instalacao and zernio_token_encrypted is not null));
 
 comment on column public.channel_sessions.zernio_profile_id is
-  'Perfil do provedor parceiro em que a conta foi conectada. Só a conexão por um clique o grava: é por ele que a volta confere que a conta conectada é desta organização. Migration 0760.';
+  'Perfil do provedor parceiro em que a conta foi conectada. Só a conexão por um clique o grava: é por ele que a volta confere que a conta conectada é desta organização. Migration 0781.';
 comment on column public.channel_sessions.zernio_webhook_id is
-  'Assinatura de webhook que a INSTALAÇÃO registrou no provedor para esta conta (filtrada por accountIds). Nulo quando o operador configurou o webhook à mão. É por ele que a remoção do canal apaga a assinatura. Migration 0760.';
+  'Assinatura de webhook que a INSTALAÇÃO registrou no provedor para esta conta (filtrada por accountIds). Nulo quando o operador configurou o webhook à mão. É por ele que a remoção do canal apaga a assinatura. Migration 0781.';
 comment on column public.channel_sessions.zernio_credencial_da_instalacao is
-  'true = a sessão fala com o provedor pela chave da INSTALAÇÃO (platform_config), resolvida na hora; zernio_token_encrypted fica nulo. false = chave própria da organização, cifrada em zernio_token_encrypted. Migration 0760.';
+  'true = a sessão fala com o provedor pela chave da INSTALAÇÃO (platform_config), resolvida na hora; zernio_token_encrypted fica nulo. false = chave própria da organização, cifrada em zernio_token_encrypted. Migration 0781.';
 
 
--- ---- o webhook da conexão por um clique é ÚNICO na instalação (migration 0761) ----
--- 0761 — o webhook da conexão por um clique passa a ser ÚNICO na instalação.
+-- ---- o webhook da conexão por um clique é ÚNICO na instalação (migration 0782) ----
+-- 0782 — o webhook da conexão por um clique passa a ser ÚNICO na instalação.
 --
--- A 0760 gravava em `zernio_webhook_id` a assinatura que a instalação registrava
+-- A 0781 gravava em `zernio_webhook_id` a assinatura que a instalação registrava
 -- PARA CADA NÚMERO. O provedor limita as assinaturas por conta e recomenda um
 -- endpoint para todos os clientes: agora as conexões por um clique entram por
 -- um webhook só da instalação (id e segredo em `platform_config`, filtrado aos
@@ -59739,21 +60338,21 @@ comment on column public.channel_sessions.zernio_credencial_da_instalacao is
 --
 -- Só documentação no banco: nenhum dado muda, nenhuma coluna nova.
 comment on column public.channel_sessions.zernio_webhook_id is
-  'Assinatura de webhook que entrega os eventos desta conta, registrada pela INSTALAÇÃO. Na conexão por um clique é o webhook ÚNICO da instalação (compartilhado, filtrado aos perfis das conexões ativas; id em platform_config): a remoção do canal tira o perfil do filtro e NÃO apaga a assinatura. Na chave própria é a assinatura do número (filtrada à conta), apagada na remoção. Nulo quando o operador configurou o webhook à mão. Migrations 0760 e 0761.';
+  'Assinatura de webhook que entrega os eventos desta conta, registrada pela INSTALAÇÃO. Na conexão por um clique é o webhook ÚNICO da instalação (compartilhado, filtrado aos perfis das conexões ativas; id em platform_config): a remoção do canal tira o perfil do filtro e NÃO apaga a assinatura. Na chave própria é a assinatura do número (filtrada à conta), apagada na remoção. Nulo quando o operador configurou o webhook à mão. Migrations 0781 e 0782.';
 
--- ---- aviso por modelo aprovado (migration 0762) ----
+-- ---- aviso por modelo aprovado (migration 0783) ----
 -- `config_aviso_de_caso.modelo_id`: o modelo aprovado, com UMA variável no
 -- corpo, que leva o aviso à equipe quando a conexão escolhida só manda modelo
 -- fora da janela de 24 h. `fn_definir_aviso_de_caso` ganha `p_modelo` e confere
 -- que o modelo é desta organização e desta conexão. Entra ANTES da VARREDURA
--- anon porque recria uma função. Cabeçalho da 0762 para o racional inteiro.
+-- anon porque recria uma função. Cabeçalho da 0783 para o racional inteiro.
 
 alter table public.config_aviso_de_caso
   add column if not exists modelo_id uuid
     references public.meta_templates(id) on delete set null;
 
 comment on column public.config_aviso_de_caso.modelo_id is
-  'Modelo aprovado (meta_templates) que leva o aviso quando a conexão só manda modelo fora da janela de 24 h. Uma variável só, no corpo: o texto do aviso entra nela numa linha só. Nulo = texto livre (a conexão precisa aceitar). Migration 0762.';
+  'Modelo aprovado (meta_templates) que leva o aviso quando a conexão só manda modelo fora da janela de 24 h. Uma variável só, no corpo: o texto do aviso entra nela numa linha só. Nulo = texto livre (a conexão precisa aceitar). Migration 0783.';
 
 -- A função ganha o oitavo parâmetro. `create or replace` com outra lista de
 -- parâmetros cria OUTRA função: a de 7 sai logo abaixo, senão o PostgREST teria
@@ -59807,7 +60406,7 @@ begin
     end if;
   end if;
 
-  -- O MODELO APROVADO é DESTA organização e DESTA conexão (migration 0762). A
+  -- O MODELO APROVADO é DESTA organização e DESTA conexão (migration 0783). A
   -- mesma regra de `lib/channels/linha-do-espelho.ts`: a linha gravada para a
   -- conexão, ou a linha sem conexão da conta oficial dela. Sem isto, a FK
   -- simples deixaria apontar para o modelo de outro tenant ou de outro número,
@@ -59909,6 +60508,163 @@ $$;
 revoke all on function public.fn_definir_aviso_de_caso(uuid,uuid,text,text,boolean,boolean,boolean,uuid) from public, anon;
 grant execute on function public.fn_definir_aviso_de_caso(uuid,uuid,text,text,boolean,boolean,boolean,uuid) to authenticated;
 drop function if exists public.fn_definir_aviso_de_caso(uuid,uuid,text,text,boolean,boolean,boolean);
+
+-- ---- o molde de IA das empresas novas: as funções e o gatilho (migration 0780) ----
+--
+-- A PRIMEIRA metade da 0780, aqui porque cria FUNÇÃO e a VARREDURA anon (logo
+-- abaixo) proíbe `create function` depois dela. A coluna
+-- `platform_settings.molde_de_ia_org_id` nasce na SEGUNDA metade, no fim do
+-- arquivo: numa instalação NOVA `platform_settings` só é criada mais adiante
+-- (0253). Quem ATUALIZA já tem a tabela, e o `do` abaixo cria a coluna AQUI,
+-- antes do gatilho que a lê — sem ele, uma empresa criada durante o
+-- `update.sh`, entre as duas metades, falharia por coluna inexistente. As
+-- funções são plpgsql: o corpo não é conferido contra o catálogo ao criar, só
+-- ao rodar. Cabeçalho da 0780 para o racional inteiro.
+do $$
+begin
+  if to_regclass('public.platform_settings') is not null then
+    alter table public.platform_settings
+      add column if not exists molde_de_ia_org_id uuid
+        references public.organizations(id) on delete set null;
+  end if;
+end $$;
+
+-- O padrão do molde, quando há um molde e o padrão dele serve à empresa nova.
+-- Definer porque lê `platform_settings` (sem policy, só service_role) e a linha
+-- de OUTRA organização; quem chama são os dois gatilhos abaixo, também definer.
+create or replace function public.fn_llm_do_molde_de_ia()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_llm jsonb;
+begin
+  select jsonb_build_object(
+           'provider', o.settings->'llm'->>'provider',
+           'default_model', o.settings->'llm'->>'default_model')
+    into v_llm
+    from public.platform_settings ps
+    join public.organizations o on o.id = ps.molde_de_ia_org_id
+   where ps.id = 1
+     and o.settings->'llm'->>'provider' in ('anthropic', 'openai', 'openrouter')
+     and coalesce(btrim(o.settings->'llm'->>'default_model'), '') <> '';
+  return v_llm;
+end;
+$$;
+
+revoke execute on function public.fn_llm_do_molde_de_ia() from public, anon, authenticated;
+
+-- O padrão de quem nasce: o que veio de quem cria, senão o do molde, senão o do
+-- produto. Corpo da 0096 com o degrau do molde no meio. Passa a ser definer
+-- (com `search_path` vazio) para a leitura do molde não depender do papel de
+-- quem insere a organização.
+create or replace function public.fn_seed_org_llm_defaults()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_llm jsonb;
+begin
+  if coalesce(new.settings->'llm'->>'default_model', '') = '' then
+    v_llm := public.fn_llm_do_molde_de_ia();
+    if v_llm is null then
+      v_llm := jsonb_build_object(
+        'provider', 'anthropic',
+        'default_model', coalesce(
+          (select m.model_id from public.ai_models m
+            where m.provider = 'anthropic' and m.is_default_for_provider
+              and m.deprecated_at is null limit 1),
+          'claude-sonnet-4-6'));
+    end if;
+    new.settings := jsonb_set(
+      coalesce(new.settings, '{}'::jsonb),
+      '{llm}',
+      coalesce(new.settings->'llm', '{}'::jsonb) || v_llm,
+      true);
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.fn_seed_org_llm_defaults() from public, anon, authenticated;
+
+-- As funções do molde vão para a empresa nova, e o efeito fica na auditoria
+-- DELA — é onde Painel › Empresas › [empresa] o lê.
+create or replace function public.fn_molde_de_ia_na_org_nova()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_molde          uuid;
+  v_copiadas       integer := 0;
+  v_deixadas       integer := 0;
+  v_llm            jsonb;
+  v_padrao_copiado boolean;
+begin
+  select ps.molde_de_ia_org_id into v_molde
+    from public.platform_settings ps
+   where ps.id = 1;
+  if v_molde is null then
+    return null;
+  end if;
+
+  with copiadas as (
+    insert into public.ai_purpose_bindings
+      (organization_id, purpose, provider, credential_id, model_id, base_url, is_enabled)
+    select new.id, b.purpose, b.provider, null::uuid, b.model_id, null::text, b.is_enabled
+      from public.ai_purpose_bindings b
+     where b.organization_id = v_molde
+       and nullif(btrim(b.base_url), '') is null
+       and b.provider in ('anthropic', 'openai', 'openrouter')
+    on conflict (organization_id, purpose) do nothing
+    returning 1
+  )
+  select count(*) into v_copiadas from copiadas;
+
+  select count(*) into v_deixadas
+    from public.ai_purpose_bindings b
+   where b.organization_id = v_molde
+     and not (nullif(btrim(b.base_url), '') is null
+              and b.provider in ('anthropic', 'openai', 'openrouter'));
+
+  -- O padrão foi decidido pelo BEFORE (`fn_seed_org_llm_defaults`); aqui só se
+  -- confere se ele é o do molde, para a auditoria dizer a verdade.
+  v_llm := public.fn_llm_do_molde_de_ia();
+  v_padrao_copiado := v_llm is not null
+    and ((new.settings->'llm')->>'provider') is not distinct from (v_llm->>'provider')
+    and ((new.settings->'llm')->>'default_model') is not distinct from (v_llm->>'default_model');
+
+  if v_copiadas = 0 and not v_padrao_copiado then
+    return null;
+  end if;
+
+  insert into public.api_audit_log
+    (organization_id, action, resource_type, resource_id, bypassed_rls, metadata)
+  values (
+    new.id, 'ai.molde_de_ia_aplicado', 'organization', new.id, true,
+    jsonb_build_object(
+      'molde_org_id', v_molde,
+      'funcoes_copiadas', v_copiadas,
+      'funcoes_deixadas', v_deixadas,
+      'padrao_copiado', v_padrao_copiado,
+      'padrao', case when v_padrao_copiado then v_llm end));
+  return null;
+end;
+$$;
+
+revoke execute on function public.fn_molde_de_ia_na_org_nova() from public, anon, authenticated;
+
+drop trigger if exists trg_molde_de_ia_na_org_nova on public.organizations;
+create trigger trg_molde_de_ia_na_org_nova
+  after insert on public.organizations
+  for each row execute function public.fn_molde_de_ia_na_org_nova();
 
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
@@ -60678,6 +61434,127 @@ on conflict (id) do update
   set public             = excluded.public,
       file_size_limit    = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;
+
+-- ---- meta mensal por indicador (migration 0756, #3025, fatia 1) ----
+-- manifest: **Meta mensal de um indicador, por organização (#3025, fatia 1: quantidade de vendas ganhas).** A tabela nova `crm_metas` guarda o ALVO da empresa — `organization_id`, `periodo` (sempre o 1º dia do mês na data de calendário), `indicador` (`vendas_ganhas` nesta fatia), `pipeline_id` opcional (nulo = a empresa inteira) e `alvo` (quantidade). A leitura é org-scoped sem gate de papel (a tela de Desempenho mostra a meta da empresa a qualquer membro); a ESCRITA é `manager+` com auditoria, pela Server Action `definirMetaMensal`. Aditiva e idempotente: o mesmo bloco entra no fim do `baseline.sql`, que é o arquivo que o kit self-host aplica.
+-- ============================================================================
+-- 0756 — META MENSAL POR INDICADOR (#3025, fatia 1)
+--
+-- ─── O que faltava ──────────────────────────────────────────────────────────
+-- A tela Desempenho mostrava só o REALIZADO: contagens por atendente e as
+-- barras do funil. Não havia onde dizer "este mês a empresa quer 40 vendas
+-- ganhas", nem, por consequência, um DENOMINADOR — sem alvo não existe
+-- percentual, e sem percentual o dono compara meses de cabeça. Toda meta
+-- existia como número na cabeça de quem cobra.
+--
+-- ─── Por que uma tabela, e não uma coluna de `organizations.settings` ───────
+-- Porque meta é LINHA, não configuração: ela tem período, tem indicador, tem
+-- autor e vai ter histórico (o alvo de março precisa sobreviver à chegada de
+-- abril, senão a comparação entre meses nasce mentirosa). Guardar em `settings`
+-- daria uma meta só, a última, e apagaria a anterior no mesmo UPDATE.
+--
+-- ─── O período é DATE do 1º dia, e a constraint é o que o mantém assim ──────
+-- `periodo = date_trunc('month', periodo)` recusa '2026-10-15'. Sem isso, duas
+-- pessoas cadastrando "outubro" em dias diferentes criariam duas linhas que a
+-- tela leria como metas distintas do mesmo mês.
+--
+-- ─── `pipeline_id` nulo é a META DA EMPRESA ────────────────────────────────
+-- A fatia 1 cadastra e lê a meta da empresa inteira: `pipeline_id is null`. A
+-- coluna e o índice por funil nascem agora para que a fatia seguinte (recorte
+-- por funil) seja INSERT, e não migration de schema — o desenho já comporta o
+-- que vem, sem prometer o que ainda não é lido.
+--
+-- ─── Leitura e escrita ─────────────────────────────────────────────────────
+-- LEITURA: org-scoped pela policy `select` (`fn_user_org_ids`), sem gate de
+-- papel — o atendente precisa ver o alvo que a empresa persegue, e é o número
+-- que a própria tela dele mostra. ESCRITA: `manager+` (insert/update), NUNCA
+-- `for all`: a lição da 0553 é que `for all` faz toda LEITURA avaliar
+-- `fn_role_at_least` linha a linha e estoura o statement_timeout da tela.
+-- Apagar meta fica FORA desta fatia (não há policy de `delete` e o comando não
+-- é concedido a `authenticated`): corrigir é gravar de novo por cima.
+-- ============================================================================
+
+create table if not exists public.crm_metas (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  -- 1º dia do mês: a constraint abaixo é o que garante.
+  periodo date not null,
+  indicador text not null default 'vendas_ganhas',
+  -- nulo = a meta da EMPRESA inteira (fatia 1); preenchido = a meta daquele funil.
+  pipeline_id uuid references public.crm_pipelines (id) on delete cascade,
+  alvo integer not null,
+  -- Sem FK de cascata dura: quem cadastrou pode sair da instalação, e a meta
+  -- continua sendo da empresa.
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint crm_metas_periodo_e_o_primeiro_dia
+    check (periodo = date_trunc('month', periodo)::date),
+  constraint crm_metas_indicador_conhecido
+    check (indicador in ('vendas_ganhas')),
+  constraint crm_metas_alvo_positivo
+    check (alvo > 0)
+);
+
+-- Uma meta da empresa por mês/indicador e uma meta por funil. Índices PARCIAIS
+-- e não uma constraint única com `nulls not distinct`: `pipeline_id` nulo não
+-- seria comparável em igualdade, e um alvo "igual a outro" com nulos passaria.
+create unique index if not exists crm_metas_uma_por_empresa_periodo_idx
+  on public.crm_metas (organization_id, periodo, indicador)
+  where pipeline_id is null;
+
+create unique index if not exists crm_metas_uma_por_funil_periodo_idx
+  on public.crm_metas (organization_id, periodo, indicador, pipeline_id)
+  where pipeline_id is not null;
+
+-- A leitura da tela de Desempenho é por organização e por janela.
+create index if not exists crm_metas_org_periodo_idx
+  on public.crm_metas (organization_id, periodo desc);
+
+alter table public.crm_metas enable row level security;
+
+drop policy if exists crm_metas_select on public.crm_metas;
+create policy crm_metas_select on public.crm_metas
+  for select using (
+    (organization_id in (select public.fn_user_org_ids())) or (select public.fn_is_platform_admin())
+  );
+
+drop policy if exists crm_metas_insert on public.crm_metas;
+create policy crm_metas_insert on public.crm_metas
+  for insert with check (
+    (select public.fn_is_platform_admin_full())
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and public.fn_role_at_least(organization_id, 'manager'))
+  );
+
+drop policy if exists crm_metas_write on public.crm_metas;
+create policy crm_metas_write on public.crm_metas
+  for update using (
+    (select public.fn_is_platform_admin_full())
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and public.fn_role_at_least(organization_id, 'manager'))
+  )
+  with check (
+    (select public.fn_is_platform_admin_full())
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and public.fn_role_at_least(organization_id, 'manager'))
+  );
+
+-- `ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES TO anon` do baseline alcança
+-- toda tabela criada depois dele. Sem este revoke, o alvo da empresa fica
+-- legível pela anon key, que vai para o browser.
+revoke all on public.crm_metas from anon, authenticated;
+grant select, insert, update on public.crm_metas to authenticated;
+grant all on public.crm_metas to service_role;
+
+comment on table public.crm_metas is
+  'Meta mensal da organização por indicador (#3025, fatia 1). `pipeline_id` nulo = meta da EMPRESA; preenchido = meta do funil. Leitura org-scoped; escrita manager+ (Server Action definirMetaMensal, com auditoria).';
+
+comment on column public.crm_metas.periodo is
+  'O 1º dia do mês a que a meta se refere (constraint crm_metas_periodo_e_o_primeiro_dia). DATE na data de calendário: o mês da meta é o mês do operador, não um instante UTC.';
+
+comment on column public.crm_metas.alvo is
+  'Quanto se quer atingir no indicador, naquele mês: nesta fatia, a QUANTIDADE de vendas ganhas. É o denominador que a tela de Desempenho não tinha.';
 
 -- ---- módulos instalados são reaplicados, depois de toda tabela do núcleo (migration 0340) ----
 --
@@ -62453,6 +63330,51 @@ on conflict (model) do update set
   notes = excluded.notes,
   superseded_at = null;
 
+-- ---- a chave por grupo (migration 0653, issue #2729) ----
+--
+-- A regra antiga era absoluta e estava certa na época: a 0482 separou
+-- `message.group_received` de `message.received` justamente para que IA,
+-- follow-up, campanhas e automações não enxergassem mensagem de grupo (o
+-- defeito do PR #96, escuta dupla). O que ela não previa é o grupo de CLIENTES
+-- com atendimento parcialmente manual: o operador escreve o preço, a IA
+-- confirma o horário, e ninguém escreve nada para "bom dia" de 40 pessoas.
+--
+-- A peça é uma coluna por grupo, na MESMA linha que já guarda "este grupo
+-- entra na inbox":
+--
+--   enabled      quem entra na inbox (e mexe no filtro do WhatsApp)
+--   ia_responde  quem a IA pode responder  ← esta migration
+--
+-- Duas chaves em vez de uma porque são decisões diferentes com custos
+-- diferentes: ligar o grupo é barulho de notificação para todo mundo, ligar a
+-- IA é fala em nome da empresa. Por isso o default é `false` — o estado de
+-- quem nunca tocou em nada continua sendo o comportamento de sempre —, e por
+-- isso a chave da IA só existe para grupo JÁ LIGADO (sem linha ligada não há
+-- mensagem na inbox, logo não há nada para responder; a rota devolve
+-- `grupo_desligado`).
+--
+-- Quem lê é o ingest do grupo (`lib/grupos/ingest.ts`), que para a mensagem
+-- inbound só se a chave estiver ligada, e o drain do motor
+-- (`lib/agent-engine/edge/crm/drain.ts`), que deixa de pular o evento. As duas
+-- leituras passam pela MESMA função (`grupoLiberaIa`, `=== true`) — é a
+-- divergência entre a régua local e a tela que já custou caro (0213/0480).
+-- Nada de proteção de envio é contornada: janela, ritmo, teto, silêncio
+-- pós-handoff e elegibilidade moram no turno, depois desta decisão.
+--
+-- Sem backfill e sem nulo: `not null default false` é o comportamento de
+-- hoje escrito na coluna, e linha gravada antes da migration recebe o default
+-- na própria `alter table` — que também é o motivo de o comparador ser
+-- `=== true` e não "truthy": nulo que aparecer algum dia significa "não sei se
+-- o operador liberou", e não sei não responde.
+
+alter table public.channel_session_groups
+  add column if not exists ia_responde boolean not null default false;
+
+comment on column public.channel_session_groups.ia_responde is
+  'A chave POR GRUPO "Permitir que a IA responda neste grupo" (issue #2729). DESLIGADA por padrão, que é o comportamento de sempre: a mensagem de grupo entra na inbox pela fila do grupo (enabled) e a IA não responde. LIGADA, o ingest do grupo pede o turno do agente (mesmo evento ai_agent.dispatch_requested da conversa individual) e o motor deixa de pular o evento — as proteções de envio (janela de 24h, ritmo, teto diário, silêncio pós-handoff, elegibilidade) seguem valendo. Não mexe no filtro do WhatsApp nem existe para grupo fora da fila: sem linha ligada não há mensagem para responder.';
+
+notify pgrst, 'reload schema';
+
 -- ---- a tarefa nasce presa à demanda do atendimento (migration 0659, #2818) ----
 -- Hoje a tarefa tem DOIS vínculos opcionais, `lead_id` e `contact_id`, e nenhum
 -- dos dois responde "de qual ATENDIMENTO veio este combinado". No meio da
@@ -62873,6 +63795,37 @@ comment on column public.webhook_sources.reuse_open_lead_on_capture is
 alter table public.prospecting_campaigns
   add column if not exists channel_down_since timestamptz;
 
+-- ---- 0763: tipo de contato — cliente ou fornecedor (issue 3005, fatia 1) ----
+-- Espelho idempotente da migration 0763. É este apêndice que chega a todo
+-- self-host: o install.sh aplica o baseline num banco novo e o update.sh o
+-- re-aplica num banco existente; nenhum dos dois roda as migrations.
+--
+-- `contact_type` nasce 'cliente': contato novo é cliente até alguém dizer o
+-- contrário. Coluna nova, e não `is_personal`: aquela VETA todo envio
+-- (`readStopFlags` em `lib/agent-engine/guardrails/before-send.ts`), e o
+-- fornecedor da issue 3005 conversa normalmente.
+alter table public.contacts
+  add column if not exists contact_type text default 'cliente' not null;
+
+comment on column public.contacts.contact_type is
+  'Tipo do contato (issue 3005): cliente (padrão) ou fornecedor. Fornecedor conversa normalmente — ao contrário de is_personal, NÃO veta envio; o que muda é o painel/lista de campos (fatias seguintes). Quem mudou/quando fica em auditoria + timeline, nunca aqui.';
+
+-- drop + add num bloco DO só: o update.sh roda sem ON_ERROR_STOP, e soltos
+-- um add que falhasse deixaria a coluna sem CHECK nenhum.
+do $$
+begin
+  alter table public.contacts
+    drop constraint if exists contacts_contact_type_check;
+  alter table public.contacts
+    add constraint contacts_contact_type_check
+      check (contact_type in ('cliente', 'fornecedor'));
+end
+$$;
+
+create index if not exists idx_contacts_org_fornecedor
+  on public.contacts (organization_id)
+  where (contact_type = 'fornecedor');
+
 notify pgrst, 'reload schema';
 
 -- ---- campanha com modelo aprovado (migration 0710) ----
@@ -63168,3 +64121,85 @@ create policy channel_sessions_tenant_delete on public.channel_sessions
       and public.fn_role_at_least(organization_id, 'admin'))
     or public.fn_is_platform_admin_full()
   );
+
+-- ---- respostas rápidas: mostrar na barra do Inbox (migration 0742) ----
+-- manifest: Respostas rápidas — coluna `mostrar_na_barra` (boolean not null default true) em `message_templates` (#3282): cada resposta rápida escolhe se aparece na barra do Inbox, sem sair do atalho `/`. O default TRUE não muda quem já usa (ausência = aparece); `add column if not exists`, idempotente; apêndice idempotente no `baseline.sql`.
+
+-- ─── O que isto resolve ─────────────────────────────────────────────────────
+-- A barra de recursos do Inbox (#2833) monta um botão por linha de
+-- `message_templates` da organização. Numa agência com dezenas de respostas a
+-- barra vira uma nuvem de várias linhas acima do compositor, e aparecem ali
+-- textos que ninguém escolhe à mão (modelos de um follow-up, mensagens usadas
+-- só pelo atalho `/`). Até aqui a única saída era apagar a resposta — e isso a
+-- tirava também do `/`.
+--
+-- Esta coluna é a MARCAÇÃO por resposta rápida: `false` esconde o botão da
+-- barra do Inbox; `true` (default) mantém o comportamento de hoje. A barra lê o
+-- campo; o atalho `/` ignora-o de propósito e continua listando TODAS.
+--
+-- ─── A decisão de escopo desta fatia ────────────────────────────────────────
+-- A coluna NÃO entra na ordenação por arrastar nem em grupos (#3244 e #3245
+-- conversam com a issue e têm PR na região): a barra só ganha a marcação e o
+-- recolhimento. O limite de botões definido pelo administrador (item 3 da
+-- issue) fica FORA, é opcional.
+--
+-- ─── Compatibilidade ────────────────────────────────────────────────────────
+-- `add column if not exists` + `default true`: linhas que já existem ficam
+-- marcadas para aparecer — byte a byte o comportamento atual. Linha anterior a
+-- esta migration (e fixture que não traz a chave) é "aparece", nunca "some".
+
+alter table public.message_templates
+  add column if not exists mostrar_na_barra boolean not null default true;
+
+comment on column public.message_templates.mostrar_na_barra is
+  'Se a resposta rápida aparece na barra do Inbox (#3282). Default true: a ausência da marcação e a marcação ligada mantêm o comportamento de sempre. O atalho / lista TODAS, independente deste campo.';
+
+-- ---- campanha de texto em vários balões (migration 0765) ----
+alter table public.campaigns
+  add column if not exists split_messages boolean not null default false;
+
+comment on column public.campaigns.split_messages is
+  'Campanha de texto sai em balões, um por parágrafo, até 3 por destinatário (PR #3329). Default false. Modelo aprovado nunca se divide.';
+
+-- ---- lista do funil: índice da página (migration 0739) ----
+-- manifest: Lista do funil (#3172) — índice `idx_crm_leads_org_pipeline_position_id` em `crm_leads`, na ORDEM EXATA da página: `(organization_id, pipeline_id, position_in_stage, id)`. O `range` da rota corta o que VOLTA, não o que o banco AVALIA: sem índice na ordem pedida o Postgres passa a regra de visibilidade (`fn_can_view_lead`, 3 a 7 ms por linha na instalação que abriu a issue) em todo o funil antes de ordenar — medido pelo mantenedor num banco de teste com um funil de 3.901 negócios: 3.901 chamadas e ~3,8 s na página 1. Com o índice, o plano vira `Index Scan` com parada antecipada (51 a 76 chamadas, ~55 a 78 ms). `id` entra como DESEMPATE, para a mesma URL devolver sempre as mesmas linhas quando dois negócios compartilham a `position_in_stage`.
+--
+-- ─── Por que estas quatro colunas, nesta ordem ──────────────────────────────
+-- A consulta da página filtra por igualdade as duas primeiras
+-- (`organization_id`, `pipeline_id`), exclui o arquivado e ordena por
+-- `position_in_stage` — a mesma ordem do quadro — com `id` no fim. Num btree, o
+-- prefixo de igualdade seguido das colunas de ORDEM é o que permite ao plano
+-- caminhar o índice já ordenado e PARAR depois de `per_page + 1` linhas, em vez
+-- de ler o funil, ordenar e cortar no fim.
+--
+-- Sem predicado parcial, de propósito: este é o índice que o mantenedor mediu
+-- contra o banco real (o `where status <> 'archived'` mudaria o tamanho, não a
+-- ordem — e um predicado que o planejador não reconheça tornaria o índice
+-- inútil em silêncio, que é o defeito que esta migration existe para fechar).
+--
+-- ─── Compatibilidade ────────────────────────────────────────────────────────
+-- `create index if not exists`: idempotente. Toma lock SHARE em `crm_leads`
+-- enquanto constrói (bloqueia escrita, não leitura); sem `concurrently` porque
+-- roda dentro da transação do `db push`/`baseline` — numa tabela de milhares de
+-- linhas é breve. Índice a mais só custa escrita; o ganho é a leitura da aba
+-- Lista, que é o que a issue #3172 mede.
+
+create index if not exists idx_crm_leads_org_pipeline_position_id
+  on public.crm_leads (organization_id, pipeline_id, position_in_stage, id);
+
+comment on index public.idx_crm_leads_org_pipeline_position_id is
+  'Página da aba Lista do funil (#3172): (organization_id, pipeline_id) por igualdade e (position_in_stage, id) na ordem da consulta. `id` é o desempate que torna a paginação determinística quando dois negócios têm a mesma position_in_stage.';
+
+-- ---- o molde de IA das empresas novas: a coluna (migration 0780) ----
+-- A SEGUNDA metade da 0780: a coluna que escolhe o molde. No fim do arquivo
+-- porque numa instalação NOVA `platform_settings` só existe depois da 0253; em
+-- quem atualiza, a primeira metade (antes da VARREDURA anon) já a criou, e o
+-- `if not exists` passa sem efeito. As funções e o gatilho estão lá.
+alter table public.platform_settings
+  add column if not exists molde_de_ia_org_id uuid
+    references public.organizations(id) on delete set null;
+
+comment on column public.platform_settings.molde_de_ia_org_id is
+  'Empresa cuja configuração de IA as empresas NOVAS copiam ao nascer (migration 0780): as funções de ai_purpose_bindings sem endpoint próprio e de provedor com chave da instalação (anthropic, openai, openrouter), sempre com credential_id nulo, e o padrão settings.llm (provider, default_model). Nunca credenciais, Jev, agentes nem base de conhecimento. null = cada empresa nasce com o padrão do produto. Quem copia: fn_molde_de_ia_na_org_nova e fn_seed_org_llm_defaults. Escrita por app/actions/settings/updateMoldeDeIa.ts.';
+
+notify pgrst, 'reload schema';

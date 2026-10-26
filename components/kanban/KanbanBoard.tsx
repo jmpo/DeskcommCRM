@@ -398,6 +398,8 @@ export function KanbanBoard({
             data.stages.find((s) => s.id === leadDoDossie.stage_id)?.name ?? "—"
           }
           ownerNames={ownerNames}
+          etapas={data.stages}
+          onMudarEtapa={(stageId) => aoMoverPelaLista(leadDoDossie, stageId)}
         />
       )}
 

@@ -179,7 +179,7 @@ test.describe("Lote 12 — quadro do funil", () => {
     const confirmar = page.getByRole("button", { name: "Confirmar" });
     registra(`#938 outro · vazio, Confirmar habilitado = ${await confirmar.isEnabled()}`);
     expect(await confirmar.isEnabled()).toBe(true);
-    await expect(page.getByText(/cadastre em Configurações/)).toBeVisible();
+    await expect(page.getByText(/cadastre em CRM › Ver tudo em CRM › Etapas do funil/)).toBeVisible();
 
     await page.getByLabel(/Detalhe \(opcional\)/).fill("Mudou de ideia");
     await expect(page.getByRole("alert")).toBeVisible();

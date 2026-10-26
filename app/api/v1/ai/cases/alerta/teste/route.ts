@@ -130,7 +130,7 @@ export async function POST(_req: NextRequest): Promise<Response> {
       channelSessionId: cfg.channel_session_id,
       telefone: cfg.telefone_destino,
       respostaWhatsappHabilitada: cfg.resposta_whatsapp_habilitada === true,
-      // O modelo SALVO (migration 0762): é com ele que o aviso real sai pela
+      // O modelo SALVO (migration 0783): é com ele que o aviso real sai pela
       // conexão que só manda modelo, e o teste prova esse mesmo caminho.
       ...(cfg.modelo_id ? { modeloId: cfg.modelo_id } : {}),
     },

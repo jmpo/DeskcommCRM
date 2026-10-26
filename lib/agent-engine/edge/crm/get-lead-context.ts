@@ -18,6 +18,7 @@ import { isoLocalComOffset } from '@/lib/tempo/agora';
 import { logger } from '@/lib/logger';
 import { nomeDoContato } from '@/lib/contacts/rotulo-do-contato';
 import { lerAnuncioDaMensagem, mesmoAnuncio, type AnuncioDaMensagem } from '@/lib/leads/atribuicao-de-anuncio';
+import { lerRemetenteDeGrupo } from '@/lib/messaging/remetente-de-grupo';
 
 /**
  * Heurística conservadora de contagem: ~3,5 chars/token para pt-br (BPE real fica
@@ -42,6 +43,21 @@ export interface LeadContextMessage {
   direction: 'inbound' | 'outbound';
   /** Corpo textual; mídia usa o derivado (transcrição/visão/pdf) ou marcador [tipo]. */
   body: string;
+  /**
+   * Quem escreveu esta mensagem quando ela veio de um GRUPO (#2729).
+   *
+   * Numa conversa 1:1 o autor é óbvio: é o contato da ficha. Num grupo há três
+   * pessoas na mesma conversa — a empresa, o cliente e a dona — e sem este campo
+   * o modelo lê todas elas como a MESMA voz, ou como "o cliente". O dado já
+   * existe gravado (`messages.metadata.group_sender`, do ingest de grupo); ele
+   * só não chegava aqui.
+   *
+   * AUSENTE (não `null`) nas conversas 1:1 e nas mensagens enviadas por nós: o
+   * participante é do grupo, e só o grupo tem participante. `lid` fica de fora
+   * de propósito — é identificador interno do WhatsApp, o modelo não decide nada
+   * com ele, e o `phone` já é o que a tela mostra.
+   */
+  sender?: { name: string | null; phone: string | null };
   /**
    * ISO 8601 no FUSO DA ORGANIZAÇÃO, com o offset real daquele instante
    * (`2026-09-02T15:45:38-03:00`) — nunca UTC cru. Um agente instruído a ler o
@@ -233,6 +249,8 @@ interface HistoryRow {
   media_mime: string | null;
   media_derived_text: string | null;
   sent_at: Date;
+  /** #2729: `group_sender` do ingest de grupo — a única fonte de quem falou. */
+  metadata: Record<string, unknown> | null;
   /** A última plantilha da conversa, trazida de FORA da janela — ver `PLANTILHA_FIXADA_DIAS`. */
   fixada?: boolean;
 }
@@ -318,7 +336,7 @@ export async function getLeadContext(
             .query<HistoryRow>(
               `select * from (
                 (select id, direction, type, body, media_url, media_storage_path, media_mime,
-                        media_derived_text, sent_at, false as fixada
+                        media_derived_text, sent_at, metadata, false as fixada
                  from messages
                  where organization_id = $1 and conversation_id = $2
                    and direction in ('inbound', 'outbound')
@@ -330,7 +348,7 @@ export async function getLeadContext(
                  limit $3)
                 union all
                 (select id, direction, type, body, media_url, media_storage_path, media_mime,
-                        media_derived_text, sent_at, true as fixada
+                        media_derived_text, sent_at, metadata, true as fixada
                  from messages
                  where organization_id = $1 and conversation_id = $2
                    and direction = 'outbound' and type = 'template'
@@ -574,12 +592,19 @@ function fitToBudget(
     // job passa pela mesma função. Duas receitas para a mesma linha foi o defeito
     // da #617 — o histórico mostrava o texto do áudio e a abertura dizia vazio.
     const body = corpoDaMensagem(m);
+    // #2729 — quem falou, quando há mais de uma pessoa na conversa. Só o
+    // recebido de grupo traz `group_sender` (o ingest grava só nesse sentido);
+    // nas demais linhas o campo fica AUSENTE, e o prompt não ganha ruído.
+    const remetente = m.direction === 'inbound' ? lerRemetenteDeGrupo(m.metadata) : null;
     return {
       direction: m.direction,
       body,
       // Hora de PAREDE do tenant, não UTC cru — ver o comentário de `sent_at` na
       // interface acima e o cabeçalho de `isoLocalComOffset`.
       sent_at: isoLocalComOffset(m.sent_at, fuso),
+      ...(remetente !== null && (remetente.name !== null || remetente.phone !== null)
+        ? { sender: { name: remetente.name, phone: remetente.phone } }
+        : {}),
       ...(hasMedia ? { type: m.type, media_storage_path: m.media_storage_path, media_mime: m.media_mime } : {}),
     };
   });

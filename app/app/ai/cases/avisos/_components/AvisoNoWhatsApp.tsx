@@ -20,7 +20,7 @@
  * ## O seletor filtra por CAPACIDADE, nunca por provedor
  *
  * A lista oferece as conexões com `aceitaMensagemLivre` e, desde a migration
- * 0762, as que só mandam modelo mas têm um modelo aprovado que leva o aviso
+ * 0783, as que só mandam modelo mas têm um modelo aprovado que leva o aviso
  * (`conexaoServeParaAviso`). Para essas, a tela pede o modelo — o aviso vai
  * dentro dele. As duas respostas vêm resolvidas de `lib/channels/` e de
  * `lib/escalacao/modelo-do-aviso.ts`. Esta tela não sabe — e não pode saber — o
@@ -196,7 +196,7 @@ function FormularioDoAviso({ estado }: { estado: EstadoDoAviso }) {
   const oferecidas = estado.conexoes.filter((c) => conexaoServeParaAviso(c) || c.id === salva);
   const telefoneOk = telefoneDeAvisoValido(rascunho.telefone);
   const escolhida = oferecidas.find((c) => c.id === rascunho.canal);
-  /** A conexão escolhida só manda modelo: o aviso precisa de um (migration 0762). */
+  /** A conexão escolhida só manda modelo: o aviso precisa de um (migration 0783). */
   const precisaModelo = escolhida !== undefined && !escolhida.aceitaMensagemLivre;
   const modelosDaConexao = precisaModelo ? (escolhida.modelos ?? []) : [];
   const modeloEscolhido = modelosDaConexao.find((m) => m.id === rascunho.modelo);

@@ -69,6 +69,7 @@ import {
   atualizarBloqueioAteAssumir,
   atualizarInterfaceDaEmpresa,
 } from "@/app/actions/settings/atualizarInterfaceDaEmpresa";
+import { atualizarLembreteDeCasoParado } from "@/app/actions/settings/atualizarLembreteDeCasoParado";
 import { conectarLoginCodex, desconectarLoginCodexAgora } from "@/app/actions/settings/conectarLoginCodex";
 import { updatePipelineConfig } from "@/app/actions/settings/updatePipelineConfig";
 import { updateTenant } from "@/app/actions/settings/updateTenant";
@@ -78,6 +79,7 @@ const ACOES: Array<[string, () => Promise<{ ok: boolean; error?: string }>]> = [
   ["disconnectNuvemshop", () => disconnectNuvemshop()],
   ["atualizarInterfaceDaEmpresa", () => atualizarInterfaceDaEmpresa({ preset: "completa" })],
   ["atualizarBloqueioAteAssumir", () => atualizarBloqueioAteAssumir(true)],
+  ["atualizarLembreteDeCasoParado", () => atualizarLembreteDeCasoParado({ ligado: true, intervaloHoras: 24, teto: 3 })],
   ["conectarLoginCodex", () => conectarLoginCodex({ codigo: "x", codeVerifier: "v".repeat(43) })],
   ["desconectarLoginCodexAgora", () => desconectarLoginCodexAgora()],
   ["updatePipelineConfig", () => updatePipelineConfig("ffffffff-0000-4000-8000-00000000000f", {})],

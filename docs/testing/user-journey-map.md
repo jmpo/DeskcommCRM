@@ -1752,6 +1752,7 @@ Evidência: `evidence/app-no-celular-20261020/` (gravada pelo CI).
 | J48.9 | Navegador de dentro de outro app, https que recusa o SW, Chrome em modo computador | manda abrir no Safari/Chrome; fica sem app; conta como celular | UNIT `estado-da-instalacao` |
 | J48.10 | Push com o app à vista | AINDA vira notificação, calada (a página já tocou o som); fora do app ou tipo sem aviso local, com som | UNIT `notify-sw` |
 | J48.11 | A porta | o link «Receber no celular: instalar o app» em Notificações leva à tela | E2E (CI) |
+| J48.12 | O toque no lembrete de tarefa (F3) | abre `/app/tasks?assigned_to=me`: só as tarefas da pessoa, «Todas» traz as outras; a 390px, controles ≥ 44 px, caixa de concluir alcançável a 20 px do centro, lápis visível sem hover, sem rolagem lateral nem no `<main>`, tocar conclui no banco; tarefa nova criada em «Minhas» nasce da pessoa; calendário escolhido no tablet não prende o celular | E2E `minhas-tarefas-no-celular` (navega pela constante do push) (CI, parte 3) + UNIT `TarefasClient.test`, `tarefas-rota-nao-tem-porta-dos-fundos` |
 
 **NÃO COBERTO, declarado:** aparelho real. Instalar pelo caminho guiado num
 Android e num iPhone de verdade, numa instalação HTTPS fresca; o ícone com a
@@ -3960,7 +3961,7 @@ WhatsApp»: página de cadastro do provedor → volta por outro site (cookie Str
 ponte same-origin) → a tela conclui. Spec: `tests/e2e/numero-oficial-um-clique.spec.ts`,
 contra um dublê HTTP do provedor (porta 3996) que guarda perfis, contas e assinaturas.
 
-Desde a 0761 os eventos de TODAS as conexões de um clique chegam por um webhook ÚNICO da
+Desde a 0782 os eventos de TODAS as conexões de um clique chegam por um webhook ÚNICO da
 instalação (`/api/v1/webhooks/canal-da-instalacao`), filtrado aos perfis delas: o provedor
 limita as assinaturas por conta. A spec conecta a empresa pela tela com uma SEGUNDA empresa
 já conectada, e prova o roteamento pela conta do evento.
@@ -3982,7 +3983,7 @@ com um número de verdade, e é a prova manual que fecha esta jornada.
 Quem só tem o número oficial estável não conseguia avisar a equipe: fora da janela de 24 h ele
 só manda modelo aprovado, e Configurações › Casos › Aviso no WhatsApp só oferecia número de
 texto livre — o aviso de caso era condenado (`canal_nao_aceita_aviso_livre`) e a ação "Mensagem
-para a equipe" pulava em todo disparo. Desde a 0762 a configuração guarda o modelo aprovado
+para a equipe" pulava em todo disparo. Desde a 0783 a configuração guarda o modelo aprovado
 (`config_aviso_de_caso.modelo_id`), com UMA variável no corpo, e o texto do aviso entra nela numa
 linha só. Regra única em `lib/escalacao/modelo-do-aviso.ts`. Spec:
 `tests/e2e/aviso-pelo-numero-oficial.spec.ts` (sem rede: o teste é recusado antes do provedor).
@@ -3999,3 +4000,25 @@ linha só. Regra única em `lib/escalacao/modelo-do-aviso.ts`. Spec:
 Não provado pela tela: a entrega real no celular por um número oficial de verdade (precisa de
 um modelo aprovado pela plataforma) e o comando RESPONDER/PERGUNTAR por esse número, que segue
 fora do escopo.
+
+## J62 — A empresa nova nasce com a IA do molde escolhido pelo dono do servidor `[P1]` (2026-10-26)
+
+Numa instalação que hospeda várias empresas, toda empresa nova nascia sem escolha de modelo por
+função e com o padrão do produto, e o dono do servidor copiava a configuração de IA de uma
+empresa de referência à mão, por script. Desde a 0780 (fork), Recursos opcionais › "IA das
+empresas novas" escolhe uma empresa ativa como molde
+(`platform_settings.molde_de_ia_org_id`), e o gatilho `fn_molde_de_ia_na_org_nova` copia as
+funções copiáveis com `credential_id` nulo — regra única em `lib/ai/molde-de-ia.ts`. Spec:
+`tests/e2e/molde-de-ia-empresas-novas.spec.ts`.
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J62.1 | Sem molde (o padrão) | a tela diz que cada empresa nova começa com o padrão do produto; a empresa nasce sem funções | **não medido pela tela localmente** (Docker fora do ar) — CI `e2e` parte 7; banco: `tests/invariants/molde-de-ia-empresas-novas.test.ts` (CI `invariants`) |
+| J62.2 | Escolher o molde | a tela mostra quantas funções e quais modelos vão ser copiados, o padrão e o que fica de fora; recarregar mostra a escolha salva | **não medido pela tela localmente** — CI `e2e` parte 7 |
+| J62.3 | Criar a empresa em Empresas › Nova | o formulário avisa de que empresa vem a IA; a página da nova mostra "IA copiada do molde" | **não medido pela tela localmente** — CI `e2e` parte 7 |
+| J62.4 | Agente de IA › Provedores da empresa nova | as funções copiadas com o modelo do molde; a de endereço próprio não veio e herda o padrão do molde | **não medido pela tela localmente** — CI `e2e` parte 7 |
+| J62.5 | Assinatura, Jev, Google, DeepSeek, endereço próprio; molde excluído; RPC de criação; outras organizações | nada disso é copiado; molde excluído zera a coluna e criar empresa não falha; a RPC também copia; nenhuma outra organização muda | **CI `invariants`** — `tests/invariants/molde-de-ia-empresas-novas.test.ts` (não rodado localmente: sem Docker) |
+| J62.6 | A lista de provedores que a tela promete = a que o banco copia | `PROVEDORES_DO_MOLDE` = provedores com chave da instalação = literais do gatilho | **PASS (unit)** — `tests/unit/molde-de-ia.test.ts` |
+
+Não provado: que a primeira chamada de IA da empresa nova sai com a chave da instalação (o
+painel mostra modelo e origem, não faz chamada paga).
