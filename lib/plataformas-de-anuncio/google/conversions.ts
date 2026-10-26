@@ -38,6 +38,7 @@ import { configuracaoDoGoogleAds } from "./config";
 import { renovarToken } from "./token";
 import { telefoneCriptografado } from "./telefone";
 import { VERSAO_DA_API_DO_GOOGLE_ADS } from "./versao-da-api";
+import { ehEventoDeEtapa } from "@/lib/conversoes/regras-google";
 import type {
   ConversaoOffline,
   CredencialDeConversao,
@@ -173,14 +174,33 @@ export function lerResultadoDoUpload(bruto: unknown): ResultadoDeEnvio {
   return { tipo: "ok" };
 }
 
+/**
+ * O que este transporte aceita levar ao Google Ads.
+ *
+ * A venda (`Purchase`), a qualificação legada da 0402 (`QualifiedLead`) e as
+ * regras por etapa do Google (0436, `Etapa:<uuid>`) — cada uma com a ação de
+ * conversão que a sua regra escolheu. O predicado das duas últimas é o MESMO
+ * do consumidor de etapa (`ehEventoDeEtapa`), para que o que ele manda enviar
+ * nunca seja recusado aqui.
+ *
+ * Fica de fora todo o resto — hoje, a regra de etapa da META (0524,
+ * `MetaEtapa:<uuid>`): o Google não tem ação para ela, e mandá-la com a ação da
+ * conexão contaria como venda o que não é venda. Recusa explícita em vez de
+ * conversão inventada.
+ */
+export function oGoogleRecebe(evento: string): boolean {
+  return evento === "Purchase" || ehEventoDeEtapa(evento);
+}
+
 async function enviar(
   credencial: CredencialDeConversao,
   conversao: ConversaoOffline,
 ): Promise<ResultadoDeEnvio> {
-  // O Google recebe a venda e a qualificação. Evento de etapa não tem ação de
-  // conversão para onde ir aqui — recusa explícita em vez de valor inventado.
-  if (conversao.evento !== "Purchase" && conversao.evento !== "QualifiedLead") {
-    return { tipo: "permanente", detalhe: "o Google Ads recebe só a venda e a qualificação" };
+  if (!oGoogleRecebe(conversao.evento)) {
+    return {
+      tipo: "permanente",
+      detalhe: "o Google Ads recebe só a venda, a qualificação e as etapas configuradas para ele",
+    };
   }
   if (credencial.google?.api === "data_manager") return enviarDataManager(credencial, conversao);
   const google = credencial.google;
