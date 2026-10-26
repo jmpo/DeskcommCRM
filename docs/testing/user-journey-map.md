@@ -3961,7 +3961,7 @@ WhatsApp»: página de cadastro do provedor → volta por outro site (cookie Str
 ponte same-origin) → a tela conclui. Spec: `tests/e2e/numero-oficial-um-clique.spec.ts`,
 contra um dublê HTTP do provedor (porta 3996) que guarda perfis, contas e assinaturas.
 
-Desde a 0761 os eventos de TODAS as conexões de um clique chegam por um webhook ÚNICO da
+Desde a 0782 os eventos de TODAS as conexões de um clique chegam por um webhook ÚNICO da
 instalação (`/api/v1/webhooks/canal-da-instalacao`), filtrado aos perfis delas: o provedor
 limita as assinaturas por conta. A spec conecta a empresa pela tela com uma SEGUNDA empresa
 já conectada, e prova o roteamento pela conta do evento.
@@ -3983,7 +3983,7 @@ com um número de verdade, e é a prova manual que fecha esta jornada.
 Quem só tem o número oficial estável não conseguia avisar a equipe: fora da janela de 24 h ele
 só manda modelo aprovado, e Configurações › Casos › Aviso no WhatsApp só oferecia número de
 texto livre — o aviso de caso era condenado (`canal_nao_aceita_aviso_livre`) e a ação "Mensagem
-para a equipe" pulava em todo disparo. Desde a 0762 a configuração guarda o modelo aprovado
+para a equipe" pulava em todo disparo. Desde a 0783 a configuração guarda o modelo aprovado
 (`config_aviso_de_caso.modelo_id`), com UMA variável no corpo, e o texto do aviso entra nela numa
 linha só. Regra única em `lib/escalacao/modelo-do-aviso.ts`. Spec:
 `tests/e2e/aviso-pelo-numero-oficial.spec.ts` (sem rede: o teste é recusado antes do provedor).

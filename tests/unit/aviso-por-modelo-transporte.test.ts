@@ -1,6 +1,6 @@
 /**
  * O TRANSPORTE DO AVISO À EQUIPE escolhe entre texto livre e modelo aprovado
- * (migration 0762) — e a escolha é de quem chama, nunca um palpite dele.
+ * (migration 0783) — e a escolha é de quem chama, nunca um palpite dele.
  *
  * Sem `opcoes.modelo`, nada mudou: o aviso sai como texto livre pelo adapter.
  * Com ele, o MESMO texto vai dentro da variável única do modelo, numa linha só,

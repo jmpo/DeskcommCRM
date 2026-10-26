@@ -1,5 +1,5 @@
 /**
- * O MODELO APROVADO QUE LEVA O AVISO À EQUIPE (migration 0762) — a regra única.
+ * O MODELO APROVADO QUE LEVA O AVISO À EQUIPE (migration 0783) — a regra única.
  *
  * Três perguntas, e cada uma tem um modo de falha próprio:
  *

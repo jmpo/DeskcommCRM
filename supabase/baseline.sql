@@ -60280,7 +60280,7 @@ grant execute on function public.fn_casos_parados_para_lembrar(integer) to servi
 
 notify pgrst, 'reload schema';
 
--- ---- o número oficial conectado com um clique, pela instalação (migration 0760) ----
+-- ---- o número oficial conectado com um clique, pela instalação (migration 0781) ----
 --
 -- ═══ O que o cliente da instalação não conseguia ═══
 --
@@ -60319,17 +60319,17 @@ alter table public.channel_sessions
   check (not (zernio_credencial_da_instalacao and zernio_token_encrypted is not null));
 
 comment on column public.channel_sessions.zernio_profile_id is
-  'Perfil do provedor parceiro em que a conta foi conectada. Só a conexão por um clique o grava: é por ele que a volta confere que a conta conectada é desta organização. Migration 0760.';
+  'Perfil do provedor parceiro em que a conta foi conectada. Só a conexão por um clique o grava: é por ele que a volta confere que a conta conectada é desta organização. Migration 0781.';
 comment on column public.channel_sessions.zernio_webhook_id is
-  'Assinatura de webhook que a INSTALAÇÃO registrou no provedor para esta conta (filtrada por accountIds). Nulo quando o operador configurou o webhook à mão. É por ele que a remoção do canal apaga a assinatura. Migration 0760.';
+  'Assinatura de webhook que a INSTALAÇÃO registrou no provedor para esta conta (filtrada por accountIds). Nulo quando o operador configurou o webhook à mão. É por ele que a remoção do canal apaga a assinatura. Migration 0781.';
 comment on column public.channel_sessions.zernio_credencial_da_instalacao is
-  'true = a sessão fala com o provedor pela chave da INSTALAÇÃO (platform_config), resolvida na hora; zernio_token_encrypted fica nulo. false = chave própria da organização, cifrada em zernio_token_encrypted. Migration 0760.';
+  'true = a sessão fala com o provedor pela chave da INSTALAÇÃO (platform_config), resolvida na hora; zernio_token_encrypted fica nulo. false = chave própria da organização, cifrada em zernio_token_encrypted. Migration 0781.';
 
 
--- ---- o webhook da conexão por um clique é ÚNICO na instalação (migration 0761) ----
--- 0761 — o webhook da conexão por um clique passa a ser ÚNICO na instalação.
+-- ---- o webhook da conexão por um clique é ÚNICO na instalação (migration 0782) ----
+-- 0782 — o webhook da conexão por um clique passa a ser ÚNICO na instalação.
 --
--- A 0760 gravava em `zernio_webhook_id` a assinatura que a instalação registrava
+-- A 0781 gravava em `zernio_webhook_id` a assinatura que a instalação registrava
 -- PARA CADA NÚMERO. O provedor limita as assinaturas por conta e recomenda um
 -- endpoint para todos os clientes: agora as conexões por um clique entram por
 -- um webhook só da instalação (id e segredo em `platform_config`, filtrado aos
@@ -60338,21 +60338,21 @@ comment on column public.channel_sessions.zernio_credencial_da_instalacao is
 --
 -- Só documentação no banco: nenhum dado muda, nenhuma coluna nova.
 comment on column public.channel_sessions.zernio_webhook_id is
-  'Assinatura de webhook que entrega os eventos desta conta, registrada pela INSTALAÇÃO. Na conexão por um clique é o webhook ÚNICO da instalação (compartilhado, filtrado aos perfis das conexões ativas; id em platform_config): a remoção do canal tira o perfil do filtro e NÃO apaga a assinatura. Na chave própria é a assinatura do número (filtrada à conta), apagada na remoção. Nulo quando o operador configurou o webhook à mão. Migrations 0760 e 0761.';
+  'Assinatura de webhook que entrega os eventos desta conta, registrada pela INSTALAÇÃO. Na conexão por um clique é o webhook ÚNICO da instalação (compartilhado, filtrado aos perfis das conexões ativas; id em platform_config): a remoção do canal tira o perfil do filtro e NÃO apaga a assinatura. Na chave própria é a assinatura do número (filtrada à conta), apagada na remoção. Nulo quando o operador configurou o webhook à mão. Migrations 0781 e 0782.';
 
--- ---- aviso por modelo aprovado (migration 0762) ----
+-- ---- aviso por modelo aprovado (migration 0783) ----
 -- `config_aviso_de_caso.modelo_id`: o modelo aprovado, com UMA variável no
 -- corpo, que leva o aviso à equipe quando a conexão escolhida só manda modelo
 -- fora da janela de 24 h. `fn_definir_aviso_de_caso` ganha `p_modelo` e confere
 -- que o modelo é desta organização e desta conexão. Entra ANTES da VARREDURA
--- anon porque recria uma função. Cabeçalho da 0762 para o racional inteiro.
+-- anon porque recria uma função. Cabeçalho da 0783 para o racional inteiro.
 
 alter table public.config_aviso_de_caso
   add column if not exists modelo_id uuid
     references public.meta_templates(id) on delete set null;
 
 comment on column public.config_aviso_de_caso.modelo_id is
-  'Modelo aprovado (meta_templates) que leva o aviso quando a conexão só manda modelo fora da janela de 24 h. Uma variável só, no corpo: o texto do aviso entra nela numa linha só. Nulo = texto livre (a conexão precisa aceitar). Migration 0762.';
+  'Modelo aprovado (meta_templates) que leva o aviso quando a conexão só manda modelo fora da janela de 24 h. Uma variável só, no corpo: o texto do aviso entra nela numa linha só. Nulo = texto livre (a conexão precisa aceitar). Migration 0783.';
 
 -- A função ganha o oitavo parâmetro. `create or replace` com outra lista de
 -- parâmetros cria OUTRA função: a de 7 sai logo abaixo, senão o PostgREST teria
@@ -60406,7 +60406,7 @@ begin
     end if;
   end if;
 
-  -- O MODELO APROVADO é DESTA organização e DESTA conexão (migration 0762). A
+  -- O MODELO APROVADO é DESTA organização e DESTA conexão (migration 0783). A
   -- mesma regra de `lib/channels/linha-do-espelho.ts`: a linha gravada para a
   -- conexão, ou a linha sem conexão da conta oficial dela. Sem isto, a FK
   -- simples deixaria apontar para o modelo de outro tenant ou de outro número,

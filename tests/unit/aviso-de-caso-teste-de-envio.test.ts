@@ -167,7 +167,7 @@ describe("as recusas, cada uma com o seu código", () => {
     });
   });
 
-  it("canal que só manda modelo, COM o modelo salvo: o teste sai dentro do modelo (0762)", async () => {
+  it("canal que só manda modelo, COM o modelo salvo: o teste sai dentro do modelo (0783)", async () => {
     const modelo = { id: "m-1", name: "aviso_da_equipe", language: "pt_BR", chave: "1", corpo: "Aviso: {{1}}" };
     const carregaModeloDoAviso = vi.fn(async () => ({ ok: true as const, modelo }));
     const opcoes: unknown[] = [];

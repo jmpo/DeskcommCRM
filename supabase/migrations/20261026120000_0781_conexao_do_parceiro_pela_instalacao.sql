@@ -37,8 +37,8 @@ alter table public.channel_sessions
   check (not (zernio_credencial_da_instalacao and zernio_token_encrypted is not null));
 
 comment on column public.channel_sessions.zernio_profile_id is
-  'Perfil do provedor parceiro em que a conta foi conectada. Só a conexão por um clique o grava: é por ele que a volta confere que a conta conectada é desta organização. Migration 0760.';
+  'Perfil do provedor parceiro em que a conta foi conectada. Só a conexão por um clique o grava: é por ele que a volta confere que a conta conectada é desta organização. Migration 0781.';
 comment on column public.channel_sessions.zernio_webhook_id is
-  'Assinatura de webhook que a INSTALAÇÃO registrou no provedor para esta conta (filtrada por accountIds). Nulo quando o operador configurou o webhook à mão. É por ele que a remoção do canal apaga a assinatura. Migration 0760.';
+  'Assinatura de webhook que a INSTALAÇÃO registrou no provedor para esta conta (filtrada por accountIds). Nulo quando o operador configurou o webhook à mão. É por ele que a remoção do canal apaga a assinatura. Migration 0781.';
 comment on column public.channel_sessions.zernio_credencial_da_instalacao is
-  'true = a sessão fala com o provedor pela chave da INSTALAÇÃO (platform_config), resolvida na hora; zernio_token_encrypted fica nulo. false = chave própria da organização, cifrada em zernio_token_encrypted. Migration 0760.';
+  'true = a sessão fala com o provedor pela chave da INSTALAÇÃO (platform_config), resolvida na hora; zernio_token_encrypted fica nulo. false = chave própria da organização, cifrada em zernio_token_encrypted. Migration 0781.';

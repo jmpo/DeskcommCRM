@@ -71,7 +71,7 @@ export interface ConfigNaResposta {
   rotulo: string | null;
   ligado: boolean;
   resposta_whatsapp_habilitada: boolean;
-  /** O modelo aprovado que leva o aviso pela conexão que só manda modelo (0762). */
+  /** O modelo aprovado que leva o aviso pela conexão que só manda modelo (0783). */
   modelo_id: string | null;
   atualizado_em: string;
 }
@@ -241,7 +241,7 @@ async function lerConexoes(db: SupabaseClient, orgId: string): Promise<ConexaoPa
   }
 
   // Os modelos aprovados que levam o aviso, só para quem não manda texto livre
-  // (migration 0762): para as outras a lista não serve para nada, e lê-la
+  // (migration 0783): para as outras a lista não serve para nada, e lê-la
   // custaria uma ida ao banco por conexão.
   const modelos = new Map(
     await Promise.all(

@@ -277,7 +277,7 @@ const AUTHENTICATED_PERMITIDO: readonly Excecao[] = [
       "fn_session_mfa_proven(), E.164 no destino, canal DA organização e não " +
       "arquivado, recusa do número da própria organização (o laço robô-com-robô) " +
       "e recusa de número que já é contato, a menos que p_confirma_contato. " +
-      "Desde a 0762, também recusa p_modelo de outra organização ou de outra " +
+      "Desde a 0783, também recusa p_modelo de outra organização ou de outra " +
       "conexão (tests/invariants/aviso-por-modelo-aprovado.test.ts). " +
       "tests/invariants/aviso-de-caso-escrita.test.ts prova agent e viewer " +
       "recusados (42501), admin aprovado, admin de OUTRA organização recusado, " +

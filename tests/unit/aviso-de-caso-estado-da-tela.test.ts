@@ -158,7 +158,7 @@ describe("os estados que bloqueiam", () => {
     expect(lista.map((a) => a.codigo)).not.toContain("sem_conexao");
   });
 
-  describe("o número oficial com modelo aprovado (migration 0762)", () => {
+  describe("o número oficial com modelo aprovado (migration 0783)", () => {
     const MODELO = { id: "33333333-3333-4333-8333-333333333333", nome: "aviso_da_equipe", idioma: "es", corpo: "Aviso: {{1}}" };
     const oficial = (modelos: (typeof MODELO)[]) => ({
       id: CANAL_OFICIAL,

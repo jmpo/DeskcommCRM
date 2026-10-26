@@ -345,7 +345,7 @@ describe("aviso ao suporte — o que impede o envio", () => {
     expect(estado.patches.at(-1)).toMatchObject({ erro_codigo: "canal_nao_aceita_aviso_livre" });
   });
 
-  describe("canal que só manda modelo, com o modelo aprovado escolhido (migration 0762)", () => {
+  describe("canal que só manda modelo, com o modelo aprovado escolhido (migration 0783)", () => {
     const MODELO_ID = "88888888-8888-4888-8888-888888888888";
     const MODELO = { id: MODELO_ID, name: "aviso_da_equipe", language: "pt_BR", chave: "1", corpo: "Aviso: {{1}}" };
     const SO_MODELO = { id: CANAL, status: "WORKING", archived_at: null, aceitaMensagemLivre: false };

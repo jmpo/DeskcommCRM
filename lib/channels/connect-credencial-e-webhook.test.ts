@@ -4,7 +4,7 @@
  *
  * O que este arquivo prova, com banco e provedor dublados:
  *   1. gravar pela instalação deixa a chave própria NULA e o ponteiro ligado
- *      (o CHECK da 0760 recusaria as duas juntas), e o update é filtrado pela
+ *      (o CHECK da 0781 recusaria as duas juntas), e o update é filtrado pela
  *      organização;
  *   2. o webhook recusado pelo provedor não desfaz a conexão: devolve `null`;
  *   3. excluir a conexão por um clique tira o perfil do webhook ÚNICO da

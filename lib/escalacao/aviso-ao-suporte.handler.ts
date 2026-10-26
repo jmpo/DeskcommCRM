@@ -164,7 +164,7 @@ export async function criarTransporteDoAviso(
       // ali criaria uma conversa com o número da própria equipe, que é
       // exatamente o que o corte da ingestão existe para impedir.
       //
-      // Com modelo (migration 0762), o MESMO texto vai dentro da variável única
+      // Com modelo (migration 0783), o MESMO texto vai dentro da variável única
       // do modelo aprovado, numa linha só — a plataforma recusa valor com
       // quebra de linha. Continua fora de `messages`: quem escolhe o transporte
       // de modelo é `lib/channels/`, e ele não grava conversa.

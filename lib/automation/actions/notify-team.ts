@@ -80,7 +80,7 @@ interface ConfigNotifyTeam {
 interface NumeroDaEquipe {
   channel_session_id: string;
   telefone_destino: string;
-  /** O modelo aprovado que leva o aviso pela conexão que só manda modelo (0762). */
+  /** O modelo aprovado que leva o aviso pela conexão que só manda modelo (0783). */
   modelo_id: string | null;
 }
 
@@ -165,7 +165,7 @@ async function canalDaEquipe(
  * aceita mensagem livre (template-only) não podem receber este texto. Um envio
  * que passasse por aqui desligaria o número da empresa ou cairia na fila de
  * revisão do provedor. O canal que só manda modelo serve quando há um modelo
- * aprovado escolhido para ele (migration 0762): o texto vai dentro do modelo.
+ * aprovado escolhido para ele (migration 0783): o texto vai dentro do modelo.
  *
  * O import de capacidades é TARDIO, pelo mesmo motivo do aviso de caso: o
  * catálogo de capacidades puxa o inventário de provedores, e arrastá-lo para
@@ -190,7 +190,7 @@ async function aceitaTextoLivre(canal: CanalDaEquipe): Promise<boolean> {
 
 /**
  * O MODELO APROVADO que leva o aviso quando a conexão só manda modelo
- * (migration 0762) — o mesmo que o ADMIN escolheu em Avisos para o aviso de
+ * (migration 0783) — o mesmo que o ADMIN escolheu em Avisos para o aviso de
  * caso, conferido AGORA pela regra única (`lib/escalacao/modelo-do-aviso.ts`).
  * `null` quando o canal aceita texto livre (o modelo não é usado) ou quando o
  * modelo não serve mais: aí o bloqueio acima diz por quê.

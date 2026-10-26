@@ -95,7 +95,7 @@ export interface ConexaoParaAviso {
   modelos?: ModeloOferecido[];
 }
 
-/** Um modelo aprovado que a tela oferece para levar o aviso (migration 0762). */
+/** Um modelo aprovado que a tela oferece para levar o aviso (migration 0783). */
 export interface ModeloOferecido {
   id: string;
   nome: string;
@@ -112,7 +112,7 @@ export interface ConfiguracaoNaTela {
   rotulo: string | null;
   ligado: boolean;
   respostaWhatsappHabilitada?: boolean;
-  /** `config_aviso_de_caso.modelo_id` (migration 0762). */
+  /** `config_aviso_de_caso.modelo_id` (migration 0783). */
   modeloId?: string | null;
 }
 
@@ -183,7 +183,7 @@ export function normalizarTelefoneDeAviso(bruto: string): string {
 
 /**
  * A conexão serve para mandar o aviso? Texto livre a qualquer hora, ou ao menos
- * um modelo aprovado que leve o aviso (migration 0762). É a mesma pergunta que
+ * um modelo aprovado que leve o aviso (migration 0783). É a mesma pergunta que
  * decide o que o seletor da tela oferece.
  */
 export function conexaoServeParaAviso(c: ConexaoParaAviso): boolean {
@@ -266,7 +266,7 @@ export function avisosDaTela(f: FatosDaTelaDeAviso): AvisoDaTela[] {
   // A conexão salva só manda modelo, e o modelo escolhido não serve (ou não
   // há escolha): o switch trava até a pessoa escolher um modelo aprovado com
   // uma variável. Sem isto, a tela mostraria o aviso "ligado" com um envio que
-  // o motor condena a cada caso (migration 0762).
+  // o motor condena a cada caso (migration 0783).
   const escolhida = conexaoEscolhida(f);
   if (escolhida && !escolhida.aceitaMensagemLivre && !modeloEscolhidoServe(escolhida, f.config?.modeloId)) {
     bloqueios.push({

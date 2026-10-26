@@ -18136,7 +18136,7 @@ export const DICIONARIO: Traducoes = {
   "Parâmetro inválido.": {
     es: "Parámetro no válido.",
   },
-  // ─── conexão do número oficial por um clique (canal parceiro, migration 0760) ───
+  // ─── conexão do número oficial por um clique (canal parceiro, migration 0781) ───
   "WhatsApp conectado. As mensagens já entram por aqui.": { es: "WhatsApp conectado. Los mensajes ya entran por aquí." },
   "Concluindo a conexão…": { es: "Completando la conexión…" },
   "Reconectar o WhatsApp": { es: "Reconectar el WhatsApp" },

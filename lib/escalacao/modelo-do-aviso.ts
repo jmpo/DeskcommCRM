@@ -8,7 +8,7 @@
  * livre, e a tela "Aviso no WhatsApp" só oferecia conexão que manda texto livre
  * a qualquer hora. Uma organização cujo único número estável é o oficial nunca
  * conseguia avisar ninguém: o switch travava, a ação pulava e o aviso de caso
- * era condenado. A migration 0762 pôs `config_aviso_de_caso.modelo_id`; este
+ * era condenado. A migration 0783 pôs `config_aviso_de_caso.modelo_id`; este
  * arquivo diz QUAL modelo serve e COMO o texto entra nele.
  *
  * ## Qual modelo serve

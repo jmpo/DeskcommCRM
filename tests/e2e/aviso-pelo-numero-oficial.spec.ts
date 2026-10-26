@@ -1,5 +1,5 @@
 /**
- * AVISO À EQUIPE PELO NÚMERO OFICIAL, COM MODELO APROVADO (migration 0762) — pela tela.
+ * AVISO À EQUIPE PELO NÚMERO OFICIAL, COM MODELO APROVADO (migration 0783) — pela tela.
  *
  * O caso que esta spec prova é o de quem só tem o número oficial estável: antes,
  * a tela "Aviso no WhatsApp" nem oferecia esse número, e o aviso à equipe nunca

@@ -51,7 +51,7 @@
  * `fn_definir_aviso_de_caso` faz, dentro da MESMA transação da escrita, oito
  * guardas que uma rota faria em oito idas ao banco com uma janela de corrida
  * entre cada duas: papel, suporte, MFA, E.164, canal da organização, modelo da
- * organização e da conexão (0762), recusa do número da própria organização e
+ * organização e da conexão (0783), recusa do número da própria organização e
  * recusa de número que já é um cliente. Um `upsert` daqui repetiria as oito e
  * divergiria delas no primeiro dia em que alguém mudasse uma. O que o banco NÃO
  * pergunta sobre o modelo — aprovado, uma variável só — a rota pergunta antes
@@ -128,7 +128,7 @@ const corpo = z
     confirma_contato: z.boolean().optional(),
     /**
      * O modelo aprovado que leva o aviso quando a conexão só manda modelo
-     * (migration 0762). Ausente/`null` = sem modelo: a conexão precisa mandar
+     * (migration 0783). Ausente/`null` = sem modelo: a conexão precisa mandar
      * texto livre. Gravar o que veio — inclusive o `null` — é o que impede um
      * modelo de outra conexão de ficar para trás depois de trocar de número.
      */

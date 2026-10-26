@@ -27,7 +27,7 @@ alter table public.config_aviso_de_caso
     references public.meta_templates(id) on delete set null;
 
 comment on column public.config_aviso_de_caso.modelo_id is
-  'Modelo aprovado (meta_templates) que leva o aviso quando a conexão só manda modelo fora da janela de 24 h. Uma variável só, no corpo: o texto do aviso entra nela numa linha só. Nulo = texto livre (a conexão precisa aceitar). Migration 0762.';
+  'Modelo aprovado (meta_templates) que leva o aviso quando a conexão só manda modelo fora da janela de 24 h. Uma variável só, no corpo: o texto do aviso entra nela numa linha só. Nulo = texto livre (a conexão precisa aceitar). Migration 0783.';
 
 -- A função ganha o oitavo parâmetro. `create or replace` com outra lista de
 -- parâmetros cria OUTRA função: a de 7 sai logo abaixo, senão o PostgREST teria
@@ -81,7 +81,7 @@ begin
     end if;
   end if;
 
-  -- O MODELO APROVADO é DESTA organização e DESTA conexão (migration 0762). A
+  -- O MODELO APROVADO é DESTA organização e DESTA conexão (migration 0783). A
   -- mesma regra de `lib/channels/linha-do-espelho.ts`: a linha gravada para a
   -- conexão, ou a linha sem conexão da conta oficial dela. Sem isto, a FK
   -- simples deixaria apontar para o modelo de outro tenant ou de outro número,

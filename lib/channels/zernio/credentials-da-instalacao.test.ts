@@ -1,5 +1,5 @@
 /**
- * A credencial da sessão conectada por um clique é um PONTEIRO (migration 0760):
+ * A credencial da sessão conectada por um clique é um PONTEIRO (migration 0781):
  * a chave da instalação é lida na hora, e trocá-la vale para todas as sessões.
  * A sessão com chave própria segue lendo a cópia cifrada dela.
  */
