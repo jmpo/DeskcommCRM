@@ -1057,8 +1057,14 @@ async function processEnrollment(
   const temRegraDeData = graph.nodes.some(
     (n) => n.type === "condition" && n.config.checks.some((c) => c.field === "lead_date"),
   );
+  // A espera com horário (`ate_o_horario`) também pergunta pelo relógio da
+  // organização: "8h às 20h" sem fuso seria 8h às 20h em UTC — 5h às 17h em
+  // Assunção ou São Paulo, e o toque sairia cedo demais, que é o que o horário impede.
+  const temEsperaComHorario = graph.nodes.some(
+    (n) => n.type === "wait" && n.config.mode === "fixed" && n.config.ate_o_horario !== undefined,
+  );
   const fusoDaOrg =
-    temRegraDeData && db.loadFusoDaOrganizacao
+    (temRegraDeData || temEsperaComHorario) && db.loadFusoDaOrganizacao
       ? await db.loadFusoDaOrganizacao(enrollment.organization_id)
       : null;
 
