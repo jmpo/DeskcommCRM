@@ -267,15 +267,6 @@ export const contactListQuerySchema = z.object({
   modo: z.enum(MODOS_DE_ETIQUETA).optional(),
   source: z.string().optional(),
   /**
-   * A LISTA DE QUEM PEDIU PARA NÃO SER INCOMODADO.
-   *
-   * Sem isto o bloqueio existia só como etiqueta na linha: para saber quem
-   * pediu era preciso percorrer a lista inteira a olho. Quem precisa dessa
-   * resposta é justamente quem vai montar uma campanha — e errar ali é
-   * escrever para quem disse que não queria.
-   */
-  blocked: z.enum(["yes", "no"]).optional(),
-  /**
    * Só pessoais / esconder pessoais (spec 21, etapa 13).
    *
    * `"true"`/`"false"` como TEXTO — vem de `searchParams`, que só conhece

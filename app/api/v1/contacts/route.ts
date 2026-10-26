@@ -125,7 +125,6 @@ export async function GET(req: NextRequest): Promise<Response> {
     tag: url.searchParams.getAll("tag"),
     modo: url.searchParams.get("modo") ?? undefined,
     source: url.searchParams.get("source") ?? undefined,
-    blocked: url.searchParams.get("blocked") ?? undefined,
     pessoais: url.searchParams.get("pessoais") ?? undefined,
     blocked: url.searchParams.get("blocked") ?? undefined,
     cursor: url.searchParams.get("cursor") ?? undefined,
