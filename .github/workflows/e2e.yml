@@ -1475,6 +1475,11 @@ jobs:
       # `platform_settings.molde_de_ia_org_id` a nulo — o molde é da instalação, e
       # deixado escolhido faria as empresas das specs seguintes nascerem com ele.
       # Não cita WAHA, Graph nem webhook. PREVISÃO, não medida: ~1 min de caso.
+      # `onboarding-entendivel` (fork, 2026-10-26): cadastro e wizard de um
+      # cliente do Paraguai em `es-PY`. Cria a PRÓPRIA empresa pelo `/signup` e
+      # confirma pelo Mailpit (como `signup-journey`); a conexão depois é uma
+      # sessão WORKING semeada nela — não sobe WAHA. O caso do oficial por um
+      # clique se declara pulado sem a chave do provedor da instalação.
       SPECS_PARTE_7: >-
         celular-toque-nos-controles.spec.ts
         agente-novo-e-uso.spec.ts
@@ -1488,6 +1493,7 @@ jobs:
         numero-oficial-um-clique.spec.ts
         aviso-pelo-numero-oficial.spec.ts
         molde-de-ia-empresas-novas.spec.ts
+        onboarding-entendivel.spec.ts
 
       # ─── FORA_DO_CI — as que ficaram fora, e o motivo de cada uma ───
       #
