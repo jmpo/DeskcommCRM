@@ -215,6 +215,10 @@ describe("a rota escreve na ORGANIZAÇÃO DA TAREFA, e com o par que a trava lê
     expect(fonte).toContain("enviarPushAoUsuario(tarefa.organization_id, responsavel");
   });
 
+  it("o toque no push abre as tarefas do responsável", () => {
+    expect(fonte).toContain("href: HREF_MINHAS_TAREFAS");
+  });
+
   it("audit só quando houve efeito", () => {
     expect(fonte).toMatch(/if \(resultado\.avisadas > 0\) \{\s*void audit\(/);
   });

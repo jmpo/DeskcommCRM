@@ -92,6 +92,7 @@ import {
   type PreferenciaDeLembrete,
   type TipoDeAvisoDeTarefa,
 } from "@/lib/tarefas/preferencia-de-lembrete";
+import { HREF_MINHAS_TAREFAS } from "@/lib/tarefas/tipos";
 
 export const dynamic = "force-dynamic";
 
@@ -340,7 +341,7 @@ async function rodar(admin: ReturnType<typeof createAdminClient>, requestId: str
         title: texto.titulo,
         body: truncar(texto.corpo),
         tag: `task:${tarefa.id}`,
-        href: "/app/tasks",
+        href: HREF_MINHAS_TAREFAS,
       });
     } catch (err) {
       logger.warn("[task-reminder] push falhou", {

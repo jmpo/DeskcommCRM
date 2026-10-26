@@ -51,6 +51,7 @@ import {
 import { logger } from "@/lib/logger";
 import { OrgNaoOperanteError, STATUS_OPERANTE, ehOperante, statusDaOrgEmbutida } from "@/lib/organizacao/operante";
 
+import { baloesDaCampanha, enviarEmBaloes, pausaEntreBaloes } from "./baloes";
 import { motivoParaExcluir, recusouMarketing, statusDaSaida } from "./elegibilidade";
 import { hashDoEndereco } from "./exclusoes";
 import type { ConteudoDoEnvio } from "./modelo";
@@ -110,6 +111,8 @@ interface CampanhaRow {
   /** Migration 0712: com `velocidade = transmissao`, as origens das variáveis e o id no provedor. */
   provider_template_variables: unknown;
   provider_broadcast_id: string | null;
+  /** Migration 0765: texto sai em balões, um por parágrafo. Modelo nunca se divide. */
+  split_messages: boolean;
   started_at: string | null;
   paused_at: string | null;
 }
@@ -118,7 +121,7 @@ const COLUNAS_DA_CAMPANHA =
   "id, organization_id, channel_session_id, name, message_body, content_version, " +
   "intervalo_segundos, janela_inicio_hora, janela_fim_hora, teto_diario, teto_horario, " +
   "message_mode, provider_template_name, provider_template_language, velocidade, started_at, paused_at, " +
-  "provider_template_variables, provider_broadcast_id";
+  "provider_template_variables, provider_broadcast_id, split_messages";
 
 /**
  * O status da organização embutido com `!inner` no `select`, e filtrado na
@@ -508,6 +511,14 @@ async function rodarUmaCampanha(
     return { enviadas: 0, pulados: 0, concluidas: 0, detalhe: `ritmo:${doRitmo.motivo}` };
   }
 
+  // Quantos balões esta pessoa vai receber, medido no texto congelado (a
+  // saudação do render não cria parágrafo). O teto do número é conferido para
+  // TODOS eles antes de começar: parar no meio por teto entregaria meia mensagem.
+  const comModelo = campanha.message_mode === "template";
+  const dividir = !comModelo && campanha.split_messages === true;
+  const congelado = alvo.rendered_body ?? campanha.message_body ?? "";
+  const baloesPrevistos = baloesDaCampanha(congelado, dividir).length;
+
   // ─── O RODÍZIO: qual número fala com esta pessoa ───
   const disponiveis: NumeroDisponivel[] = [];
   const knobsPorNumero = new Map<string, Awaited<ReturnType<typeof loadChannelKnobs>>>();
@@ -537,7 +548,9 @@ async function rodarUmaCampanha(
     const decisao = decidePacing({
       now: agora,
       knobs: k.knobs,
-      state: estadoDoNumero,
+      // O último balão tem de caber no teto: conferir como se os anteriores já
+      // tivessem saído. Com um balão só, é o estado de sempre.
+      state: { ...estadoDoNumero, sentToday: estadoDoNumero.sentToday + baloesPrevistos - 1 },
       crmDailyLimit: linha.daily_message_limit ?? null,
       // Aquecimento e teto anti-ban são do número por QR. O oficial não é banido
       // por volume — quem limita ali é a plataforma (nível de mensagens) —, e o
@@ -591,7 +604,6 @@ async function rodarUmaCampanha(
   //
   // Com modelo não há saudação: o texto é o do modelo aprovado com os valores
   // congelados na preparação, e é ele que fica na conversa para o agente ler.
-  const comModelo = campanha.message_mode === "template";
   const valoresDoModelo = comModelo ? valoresCongelados(alvo.variables) : null;
   if (comModelo && valoresDoModelo === null) {
     await admin
@@ -601,7 +613,6 @@ async function rodarUmaCampanha(
       .eq("status", "sending");
     return { enviadas: 0, pulados: 0, concluidas: 0, detalhe: "falha:modelo_sem_valores" };
   }
-  const congelado = alvo.rendered_body ?? campanha.message_body ?? "";
   const corpo = comModelo
     ? congelado
     : renderizar(congelado, { nome: nomeDoContato(contato) }, { agora, fuso: knobs.timezone }).texto;
@@ -627,42 +638,69 @@ async function rodarUmaCampanha(
       .update({ conversation_id: boundary.conversation_id, channel_session_id: sessionEscolhida })
       .eq("id", alvo.id);
 
-    const mensagem = await sendMessageHandler(
-      admin,
-      {
-        organization_id: campanha.organization_id,
-        serviceBoundary: boundary,
-        proactiveContext: { organizationId: campanha.organization_id, contactId: alvo.contact_id },
-        actor: { type: "webhook_source", id: `campaign:${campanha.id}` },
-        requestId: `campaign:${campanha.id}:${alvo.id}`,
-        internalMessageId: messageId,
-      } as Parameters<typeof sendMessageHandler>[1],
-      {
-        conversation_id: boundary.conversation_id,
-        ...conteudo,
-        metadata: {
-          source: "campaign",
-          campaign_id: campanha.id,
-          campaign_recipient_id: alvo.id,
-          campaign_content_version: campanha.content_version,
-          idempotency_key: `campaign:${alvo.id}`,
-        },
-      } as Parameters<typeof sendMessageHandler>[2],
-    );
-    await recordSend(pool, campanha.organization_id, sessionEscolhida, agora);
+    // O 1º balão leva as chaves de sempre (id da mensagem, requestId,
+    // idempotência): com a divisão desligada o envio é byte a byte o de antes.
+    // Os seguintes ganham o índice nas chaves, para uma repetição não os fundir.
+    // `maxBaloes = baloesPrevistos`: o teto foi conferido para esse número.
+    const baloes = comModelo ? [corpo] : baloesDaCampanha(corpo, dividir, baloesPrevistos);
+    const relogioDosBaloes = Date.now();
+    const { primeira, desfecho: mensagem, indiceDoDesfecho } = await enviarEmBaloes(baloes, {
+      enviar: (texto, i) =>
+        sendMessageHandler(
+          admin,
+          {
+            organization_id: campanha.organization_id,
+            serviceBoundary: boundary,
+            proactiveContext: { organizationId: campanha.organization_id, contactId: alvo.contact_id },
+            actor: { type: "webhook_source", id: `campaign:${campanha.id}` },
+            requestId: i === 0 ? `campaign:${campanha.id}:${alvo.id}` : `campaign:${campanha.id}:${alvo.id}:${i}`,
+            internalMessageId: i === 0 ? messageId : randomUUID(),
+          } as Parameters<typeof sendMessageHandler>[1],
+          {
+            conversation_id: boundary.conversation_id,
+            ...conteudo,
+            ...(conteudo.type === "text" ? { body: texto } : {}),
+            metadata: {
+              source: "campaign",
+              campaign_id: campanha.id,
+              campaign_recipient_id: alvo.id,
+              campaign_content_version: campanha.content_version,
+              idempotency_key: i === 0 ? `campaign:${alvo.id}` : `campaign:${alvo.id}:${i}`,
+            },
+          } as Parameters<typeof sendMessageHandler>[2],
+        ),
+      // Cada balão entra no ledger no instante em que SAIU: o throttle do próximo
+      // envio do número conta a partir do último registro, e gravar todos com o
+      // `agora` da rodada deixava o destinatário seguinte sair a menos de
+      // `throttleMs` do último balão (medido na prova de tela: 941 ms). O 1º
+      // balão segue com `agora`, como o envio único de antes.
+      registrar: (i) =>
+        recordSend(
+          pool,
+          campanha.organization_id,
+          sessionEscolhida,
+          i === 0 ? agora : new Date(agora.getTime() + (Date.now() - relogioDosBaloes)),
+        ),
+      // Pausa curta e fixa no ritmo anti-ban do número, nunca o intervalo da
+      // campanha: este laço é dividido por todas as campanhas da instalação.
+      esperar: () => new Promise((ok) => setTimeout(ok, pausaEntreBaloes(knobs))),
+    });
 
     // O desfecho vem do ESTADO da mensagem, nunca da ausência de exceção — o
-    // handler marca `failed` e devolve normalmente.
-    const status = (mensagem as { status?: string }).status;
+    // handler marca `failed` e devolve normalmente. Com balões, o desfecho é o
+    // do primeiro que falhou (ou o do último, se todos saíram).
+    const status = mensagem.status;
     const falhou = status === "failed";
-    const erro = mensagem as { error_code?: string | null; error_message?: string | null };
+    const erro = mensagem;
     const codigoDaFalha = falhou ? codigoDaPlataforma(erro.error_code, erro.error_message) : null;
 
     // O provedor ou a plataforma pediram para DESACELERAR (429 do parceiro,
     // 130429 da plataforma). A mensagem não saiu e não tem nada de errado: o
     // destinatário volta para a fila e sai na próxima rodada. Falhá-lo tiraria
     // a pessoa da campanha por pressa nossa — o risco que a rajada cria.
-    if (falhou && ehLimiteDeVelocidade(codigoDaFalha, erro.error_message)) {
+    // Só no 1º balão: se um balão seguinte foi o barrado, a pessoa já recebeu o
+    // começo, e voltar à fila reenviaria esse começo.
+    if (falhou && indiceDoDesfecho === 0 && ehLimiteDeVelocidade(codigoDaFalha, erro.error_message)) {
       await admin
         .from("campaign_recipients")
         .update({
@@ -692,7 +730,7 @@ async function rodarUmaCampanha(
         // `messages`, e a linha da mensagem só existe depois do envio. Gravá-lo
         // antes — que era o desenho original, para o trigger de ack sempre achar
         // o destinatário — viola a FK e a reserva falha inteira.
-        message_id: (mensagem as { id?: string }).id ?? messageId,
+        message_id: primeira.id ?? messageId,
       })
       .eq("id", alvo.id)
       .eq("status", "sending");

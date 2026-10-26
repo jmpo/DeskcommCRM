@@ -1752,6 +1752,7 @@ Evidência: `evidence/app-no-celular-20261020/` (gravada pelo CI).
 | J48.9 | Navegador de dentro de outro app, https que recusa o SW, Chrome em modo computador | manda abrir no Safari/Chrome; fica sem app; conta como celular | UNIT `estado-da-instalacao` |
 | J48.10 | Push com o app à vista | AINDA vira notificação, calada (a página já tocou o som); fora do app ou tipo sem aviso local, com som | UNIT `notify-sw` |
 | J48.11 | A porta | o link «Receber no celular: instalar o app» em Notificações leva à tela | E2E (CI) |
+| J48.12 | O toque no lembrete de tarefa (F3) | abre `/app/tasks?assigned_to=me`: só as tarefas da pessoa, «Todas» traz as outras; a 390px, controles ≥ 44 px, caixa de concluir alcançável a 20 px do centro, lápis visível sem hover, sem rolagem lateral nem no `<main>`, tocar conclui no banco; tarefa nova criada em «Minhas» nasce da pessoa; calendário escolhido no tablet não prende o celular | E2E `minhas-tarefas-no-celular` (navega pela constante do push) (CI, parte 3) + UNIT `TarefasClient.test`, `tarefas-rota-nao-tem-porta-dos-fundos` |
 
 **NÃO COBERTO, declarado:** aparelho real. Instalar pelo caminho guiado num
 Android e num iPhone de verdade, numa instalação HTTPS fresca; o ícone com a

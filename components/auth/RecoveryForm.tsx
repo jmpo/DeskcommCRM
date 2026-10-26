@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 
 import { useT } from "@/hooks/i18n/useT";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useRecoveryCode as submitRecoveryCode } from "@/app/actions/auth/useRecoveryCode";
+import { AvisoSemResposta, useEnvioComTeto } from "@/components/auth/teto-da-espera";
 
 interface RecoveryFormProps {
   next?: string;
@@ -17,14 +18,13 @@ export function RecoveryForm({ next }: RecoveryFormProps) {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const { pendente: isPending, semResposta, enviar } = useEnvioComTeto();
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     // Quem normaliza (espaços, hífen, minúsculas) é o servidor, com a mesma regra da gravação.
-    startTransition(async () => {
-      const res = await submitRecoveryCode({ email, code }, next);
+    void enviar(() => submitRecoveryCode({ email, code }, next), (res) => {
       if (!res) return; // server-side redirect on success
       if (res.error === "service_unavailable") {
         setError(t("Serviço de recuperação indisponível. Contate o administrador."));
@@ -74,6 +74,7 @@ export function RecoveryForm({ next }: RecoveryFormProps) {
           {error}
         </div>
       )}
+      {semResposta && <AvisoSemResposta />}
 
       <Button type="submit" className="w-full" disabled={isPending}>
         {isPending ? t("Validando…") : t("Recuperar acesso")}

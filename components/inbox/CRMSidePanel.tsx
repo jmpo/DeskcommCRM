@@ -32,6 +32,7 @@ import { soChavesAlteradas } from "@/lib/leads/custom-fields-so-diff";
 import { ConversationTagsEditor } from "./ConversationTagsEditor";
 import { ContactTagsEditor } from "./ContactTagsEditor";
 import { TarefasDaDemanda } from "./TarefasDaDemanda";
+import { FollowupDoContato } from "./FollowupDoContato";
 import { useDefaultPipeline } from "@/hooks/pipelines/useDefaultPipeline";
 import { LoseLeadDialog } from "@/components/kanban/LoseLeadDialog";
 import { NewLeadDialog } from "@/components/kanban/NewLeadDialog";
@@ -989,7 +990,19 @@ export function CRMSidePanel({ conversation, recolhido = false, onAlternarRecolh
           {t("Contato")}
         </h3>
         <Card className="mt-2 space-y-2 p-3 text-sm">
-          <div className="font-medium">{displayName}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="font-medium">{displayName}</div>
+            {/*
+              O TIPO DO CONTATO (issue 3005, fatia 1): lido da COLUNA
+              (`contacts.contact_type`, migration 0763), nunca da etiqueta
+              `fornecedor` — mesma régua do selo "Pessoal" da ficha: remover a
+              tag não pode apagar o que o banco diz. Só o fornecedor ganha selo
+              porque cliente é o padrão; um selo em toda conversa não informa nada.
+            */}
+            {contact?.contact_type === "fornecedor" && (
+              <Badge variant="secondary">{t("Fornecedor")}</Badge>
+            )}
+          </div>
           {contact?.phone_number && (
             <div className="text-xs text-muted-foreground">{phoneForDisplay(contact.phone_number)}</div>
           )}
@@ -1188,6 +1201,24 @@ export function CRMSidePanel({ conversation, recolhido = false, onAlternarRecolh
         leadId={negocioAtivoId}
         podeEditar={podeCriarTarefa}
       />
+
+      {/* O FOLLOW-UP NA CONVERSA (#3178): qual fluxo está rodando neste contato,
+          a porta para iniciar um e parar o que está de pé — sem sair do painel.
+          Fica ao lado da demanda porque é dela que o follow-up é o outro lado:
+          o próximo passo que a demanda não carrega. A seção se AUTO-OCULTA
+          quando não há enrollment vivo nem fluxo ativo (contrato de
+          `RoteirosDoContato`). Iniciar e parar são `manager`+ no servidor
+          (`requireRole("manager")` no POST e no cancel): a régua aqui é a
+          mesma, mais o modo suporte de leitura. `readonly` sozinho deixava o
+          `agent` ver os botões e levar 403. */}
+      {contactId && !contact?.is_anonymized && (
+        <FollowupDoContato
+          contactId={contactId}
+          podeEscrever={
+            !readonly && ((user.is_platform_admin && !user.support) || roleAtLeast(activeOrg?.role, "manager"))
+          }
+        />
+      )}
 
       <Separator />
 

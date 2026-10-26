@@ -26,6 +26,7 @@ const linha = (id: string, body: string, minuto: number, extra: { type?: string;
   media_mime: null,
   media_derived_text: null,
   sent_at: new Date(Date.UTC(2026, 9, 21, 12, minuto)),
+  metadata: null,
   ...(extra.fixada ? { fixada: true } : {}),
 });
 
