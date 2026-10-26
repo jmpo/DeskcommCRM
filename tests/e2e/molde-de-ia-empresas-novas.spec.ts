@@ -197,7 +197,13 @@ test("escolher o molde, criar a empresa e ver a IA copiada — pela tela", async
   await page.goto("/app");
   await page.getByTestId("tenant-switcher").click();
   await page.getByTestId(`tenant-switcher-item-${novaId}`).click();
-  await page.waitForURL("**/app/inbox", { timeout: 60_000 });
+  // A troca é uma server action: `/app` já redireciona para o inbox, então
+  // esperar a URL não separa "a troca aconteceu" de "a troca foi atirada" — e
+  // o painel abria ainda no molde. Espera-se o seletor terminar e mostrar a
+  // empresa nova, como em `aba-e-cookie-divergentes.spec.ts`.
+  const seletor = page.getByTestId("tenant-switcher");
+  await expect(seletor, "a troca para a empresa nova não terminou").toBeEnabled({ timeout: 60_000 });
+  await expect(seletor, "a troca para a empresa nova não pegou").toContainText(NOME_DA_NOVA, { timeout: 20_000 });
 
   await page.goto("/app/ai/providers");
   await page.waitForSelector('[data-testid="painel-de-provedores"]', { timeout: 30_000 });
