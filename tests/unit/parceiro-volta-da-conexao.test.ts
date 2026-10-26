@@ -46,9 +46,9 @@ describe("volta da conexão por um clique", () => {
       `?connected=whatsapp&profileId=${PERFIL}&accountId=${CONTA}&username=%2B13105551234&connect_token=SEGREDO`,
     );
     const url = new URL(alvo, "http://localhost");
-    expect(url.pathname).toBe("/app/connections");
+    // A rota que decide entre o passo do onboarding e Conexões (com sessão).
+    expect(url.pathname).toBe("/app/connections/volta-do-parceiro");
     expect(Object.fromEntries(url.searchParams)).toEqual({
-      aba: "parceiro",
       parceiro_estado: ESTADO,
       parceiro_conta: CONTA,
       parceiro_perfil: PERFIL,

@@ -64,6 +64,8 @@ interface Estado {
   pela_instalacao?: boolean;
   /** O webhook foi registrado pela instalação (o da chave própria, ou o único das conexões de um clique). */
   webhook_automatico?: boolean;
+  /** A chave própria aparece para quem olha? (Com um clique, só para quem administra a instalação.) */
+  pode_usar_chave_propria?: boolean;
 }
 
 interface Conectado {
@@ -111,7 +113,43 @@ function ParaColar({ rotulo, valor }: { rotulo: string; valor: string }) {
   );
 }
 
-export function CanalParceiroClient() {
+/**
+ * O que ter à mão ANTES de abrir a janela da Meta. Medido no QA de 26/10/2026:
+ * quem chegava lá sem um Facebook com acesso ao portfólio da empresa, ou com o
+ * WhatsApp comum em vez do Business, travava no meio — e voltava sem saber por
+ * quê.
+ */
+function AntesDeComecar() {
+  const t = useT();
+  return (
+    <div className="space-y-2 rounded-md bg-muted/40 p-3 text-sm" data-testid="antes-de-comecar">
+      <p className="font-medium">{t("Antes de começar, tenha em mãos:")}</p>
+      <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+        <li>
+          {t(
+            "Um Facebook com acesso de administrador ao portfólio da sua empresa na Meta (Meta Business). Se ainda não tem, dá para criar na hora.",
+          )}
+        </li>
+        <li>
+          {t("O app WhatsApp Business (não o WhatsApp comum) atualizado, e o celular do número na mão.")}
+        </li>
+        <li>{t("Uns 10 minutos.")}</li>
+        <li>{t("A Meta cobra à parte os modelos de mensagem que você enviar.")}</li>
+      </ul>
+    </div>
+  );
+}
+
+export function CanalParceiroClient({
+  aoConectar,
+}: {
+  /**
+   * Chamado quando a conexão termina de verdade (volta da Meta concluída ou
+   * chave gravada). O wizard usa para seguir ao próximo passo; em Conexões a
+   * tela só recarrega o estado.
+   */
+  aoConectar?: () => void;
+} = {}) {
   const t = useT();
   const router = useRouter();
   const params = useSearchParams();
@@ -160,15 +198,27 @@ export function CanalParceiroClient() {
     setConcluindo(true);
     void (async () => {
       try {
-        await apiClient.post("/api/v1/channels/partner/um-clique", corpo);
-        toast.success(t("WhatsApp conectado. As mensagens já entram por aqui."));
+        const r = await apiClient.post<{ data: { agente?: string } }>(
+          "/api/v1/channels/partner/um-clique",
+          corpo,
+        );
+        toast.success(
+          r?.data?.agente === "publicado"
+            ? t("WhatsApp conectado. Seu agente já está atendendo por este número.")
+            : t("WhatsApp conectado. As mensagens já entram por aqui."),
+        );
         await carregar();
+        aoConectar?.();
       } catch (e) {
         toast.error(e instanceof Error ? t(e.message) : t("Não foi possível conectar."));
       } finally {
         setConcluindo(false);
       }
     })();
+    // `aoConectar` fica fora das dependências de propósito: a volta é tratada
+    // UMA vez (`voltaTratada`), e uma função nova a cada render não pode
+    // re-disparar a conclusão.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params, router, t]);
 
   const abrirConexao = async () => {
@@ -201,6 +251,9 @@ export function CanalParceiroClient() {
       setApiKey("");
       toast.success(t("Canal conectado."));
       await carregar();
+      // Com o passo 2 (colar a volta) pendente, o wizard NÃO pode seguir: a
+      // tela que mostra a URL e o segredo sumiria junto.
+      if (r.data.webhook_automatico) aoConectar?.();
     } catch (e) {
       toast.error(e instanceof Error ? t(e.message) : t("Não foi possível conectar."));
     } finally {
@@ -211,30 +264,51 @@ export function CanalParceiroClient() {
   const rotulo = estado?.label ?? t("provedor parceiro");
   const conectado = estado?.connected ?? false;
   const pelaInstalacao = conectado && (estado?.pela_instalacao ?? false);
+  const umClique = estado?.um_clique ?? false;
   // Um clique para quem não conectou, ou para reconectar o que a instalação conectou.
-  const mostrarUmClique = (estado?.um_clique ?? false) && (!conectado || pelaInstalacao);
+  const mostrarUmClique = umClique && (!conectado || pelaInstalacao);
+  // Com um clique, a chave própria é de quem administra a INSTALAÇÃO: o cliente
+  // do revendedor não tem conta no provedor (o servidor decide e manda
+  // `pode_usar_chave_propria`; ausente = o comportamento de antes).
+  const podeChavePropria = estado?.pode_usar_chave_propria ?? true;
   // A chave própria: sempre sem um clique; com ele, a pedido; e para quem já conectou assim.
   const mostrarChavePropria =
-    !(estado?.um_clique ?? false) || usarChavePropria || (conectado && !pelaInstalacao);
+    !umClique || (usarChavePropria && podeChavePropria) || (conectado && !pelaInstalacao);
 
   return (
     <div className="flex flex-col gap-4">
       <Card className="flex flex-col gap-4 p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
+            {/* Com um clique, o cliente não contratou provedor nenhum: o título
+                diz O QUE ele está conectando, sem a marca de quem está por trás
+                (QA de 26/10/2026 — "Conectar por <marca>" e "já tenho conta em
+                <marca>" mandavam procurar uma conta que ele não tem). */}
             <h3 className="text-sm font-semibold">
-              {t("Conectar por")} {rotulo}
+              {umClique && (!conectado || pelaInstalacao)
+                ? t("WhatsApp Business oficial (recomendado)")
+                : `${t("Conectar por")} ${rotulo}`}
             </h3>
             <p className="text-xs text-muted-foreground">
-              {t(
-                "Um número oficial (WhatsApp Business) conectado através do seu provedor. As mensagens entram e saem pelo CRM, e os modelos aprovados são os mesmos da sua conta.",
-              )}
+              {umClique && (!conectado || pelaInstalacao)
+                ? t(
+                    "O número oficial da sua empresa no WhatsApp Business. As mensagens entram e saem por aqui, e os modelos aprovados pela Meta são os da sua conta.",
+                  )
+                : t(
+                    "Um número oficial (WhatsApp Business) conectado através do seu provedor. As mensagens entram e saem pelo CRM, e os modelos aprovados são os mesmos da sua conta.",
+                  )}
             </p>
           </div>
+          {/* `shrink-0` + `whitespace-nowrap`: no celular o selo quebrava em
+              duas linhas ("Não / conectado") ao lado do título. */}
           {conectado ? (
-            <Badge variant="secondary">{t("Conectado")}</Badge>
+            <Badge variant="secondary" className="shrink-0 whitespace-nowrap">
+              {t("Conectado")}
+            </Badge>
           ) : (
-            <Badge variant="outline">{t("Não conectado")}</Badge>
+            <Badge variant="outline" className="shrink-0 whitespace-nowrap">
+              {t("Não conectado")}
+            </Badge>
           )}
         </div>
 
@@ -271,10 +345,11 @@ export function CanalParceiroClient() {
               </p>
               <p className="text-xs text-muted-foreground">
                 {t(
-                  "Abre a janela da Meta: você entra com o Facebook da empresa, escolhe o número e confirma. Não precisa de conta no provedor, e o webhook fica configurado sozinho.",
+                  "Abre uma janela da Meta: você entra com o Facebook da empresa, escolhe o número e confirma. O recebimento das mensagens fica configurado sozinho.",
                 )}
               </p>
             </div>
+            {!conectado && <AntesDeComecar />}
             <fieldset className="flex flex-col gap-2">
               <legend className="sr-only">{t("Como o número está hoje")}</legend>
               <label className="flex cursor-pointer items-start gap-2 text-sm">
@@ -289,7 +364,7 @@ export function CanalParceiroClient() {
                   {t("O número já usa o app WhatsApp Business")}
                   <span className="block text-xs text-muted-foreground">
                     {t(
-                      "Continua funcionando no celular. A Meta mostra um QR para escanear com o app.",
+                      "Coexistência: você continua respondendo pelo app no celular, e as conversas também aparecem aqui. A Meta mostra um QR para escanear com o app.",
                     )}
                   </span>
                 </span>
@@ -305,7 +380,7 @@ export function CanalParceiroClient() {
                 <span>
                   {t("Número novo, ou que já está na API oficial")}
                   <span className="block text-xs text-muted-foreground">
-                    {t("Só pelo CRM, sem o app no celular.")}
+                    {t("Atende só por aqui, sem o app no celular.")}
                   </span>
                 </span>
               </label>
@@ -319,7 +394,7 @@ export function CanalParceiroClient() {
                     : t("Conectar meu WhatsApp")}
               </Button>
             </div>
-            {!conectado && !usarChavePropria && (
+            {!conectado && !usarChavePropria && podeChavePropria && (
               <button
                 type="button"
                 className="self-start text-xs text-muted-foreground underline underline-offset-4"
@@ -423,9 +498,15 @@ export function CanalParceiroClient() {
 
       {conectado && !recemConectado && estado?.webhook_automatico && (
         <Card className="flex flex-col gap-1 p-4">
-          <h3 className="text-sm font-semibold">Webhook</h3>
+          {/* Para quem conectou com um clique, "webhook" não diz nada: o que
+              importa é que as mensagens chegam. */}
+          <h3 className="text-sm font-semibold">
+            {pelaInstalacao ? t("Recebimento de mensagens") : "Webhook"}
+          </h3>
           <p className="text-xs text-muted-foreground">
-            {t("Configurado automaticamente no provedor: só os eventos deste número chegam aqui.")}
+            {pelaInstalacao
+              ? t("Configurado automaticamente: as mensagens deste número chegam aqui.")
+              : t("Configurado automaticamente no provedor: só os eventos deste número chegam aqui.")}
           </p>
         </Card>
       )}

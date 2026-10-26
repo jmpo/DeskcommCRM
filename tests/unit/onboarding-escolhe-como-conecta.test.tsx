@@ -80,12 +80,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function montar(props?: { oficialPodeReceber?: boolean }) {
+function montar(props?: {
+  oficialPodeReceber?: boolean;
+  umClique?: boolean;
+  visaoDaInstalacao?: boolean;
+  temNumero?: boolean;
+}) {
   return render(
     <ConnectWhatsappClient
       wahaConfigured
       sessionName="org_teste"
       oficialPodeReceber={props?.oficialPodeReceber ?? true}
+      umClique={props?.umClique ?? false}
+      visaoDaInstalacao={props?.visaoDaInstalacao ?? true}
+      temNumero={props?.temNumero ?? false}
     />,
   );
 }
@@ -168,7 +176,16 @@ describe("o passo do telefone pergunta como a pessoa já usa o número", () => {
     // c2f88e83: um aviso correto que nasceu sem botão prendeu quem instalava
     // sem chave. A pergunta é um estado novo, e estados novos precisam de saída.
     expect(screen.getByRole("button", { name: /pular por enquanto/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /conectei em outro lugar/i })).toBeTruthy();
+  });
+
+  it("⭐ 'já conectei em outro lugar' só aparece quando EXISTE um número", () => {
+    // QA de 26/10/2026: era o botão verde da tela e marcava o passo sem número
+    // nenhum — o wizard seguia sem telefone e ninguém percebia.
+    montar({ temNumero: false });
+    expect(screen.queryByRole("button", { name: /conectei em outro lugar/i })).toBeNull();
+    cleanup();
+    montar({ temNumero: true });
+    expect(screen.getByRole("button", { name: /já conectei em outro lugar/i })).toBeTruthy();
   });
 
   it("avisa que o servidor ainda não recebe pelo caminho oficial, ANTES do formulário", async () => {
@@ -191,5 +208,42 @@ describe("o passo do telefone pergunta como a pessoa já usa o número", () => {
 
     await waitFor(() => expect(screen.getByTestId("dublê-oficial")).toBeTruthy());
     expect(screen.queryByText(/ainda não está pronto para RECEBER/i)).toBeNull();
+  });
+});
+
+describe("com o número oficial por UM CLIQUE na instalação", () => {
+  it("⭐ é a PRIMEIRA opção, a recomendada, e sem falar de chave", () => {
+    montar({ umClique: true });
+
+    const opcoes = screen.getAllByTestId(/^forma-/).map((el) => el.getAttribute("data-testid"));
+    expect(opcoes[0]).toBe("forma-parceiro");
+    const parceiro = screen.getByTestId("forma-parceiro");
+    expect(parceiro.textContent).toMatch(/WhatsApp Business oficial \(recomendado\)/);
+    // Com um clique NÃO há chave: era o texto que mandava procurar uma.
+    expect(parceiro.textContent).not.toMatch(/chave de acesso|sua chave|a minha chave/i);
+  });
+
+  it("sem um clique, a ordem e o texto de sempre (o código no celular primeiro)", () => {
+    montar({ umClique: false });
+    const opcoes = screen.getAllByTestId(/^forma-/).map((el) => el.getAttribute("data-testid"));
+    expect(opcoes).toEqual(["forma-qr", "forma-oficial", "forma-parceiro"]);
+    expect(screen.getByTestId("forma-parceiro").textContent).toMatch(/chave de acesso/);
+  });
+});
+
+describe("a conta oficial com credenciais de app", () => {
+  it("⭐ some para o CLIENTE quando o servidor não recebe por ela — era um beco", () => {
+    montar({ oficialPodeReceber: false, visaoDaInstalacao: false });
+    expect(screen.queryByTestId("forma-oficial")).toBeNull();
+  });
+
+  it("continua para quem administra a instalação (que vê o aviso e sabe onde ir)", () => {
+    montar({ oficialPodeReceber: false, visaoDaInstalacao: true });
+    expect(screen.getByTestId("forma-oficial")).toBeTruthy();
+  });
+
+  it("e para todos quando o servidor já recebe por ela", () => {
+    montar({ oficialPodeReceber: true, visaoDaInstalacao: false });
+    expect(screen.getByTestId("forma-oficial")).toBeTruthy();
   });
 });

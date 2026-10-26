@@ -6,6 +6,9 @@ import { ROLE_RANK } from "@/lib/auth/types";
 import { ConexoesShell } from "@/components/connections/ConexoesShell";
 import { canalGraphParceiroLigado, GRAPH_PARTNER_LABEL } from "@/lib/channels/graph-parceiro/credentials";
 import { traduzir } from "@/lib/i18n/dicionario";
+import { umCliqueDisponivel } from "@/lib/channels/conexao-um-clique";
+import { listSelectableChannels } from "@/lib/channels/selectable";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Conexões" };
@@ -25,6 +28,16 @@ export default async function ConnectionsPage() {
   );
   const wacallsConfigured = Boolean(process.env.WACALLS_API_BASE_URL);
 
+  // Sem número e com o oficial por um clique disponível, a tela abre nele: é o
+  // caminho recomendado, e a aba do QR escondia que ele existia. Leitura que
+  // falha mantém o padrão de sempre.
+  const [umClique, temNumero] = await Promise.all([
+    umCliqueDisponivel().catch(() => false),
+    listSelectableChannels(createAdminClient(), activeOrg.orgId)
+      .then((canais) => canais.length > 0)
+      .catch(() => true),
+  ]);
+
   return (
     <div className="flex h-full flex-col gap-6 p-6">
       <header>
@@ -40,6 +53,7 @@ export default async function ConnectionsPage() {
         wahaConfigured={wahaConfigured}
         wacallsConfigured={wacallsConfigured}
         graphParceiro={canalGraphParceiroLigado() ? { label: GRAPH_PARTNER_LABEL } : null}
+        abaInicial={umClique && !temNumero ? "parceiro" : "numeros"}
       />
     </div>
   );
