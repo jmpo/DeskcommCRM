@@ -181,7 +181,8 @@ test("escolher o molde, criar a empresa e ver a IA copiada — pela tela", async
   await foto(page, "03-empresa-criada");
 
   // ── 4. A página da empresa nova diz que a IA veio do molde ──────────────
-  await page.goto(`/admin/tenants/${novaId}`);
+  await page.getByRole("link", { name: "Ver organização" }).click();
+  await page.waitForURL(`**/admin/tenants/${novaId}`, { timeout: 30_000 });
   const ia = page.getByTestId("ia-do-molde");
   await expect(ia).toContainText(`Esta empresa nasceu com a IA de ${NOME_DO_MOLDE}.`);
   await expect(ia).toContainText("2 funções de IA copiadas");
