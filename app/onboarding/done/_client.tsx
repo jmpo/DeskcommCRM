@@ -4,6 +4,8 @@ import { useTransition } from "react";
 import { toast } from "sonner";
 import { useT } from "@/hooks/i18n/useT";
 
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 import { finishOnboarding } from "@/app/actions/onboarding/finishOnboarding";
 import type { ItemDoResumo } from "@/lib/onboarding/passos";
@@ -13,6 +15,8 @@ export function DoneClient({
   itens,
   pecas,
   noAr,
+  semNumero = false,
+  linkDoTelefone = "/onboarding/connect-whatsapp",
 }: {
   itens: ItemDoResumo[];
   pecas: PecaDoSistema[];
@@ -22,6 +26,10 @@ export function DoneClient({
    * é cliente e não tem como perguntar sem um fetch que faria a tela piscar.
    */
   noAr: boolean;
+  /** Nenhum número conectado: o fim do wizard oferece voltar ao telefone. */
+  semNumero?: boolean;
+  /** Para onde o botão "Conectar WhatsApp" leva (o passo do telefone). */
+  linkDoTelefone?: string;
 }) {
   const t = useT();
   const [pending, startTransition] = useTransition();
@@ -48,7 +56,9 @@ export function DoneClient({
   const resumo = !noAr
     ? semIa
       ? t("O passo da IA ficou para depois: ele ainda não foi treinado nem colocado no ar.")
-      : t("Ele já foi treinado, mas o atendimento ainda não foi publicado — ele segue em rascunho.")
+      : semNumero
+        ? t("Ele já foi treinado. Falta o número: conecte o WhatsApp e ele começa a atender.")
+        : t("Ele já foi treinado, mas o atendimento ainda não foi publicado — ele segue em rascunho.")
     : pendentes.length === 0
       ? t("Seu funcionário está montado. Daqui em diante é só acompanhar.")
       : t("Seu funcionário já está de pé. O que ficou para depois continua te esperando.");
@@ -59,6 +69,20 @@ export function DoneClient({
         <h2 className="text-2xl font-semibold tracking-tight">{titulo}</h2>
         <p className="text-sm text-muted-foreground">{resumo}</p>
       </div>
+
+      {semNumero && (
+        <div
+          data-testid="falta-o-numero"
+          className="mx-auto flex max-w-sm flex-col items-center gap-2 rounded-md border border-amber-300/60 bg-amber-50 p-4 text-center dark:border-amber-500/30 dark:bg-amber-950/20"
+        >
+          <p className="text-sm">
+            {t("Sem número, nenhuma conversa chega até ele. Leva poucos minutos.")}
+          </p>
+          <Button asChild className="w-full sm:w-auto">
+            <Link href={linkDoTelefone}>{t("Conectar WhatsApp")}</Link>
+          </Button>
+        </div>
+      )}
 
       <ul className="mx-auto max-w-sm space-y-2 text-left text-sm">
         {itens.map((it) => (

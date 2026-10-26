@@ -43,6 +43,7 @@ import { encryptWebhookSecret } from "@/lib/webhooks/secrets";
 import { basePublicaDaInstalacao } from "@/lib/webhooks/url-publica";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { traduzirLimiteDoPlano } from "@/lib/cobranca/limites";
+import { ativarAgenteDoOnboarding } from "@/lib/ai/agents/ativar-agente-do-onboarding";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -94,6 +95,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         conectado && sessao.webhookPathToken ? urlDoWebhook(req, sessao.webhookPathToken) : null,
       /** A instalação tem conta no provedor: a tela oferece a conexão por um clique. */
       um_clique: umClique,
+      /**
+       * A chave PRÓPRIA aparece para quem? Sem um clique, para todo admin — é o
+       * único caminho. Com um clique, só para quem administra a INSTALAÇÃO: o
+       * cliente do revendedor não tem conta no provedor, e um link "já tenho
+       * conta, usar minha chave" é um convite a procurar algo que ele não tem
+       * (QA de 26/10/2026). A rota de gravação não muda: é a tela que escolhe.
+       */
+      pode_usar_chave_propria: !umClique || authz.user.is_platform_admin === true,
       pela_instalacao: conectado ? sessao.pelaInstalacao : false,
       webhook_automatico: conectado ? sessao.webhookId !== null : false,
     },
@@ -204,9 +213,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     metadata: { canal: "parceiro", modo: "chave_propria", webhook: webhookId ? "registrado" : "manual" },
   });
 
+  // O agente que o onboarding deixou em rascunho entra no ar com o primeiro
+  // número (ver `ativar-agente-do-onboarding.ts`). Nunca lança.
+  const agente = await ativarAgenteDoOnboarding(admin, orgId, authz.user.id, {
+    origem: "conexao_parceiro",
+    requestId,
+  });
+
   return ok(
     {
       connected: true,
+      agente: agente.estado,
       phone_number: v.phoneNumber ? `+${v.phoneNumber.replace(/\D/g, "")}` : null,
       display_name: displayName,
       quality_rating: v.qualityRating,

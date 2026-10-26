@@ -24,7 +24,13 @@ import {
   validarProposta,
   type PropostaDeFunil,
 } from "@/lib/onboarding/proposta-de-funil";
-import { PACOTES, PACOTE_PADRAO, type PacoteDeFunil } from "@/lib/onboarding/pacotes-de-funil";
+import {
+  PACOTES,
+  PACOTE_PADRAO,
+  propostaNoIdioma,
+  type PacoteDeFunil,
+} from "@/lib/onboarding/pacotes-de-funil";
+import type { Idioma } from "@/lib/i18n/idiomas";
 
 /** O que se sabe do negócio quando a sugestão é pedida. */
 export interface ContextoDoNegocio {
@@ -42,14 +48,19 @@ export interface ContextoDoNegocio {
  * "Prospecção", "Nutrição" e "Fundo de funil" — nomes de manual, não os que
  * estão na cabeça de quem atende no WhatsApp.
  */
+// Cada lista traz o português e, depois do `|`, o espanhol de quem atende no
+// Paraguai e arredores — "ferretería" caía no genérico e recebia "Clientes"
+// (QA de 26/10/2026), e "inmobiliaria" não casava com `imobili`.
 const PISTAS: Record<string, RegExp> = {
   clinica:
-    /\b(cl[ií]nic|consult[óo]ri|dentist|odonto|m[ée]dic|terapeut|psic[óo]log|fisioterap|est[ée]tic|sal[ãa]o|barbear|petshop|veterin[áa]ri|nutricion)/i,
-  imobiliaria: /\b(imobili[áa]ri|corret|im[óo]ve|apartament|alugu[ée]|loteament|terren)/i,
+    /\b(cl[ií]nic|consult[óo]ri|dentist|odonto|m[ée]dic|terapeut|psic[óo]log|fisioterap|est[ée]tic|sal[ãa]o|barbear|petshop|veterin[áa]ri|nutricion|sal[óo]n|peluquer|barber)/i,
+  imobiliaria:
+    /\b(imobili[áa]ri|corret|im[óo]ve|apartament|alugu[ée]|loteament|terren|inmobili|inmueb|alquiler|departament)/i,
   servicos:
-    /\b(ag[êe]nci|consultori|advocac|advogad|contabil|arquitet|engenhar|reform|obra|marcenar|servi[çc]o|manuten[çc]|instala[çc])/i,
-  curso: /\b(curso|mentori|infoprodut|aula|treinament|workshop|escola|ensino|coach)/i,
-  loja: /\b(loja|e-?commerce|revend|distribuidor|atacad|varej|vend[oa] produt|boutique|moda)/i,
+    /\b(ag[êe]nci|consultori|advocac|advogad|contabil|arquitet|engenhar|reform|obra|marcenar|servi[çc]o|manuten[çc]|instala[çc]|abogad|contador|ingenier|carpinter|servicio|mantenimient|instalaci)/i,
+  curso:
+    /\b(curso|mentori|infoprodut|aula|treinament|workshop|escola|ensino|coach|infoproduct|clases|capacitaci|escuela|ense[ñn]an)/i,
+  loja: /\b(loja|e-?commerce|revend|distribuidor|atacad|varej|vend[oa] produt|boutique|moda|tienda|ferreter|almac[ée]n|supermercad|mayorist|minorist|vend[oa] product|venta de|ropa)/i,
 };
 
 /**
@@ -78,7 +89,12 @@ export function escolherPacotePorTexto(texto: string): PacoteDeFunil {
 export function pedidoDeSugestao(
   ctx: ContextoDoNegocio,
   exemplo: PacoteDeFunil,
+  idioma: Idioma = "pt-BR",
 ): { system: string; prompt: string } {
+  // A empresa que fala espanhol recebe o pedido INTEIRO em espanhol, com o
+  // exemplo traduzido: um pedido em português com "responda em espanhol" no
+  // fim devolvia colunas misturadas — o modelo copia a língua do exemplo.
+  if (idioma === "es") return pedidoEmEspanhol(ctx, exemplo);
   const passos = [
     '"new" — acabou de chamar, ninguém respondeu ainda',
     '"contacted" — já foi respondido',
@@ -124,6 +140,39 @@ export function pedidoDeSugestao(
  * `extrairJsonDoTexto`: primeiro objeto JSON parseável, nunca lança, `null`
  * quando não há nenhum (o desfecho de falha de quem chama não muda).
  */
+function pedidoEmEspanhol(ctx: ContextoDoNegocio, exemplo: PacoteDeFunil): { system: string; prompt: string } {
+  const passos = [
+    '"new" — acaba de escribir, nadie respondió todavía',
+    '"contacted" — ya fue respondido',
+    '"qualifying" — está entendiendo lo que la persona necesita',
+    '"qualified" — ya sabe qué ofrecer',
+    '"negotiating" — está cerrando precio, horario o condiciones',
+    '"won" — cerró (exactamente UNA columna)',
+    '"lost" — no cerró (exactamente UNA columna)',
+    "null — columna que solo mueve una persona, sin equivalente en la atención",
+  ].join("\n- ");
+  const ejemplo = propostaNoIdioma(exemplo.proposta, "es");
+  return {
+    system:
+      "Armas el tablero de clientes de un negocio que atiende por WhatsApp. " +
+      "Escribe en español, como habla el DUEÑO, no como un manual de ventas: nada de " +
+      '"prospección", "MQL", "nutrición" o "fondo del embudo". ' +
+      "Cada columna es un momento concreto de su atención. " +
+      "Responde SOLO con el JSON, sin comentarios y sin comillas invertidas.",
+    prompt: [
+      `Negocio: ${ctx.nome}`,
+      `Qué hace: ${ctx.oQueFaz}`,
+      "",
+      "Arma de 5 a 7 columnas, en el orden en que el cliente pasa por ellas.",
+      'Cada columna tiene "nome" (lo que aparece arriba) y "passo", que dice cuándo el asistente mueve al cliente ahí:',
+      `- ${passos}`,
+      "",
+      `Ejemplo del formato (es de otro negocio — no copies los nombres, adáptalos a "${ctx.nome}"):`,
+      JSON.stringify({ nome: ejemplo.nome, etapas: ejemplo.etapas }, null, 2),
+    ].join("\n"),
+  };
+}
+
 export function extrairJson(texto: string): unknown {
   return extrairObjetoJsonDoTexto(texto);
 }
@@ -153,12 +202,16 @@ export type Gerar = (entrada: { system: string; prompt: string }) => Promise<str
  * ter um quadro pronto na frente. O detalhe técnico fica no `porque` para quem
  * for investigar.
  */
-export async function sugerirFunil(ctx: ContextoDoNegocio, gerar: Gerar): Promise<Sugestao> {
+export async function sugerirFunil(
+  ctx: ContextoDoNegocio,
+  gerar: Gerar,
+  idioma: Idioma = "pt-BR",
+): Promise<Sugestao> {
   const exemplo = escolherPacotePorTexto(`${ctx.nome} ${ctx.oQueFaz}`);
 
   let texto: string;
   try {
-    texto = await gerar(pedidoDeSugestao(ctx, exemplo));
+    texto = await gerar(pedidoDeSugestao(ctx, exemplo, idioma));
   } catch (err) {
     return {
       origem: "pacote",

@@ -5,46 +5,29 @@
  * onboarding state. Uses canonical Spec 05 defaults baked into ai_agents.
  */
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { publishFirstVersion } from "@/lib/ai/agents/first-publication";
 import { audit } from "@/lib/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { aiAgentDefaultSchema, type PromptTemplate } from "@/lib/schemas/onboarding";
+import { aiAgentDefaultSchema } from "@/lib/schemas/onboarding";
+import { promptDoOnboarding } from "@/lib/ai/agents/prompt-do-onboarding";
 import { publicarMemoriaDaOrg } from "@/lib/ai/memoria-da-org";
 import {
   requireOnboardingCtx,
   patchOnboardingState,
   loadOnboardingState,
+  idiomaDaEmpresa,
   OnboardingError,
 } from "./_shared";
 
-/**
- * O jeito de falar do funcionário.
- *
- * Os corpos diziam "loja online" e "e-commerce" em dois dos três — num produto
- * que se declara multi-nicho por escrito, e cuja maioria de adopters roda em
- * clínica, imobiliária e infoproduto. Uma clínica terminava o onboarding com um
- * atendente que se apresentava como sendo de uma loja virtual.
- *
- * Recebem o nome do negócio E o ramo: um funcionário que sabe onde trabalha é o
- * mínimo que se espera de alguém contratado, e saber o QUE o lugar faz é a
- * diferença entre "Olá, como posso ajudar?" e uma primeira frase que já mostra
- * que ele entendeu onde está. O ramo é o que o dono respondeu no primeiro passo;
- * quem não respondeu recebe a versão sem ele, e não uma inventada.
+/*
+ * O jeito de falar do funcionário — os três corpos de prompt — mora em
+ * `lib/ai/agents/prompt-do-onboarding.ts`, por idioma da empresa. Arquivo
+ * `"use server"` só pode exportar funções assíncronas, e o texto precisa ser
+ * testável sem montar a action inteira.
  */
-function ondeTrabalha(negocio: string, oQueFaz: string | undefined): string {
-  return oQueFaz ? `${negocio}, que é: ${oQueFaz}` : negocio;
-}
-
-const PROMPT_BODIES: Record<PromptTemplate, (onde: string) => string> = {
-  ecommerce_friendly: (n) =>
-    `Você atende os clientes de ${n}. Fale de forma calorosa e próxima, como alguém que gosta de ajudar. Cumprimente, entenda o que a pessoa precisa e ofereça opções claras. Confirme os detalhes antes de agir.`,
-  ecommerce_professional: (n) =>
-    `Você atende os clientes de ${n}. Fale de forma objetiva, cordial e profissional. Vá direto ao ponto, sem parecer frio, e sempre termine indicando o próximo passo.`,
-  support_minimal: (n) =>
-    `Você atende os clientes de ${n}. Responda em frases curtas, peça apenas o que for necessário e chame uma pessoa do time assim que a dúvida sair do seu alcance.`,
-};
 
 /** O agente padrão desta organização, do jeito que este passo precisa vê-lo. */
 interface AgenteDoOnboarding {
@@ -142,7 +125,10 @@ export async function createDefaultAgent(formData: FormData): Promise<CreateAgen
     oQueFaz = undefined;
   }
 
-  const systemPrompt = PROMPT_BODIES[input.prompt_template](ondeTrabalha(ctx.orgName, oQueFaz));
+  // No idioma da EMPRESA, não no de quem clica: o prompt é do funcionário dela,
+  // e é o que o dono vai ler e ajustar depois no editor.
+  const idioma = await idiomaDaEmpresa(ctx.orgId);
+  const systemPrompt = promptDoOnboarding(input.prompt_template, ctx.orgName, oQueFaz, idioma);
 
   // O agente padrão do onboarding é UM por organização, e o banco já garante
   // isso: `ai_agents_one_default_per_org` é índice único parcial em
@@ -309,6 +295,14 @@ export async function createDefaultAgent(formData: FormData): Promise<CreateAgen
     return { ok: true, agent_id: agent.id, regras_nao_salvas: regrasNaoSalvas };
   }
 
+  // ⚠️ O cache de rotas do NAVEGADOR guarda o `/onboarding` da última visita —
+  // e o `/onboarding` é um redirect para o passo pendente. MEDIDO pela tela
+  // (`tests/e2e/onboarding-entendivel.spec.ts`, trace): quem entra e treina em
+  // poucos segundos recebia o `/onboarding` de antes do clique, já resolvido
+  // para "Treinar", e voltava ao mesmo passo com o formulário zerado — sem GET
+  // nenhum ao servidor. Invalidar o layout antes do redirect é o que as boas-
+  // vindas já faziam (`acceptWelcome`).
+  revalidatePath("/onboarding", "layout");
   redirect("/onboarding");
 }
 

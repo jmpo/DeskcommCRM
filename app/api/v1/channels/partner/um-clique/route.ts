@@ -34,6 +34,7 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { basePublicaDaInstalacao } from "@/lib/webhooks/url-publica";
+import { ativarAgenteDoOnboarding } from "@/lib/ai/agents/ativar-agente-do-onboarding";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -113,7 +114,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         inicio.webhookRegistrado,
         "perfil_ja_tinha_o_numero",
       );
-      return ok(paraResposta(inicio), { requestId, headers });
+      const agenteJa = await ativarAgenteDoOnboarding(admin, orgId, ctx.userId, {
+        origem: "conexao_um_clique",
+        requestId,
+      });
+      return ok({ ...paraResposta(inicio), agente: agenteJa.estado }, { requestId, headers });
     }
     const concluida = await concluirConexaoUmClique(admin, ctx, {
       estado: corpo.estado,
@@ -128,7 +133,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       concluida.webhookRegistrado,
       "volta_da_meta",
     );
-    return ok(paraResposta(concluida), { requestId, headers });
+    // O primeiro número da empresa: o agente que o onboarding deixou em
+    // rascunho (a pessoa pulou o telefone) entra no ar agora. Nunca lança.
+    const agente = await ativarAgenteDoOnboarding(admin, orgId, ctx.userId, {
+      origem: "conexao_um_clique",
+      requestId,
+    });
+    return ok({ ...paraResposta(concluida), agente: agente.estado }, { requestId, headers });
   } catch (erro) {
     if (erro instanceof ErroDaConexaoUmClique) {
       return fail(erro.code, t(erro.message), erro.status, {

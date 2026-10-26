@@ -115,3 +115,53 @@ describe("signInWithPassword — dispositivo confiável", () => {
     expect(vi.mocked(redirect)).toHaveBeenCalledWith("/app/inbox");
   });
 });
+
+describe("signInWithPassword — conta que ainda não confirmou o e-mail (QA 26/10/2026)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.mocked(headers).mockResolvedValue({
+      get: (k: string) => (k === "x-forwarded-for" ? "203.0.113.91" : null),
+    } as never);
+  });
+
+  function provedorResponde(error: { message: string; status: number; code?: string }) {
+    const chamado = vi.fn(async () => ({ data: { user: null, session: null }, error }));
+    vi.mocked(createClient).mockResolvedValue({
+      auth: { signInWithPassword: chamado, mfa: { listFactors: vi.fn() } },
+    } as never);
+    return chamado;
+  }
+
+  it("⭐ senha certa e e-mail não confirmado: diz isso, e não 'senha incorreta'", async () => {
+    provedorResponde({ message: "Email not confirmed", status: 400, code: "email_not_confirmed" });
+    const { signInWithPassword } = await import("./signInWithPassword");
+    const r = await signInWithPassword({ email: "nao-confirmou@example.com", password: "SenhaCerta!1" });
+    expect(r.error).toBe("email_nao_confirmado");
+  });
+
+  it("GoTrue antigo, só a mensagem: o mesmo desfecho", async () => {
+    provedorResponde({ message: "Email not confirmed", status: 400 });
+    const { signInWithPassword } = await import("./signInWithPassword");
+    const r = await signInWithPassword({ email: "antigo@example.com", password: "SenhaCerta!1" });
+    expect(r.error).toBe("email_nao_confirmado");
+  });
+
+  it("senha errada continua 'credenciais inválidas' — nada a enumerar", async () => {
+    provedorResponde({ message: "Invalid login credentials", status: 400, code: "invalid_credentials" });
+    const { signInWithPassword } = await import("./signInWithPassword");
+    const r = await signInWithPassword({ email: "qualquer@example.com", password: "errada-123" });
+    expect(r.error).toBe("invalid_credentials");
+  });
+
+  it("e-mail não confirmado NÃO gasta o orçamento de bloqueio (a senha estava certa)", async () => {
+    const chamado = provedorResponde({ message: "Email not confirmed", status: 400, code: "email_not_confirmed" });
+    const { signInWithPassword } = await import("./signInWithPassword");
+    const input = { email: "insiste@example.com", password: "SenhaCerta!1" };
+    const resultados = [];
+    for (let i = 0; i < 7; i++) resultados.push((await signInWithPassword(input)).error);
+    // Com o teto de 5 falhas por conta, a 6ª viraria `rate_limited` se isto
+    // contasse como senha errada.
+    expect(resultados.every((e) => e === "email_nao_confirmado")).toBe(true);
+    expect(chamado).toHaveBeenCalledTimes(7);
+  });
+});

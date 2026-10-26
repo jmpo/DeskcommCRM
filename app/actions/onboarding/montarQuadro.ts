@@ -23,7 +23,13 @@ import {
   type PropostaDeFunil,
 } from "@/lib/onboarding/proposta-de-funil";
 import { escolherPacotePorTexto, sugerirFunil, type Sugestao } from "@/lib/onboarding/sugerir-funil";
-import { requireOnboardingCtx, patchOnboardingState, loadOnboardingState, OnboardingError } from "./_shared";
+import {
+  requireOnboardingCtx,
+  patchOnboardingState,
+  loadOnboardingState,
+  idiomaDaEmpresa,
+  OnboardingError,
+} from "./_shared";
 
 /** O funil que o gatilho semeou — o que a pessoa tem antes deste passo. */
 export interface QuadroAtual {
@@ -45,15 +51,30 @@ async function cerebroDoFuncionario(
 ): Promise<{ provider: string; model: string; apiKey: string } | { erro: string }> {
   const { data: agente } = await admin
     .from("ai_agents")
-    .select("published_version_id")
+    .select("id, published_version_id")
     .eq("organization_id", orgId)
     .eq("is_default", true)
     .maybeSingle();
 
-  const versionId = agente?.published_version_id as string | null | undefined;
+  // Sem versão publicada (quem pulou o telefone), o cérebro é o do RASCUNHO que
+  // o passo "Treinar" criou: o mesmo provedor, modelo e chave. Antes a sugestão
+  // não vinha e a tela dizia "seu funcionário ainda não está no ar".
+  let versionId = agente?.published_version_id as string | null | undefined;
+  if (!versionId && agente?.id) {
+    const { data: rascunho } = await admin
+      .from("ai_agent_versions")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("agent_id", agente.id as string)
+      .eq("status", "draft")
+      .order("version_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    versionId = (rascunho?.id as string | undefined) ?? null;
+  }
   if (!versionId) {
-    // Quem pulou o passo de treinar, ou ficou com o agente em rascunho por não
-    // ter número, chega aqui sem cérebro. Não é erro: é o quadro pronto.
+    // Quem pulou o passo de treinar chega aqui sem cérebro. Não é erro: é o
+    // quadro pronto.
     return { erro: "seu funcionário ainda não está no ar" };
   }
 
@@ -152,6 +173,7 @@ export async function dadosDoPasso(orgId: string, negocio: string): Promise<Dado
     };
   }
 
+  const idioma = await idiomaDaEmpresa(orgId);
   const sugestao = await sugerirFunil(ctx, async ({ system, prompt }) => {
     const r = await generateText({
       model: buildModel(cerebro.provider, cerebro.apiKey, cerebro.model),
@@ -163,7 +185,7 @@ export async function dadosDoPasso(orgId: string, negocio: string): Promise<Dado
       maxOutputTokens: 900,
     });
     return r.text;
-  });
+  }, idioma);
 
   return { atual, sugestao };
 }

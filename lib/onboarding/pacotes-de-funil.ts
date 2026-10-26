@@ -19,6 +19,7 @@
  * `proposta-de-funil.ts` para a medição.
  */
 import type { PropostaDeFunil } from "@/lib/onboarding/proposta-de-funil";
+import type { Idioma } from "@/lib/i18n/idiomas";
 
 export interface PacoteDeFunil {
   id: string;
@@ -145,3 +146,78 @@ export const PACOTE_PADRAO: PacoteDeFunil =
   (() => {
     throw new Error("PACOTES sem o pacote genérico — ele é o último recurso do passo do funil");
   })();
+
+/**
+ * Os nomes dos quadros prontos em espanhol — o que a tela mostra e o que se
+ * GRAVA como nome de coluna numa empresa que fala espanhol.
+ *
+ * ─── Por que aqui, e não no dicionário da interface ─────────────────────────
+ *
+ * Estes nomes não são rótulo de tela: viram DADO (`crm_stages.name`) quando a
+ * pessoa clica em "Usar este quadro", e também são o exemplo que a sugestão da
+ * IA recebe. As duas pontas — a tela (cliente) e o pedido à IA (servidor) —
+ * precisam do MESMO texto, e um mapa ao lado dos pacotes é a fonte única. No
+ * QA de 26/10/2026 uma empresa de Assunção escolheu "Loja" e recebeu "Novo
+ * contato", "Vai levar", "Pedido pago".
+ */
+const NOMES_EM_ESPANHOL: Record<string, string> = {
+  Agendamentos: "Turnos",
+  Interessados: "Interesados",
+  "Orçamentos": "Presupuestos",
+  "Matrículas": "Inscripciones",
+  Vendas: "Ventas",
+  Clientes: "Clientes",
+  "Novo contato": "Nuevo contacto",
+  "Já respondi": "Ya respondí",
+  "Entendendo o caso": "Entendiendo el caso",
+  "Quer agendar": "Quiere agendar",
+  "Escolhendo horário": "Eligiendo horario",
+  "Consulta marcada": "Turno agendado",
+  "Não vai marcar": "No va a agendar",
+  "Novo interessado": "Nuevo interesado",
+  "Entendendo o que procura": "Entendiendo qué busca",
+  "Sei o que oferecer": "Sé qué ofrecer",
+  "Visitando imóveis": "Visitando inmuebles",
+  "Fechou negócio": "Cerró el negocio",
+  Desistiu: "Desistió",
+  "Pedido novo": "Pedido nuevo",
+  "Entendendo o projeto": "Entendiendo el proyecto",
+  "Orçamento enviado": "Presupuesto enviado",
+  Negociando: "Negociando",
+  Fechou: "Cerró",
+  "Não fechou": "No cerró",
+  "Tirando dúvidas": "Respondiendo dudas",
+  "Quer entrar": "Quiere inscribirse",
+  "Fechando condições": "Cerrando condiciones",
+  Matriculado: "Inscripto",
+  "Escolhendo o produto": "Eligiendo el producto",
+  "Vai levar": "Lo va a llevar",
+  "Aguardando pagamento": "Esperando el pago",
+  "Pedido pago": "Pedido pagado",
+  "Não comprou": "No compró",
+  "Entendendo a necessidade": "Entendiendo la necesidad",
+  "Proposta enviada": "Propuesta enviada",
+};
+
+/** O nome no idioma pedido; o português é a própria chave. */
+export function nomeDoPacoteNoIdioma(nome: string, idioma: Idioma): string {
+  return idioma === "es" ? (NOMES_EM_ESPANHOL[nome] ?? nome) : nome;
+}
+
+/** A proposta de um pacote pronto, com quadro e colunas no idioma da empresa. */
+export function propostaNoIdioma(proposta: PropostaDeFunil, idioma: Idioma): PropostaDeFunil {
+  return {
+    nome: nomeDoPacoteNoIdioma(proposta.nome, idioma),
+    etapas: proposta.etapas.map((e) => ({ ...e, nome: nomeDoPacoteNoIdioma(e.nome, idioma) })),
+  };
+}
+
+/** Todos os nomes que os pacotes usam — para o teste cobrar que nenhum ficou sem tradução. */
+export function nomesDosPacotes(): string[] {
+  return PACOTES.flatMap((p) => [p.proposta.nome, ...p.proposta.etapas.map((e) => e.nome)]);
+}
+
+/** Tem tradução para TODOS os nomes? Exportado para o teste. */
+export function nomeTemEspanhol(nome: string): boolean {
+  return nome in NOMES_EM_ESPANHOL;
+}

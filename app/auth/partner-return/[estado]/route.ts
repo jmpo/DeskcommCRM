@@ -16,6 +16,13 @@ import { FORMATO_DO_ESTADO } from "@/lib/channels/estado-da-volta";
  * dele (`?connected=…&accountId=…`) ao endereço de volta.
  */
 const BASE = "/app/connections?aba=parceiro";
+/**
+ * Com os dados da volta, o destino é a rota que sabe se a empresa ainda está no
+ * onboarding (`/app/connections/volta-do-parceiro`): direto em Conexões, o
+ * layout de `/app` mandava quem estava no wizard para `/onboarding` e perdia os
+ * parâmetros — a conexão nunca era concluída.
+ */
+const CONCLUIR = "/app/connections/volta-do-parceiro";
 const ID = /^[a-f0-9]{24}$/;
 const CODIGO = /^[a-z_]{1,60}$/;
 
@@ -33,7 +40,7 @@ function destino(estado: string, params: URLSearchParams): string {
   } else {
     return BASE;
   }
-  return `${BASE}&${q.toString()}`;
+  return `${CONCLUIR}?${q.toString()}`;
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ estado: string }> }) {

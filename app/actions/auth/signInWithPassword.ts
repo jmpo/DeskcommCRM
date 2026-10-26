@@ -17,9 +17,21 @@ import {
   AUTH_LIMITS,
 } from "@/lib/auth/rate-limit";
 
+/** O GoTrue atual manda `code`; versões antigas, só a mensagem. */
+function ehEmailNaoConfirmado(error: { code?: string; message?: string }): boolean {
+  return error.code === "email_not_confirmed" || /email not confirmed/i.test(error.message ?? "");
+}
+
 export type SignInResult = {
   ok: false;
-  error: "invalid_credentials" | "rate_limited" | "validation_error" | "mfa_required";
+  /**
+   * `email_nao_confirmado`: a senha está CERTA e falta clicar no link do
+   * e-mail. O GoTrue só diz isso depois de conferir a senha, então a resposta
+   * não revela a quem não sabe a senha se o endereço tem conta (anti-enumeração
+   * preservada). Antes virava `invalid_credentials`, e a tela dizia "senha
+   * incorreta" para quem tinha digitado a senha certa (QA de 26/10/2026).
+   */
+  error: "invalid_credentials" | "rate_limited" | "validation_error" | "mfa_required" | "email_nao_confirmado";
   details?: Record<string, unknown>;
   challengeId?: string;
 };
@@ -71,6 +83,17 @@ export async function signInWithPassword(input: LoginInput, next?: string): Prom
     email: parsed.data.email,
     password: parsed.data.password,
   });
+
+  if (error && ehEmailNaoConfirmado(error)) {
+    await audit({
+      action: "auth.login_failed",
+      metadata: { email_hash: hashEmail(parsed.data.email), reason: "email_not_confirmed" },
+      requestId,
+      ip,
+      userAgent,
+    });
+    return { ok: false, error: "email_nao_confirmado" };
+  }
 
   if (error || !data.user) {
     // Só senha errada gasta o orçamento da conta.

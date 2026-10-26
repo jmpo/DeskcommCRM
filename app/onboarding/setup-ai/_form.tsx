@@ -54,7 +54,8 @@ interface Props {
 
 export function SetupAiForm({ capacidades, conferencias }: Props) {
   const t = useT();
-  const [name, setName] = useState("Atendente IA");
+  // O nome sugerido no idioma da tela ("Asistente IA" em espanhol).
+  const [name, setName] = useState(() => t("Atendente IA"));
   const [jeito, setJeito] = useState<PromptTemplate>("ecommerce_friendly");
   const [regras, setRegras] = useState("");
   const [naoPublicado, setNaoPublicado] = useState<string | null>(null);
@@ -195,7 +196,12 @@ export function SetupAiForm({ capacidades, conferencias }: Props) {
           </ul>
         </section>
         <section className="rounded-lg border bg-background p-4">
-          <h3 className="text-sm font-medium">{t("E nunca vai fazer")}</h3>
+          {/* Era "E nunca vai fazer" — e a lista diz o que ele FAZ ("Respeitar
+              quem pediu para parar"): lida embaixo daquele título, cada linha
+              dizia o contrário (QA de 26/10/2026). As linhas vêm do runtime
+              (`lista-de-conferencia.ts`) e misturam "fazer" e "não fazer"; o
+              título é que tem de servir às duas. */}
+          <h3 className="text-sm font-medium">{t("E sempre segue estas regras")}</h3>
           <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
             {conferencias.map((c) => (
               <li key={c}>· {c}</li>

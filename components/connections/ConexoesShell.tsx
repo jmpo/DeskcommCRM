@@ -42,6 +42,7 @@ export function ConexoesShell({
   wahaConfigured,
   wacallsConfigured,
   graphParceiro = null,
+  abaInicial,
 }: {
   wahaConfigured: boolean;
   wacallsConfigured: boolean;
@@ -52,30 +53,27 @@ export function ConexoesShell({
    * O rótulo vem do servidor porque a tela não pode nomear provider.
    */
   graphParceiro?: { label: string } | null;
+  /**
+   * A aba que abre sem `?aba=` na URL. O padrão é "Números por QR"; a página
+   * pede "parceiro" quando a instalação conecta o número oficial com um clique
+   * e a empresa ainda não tem número nenhum — é o caminho recomendado, e quem
+   * pulou o telefone no onboarding chegava aqui na aba do QR sem saber que o
+   * outro existia (QA de 26/10/2026).
+   */
+  abaInicial?: "numeros" | "parceiro";
 }) {
   const t = useT();
   const router = useRouter();
   const params = useSearchParams();
   const abaParam = params.get("aba");
-  const aba =
-    abaParam === "sociais"
-      ? "sociais"
-      : abaParam === "oficial"
-      ? "oficial"
-      : abaParam === "parceiro"
-        ? "parceiro"
-        : abaParam === "telefonia"
-          ? "telefonia"
-          : abaParam === "voz"
-            ? "voz"
-            : abaParam === "graph" && graphParceiro
-              ? "graph"
-              : "numeros";
+  const abaPadrao = abaInicial ?? "numeros";
+  const ABAS = ["numeros", "oficial", "parceiro", "telefonia", "sociais", "voz", ...(graphParceiro ? ["graph"] : [])];
+  const aba = abaParam && ABAS.includes(abaParam) ? abaParam : abaPadrao;
   const sub = params.get("sub") === "templates" ? "templates" : "conexao";
 
   const irPara = (proximaAba: string, proximaSub?: string): void => {
     const q = new URLSearchParams();
-    if (proximaAba !== "numeros") q.set("aba", proximaAba);
+    if (proximaAba !== abaPadrao) q.set("aba", proximaAba);
     if (proximaSub && proximaSub !== "conexao") q.set("sub", proximaSub);
     const qs = q.toString();
     // `scroll: false`: trocar de aba não é navegar para outra página; jogar o

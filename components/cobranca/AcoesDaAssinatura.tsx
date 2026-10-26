@@ -43,6 +43,14 @@ export interface PropsDasAcoes {
   provedor: ProvedorDeCobranca | null;
   /** CNPJ do cadastro, já conferido e sem máscara: pré-preenche o documento que o Asaas exige. */
   documentoDoCadastro: string | null;
+  /**
+   * A moeda da EMPRESA (`organizations.currency`). A cobrança só cobra em reais
+   * (`lib/cobranca/vocabulario.ts`, `MOEDAS`): para uma empresa que opera em
+   * outra moeda, "Assinar" abriria um checkout em BRL — no QA de 26/10/2026 uma
+   * empresa do Paraguai via "1201,03 BRL por mês" e "Suscribirse". Ausente =
+   * reais, o comportamento de sempre.
+   */
+  moedaDaEmpresa?: string | null;
 }
 
 const BASE = "/api/v1/cobranca/assinatura";
@@ -117,7 +125,9 @@ export function AcoesDaAssinatura(p: PropsDasAcoes) {
   const dolares = (centavos: number) => new Intl.NumberFormat(idioma, { style: "currency", currency: "USD" }).format(centavos / 100);
 
   const emDivida = p.estado === "em_atraso" || p.estado === "cancelada";
-  const podeAssinar = p.assinaturasVivas === 0 && p.estado !== "ativa";
+  // Só se assina pela tela na moeda que a cobrança sabe cobrar.
+  const cobraNaMoedaDaEmpresa = (p.moedaDaEmpresa ?? "BRL") === "BRL";
+  const podeAssinar = cobraNaMoedaDaEmpresa && p.assinaturasVivas === 0 && p.estado !== "ativa";
   // Em atraso com assinatura viva e sem fatura pagável agora (pausada; incobrável
   // sem página): o único caminho é trocar o cartão no portal — e a tela diz isso.
   // O Asaas não tem portal: "gerenciar" seria o link da cobrança, que já é o Pagar agora.
@@ -132,7 +142,7 @@ export function AcoesDaAssinatura(p: PropsDasAcoes) {
   const aguardandoAsaas = p.provedor === "asaas" && (fatura !== null || (p.temProvedor && (p.estado === "trial" || link !== null)));
   // "Já paguei" só onde há o que reler: quem nunca assinou (teste que acabou) não pagou nada.
   const podeDizerQuePagou = (emDivida && p.temProvedor) || p.noHub || aguardandoAsaas || p.trocaPagamentoUrl !== null;
-  const podeTrocar = p.planosParaTroca.length > 0 && (p.estado === "trial" || p.estado === "ativa") && !p.cancelaNoFim && p.trocaStatus !== "criando";
+  const podeTrocar = cobraNaMoedaDaEmpresa && p.planosParaTroca.length > 0 && (p.estado === "trial" || p.estado === "ativa") && !p.cancelaNoFim && p.trocaStatus !== "criando";
   const podeCancelar = p.temProvedor && p.assinaturasVivas > 0 && !p.cancelaNoFim && (p.estado === "ativa" || p.estado === "trial");
 
   async function agir(acao: () => Promise<void>) {
@@ -209,6 +219,11 @@ export function AcoesDaAssinatura(p: PropsDasAcoes) {
 
   return (
     <div className="max-w-xl space-y-3">
+      {!cobraNaMoedaDaEmpresa && p.assinaturasVivas === 0 && p.estado !== "ativa" && (
+        <p className="text-sm text-muted-foreground" data-testid="contratar-com-quem-administra">
+          {t("Para contratar um plano, fale com quem administra o sistema.")}
+        </p>
+      )}
       {soPeloPortal && (
         <p className="text-sm">
           {t("Não há cobrança aberta para pagar agora. Atualize o cartão em Gerenciar pagamento: a próxima tentativa sai sozinha.")}

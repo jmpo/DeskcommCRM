@@ -106,6 +106,17 @@ export default async function SignupPage({
             ? t("Crie sua senha para entrar na empresa que te convidou")
             : `${t("Comece a usar o")} ${marca.nome} ${t("em minutos")}`}
         </p>
+        {/* Os dias de teste do plano PADRÃO, lidos do plano: sem seletor de
+            plano na tela, era a única informação de preço que a pessoa não
+            tinha — e ela descobria o teste só em Plano e cobrança. */}
+        {!convite && planos.length === 0 && (cadastro?.padraoTrialDias ?? 0) > 0 && (
+          <p className="text-sm font-medium" data-testid="dias-de-teste">
+            {t("Você tem {dias} dias de teste grátis para conhecer tudo.").replace(
+              "{dias}",
+              String(cadastro?.padraoTrialDias),
+            )}
+          </p>
+        )}
         {modo === "com_aprovacao" && (
           <p className="text-sm text-muted-foreground">
             {t("Nesta instalação, a empresa só é criada depois da aprovação de quem administra.")}

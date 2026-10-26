@@ -3,6 +3,8 @@
 import { useState } from "react";
 
 import { useT } from "@/hooks/i18n/useT";
+import { useIdioma } from "@/lib/i18n/IdiomaProvider";
+import { fusoDoNavegador } from "@/lib/tempo/fuso-do-navegador";
 import { Button } from "@/components/ui/button";
 import { signInWithGoogle } from "@/app/actions/auth/signInWithGoogle";
 import { AvisoSemResposta, useEnvioComTeto } from "@/components/auth/teto-da-espera";
@@ -20,12 +22,15 @@ import { AvisoSemResposta, useEnvioComTeto } from "@/components/auth/teto-da-esp
  */
 export function EntrarComGoogle({ next, convite }: { next?: string; convite?: string }) {
   const t = useT();
+  const idioma = useIdioma();
   const { pendente: isPending, semResposta, enviar } = useEnvioComTeto();
   const [erro, setErro] = useState<string | null>(null);
 
   const onClick = () => {
     setErro(null);
-    void enviar(() => signInWithGoogle({ next, convite }), (res) => {
+    // O idioma desta tela e o fuso do navegador vão junto: se a volta for um
+    // primeiro acesso, a empresa nasce com eles (`perfil-da-empresa-nova.ts`).
+    void enviar(() => signInWithGoogle({ next, convite, idioma, fuso: fusoDoNavegador() }), (res) => {
       // `res` indefinido = o redirect do sucesso aconteceu (ele lança).
       if (!res) return;
 

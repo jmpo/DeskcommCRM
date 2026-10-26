@@ -6,6 +6,9 @@ import { createClient } from "@/lib/supabase/server";
 import { env } from "@/lib/env";
 import { oQueMaisExiste } from "@/lib/onboarding/o-que-mais-existe";
 import { DoneClient } from "./_client";
+import { listSelectableChannels } from "@/lib/channels/selectable";
+import { umCliqueDisponivel } from "@/lib/channels/conexao-um-clique";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -36,5 +39,24 @@ export default async function DonePage() {
     .limit(1);
   const noAr = (publicados ?? []).length > 0;
 
-  return <DoneClient itens={itens} pecas={oQueMaisExiste()} noAr={noAr} />;
+  // Sem número, o resumo dizia "(você pulou)" e mais nada: nenhum botão levava
+  // de volta ao telefone (QA de 26/10/2026). A leitura que falha não oferece o
+  // botão — uma saída falsa é pior que nenhuma.
+  const semNumero = await listSelectableChannels(createAdminClient(), activeOrg.orgId)
+    .then((canais) => canais.length === 0)
+    .catch(() => false);
+  const umClique = semNumero ? await umCliqueDisponivel().catch(() => false) : false;
+
+  return (
+    <DoneClient
+      itens={itens}
+      pecas={oQueMaisExiste()}
+      noAr={noAr}
+      semNumero={semNumero}
+      // Ainda DENTRO do wizard: `/app/connections` redirecionaria de volta para
+      // `/onboarding`. O passo do telefone reabre — no oficial por um clique,
+      // quando a instalação o tem.
+      linkDoTelefone={`/onboarding/connect-whatsapp${umClique ? "?forma=parceiro" : ""}`}
+    />
+  );
 }

@@ -121,6 +121,9 @@ export const AUTH_LIMITS = {
   signup: { ip: 20, windowSec: 3600 },
   reset: { ip: 30, id: 3, windowSec: 3600 },
   invite_accept: { ip: 60, windowSec: 3600 },
+  // Reenviar o e-mail de confirmação do cadastro: o MESMO teto do "esqueci a
+  // senha" — é a mesma metralhadora de e-mail contra terceiros se ficar solta.
+  resend_signup: { ip: 30, id: 3, windowSec: 3600 },
   // Recuperação do primeiro acesso: o teto mais apertado da lista, e de
   // propósito. Cada acerto CRIA uma organização, e o caminho legítimo é
   // usado UMA vez na vida de uma conta — 3 por hora por identidade já é

@@ -65,6 +65,19 @@ test.beforeAll(async () => {
     role: "admin",
     accepted_at: new Date().toISOString(),
   });
+
+  // O dono que o `install.sh` cria é DONO DA INSTALAÇÃO (`bootstrap-owner.ts`
+  // grava a linha em `platform_admins`). O wizard distingue essa pessoa de quem
+  // só criou uma conta pelo cadastro aberto — o "Você já instalou o sistema" e
+  // os caminhos técnicos do telefone são dela —, então o retrato precisa dela.
+  const { error: errPa } = await svc.from("platform_admins").insert({
+    user_id: userId,
+    granted_by: userId,
+    scope: "full",
+    mfa_required: false,
+    reason: "E2E wizard (como o install.sh)",
+  });
+  if (errPa) throw errPa;
 });
 
 test.afterAll(async () => {
@@ -78,7 +91,10 @@ test.afterAll(async () => {
     await svc.from("crm_pipelines").delete().eq("organization_id", orgId);
     await svc.from("user_organizations").delete().eq("organization_id", orgId);
   }
-  if (userId) await svc.auth.admin.deleteUser(userId);
+  if (userId) {
+    await svc.from("platform_admins").delete().eq("user_id", userId);
+    await svc.auth.admin.deleteUser(userId);
+  }
 });
 
 async function login(page: Page): Promise<void> {
@@ -220,7 +236,9 @@ test.describe("o wizard monta um funcionário", () => {
     await expect(page.getByRole("heading", { name: /treine seu funcionário/i })).toBeVisible();
     // As duas listas que não pedem configuração nenhuma.
     await expect(page.getByText(/ele já vem sabendo/i)).toBeVisible();
-    await expect(page.getByText(/e nunca vai fazer/i)).toBeVisible();
+    // O título era "E nunca vai fazer" e a lista diz o que ele FAZ ("Respeitar
+    // quem pediu para parar"): lida embaixo dele, cada linha dizia o contrário.
+    await expect(page.getByText(/e sempre segue estas regras/i)).toBeVisible();
 
     await page.locator("#name").fill("Bia");
     await page.locator("#regras_da_casa").fill("Horário: 8h às 18h. Nunca prometa desconto.");

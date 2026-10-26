@@ -13,6 +13,12 @@ interface Props {
   nome: string | null;
   agenteId: string | null;
   versaoId: string | null;
+  /**
+   * A versão do ensaio está no ar? `false` = é o rascunho de quem pulou o
+   * telefone: o ensaio roda igual, e a tela diz que ele entra no ar quando o
+   * número for conectado.
+   */
+  publicada?: boolean;
 }
 
 /** O que o ensaio devolveu — ou por que ele não aconteceu. */
@@ -22,9 +28,11 @@ type Desfecho =
 
 const EXEMPLO = "Oi! Vocês atendem hoje? Queria saber o preço.";
 
-export function TestarClient({ nome, agenteId, versaoId }: Props) {
+
+export function TestarClient({ nome, agenteId, versaoId, publicada = true }: Props) {
   const t = useT();
-  const [mensagem, setMensagem] = useState(EXEMPLO);
+  // O exemplo no idioma de quem ensaia: é a primeira frase que o agente lê.
+  const [mensagem, setMensagem] = useState(() => t(EXEMPLO));
   const [desfecho, setDesfecho] = useState<Desfecho | null>(null);
   const [carregando, setCarregando] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -117,6 +125,12 @@ export function TestarClient({ nome, agenteId, versaoId }: Props) {
             )}
           </p>
         </div>
+      )}
+
+      {!semAgente && !rascunho && !publicada && (
+        <p className="rounded-md border bg-muted/40 p-3 text-sm" role="status" data-testid="ensaio-do-rascunho">
+          {funcionario} {t("ainda não está no ar: ele começa a atender quando você conectar o WhatsApp. O ensaio funciona do mesmo jeito.")}
+        </p>
       )}
 
       {!semAgente && !rascunho && (

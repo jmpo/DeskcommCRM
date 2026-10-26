@@ -26,6 +26,30 @@ interface Props {
    * `AuthProvider`, então o país vem da página, não do contexto (ausente = o leitor tolerante, o Brasil).
    */
   telefoneExemplo?: string;
+  /**
+   * A instalação conecta o número oficial com UM CLIQUE (tem conta no provedor
+   * parceiro). Quando sim, é a primeira opção e a recomendada: para quem nunca
+   * ouviu falar de API, "entre com o Facebook da empresa" é o caminho que dá
+   * certo (QA de 26/10/2026 — a opção aparecia como "uma empresa parceira te
+   * deu uma chave", e com o um clique não há chave nenhuma).
+   */
+  umClique?: boolean;
+  /**
+   * Quem olha é quem administra a INSTALAÇÃO (dono do servidor)? Os caminhos
+   * técnicos — conta oficial com credenciais de app e chave própria do provedor
+   * — só fazem sentido para essa pessoa quando o servidor ainda não está pronto
+   * para eles; o cliente do revendedor que os escolhe cai num beco
+   * ("cadastre o App da Meta em Admin › API Oficial", uma tela que ele não tem).
+   */
+  visaoDaInstalacao?: boolean;
+  /**
+   * A empresa já tem um número conectado (por outra tela)? Só então "Já
+   * conectei em outro lugar" é uma saída verdadeira: sem número, ela marcava o
+   * passo como feito e o wizard seguia sem telefone nenhum.
+   */
+  temNumero?: boolean;
+  /** Volta da Meta no meio do wizard (`?forma=parceiro`): reabre no caminho certo. */
+  formaInicial?: Forma | null;
 }
 
 /**
@@ -38,7 +62,7 @@ interface Props {
  * devolve o primeiro passo NÃO cumprido. O banco só é tocado quando o passo
  * termina de verdade: conectou, pulou, ou disse que já tinha conectado.
  */
-type Forma = "qr" | "oficial" | "parceiro";
+export type Forma = "qr" | "oficial" | "parceiro";
 
 type Status =
   | "INIT"
@@ -120,12 +144,15 @@ function Escolha({
   titulo,
   corpo,
   onEscolher,
+  destaque = false,
 }: {
   valor: Forma;
   atual: Forma | null;
   titulo: string;
   corpo: string;
   onEscolher: (v: Forma) => void;
+  /** A opção recomendada: borda de destaque mesmo antes de escolhida. */
+  destaque?: boolean;
 }) {
   const marcada = atual === valor;
   return (
@@ -133,7 +160,11 @@ function Escolha({
       data-testid={`forma-${valor}`}
       data-marcada={marcada ? "sim" : "nao"}
       className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
-        marcada ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+        marcada
+          ? "border-primary bg-primary/5"
+          : destaque
+            ? "border-primary/60 hover:bg-primary/5"
+            : "border-border hover:bg-muted/40"
       }`}
     >
       <input
@@ -176,11 +207,19 @@ function VoltarParaEscolha({ onVoltar }: { onVoltar: () => void }) {
  * sem chave ficava preso numa tela com o diagnóstico certo e nenhum caminho.
  * Aqui, nenhuma escolha — nem a pergunta em si — deixa a pessoa sem saída.
  */
-function Saidas({ status, sessionName }: { status: Status; sessionName: string }) {
+function Saidas({
+  status,
+  sessionName,
+  temNumero,
+}: {
+  status: Status;
+  sessionName: string;
+  temNumero: boolean;
+}) {
   const t = useT();
   const [pending, startTransition] = useTransition();
   return (
-    <div className="flex flex-wrap gap-2 pt-2">
+    <div className="flex flex-wrap items-center gap-2 pt-2">
       <Button
         type="button"
         variant="outline"
@@ -198,25 +237,33 @@ function Saidas({ status, sessionName }: { status: Status; sessionName: string }
       >
         {t("Pular por enquanto")}
       </Button>
-      <Button
-        type="button"
-        disabled={pending || status === "WORKING"}
-        onClick={() =>
-          startTransition(async () => {
-            try {
-              await markWhatsappConfigured(
-                sessionName,
-                status === "WORKING" ? "WORKING" : "configured",
-              );
-            } catch (err) {
-              if (isRedirectError(err)) throw err;
-              toast.error(`${t("Falha ao marcar passo:")} ${String(err)}`);
-            }
-          })
-        }
-      >
-        {t("Conectei em outro lugar")}
-      </Button>
+      {/* SECUNDÁRIA, e só quando é verdade. Era o botão verde, o mais visível
+          da tela, e marcava o passo sem número nenhum: no QA de 26/10/2026 era
+          o que parecia "continuar". Só aparece quando a empresa JÁ tem um
+          número (conectado em Conexões, em outra aba). */}
+      {temNumero && (
+        <Button
+          type="button"
+          variant="link"
+          className="px-1"
+          disabled={pending || status === "WORKING"}
+          onClick={() =>
+            startTransition(async () => {
+              try {
+                await markWhatsappConfigured(
+                  sessionName,
+                  status === "WORKING" ? "WORKING" : "configured",
+                );
+              } catch (err) {
+                if (isRedirectError(err)) throw err;
+                toast.error(`${t("Falha ao marcar passo:")} ${String(err)}`);
+              }
+            })
+          }
+        >
+          {t("Já conectei em outro lugar")}
+        </Button>
+      )}
     </div>
   );
 }
@@ -226,10 +273,30 @@ export function ConnectWhatsappClient({
   sessionName,
   oficialPodeReceber,
   telefoneExemplo,
+  umClique = false,
+  visaoDaInstalacao = true,
+  temNumero = false,
+  formaInicial = null,
 }: Props) {
   const t = useT();
   const [pending, startTransition] = useTransition();
-  const [forma, setForma] = useState<Forma | null>(null);
+  const [forma, setForma] = useState<Forma | null>(formaInicial);
+  /**
+   * O caminho oficial com credenciais de app só é oferecido quando o servidor
+   * RECEBE por ele — ou a quem pode prepará-lo (quem administra a instalação,
+   * que vê o aviso e sabe onde ir). Para o cliente, era um beco.
+   */
+  const mostrarOficial = oficialPodeReceber || visaoDaInstalacao;
+  /** O conectado pelo parceiro, no wizard: segue para o próximo passo. */
+  const aoConectarPeloParceiro = () =>
+    startTransition(async () => {
+      try {
+        await markWhatsappConfigured("parceiro", "WORKING");
+      } catch (err) {
+        if (isRedirectError(err)) throw err;
+        toast.error(`${t("Falha ao avançar:")} ${String(err)}`);
+      }
+    });
   const createKey = useRef<string | null>(null);
   const restartKey = useRef<string | null>(null);
   const [info, setInfo] = useState<SessionInfo>({ status: "INIT", session: sessionName });
@@ -354,42 +421,69 @@ export function ConnectWhatsappClient({
   // A PERGUNTA. Enquanto ninguém respondeu, nada é criado e nada é pedido —
   // é o único estado em que esta tela não tem efeito colateral nenhum.
   if (forma === null) {
+    const qr = (
+      <Escolha
+        key="qr"
+        valor="qr"
+        atual={forma}
+        titulo={t("Uso o WhatsApp no celular")}
+        corpo={t(
+          "Conecte com QR Code ou digite um código de pareamento no WhatsApp do celular.",
+        )}
+        onEscolher={setForma}
+      />
+    );
+    const oficial = mostrarOficial ? (
+      <Escolha
+        key="oficial"
+        valor="oficial"
+        atual={forma}
+        titulo={t("Tenho conta oficial na Meta")}
+        corpo={t("Você cadastrou o número na Meta e tem as credenciais em mãos. Não usa o celular para conectar.")}
+        onEscolher={setForma}
+      />
+    ) : null;
+    const parceiro = umClique ? (
+      <Escolha
+        key="parceiro"
+        valor="parceiro"
+        atual={forma}
+        destaque
+        titulo={t("WhatsApp Business oficial (recomendado)")}
+        corpo={t(
+          "O número oficial da sua empresa, conectado com o Facebook da empresa em uns 10 minutos. Sem chaves nem configuração técnica — e dá para continuar usando o app no celular.",
+        )}
+        onEscolher={setForma}
+      />
+    ) : (
+      <Escolha
+        key="parceiro"
+        valor="parceiro"
+        atual={forma}
+        titulo={t("Contrato de um provedor parceiro")}
+        corpo={t("Uma empresa parceira cuida do seu WhatsApp e te deu uma chave de acesso.")}
+        onEscolher={setForma}
+      />
+    );
+    // Com um clique, o oficial pelo parceiro vem PRIMEIRO; sem ele, a ordem de
+    // sempre (o código no celular é o caminho de quem nunca ouviu falar de API).
+    const opcoes = umClique ? [parceiro, qr, oficial] : [qr, oficial, parceiro];
     return (
       <div className="space-y-4 rounded-lg border bg-background p-6">
         <fieldset className="space-y-3">
           <legend className="text-sm font-medium">{t("Como você já usa esse número?")}</legend>
           <p className="text-xs text-muted-foreground">
-            {t(
-              "Existe mais de um jeito de ter WhatsApp para empresa, e cada um conecta de um jeito. Se você nunca ouviu falar dos outros dois, é o primeiro.",
-            )}
+            {umClique
+              ? t(
+                  "Se não tem certeza, escolha a primeira: é a oficial, e funciona com o app WhatsApp Business que você já usa.",
+                )
+              : t(
+                  "Existe mais de um jeito de ter WhatsApp para empresa, e cada um conecta de um jeito. Se você nunca ouviu falar dos outros dois, é o primeiro.",
+                )}
           </p>
-          <div className="grid gap-2">
-            <Escolha
-              valor="qr"
-              atual={forma}
-              titulo={t("Uso o WhatsApp no celular")}
-              corpo={t(
-                "Conecte com QR Code ou digite um código de pareamento no WhatsApp do celular.",
-              )}
-              onEscolher={setForma}
-            />
-            <Escolha
-              valor="oficial"
-              atual={forma}
-              titulo={t("Tenho conta oficial na Meta")}
-              corpo={t("Você cadastrou o número na Meta e tem as credenciais em mãos. Não usa o celular para conectar.")}
-              onEscolher={setForma}
-            />
-            <Escolha
-              valor="parceiro"
-              atual={forma}
-              titulo={t("Contrato de um provedor parceiro")}
-              corpo={t("Uma empresa parceira cuida do seu WhatsApp e te deu uma chave de acesso.")}
-              onEscolher={setForma}
-            />
-          </div>
+          <div className="grid gap-2">{opcoes}</div>
         </fieldset>
-        <Saidas status={status} sessionName={info.session ?? ""} />
+        <Saidas status={status} sessionName={info.session ?? ""} temNumero={temNumero} />
       </div>
     );
   }
@@ -415,9 +509,13 @@ export function ConnectWhatsappClient({
         {/* Os mesmos componentes da tela de Conexões, inteiros. Reescrevê-los
             aqui criaria uma segunda cópia de um formulário que valida credencial
             contra o outro lado ANTES de gravar — e duas cópias divergem. */}
-        {forma === "oficial" ? <CanalOficialClient /> : <CanalParceiroClient />}
+        {forma === "oficial" ? (
+          <CanalOficialClient />
+        ) : (
+          <CanalParceiroClient aoConectar={aoConectarPeloParceiro} />
+        )}
 
-        <Saidas status={status} sessionName={info.session ?? ""} />
+        <Saidas status={status} sessionName={info.session ?? ""} temNumero={temNumero} />
       </div>
     );
   }
@@ -529,7 +627,7 @@ export function ConnectWhatsappClient({
         </div>
       )}
 
-      <Saidas status={status} sessionName={info.session ?? ""} />
+      <Saidas status={status} sessionName={info.session ?? ""} temNumero={temNumero} />
     </div>
   );
 }

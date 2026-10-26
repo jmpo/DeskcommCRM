@@ -55,6 +55,15 @@ vi.mock("next/navigation", () => ({
   },
 }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
+// O redirect do fim do passo invalida o cache de rotas do navegador antes
+// (`createDefaultAgent`): sem o dublê, `revalidatePath` exige o contexto de
+// requisição do Next.
+const revalidados = vi.hoisted(() => [] as string[]);
+vi.mock("next/cache", () => ({
+  revalidatePath: (caminho: string) => {
+    revalidados.push(caminho);
+  },
+}));
 vi.mock("@/lib/auth/server", () => ({
   mfaEmDivida: vi.fn(async () => false),
   loadAuthUser: vi.fn(async () => ({ id: USER, email: "dono@qa.local", full_name: "Dono" })),
@@ -215,6 +224,8 @@ interface Mundo {
    * o retrato de uma aba antiga do passo da IA (#2113).
    */
   onboardedAt?: string | null;
+  /** `organizations.locale` — o idioma em que o prompt e as palavras nascem. */
+  locale?: string;
 }
 
 const CANAL = {
@@ -378,8 +389,10 @@ function montarBanco(mundo: Mundo = {}): Estado {
       // roupa nova.
       if (c.colunas.includes("settings")) {
         if (mundo.erroSettings) return { data: null, error: mundo.erroSettings };
-        return { data: { settings: mundo.settings ?? null }, error: null };
+        return { data: { settings: mundo.settings ?? null, locale: mundo.locale ?? "pt-BR" }, error: null };
       }
+      // `idiomaDaEmpresa`: só o idioma, para escrever o prompt.
+      if (c.colunas === "locale") return { data: { locale: mundo.locale ?? "pt-BR" }, error: null };
       return { data: { onboarding_state: estado.onboardingState, onboarded_at: mundo.onboardedAt ?? null }, error: null };
     }
 
@@ -580,8 +593,40 @@ describe("onboarding: publicação impossível não pode terminar em silêncio",
     // Quem pulou o WhatsApp não tem número — tratar isso como erro seria mentir
     // sobre um caminho normal. É o `failed` do teste anterior que é diferente.
     expect(res).toBe("redirecionou");
-    expect(estado.versoes).toHaveLength(0);
+    // O RASCUNHO nasce mesmo assim (QA de 26/10/2026): sem ele o agente ficava
+    // "Sem versão", o ensaio não tinha o que rodar e conectar o número depois
+    // não o ligava. Canal nulo e status draft — nada publicado.
+    expect(estado.versoes).toHaveLength(1);
+    expect(estado.versoes[0]).toMatchObject({
+      channel_session_id: null,
+      status: "draft",
+      provisioning_origin: "onboarding",
+    });
+    expect(estado.agentes[0]?.published_version_id ?? null).toBeNull();
     expect(estado.eventos[0]?.payload).toMatchObject({ published: false });
+    // MEDIDO pela tela: sem invalidar, quem treinava em poucos segundos voltava
+    // ao mesmo passo (o `/onboarding` do cache do navegador ainda apontava para
+    // ele). A invalidação vem ANTES do redirect.
+    expect(revalidados).toContain("/onboarding");
+  });
+
+  it("⭐ empresa em espanhol: o agente e a versão nascem com o prompt em espanhol (QA 26/10/2026)", async () => {
+    const estado = montarBanco({ locale: "es" });
+
+    await clicar();
+
+    expect(String(estado.agentes[0]?.system_prompt)).toMatch(/^Atiendes a los clientes de /);
+    expect(String(estado.versoes[0]?.system_prompt)).toMatch(/^Atiendes a los clientes de /);
+    expect(estado.versoes[0]?.handoff_keywords).toEqual(expect.arrayContaining(["hablar con una persona"]));
+  });
+
+  it("empresa em português: o prompt de sempre, e as palavras no default da coluna", async () => {
+    const estado = montarBanco({ locale: "pt-BR" });
+
+    await clicar();
+
+    expect(String(estado.agentes[0]?.system_prompt)).toMatch(/^Você atende os clientes de /);
+    expect(estado.versoes[0]).not.toHaveProperty("handoff_keywords");
   });
 
   it("versão do próprio onboarding já gravada: concluir o retry sem duplicar", async () => {

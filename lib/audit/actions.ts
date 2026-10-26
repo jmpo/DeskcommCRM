@@ -416,6 +416,9 @@ export const AUDIT_ACTIONS = [
   "auth.signup_requested",
   "auth.signup_failed",
   "auth.signup_confirmed",
+  // Reenvio do e-mail de confirmação pedido pela tela (login de conta não
+  // confirmada, ou a tela "Confirme seu e-mail"). Só o hash do e-mail.
+  "auth.signup_confirmation_resent",
   "auth.signup_provision_failed",
   "auth.signup_provision_recovery_failed",
   "auth.email_link_rejected",

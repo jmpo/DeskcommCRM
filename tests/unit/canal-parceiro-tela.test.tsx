@@ -308,11 +308,66 @@ describe("um clique, pela conta do provedor da instalação", () => {
       await screen.findByRole("button", { name: "Reconectar meu WhatsApp" }),
     ).toBeInTheDocument();
     expect(screen.queryByLabelText(/Chave de API/)).not.toBeInTheDocument();
-    expect(screen.getByText(/Configurado automaticamente no provedor/)).toBeInTheDocument();
+    // Para quem conectou com um clique, "webhook" não diz nada: a frase fala do
+    // que importa (as mensagens chegam).
+    expect(screen.getByText(/as mensagens deste número chegam aqui/)).toBeInTheDocument();
+    expect(screen.getByText("Recebimento de mensagens")).toBeInTheDocument();
     // Nada a colar: o webhook não é do operador.
     expect(
       screen.queryByText("https://crm.exemplo/api/v1/webhooks/channel/tok123"),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("um clique entendível para o cliente do revendedor (QA de 26/10/2026)", () => {
+  const doCliente = {
+    data: { ...desconectado.data, um_clique: true, pode_usar_chave_propria: false },
+  };
+  beforeEach(() => {
+    paramsDaUrl = new URLSearchParams();
+  });
+
+  it("⭐ o título diz O QUE se conecta, sem a marca do provedor, e o que ter à mão", async () => {
+    getMock.mockResolvedValue(doCliente);
+    const { container } = render(<CanalParceiroClient />);
+    expect(await screen.findByText("WhatsApp Business oficial (recomendado)")).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/Zernio/);
+    expect(container.textContent).not.toMatch(/webhook/i);
+    const lista = screen.getByTestId("antes-de-comecar");
+    expect(lista.textContent).toMatch(/Facebook com acesso de administrador/);
+    expect(lista.textContent).toMatch(/WhatsApp Business \(não o WhatsApp comum\)/);
+    expect(lista.textContent).toMatch(/10 minutos/);
+    expect(lista.textContent).toMatch(/A Meta cobra à parte/);
+    expect(screen.getByText(/Coexistência: você continua respondendo pelo app/)).toBeInTheDocument();
+  });
+
+  it("⭐ 'já tenho conta: usar a minha chave' some para o cliente", async () => {
+    getMock.mockResolvedValue(doCliente);
+    render(<CanalParceiroClient />);
+    await screen.findByRole("button", { name: "Conectar meu WhatsApp" });
+    expect(screen.queryByRole("button", { name: /usar a minha chave/ })).not.toBeInTheDocument();
+  });
+
+  it("e continua para quem administra a instalação", async () => {
+    getMock.mockResolvedValue({ data: { ...doCliente.data, pode_usar_chave_propria: true } });
+    render(<CanalParceiroClient />);
+    expect(await screen.findByRole("button", { name: /usar a minha chave/ })).toBeInTheDocument();
+  });
+
+  it("⭐ a volta concluída avisa que o agente já atende, e o wizard segue", async () => {
+    paramsDaUrl = new URLSearchParams({
+      parceiro_estado: "estado-assinado",
+      parceiro_conta: "b".repeat(24),
+      parceiro_perfil: "a".repeat(24),
+    });
+    getMock.mockResolvedValue(doCliente);
+    postMock.mockResolvedValue({ data: { connected: true, agente: "publicado" } });
+    const aoConectar = vi.fn();
+    render(<CanalParceiroClient aoConectar={aoConectar} />);
+    await waitFor(() =>
+      expect(toastOk).toHaveBeenCalledWith("WhatsApp conectado. Seu agente já está atendendo por este número."),
+    );
+    await waitFor(() => expect(aoConectar).toHaveBeenCalledTimes(1));
   });
 });
 
