@@ -77,6 +77,27 @@ fonte só (`lib/onboarding/passos.ts`) — eram três listas que discordavam. Ga
 | J1.40 | O número chega DEPOIS do onboarding | o rascunho recebe o canal e é publicado sozinho na conexão por um clique ou por chave; nos outros caminhos, a faixa do topo oferece "Ativar agora". Sem número, a faixa diz que falta conectar e leva a Conexões · **PASS** (`tests/unit/agente-sem-numero-ganha-rascunho.test.ts`, `tests/unit/aviso-do-primeiro-numero.test.ts`, e2e acima) |
 | J1.41 | O passo do telefone com o oficial por um clique | vira a 1ª opção ("WhatsApp Business oficial (recomendado)"), sem a marca do provedor, com o que ter à mão; "usar a minha chave" só para quem administra a instalação; "Já conectei em outro lugar" só com número; a conta oficial por credenciais some para o cliente quando o servidor não recebe por ela. A volta da Meta no meio do wizard agora conclui (antes o layout de `/app` jogava fora os parâmetros) · **PASS** (`tests/unit/onboarding-escolhe-como-conecta.test.tsx`, `tests/unit/canal-parceiro-tela.test.tsx`, `tests/unit/volta-do-parceiro-no-onboarding.test.ts`; pela tela em `tests/e2e/onboarding-entendivel.spec.ts` só com a chave do provedor da instalação no servidor — no CI esse trecho se declara pulado). A volta da Meta em si (janela real) não foi percorrida |
 
+> **Evidência J1.37–J1.41** (`tests/e2e/onboarding-entendivel.spec.ts`, `es-PY`, dados sintéticos):
+> - `evidence/onboarding-entendible/01-cel-confirma-tu-correo.png` — "Confirma tu correo" com reenviar e o aviso do spam
+> - `evidence/onboarding-entendible/02-cel-login-sin-confirmar.png` — login antes de confirmar: "falta confirmar" + reenviar
+> - `evidence/onboarding-entendible/03-cel-bienvenida.png` — boas-vindas em espanhol, "Tu cuenta está creada", Asunción pré-selecionada
+> - `evidence/onboarding-entendible/04-cel-telefono-instalacion-sin-un-clic.png` — o mesmo passo numa instalação sem um clique (o código no celular primeiro)
+> - `evidence/onboarding-entendible/04-cel-telefono.png` — passo do telefone com o oficial por um clique em primeiro
+> - `evidence/onboarding-entendible/04b-cel-telefono-oficial.png` — o cartão do oficial: o que ter à mão, coexistência × número novo
+> - `evidence/onboarding-entendible/04c-pc-telefono-oficial.png` — o mesmo no PC
+> - `evidence/onboarding-entendible/05-pc-telefono.png` — passo do telefone no PC
+> - `evidence/onboarding-entendible/06-cel-entrenar.png` — "Treinar": "Asistente IA" e "Y siempre cumple estas reglas"
+> - `evidence/onboarding-entendible/07-cel-embudo.png` — quadro pronto em espanhol; a coluna não corta mais o nome
+> - `evidence/onboarding-entendible/08-cel-ver-atender.png` — ensaio sobre o rascunho de quem pulou o telefone
+> - `evidence/onboarding-entendible/09-cel-listo.png` — fim do wizard com "Conectar WhatsApp"
+> - `evidence/onboarding-entendible/10-pc-listo.png` — o mesmo no PC
+> - `evidence/onboarding-entendible/11-pc-inbox-sin-numero.png` — faixa da Inbox sem número (PC)
+> - `evidence/onboarding-entendible/12-cel-inbox-sin-numero.png` — faixa da Inbox sem número (celular)
+> - `evidence/onboarding-entendible/12b-cel-conexiones-abre-en-oficial.png` — Conexões abre no oficial por um clique
+> - `evidence/onboarding-entendible/13-cel-agente-listo.png` — número chegou: "Rocío está listo… Activar ahora"
+> - `evidence/onboarding-entendible/14-cel-agente-activado.png` — agente no ar, a faixa some
+> - `evidence/onboarding-entendible/15-cel-conexiones-oficial.png` — o cartão do oficial em Conexões, sem marca nem "webhook"
+
 > **Cobertura em camadas (J1.22/J1.23):** a decisão de *não provisionar* é provada por unitário, porque é uma função pura e roda no gate obrigatório. O caso de tela cobre o caminho visível (CTA → signup com o token → campos certos). O que **não** está coberto ponta a ponta é a volta do link de confirmação de e-mail: exigiria caixa de e-mail no e2e, e a spec que faria isso é a de instalação fresca, que está fora do CI.
 
 > **A jornada J1 passou a ter GATE.** `tests/e2e/wizard-do-funcionario.spec.ts` roda no CI (SPECS_PARTE_1) e cobre o wizard inteiro pela tela — do login ao "Começar a usar" — criando a PRÓPRIA organização, porque o seed compartilhado entrega uma já onboardada e zerá-la mandaria as specs seguintes para dentro do onboarding. Fica de fora só o ensaio com resposta real, que exige chave de IA com saldo. `vps-fresh-onboarding.spec.ts` **também passou a ter gate** — o PR #983 subiu WAHA e Redis de verdade no CI e a pôs na `SPECS_PARTE_4`; esta linha dizia o contrário, e quem quiser o estado de hoje pergunta ao workflow: `git show origin/main:.github/workflows/e2e.yml | grep -A4 'FORA_DO_CI:'`. Ela segue sendo a prova mais completa da instalação fresca, e ter gate não a dispensa de rodar numa VPS de verdade: o CI aplica o `baseline.sql` e o `scripts/bootstrap-owner.ts`, não o `install.sh` inteiro.
