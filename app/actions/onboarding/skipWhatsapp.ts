@@ -1,8 +1,11 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { audit } from "@/lib/audit";
 import { requireOnboardingCtx, patchOnboardingState } from "./_shared";
+import { ativarAgenteDoOnboarding } from "@/lib/ai/agents/ativar-agente-do-onboarding";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function skipWhatsapp(): Promise<void> {
   const ctx = await requireOnboardingCtx();
@@ -16,6 +19,9 @@ export async function skipWhatsapp(): Promise<void> {
   });
   // O roteador do wizard decide o próximo step (Nuvemshop só existe com
   // NUVEMSHOP_ENABLED) — hardcodar aqui mandava o usuário pra um step oculto.
+  // A invalidação vem antes: o `/onboarding` guardado no cache do navegador
+  // ainda apontaria para ESTE passo (ver `createDefaultAgent`).
+  revalidatePath("/onboarding", "layout");
   redirect("/onboarding");
 }
 
@@ -36,6 +42,15 @@ export async function markWhatsappConfigured(
     resourceType: "channel_session",
     metadata: { session_name: sessionName, status },
   });
+  // Quem pulou o telefone, treinou o agente e VOLTOU do fim do wizard para
+  // conectar: o agente já existe em rascunho e entra no ar agora. Na ordem
+  // normal (telefone antes de treinar) ainda não há agente e nada acontece.
+  if (status === "WORKING") {
+    await ativarAgenteDoOnboarding(createAdminClient(), ctx.orgId, ctx.userId, {
+      origem: "onboarding_telefone",
+    });
+  }
+  revalidatePath("/onboarding", "layout");
   redirect("/onboarding");
 }
 

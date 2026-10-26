@@ -4,6 +4,8 @@ import { capacidadesPadraoDoOnboarding } from "./capacidades-padrao";
 import { escolherModeloDoProvedor } from "./escolher-modelo";
 import { chaveDePlataforma } from "@/lib/ai/runtime/agent";
 import { publishAgentVersion } from "./publish";
+import { palavrasDePassagemDoIdioma } from "./prompt-do-onboarding";
+import { normalizarIdioma } from "@/lib/i18n/idiomas";
 interface AgenteDoOnboarding {
   id: string;
   published_version_id: string | null;
@@ -13,7 +15,15 @@ interface AgenteDoOnboarding {
  */
 export type PublishOutcome =
   | { published: true }
-  | { published: false; reason: "no_channel" }
+  /**
+   * Sem número. `versionId` presente = a versão RASCUNHO foi criada mesmo assim
+   * (canal nulo, que `channel_session_id` aceita desde a 0241): o ensaio do
+   * passo "Ver ele atender" roda sobre ela, e quando o primeiro número chega
+   * `ativarAgenteDoOnboarding` só aponta o canal e publica. Antes o passo
+   * parava aqui sem versão nenhuma — o agente ficava "Sem versão", o ensaio não
+   * tinha o que rodar e conectar o número depois não o ligava (QA 26/10/2026).
+   */
+  | { published: false; reason: "no_channel"; versionId?: string }
   /**
    * Há provedor e modelo, mas nenhuma chave utilizável: nem credencial validada
    * da organização, nem chave da instalação no ambiente. Publicar assim entrega
@@ -110,18 +120,34 @@ export async function publishFirstVersion(
   } catch (err) {
     return { published: false, reason: "failed", message: mensagemDoErro(err) };
   }
-  const canal = selection ? canais.find((c) => c.id === selection.channelId) : canais[0];
-  if (!canal) return { published: false, reason: "no_channel" };
+  // Sem escolha explícita, o primeiro número que está NO AR: a função do banco
+  // recusa publicar num canal que não está `WORKING`, e o primeiro da lista
+  // pode ser um QR que ainda espera o celular.
+  const canal = selection
+    ? canais.find((c) => c.id === selection.channelId)
+    : (canais.find((c) => c.status === "WORKING") ?? canais[0]);
+  // A reconciliação de agente legado escolhe um canal: sem ele não há o que
+  // fazer. O onboarding segue sem canal e cria o RASCUNHO (ver `no_channel`).
+  if (!canal && selection) return { published: false, reason: "no_channel" };
+  const semCanal = !canal;
+  /**
+   * Sem canal, qualquer recusa abaixo (modelo, chave, leitura) continua sendo
+   * dita como `no_channel` — a mesma resposta de antes desta mudança. O passo
+   * "Treinar" trata `no_channel` como rascunho deliberado; trocar a causa aqui
+   * mudaria o que a tela diz para quem pulou o telefone.
+   */
+  const recusa = (outcome: PublishOutcome): PublishOutcome =>
+    semCanal ? { published: false, reason: "no_channel" } : outcome;
 
   // Erro de leitura aqui NÃO pode virar "assume anthropic": publicar sem saber
   // qual provedor a instalação escolheu é exatamente o defeito de origem, com
   // outra roupa.
   const { data: org, error: orgErr } = await admin
     .from("organizations")
-    .select("settings")
+    .select("settings, locale")
     .eq("id", orgId)
     .maybeSingle();
-  if (orgErr) return { published: false, reason: "failed", message: orgErr.message };
+  if (orgErr) return recusa({ published: false, reason: "failed", message: orgErr.message });
 
   // Só LEITURA daqui para baixo: depois da decisão da #1007, a escolha do
   // onboarding é gravada na EMPRESA (no passo da chave, `chaveDaIa.ts`) e a
@@ -220,7 +246,7 @@ export async function publishFirstVersion(
     (modelos ?? []) as Parameters<typeof escolherModeloDoProvedor>[0],
   );
   if (!escolha.escolhido) {
-    return { published: false, reason: "no_model", provider, motivo: escolha.motivo };
+    return recusa({ published: false, reason: "no_model", provider, motivo: escolha.motivo });
   }
   const modelId = selection?.model ?? escolha.modelId;
   if (selection && !(modelos ?? []).some((m) => m.model_id === modelId && m.supports_tools))
@@ -253,13 +279,20 @@ export async function publishFirstVersion(
   // chave, e inverter isso mudaria a causa que a tela recebe para quem tem os
   // dois problemas — sem necessidade nenhuma para a #1007.
   if (!credentialId && !chaveDePlataforma(provider)) {
-    return {
+    return recusa({
       published: false,
       reason: "sem_chave",
       provider,
       ...(chaveEmVerificacao ? { chaveEmVerificacao } : {}),
-    };
+    });
   }
+
+  // As palavras que chamam uma pessoa, no idioma da empresa. `null` = o default
+  // da coluna (português), o comportamento de sempre — e a reconciliação de
+  // legado não mexe nelas.
+  const palavrasDePassagem = selection
+    ? null
+    : palavrasDePassagemDoIdioma(normalizarIdioma((org as { locale?: string | null } | null)?.locale ?? null));
 
   const { data: version, error: versionErr } = await admin
     .from("ai_agent_versions")
@@ -279,7 +312,10 @@ export async function publishFirstVersion(
       credential_id: credentialId,
       tool_ids: selection ? [] : capacidadesPadraoDoOnboarding(),
       pipeline_ids: pipelineIds,
-      channel_session_id: canal.id,
+      // Nulo quando a pessoa pulou o telefone: rascunho legítimo, que o ensaio
+      // usa e que `ativarAgenteDoOnboarding` completa quando o número chega.
+      channel_session_id: canal?.id ?? null,
+      ...(palavrasDePassagem ? { handoff_keywords: palavrasDePassagem } : {}),
       status: "draft",
       created_by: userId,
     })
@@ -287,27 +323,69 @@ export async function publishFirstVersion(
     .single();
 
   let versionId = version?.id;
+  /** O rascunho sem número recebeu o canal NESTA chamada (ver o UPDATE abaixo). */
+  let canalApontadoAgora = false;
   if (!versionId && versionErr?.code === "23505") {
     const { data: existing, error } = await admin
       .from("ai_agent_versions")
-      .select("id,provisioning_origin,status")
+      .select("id,provisioning_origin,status,channel_session_id")
       .eq("organization_id", orgId)
       .eq("agent_id", agent.id)
       .order("version_number");
-    if (error) return { published: false, reason: "failed", message: error.message };
+    if (error) return recusa({ published: false, reason: "failed", message: error.message });
     const own = existing?.length === 1 ? existing[0] : null;
-    if (own?.provisioning_origin === (selection ? "legacy_reconciliation" : "onboarding"))
+    if (own?.provisioning_origin === (selection ? "legacy_reconciliation" : "onboarding")) {
       versionId = own.id;
+      // O rascunho que nasceu SEM número (a pessoa pulou o telefone) e agora
+      // tem um: aponta o canal antes de publicar — sem isto a função do banco
+      // recusaria com `channel_session_not_found`. Só o rascunho do próprio
+      // onboarding, e só com o canal ainda vazio: canal escolhido por alguém no
+      // editor nunca é trocado.
+      //
+      // ⚠️ APONTAR O CANAL APAGA A PROCEDÊNCIA, e isto é do banco, não daqui:
+      // `trg_agent_provisioning_origin` zera `provisioning_origin` em todo
+      // UPDATE que mude conteúdo da versão (canal inclusive) — é como ele
+      // marca "alguém mexeu". Publicar depois pedindo a procedência
+      // "onboarding" seria recusado com `existing_version_requires_review`
+      // (MEDIDO no e2e `onboarding-entendivel`: o agente nunca entrava no ar).
+      // A conferência da procedência é feita AQUI, no `where` do mesmo UPDATE
+      // (`provisioning_origin = 'onboarding'`, lido antes do gatilho): se
+      // alguém editou o rascunho, zero linhas mudam e nada é publicado.
+      if (canal && own.channel_session_id === null && own.status === "draft") {
+        // Só com o número NO AR: apontar e não conseguir publicar deixaria o
+        // rascunho sem procedência (o gatilho já a teria zerado), e a próxima
+        // tentativa não o reconheceria mais como do onboarding.
+        if (canal.status !== "WORKING") {
+          return { published: false, reason: "failed", message: "channel_session_offline" };
+        }
+        const { data: apontada, error: canalErr } = await admin
+          .from("ai_agent_versions")
+          .update({ channel_session_id: canal.id })
+          .eq("organization_id", orgId)
+          .eq("id", own.id)
+          .eq("status", "draft")
+          .eq("provisioning_origin", "onboarding")
+          .is("channel_session_id", null)
+          .select("id");
+        if (canalErr) return { published: false, reason: "failed", message: canalErr.message };
+        if (!Array.isArray(apontada) || apontada.length !== 1) {
+          return { published: false, reason: "failed", message: "existing_version_requires_review" };
+        }
+        canalApontadoAgora = true;
+      }
+    }
   }
   if (!versionId)
-    return {
+    return recusa({
       published: false,
       reason: "failed",
       message:
         versionErr?.code === "23505"
           ? "existing_version_requires_review"
           : (versionErr?.message ?? "version_insert_failed"),
-    };
+    });
+  // Sem número não há o que publicar: o rascunho fica pronto para o ensaio.
+  if (semCanal) return { published: false, reason: "no_channel", versionId };
   const { data: current } = await admin
     .from("ai_agents")
     .select("published_version_id")
@@ -320,7 +398,9 @@ export async function publishFirstVersion(
     orgId,
     agentId: agent.id,
     versionId,
-    expectedProvenance: selection ? "legacy_reconciliation" : "onboarding",
+    // Com o canal apontado agora, a procedência já foi conferida no UPDATE e o
+    // gatilho a zerou: pedi-la de novo recusaria a própria versão.
+    expectedProvenance: canalApontadoAgora ? undefined : selection ? "legacy_reconciliation" : "onboarding",
   });
   if (!published.ok) {
     const { data: latest } = await admin

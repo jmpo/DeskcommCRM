@@ -169,3 +169,47 @@ it("não publica membro de roteador cujo canal está desconectado", async () => 
     [f.org, f.agent, f.version],
   )).rejects.toThrow("channel_session_offline");
 });
+
+/**
+ * O RASCUNHO DO ONBOARDING de quem pulou o telefone (QA de 26/10/2026), e por
+ * que `publishFirstVersion` publica SEM pedir a procedência depois de apontar o
+ * canal: `trg_agent_provisioning_origin` zera `provisioning_origin` em todo
+ * UPDATE que muda conteúdo — o canal inclusive. Pedir "onboarding" depois disso
+ * é recusado; quem confere a procedência é o `where` do próprio UPDATE.
+ * Medido pela tela antes deste caso existir: o agente nunca entrava no ar.
+ */
+it("rascunho do onboarding: apontar o canal ZERA a procedência; publicar sem pedi-la passa", async () => {
+  const f = await rascunhoSemNumero();
+  await pool.query("delete from ai_agent_versions where id=$1", [f.version]);
+  const version = randomUUID();
+  await pool.query(
+    `insert into ai_agent_versions
+       (id,organization_id,agent_id,version_number,system_prompt,provider,model,channel_session_id,status,provisioning_origin)
+     values ($1,$2,$3,1,'Atiendes a los clientes.','anthropic',$4,null,'draft','onboarding')`,
+    [version, f.org, f.agent, f.modelo],
+  );
+  await pool.query("update channel_sessions set status='WORKING' where id=$1", [f.channel]);
+
+  // O UPDATE condicionado à procedência — o mesmo `where` de `publishFirstVersion`.
+  const apontada = await pool.query(
+    `update ai_agent_versions set channel_session_id=$2
+      where id=$1 and status='draft' and provisioning_origin='onboarding' and channel_session_id is null
+      returning provisioning_origin`,
+    [version, f.channel],
+  );
+  expect(apontada.rowCount).toBe(1);
+  expect(apontada.rows[0].provisioning_origin, "o gatilho zera a procedência no UPDATE").toBeNull();
+
+  await expect(
+    pool.query("select * from fn_publish_ai_agent_version($1,$2,$3,true,'onboarding')", [
+      f.org,
+      f.agent,
+      version,
+    ]),
+  ).rejects.toThrow("existing_version_requires_review");
+
+  const publicada = (
+    await pool.query("select * from fn_publish_ai_agent_version($1,$2,$3,true)", [f.org, f.agent, version])
+  ).rows[0];
+  expect(publicada.version_id).toBe(version);
+});

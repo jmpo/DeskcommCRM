@@ -33,6 +33,25 @@ export default async function TestarPage() {
     .eq("is_default", true)
     .maybeSingle();
 
+  // Sem versão publicada (a pessoa pulou o telefone), o ensaio roda sobre o
+  // RASCUNHO que o passo "Treinar" criou: é o mesmo prompt, modelo e chave, e o
+  // ensaio não envia nada a ninguém. Antes a tela dizia "rascunho não responde,
+  // não há o que ensaiar" — e quem pulou o telefone nunca via o agente falar.
+  const publicada = (agente?.published_version_id as string | null | undefined) ?? null;
+  let rascunho: string | null = null;
+  if (agente?.id && !publicada) {
+    const { data: versao } = await admin
+      .from("ai_agent_versions")
+      .select("id")
+      .eq("organization_id", activeOrg.orgId)
+      .eq("agent_id", agente.id as string)
+      .eq("status", "draft")
+      .order("version_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    rascunho = (versao?.id as string | undefined) ?? null;
+  }
+
   return (
     <div className="space-y-6">
       <header>
@@ -47,7 +66,8 @@ export default async function TestarPage() {
       <TestarClient
         nome={(agente?.name as string | undefined) ?? null}
         agenteId={(agente?.id as string | undefined) ?? null}
-        versaoId={(agente?.published_version_id as string | null | undefined) ?? null}
+        versaoId={publicada ?? rascunho}
+        publicada={publicada !== null}
       />
     </div>
   );

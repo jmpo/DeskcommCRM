@@ -31,6 +31,8 @@ import {
 import { ConexaoCaidaBanner } from "@/components/app/ConexaoCaidaBanner";
 import { FaixaDaCobranca } from "@/components/cobranca/FaixaDaCobranca";
 import { FaixasDeCima } from "@/components/shell/FaixasDeCima";
+import { FaixaDoPrimeiroNumero } from "@/components/shell/FaixaDoPrimeiroNumero";
+import { lerAvisoDoPrimeiroNumero, type AvisoDoPrimeiroNumero } from "@/lib/onboarding/aviso-do-primeiro-numero";
 import { faixaDaCobranca, type FaixaDaCobranca as Faixa } from "@/lib/cobranca/faixa";
 import { logger } from "@/lib/logger";
 import { IdiomaProvider } from "@/lib/i18n/IdiomaProvider";
@@ -77,6 +79,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // EPIC-11: gate /app/* on org not being suspended (S-11.08).
   let conexoesCaidas: ConexaoCaida[] = [];
   let faixa: Faixa = null;
+  // "Seu WhatsApp ainda não está conectado" / "seu agente está pronto, ative".
+  // Só para quem pode agir (admin), nunca em acompanhamento.
+  let avisoDoPrimeiroNumero: AvisoDoPrimeiroNumero = null;
   let orgFuso: string | null = null;
   let enrolled = false;
   let needsMfaGate = false;
@@ -92,6 +97,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // formato inesperado) desce para `null`, e quem a escolheu só perde a pintura
     // naquele render. No caminho raro do `redirect`, a leitura corre à toa.
     const temaDaExtensao = lerCssDoTemaDaExtensao(admin, activeOrg.orgId);
+    // Mesma lógica do tema: arranca junto com o lote e só é esperado depois do
+    // portão. Nunca rejeita (`lerAvisoDoPrimeiroNumero` devolve `null` na falha).
+    const avisoPendente: Promise<AvisoDoPrimeiroNumero> =
+      roleAtLeast(activeOrg.role, "admin") && !user.support
+        ? lerAvisoDoPrimeiroNumero(admin, activeOrg.orgId)
+        : Promise.resolve(null);
 
     /**
      * As cinco consultas que TODA página de `/app` paga, disparadas juntas.
@@ -162,6 +173,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       // Mesma linha de `settings` já lida acima — nenhuma consulta a mais.
       capacidades_ligadas: capacidadesLigadas(orgRow?.settings, modulos),
     };
+
+    avisoDoPrimeiroNumero = await avisoPendente;
 
     // A faixa do teste grátis (spec da cobrança §9): uma consulta a mais SÓ com
     // a cobrança ligada (quem não administra só vê o atraso). Falha aberta na INFORMAÇÃO: sem a
@@ -320,6 +333,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <ImpersonateBanner impersonating={impersonating} />
           <ConexaoCaidaBanner caidas={conexoesCaidas} />
           {faixa !== null && <FaixaDaCobranca faixa={faixa} fuso={orgFuso} />}
+          {avisoDoPrimeiroNumero !== null && <FaixaDoPrimeiroNumero aviso={avisoDoPrimeiroNumero} />}
         </FaixasDeCima>
         {needsMfaGate ? (
           // Gate always mounted for MFA-required roles; it latches the blocking

@@ -12,6 +12,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ehOperante } from "@/lib/organizacao/operante";
 import { redirect } from "next/navigation";
 import type { OnboardingState } from "@/lib/schemas/onboarding";
+import { normalizarIdioma, type Idioma } from "@/lib/i18n/idiomas";
 
 export class OnboardingError extends Error {
   constructor(
@@ -145,5 +146,24 @@ export async function patchOnboardingState(
   // "zero linhas" — `data` nulo vem de dublê que não simula o `select`.
   if (Array.isArray(data) && data.length === 0) {
     throw new OnboardingError("org_ja_configurada", "Organização já configurada.");
+  }
+}
+
+/**
+ * O idioma da EMPRESA (`organizations.locale`) — o de tudo o que o onboarding
+ * escreve para ela: prompt do agente, nomes semeados, palavras de passagem.
+ * Falha de leitura degrada para o padrão do produto (o comportamento de antes),
+ * nunca derruba o passo.
+ */
+export async function idiomaDaEmpresa(orgId: string): Promise<Idioma> {
+  try {
+    const { data } = await createAdminClient()
+      .from("organizations")
+      .select("locale")
+      .eq("id", orgId)
+      .maybeSingle();
+    return normalizarIdioma((data as { locale?: string | null } | null)?.locale ?? null);
+  } catch {
+    return normalizarIdioma(null);
   }
 }
