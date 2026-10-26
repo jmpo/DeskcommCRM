@@ -7,7 +7,11 @@
  * o dicionário grande. Mesmo contrato: a chave é o português; o espanhol segue
  * o tom do dicionário (segunda pessoa "tú": "Elige", "Inténtalo") — a escolha
  * do dicionário vence a do rioplatense "vos" para a tela não mudar de tom no
- * meio do wizard. O inglês vai em `traducoes/en.json`.
+ * meio do wizard. O inglês das mesmas chaves está em `traducoes/en.json`.
+ *
+ * ⚠️ Este arquivo entra na cadeia do dicionário, que é lida pela seleção de
+ * `pnpm cercas` (`vitest.cercas.ts`): citar um global do navegador aqui — até
+ * dentro de uma frase — tira o guarda de i18n da seleção.
  */
 type Linha = Record<string, { es: string }>;
 
@@ -141,81 +145,4 @@ export const TEXTOS_ONBOARDING_ENTENDIVEL: Linha = {
   // O passo "Treinar" e o indicador do celular.
   "E sempre segue estas regras": { es: "Y siempre cumple estas reglas" },
   "Passo {n} de {total}": { es: "Paso {n} de {total}" },
-};
-
-/** O inglês das mesmas chaves (vai para `traducoes/en.json`). */
-export const TEXTOS_ONBOARDING_ENTENDIVEL_EN: Record<string, string> = {
-  "Pronto: se este e-mail tem cadastro pendente, um novo link acabou de sair.":
-    "Done: if this email has a pending sign-up, a new link was just sent.",
-  "Não conseguimos enviar o e-mail, porque o envio de e-mails desta instalação não está configurado. Avise quem administra o sistema.":
-    "We couldn't send the email because this installation's email sending isn't configured. Let your system administrator know.",
-  "Confira o e-mail digitado.": "Check the email you typed.",
-  "Não chegou? Procure também no spam ou em Promoções — às vezes ele cai lá.":
-    "Didn't get it? Also check spam or Promotions — it sometimes lands there.",
-  "Reenviando…": "Resending…",
-  "Reenviar e-mail de confirmação": "Resend confirmation email",
-  "Falta confirmar o seu e-mail. Abra o link que enviamos quando você criou a conta.":
-    "You still need to confirm your email. Open the link we sent when you created the account.",
-  "Você tem {dias} dias de teste grátis para conhecer tudo.":
-    "You get a {dias}-day free trial to try everything.",
-  "Já conectei em outro lugar": "I already connected it elsewhere",
-  "WhatsApp Business oficial (recomendado)": "Official WhatsApp Business (recommended)",
-  "O número oficial da sua empresa, conectado com o Facebook da empresa em uns 10 minutos. Sem chaves nem configuração técnica — e dá para continuar usando o app no celular.":
-    "Your company's official number, connected with the company's Facebook in about 10 minutes. No keys or technical setup — and you can keep using the app on your phone.",
-  "Se não tem certeza, escolha a primeira: é a oficial, e funciona com o app WhatsApp Business que você já usa.":
-    "If you're not sure, pick the first one: it's the official option, and it works with the WhatsApp Business app you already use.",
-  "Antes de começar, tenha em mãos:": "Before you start, have at hand:",
-  "Um Facebook com acesso de administrador ao portfólio da sua empresa na Meta (Meta Business). Se ainda não tem, dá para criar na hora.":
-    "A Facebook account with admin access to your company's Meta business portfolio (Meta Business). If you don't have one yet, you can create it on the spot.",
-  "O app WhatsApp Business (não o WhatsApp comum) atualizado, e o celular do número na mão.":
-    "The WhatsApp Business app (not regular WhatsApp), up to date, and the number's phone in your hand.",
-  "Uns 10 minutos.": "About 10 minutes.",
-  "A Meta cobra à parte os modelos de mensagem que você enviar.":
-    "Meta charges separately for the message templates you send.",
-  "WhatsApp conectado. Seu agente já está atendendo por este número.":
-    "WhatsApp connected. Your agent is already answering on this number.",
-  "O número oficial da sua empresa no WhatsApp Business. As mensagens entram e saem por aqui, e os modelos aprovados pela Meta são os da sua conta.":
-    "Your company's official WhatsApp Business number. Messages come in and go out here, and the Meta-approved templates are your account's.",
-  "Abre uma janela da Meta: você entra com o Facebook da empresa, escolhe o número e confirma. O recebimento das mensagens fica configurado sozinho.":
-    "A Meta window opens: you sign in with the company's Facebook, pick the number and confirm. Receiving messages is set up automatically.",
-  "Coexistência: você continua respondendo pelo app no celular, e as conversas também aparecem aqui. A Meta mostra um QR para escanear com o app.":
-    "Coexistence: you keep replying from the app on your phone, and the conversations also show up here. Meta shows a QR code to scan with the app.",
-  "Atende só por aqui, sem o app no celular.": "Answers only here, without the app on the phone.",
-  "Recebimento de mensagens": "Receiving messages",
-  "Configurado automaticamente: as mensagens deste número chegam aqui.":
-    "Set up automatically: this number's messages arrive here.",
-  "Pronto: seu agente já está atendendo pelo seu número.":
-    "Done: your agent is now answering on your number.",
-  "Não consegui ativar o agente daqui. Abra IA › Agentes para revisar e publicar.":
-    "I couldn't activate the agent from here. Open AI › Agents to review and publish it.",
-  "Seu WhatsApp ainda não está conectado: sem número, nenhuma conversa chega e seu agente não atende.":
-    "Your WhatsApp isn't connected yet: without a number, no conversation arrives and your agent doesn't answer.",
-  "Seu agente": "Your agent",
-  "está pronto, mas ainda não está atendendo pelo seu número.":
-    "is ready, but isn't answering on your number yet.",
-  "Ativar agora": "Activate now",
-  "Ele já foi treinado. Falta o número: conecte o WhatsApp e ele começa a atender.":
-    "It's trained. The number is missing: connect WhatsApp and it starts answering.",
-  "Sem número, nenhuma conversa chega até ele. Leva poucos minutos.":
-    "Without a number, no conversation reaches it. It takes a few minutes.",
-  "ainda não está no ar: ele começa a atender quando você conectar o WhatsApp. O ensaio funciona do mesmo jeito.":
-    "isn't live yet: it starts answering when you connect WhatsApp. The rehearsal works the same way.",
-  "Oi! Vocês atendem hoje? Queria saber o preço.":
-    "Hi! Are you open today? I'd like to know the price.",
-  "Atendente IA": "AI assistant",
-  "Não foi possível executar o teste. Confira modelo, credencial e materiais do agente.":
-    "Couldn't run the test. Check the agent's model, credential and materials.",
-  "Você tem {dias} dias grátis, até {data}.": "You have {dias} free days, until {data}.",
-  "Sua conta está criada.": "Your account is created.",
-  "Em poucos passos: o nome do seu negócio, o WhatsApp por onde ele atende, como ele fala e onde organiza os clientes. Dá para pular e voltar depois.":
-    "In a few steps: your business name, the WhatsApp it answers on, how it talks and where it organizes customers. You can skip and come back later.",
-  Assunção: "Asunción",
-  Montevidéu: "Montevideo",
-  "Quito e Guayaquil": "Quito and Guayaquil",
-  "Cidade do México": "Mexico City",
-  "Para contratar um plano, fale com quem administra o sistema.":
-    "To subscribe to a plan, talk to your system administrator.",
-  "Grátis até {data}": "Free until {data}",
-  "E sempre segue estas regras": "And it always follows these rules",
-  "Passo {n} de {total}": "Step {n} of {total}",
 };
