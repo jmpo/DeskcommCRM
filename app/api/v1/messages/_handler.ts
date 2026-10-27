@@ -58,6 +58,8 @@ import type { ListMessagesQuery, SendMessageInput } from "@/lib/schemas";
 import { sendTemplateForSession } from "@/lib/channels/meta/send-template-for-session";
 import { emitirFalhaDeEntrega } from "@/lib/messaging/falha-de-entrega";
 import { previaDaMensagem } from "@/lib/messaging/previa-da-mensagem";
+import { pedirReenvioDoDesacelerado } from "@/lib/messaging/reenvio-desacelerado";
+import { esperaPedidaPeloCanal } from "@/lib/channels/erro-da-plataforma";
 import { aplicarAssinatura, configAssinatura, linhaDeAssinatura } from "@/lib/messaging/assinatura";
 import { nomeDoAgenteDeIA } from "@/lib/messaging/nome-do-agente-de-ia";
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
@@ -87,8 +89,9 @@ type SB = SupabaseClient;
  * ATUALIZAÇÃO (issue #129): o cron `recover-stuck-messages` passou a existir
  * (`app/api/v1/cron/recover-stuck-messages/route.ts`), mas ele cobre `sending`,
  * não `queued` — e a diferença é deliberada. `queued` é estado de espera com
- * DONO: o agent-engine reagenda o job (`SEND_QUEUED_RETRY_MS`, 5 min por
- * padrão) enquanto a sessão do canal não está WORKING, e o watchdog redirige.
+ * DONO: o watchdog redirige (no transporte por QR), e a mensagem que o canal
+ * mandou desacelerar volta pelo reenvio desacelerado
+ * (`lib/messaging/reenvio-desacelerado.handler.ts`).
  * Um cron marcando `queued` como falha depois de 5 min brigaria com essa
  * retentativa e perderia mensagem que ia sair. `sending` não tem dono nenhum —
  * é ali que a linha morre em silêncio.
@@ -1306,11 +1309,18 @@ export async function sendMessageHandler(
       // responder "não configurado" travaria em `queued` um canal que funciona.
       // Quem sabe é `send()`, que pode consultar o banco — então ele lança, e a
       // tradução do desfecho acontece aqui.
-      // O provedor pediu para DESACELERAR (~10 msg/min por destinatário, erro
-      // 131056 — changelog de 28/08). A mensagem não tem nada de errado; falhá-la
-      // seria perder uma venda por pressa. Fica `queued` com o motivo carimbado:
-      // o agent-engine reagenda sem consumir tentativa, e o envio humano tem o
-      // aviso de espera esquecida (recover-stuck) como rede se ninguém retomar.
+      // O canal pediu para DESACELERAR (~10 msg/min por destinatário, erro
+      // 131056 — changelog de 28/08; ou a conta limitada, 429 com
+      // `Retry-After`). A mensagem não tem nada de errado; falhá-la seria perder
+      // uma venda por pressa. Fica `queued` com o motivo carimbado, e o PEDIDO
+      // de nova tentativa sai junto, com a espera que o canal pediu.
+      //
+      // Este comentário dizia que "o agent-engine reagenda sem consumir
+      // tentativa". Medido em 27/10/2026, não reagendava: o turno do agente lê
+      // `queued` como "aceita, aguardando o canal" e termina, e o resgate do
+      // watchdog só alcança o transporte por QR. Quem tenta de novo agora é
+      // `lib/messaging/reenvio-desacelerado.handler.ts`, na MESMA linha; a
+      // espera esquecida (recover-stuck) segue como rede se ele não conseguir.
       if (adapter.codes.throttled && msg.startsWith(adapter.codes.throttled)) {
         const { data: emFila } = await supabase
           .from("messages")
@@ -1322,6 +1332,12 @@ export async function sendMessageHandler(
           .select(MSG_COLS)
           .maybeSingle();
         if (emFila) message = emFila as unknown as Message;
+        await pedirReenvioDoDesacelerado(supabase, {
+          organizationId: ctx.organization_id,
+          messageId: message.id,
+          queuedReason: adapter.codes.throttled,
+          esperaMs: esperaPedidaPeloCanal(msg),
+        });
         return message;
       }
 
