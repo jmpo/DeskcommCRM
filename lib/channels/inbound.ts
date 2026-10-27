@@ -207,9 +207,9 @@ export async function handleInboundWebhook(
  * ─── O defeito, medido numa instalação real (27/10/2026) ────────────────────
  *
  * O provedor intermediado dá por falha a entrega que não recebe resposta em 5 s
- * e reentrega. A ingestão de uma mensagem faz ~20 idas sequenciais ao banco
+ * e reentrega. A ingestão de uma mensagem faz ~30 idas sequenciais ao banco
  * (contato, conversa, mensagem, carimbo, negócio, follow-up, despacho do
- * agente) e, no pino, mais a consulta das coordenadas à API do provedor. Em 30
+ * agente) e, no pino, o endereço aproximado (até 2,5 s). Em 30
  * dias, 368 de 1.304 mensagens entregues tiveram ao menos uma tentativa vencida
  * (no pico, p50 3,6 s e p90 4,6 s na 1ª tentativa). Nenhuma se perdeu — o
  * processamento terminava e a reentrega batia no `23505` —, mas cada vencida
