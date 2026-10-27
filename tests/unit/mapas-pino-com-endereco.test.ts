@@ -31,6 +31,14 @@ import {
 } from "@/lib/mapas/geocodificacao";
 import { corpoDaLocalizacao, lerLocalizacao } from "@/lib/messaging/localizacao";
 
+// Credencial do provedor SEMPRE disponível: sem ela, a busca antiga pela API
+// nem começava, e "nenhuma chamada de rede" passaria verde também no código que
+// ainda perguntava ao provedor dentro do recebimento (achado pelo sabotador).
+vi.mock("@/lib/channels/zernio/credentials", async (orig) => ({
+  ...(await orig<typeof import("@/lib/channels/zernio/credentials")>()),
+  resolveZernioCreds: vi.fn(async () => ({ accountId: "acc_1", apiKey: "k", baseUrl: "https://z.test/api", source: "session" })),
+}));
+
 const comp = (long_name: string, ...types: string[]) => ({ long_name, short_name: long_name, types });
 
 /** O primeiro resultado já é a rua com número (e bairro, que não sai). */
