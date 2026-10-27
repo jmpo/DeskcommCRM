@@ -28,9 +28,11 @@ import { zernioAdapter } from "@/lib/channels/adapters/zernio";
  * daqui a um minuto. Perder venda por pressa, com o cliente do outro lado
  * esperando a resposta.
  *
- * Com ele, o handler traduz para `queued` com o motivo carimbado: o
- * agent-engine reagenda sem consumir tentativa (SEND_QUEUED_RETRY_MS), e o
- * envio humano tem o aviso de espera esquecida como rede.
+ * Com ele, o handler traduz para `queued` com o motivo carimbado e pede a nova
+ * tentativa (`message.throttled_resend_requested`), que o reenvio desacelerado
+ * faz na mesma linha — ver `envio-desacelerado-sai-de-novo.test.ts`. (Este
+ * cabeçalho dizia que o agent-engine reagendava por `SEND_QUEUED_RETRY_MS`;
+ * medido em 27/10/2026, nada reagendava.)
  */
 describe("o 131056 tem código próprio", () => {
   it("o adapter declara `throttled` — é o contrato que o handler consulta", () => {
