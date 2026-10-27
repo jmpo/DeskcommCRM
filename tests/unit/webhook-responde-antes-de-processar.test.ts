@@ -163,6 +163,8 @@ import {
 import { MAX_TENTATIVAS } from "@/lib/channels/reprocessar-arquivo-de-webhook";
 import { MENSAGEM_DO_NUMERO_OFICIAL_QUE_NAO_ENTROU } from "@/lib/event-log/aviso-de-evento-morto";
 
+import { tuteioEm } from "./helpers/tuteio";
+
 const SEGREDO = "segredo-da-sessao-longo-o-bastante";
 const CONTA = "acc_sintetica_desta_sessao";
 const SESSAO = {
@@ -424,6 +426,8 @@ describe("o cron reprocessa a entrada aceita que ficou no meio", () => {
     expect(String(avisos()[0]!.body)).toMatch(/^Un cliente le escribió al número oficial/);
     expect(String(avisos()[0]!.body)).toContain("márquelo como resuelto");
     expect(String(avisos()[0]!.body)).toContain(`${MAX_TENTATIVAS} intentos`);
+    // Quem lê a Central é tratado de «usted» (decisão do dono, 26/10/2026).
+    expect(tuteioEm(`${avisos()[0]!.title} ${avisos()[0]!.body}`)).toEqual([]);
 
     // Outra mensagem morre com o aviso aberto: não abre um segundo.
     linhaAceita(agora, 10 * 60_000, { wamid: "w.outra", attempts: MAX_TENTATIVAS - 1 });
