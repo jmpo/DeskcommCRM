@@ -28,7 +28,7 @@ function view(role: Role, locale: "pt-BR" | "es", who = baseUser, caidas: Conexa
 }
 const copy = {
   "pt-BR": { qr: "Escanear o QR", connections: "Ver conexões", help: "Peça a quem administra para revisar a conexão do WhatsApp.", outage: "nenhuma mensagem entra nem sai." },
-  es: { qr: "Escanear el QR", connections: "Ver conexiones", help: "Pide a quien administra que revise la conexión de WhatsApp.", outage: "ningún mensaje entra ni sale." },
+  es: { qr: "Escanear el QR", connections: "Ver conexiones", help: "Pida a quien administra que revise la conexión de WhatsApp.", outage: "ningún mensaje entra ni sale." },
 };
 
 describe.each(["pt-BR", "es"] as const)("alerta de conexão em %s", locale => {

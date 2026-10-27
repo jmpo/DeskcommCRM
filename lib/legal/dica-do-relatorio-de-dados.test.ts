@@ -75,10 +75,10 @@ describe("no Brasil, fora do português, o texto é o da main", () => {
   // (`app/app/settings/tenant/_form.tsx`): sem isso, a organização brasileira
   // com a tela em espanhol leria "RAZÃO SOCIAL"/"Razão social" no meio da frase
   // em espanhol, apontando para um campo que ali se chama "Razón social".
-  it("⭐ em espanhol, byte a byte a frase de antes do #2503", () => {
+  it("⭐ em espanhol, a frase de antes do #2503 (neste fork, tratando por usted)", () => {
     const es = (texto: string) => DICIONARIO[texto]?.es ?? texto;
     expect(dicaDoRelatorio(es, BR)).toBe(
-      'El informe de LGPD que se entrega al cliente incluye la RAZÓN SOCIAL de tu empresa, no el nombre de arriba, porque es ella quien responde legalmente por los datos. Revisa el campo "Razón social" en Configuración → Organización.',
+      'El informe de LGPD que se entrega al cliente incluye la RAZÓN SOCIAL de la empresa de usted, no el nombre de arriba, porque es ella quien responde legalmente por los datos. Revise el campo "Razón social" en Configuración → Organización.',
     );
   });
 

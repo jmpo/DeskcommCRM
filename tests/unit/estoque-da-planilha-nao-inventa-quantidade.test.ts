@@ -62,7 +62,7 @@ describe("estoque da planilha não inventa uma quantidade", () => {
 
   it("a recusa chega em espanhol", () => {
     expect(ler("-5", "es").erros[0]?.motivo).toBe(
-      'cantidad no válida ("-5") — usa un entero de 0 a 2147483647',
+      'cantidad no válida ("-5") — use un entero de 0 a 2147483647',
     );
   });
 });

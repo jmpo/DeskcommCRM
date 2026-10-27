@@ -101,7 +101,7 @@ describe("aviso na Central ao entrar numa etapa marcada", () => {
       ref_kind: "lead",
       ref_id: LEAD,
       title: "Negocio entró en «Pedido confirmado»",
-      body: "Abre el negocio para dar el siguiente paso. Este aviso se pidió en la configuración de la etapa.",
+      body: "Abra el negocio para dar el siguiente paso. Este aviso se pidió en la configuración de la etapa.",
     });
   });
 

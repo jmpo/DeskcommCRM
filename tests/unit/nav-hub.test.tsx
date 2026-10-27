@@ -185,7 +185,7 @@ describe("NavHub", () => {
     );
 
     expect(
-      screen.getByText("Todo lo que define quién atiende por ti, y cómo dar seguimiento a lo que hace."),
+      screen.getByText("Todo lo que define quién atiende por usted, y cómo dar seguimiento a lo que hace."),
     ).toBeTruthy();
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent?.trim())).toEqual([
       "Configurar el agente",
@@ -225,7 +225,7 @@ describe("NavHub", () => {
       "/app/extensions/00000000-0000-4000-8000-000000000002?card=primeiro-passo",
     );
     expect(contribution).not.toHaveTextContent("Uma descrição que a configuração esconde.");
-    expect(screen.getByText("Abre Tareas; no lee tus datos.")).toBeInTheDocument();
+    expect(screen.getByText("Abre Tareas; no lee sus datos.")).toBeInTheDocument();
   });
 
   it("expõe falha de leitura das contribuições sem derrubar o hub do CRM", () => {

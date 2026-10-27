@@ -99,7 +99,7 @@ describe("as ações de uma automação", () => {
     cleanup();
     render(noIdioma("es", <ActionConfigForm action={defaultActionConfig("call_webhook")} onChange={() => {}} />));
     expect(screen.getByText("Secreto (opcional)")).toBeTruthy();
-    expect(screen.getByPlaceholderText("una contraseña solo tuya")).toBeTruthy();
+    expect(screen.getByPlaceholderText("una contraseña solo suya")).toBeTruthy();
     cleanup();
     render(noIdioma("es", <ActionConfigForm action={defaultActionConfig("send_email")} onChange={() => {}} />));
     for (const nome of ["Nombre", "Teléfono", "Título del lead"]) expect(screen.getByRole("button", { name: nome })).toBeTruthy();
@@ -134,7 +134,7 @@ describe("o cartão do e-mail no designer de automação", () => {
 
   it("diz o assunto, ou pede o e-mail — nunca o tipo cru", () => {
     caixa("es", { destinatario: "contato", assunto: "", corpo: "", formato: "texto" });
-    expect(screen.getByTestId("caixa-acao-1").textContent).toContain("Escribe el correo");
+    expect(screen.getByTestId("caixa-acao-1").textContent).toContain("Escriba el correo");
     expect(screen.getByTestId("caixa-acao-1").textContent).not.toContain("send_email");
     cleanup();
     caixa("pt-BR", { destinatario: "contato", assunto: "Boas-vindas", corpo: "", formato: "texto" });

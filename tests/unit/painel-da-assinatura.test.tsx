@@ -56,7 +56,7 @@ describe("PainelDaAssinatura", () => {
 
   it("fala espanhol", () => {
     render(<PainelDaAssinatura dados={{ ...EM_TESTE, assinatura: null, plano: null }} idioma="es" />);
-    expect(screen.getByText("Tu empresa no tiene plan de cobro: no paga y no tiene límites.")).toBeTruthy();
+    expect(screen.getByText("Su empresa no tiene plan de cobro: no paga y no tiene límites.")).toBeTruthy();
   });
 
   it("a virada de dia é a da empresa: 23h em São Paulo (02h UTC) continua no mesmo dia", () => {
