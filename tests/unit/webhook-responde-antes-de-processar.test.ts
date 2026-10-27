@@ -81,6 +81,8 @@ function consulta(tabela: string) {
     gte: (c: string, v: string) => (filtros.push((l) => String(l[c]) >= v), q),
     lt: (c: string, v: string) => (filtros.push((l) => String(l[c]) < v), q),
     is: (c: string, v: unknown) => (filtros.push((l) => (l[c] ?? null) === v), q),
+    like: (c: string, padrao: string) =>
+      (filtros.push((l) => typeof l[c] === "string" && (l[c] as string).startsWith(padrao.replace(/%$/, ""))), q),
     order: (coluna: string, o?: { ascending?: boolean }) => ((ordem = { coluna, asc: o?.ascending !== false }), q),
     limit: (n: number) => ((limite = n), q),
     maybeSingle: async () => {
@@ -105,6 +107,13 @@ vi.mock("@/lib/channels/archived", () => ({
   queryTolerantToMissingArchived: async (comArquivo: () => Promise<unknown>) => comArquivo(),
 }));
 vi.mock("@/lib/webhooks/secrets", () => ({ decryptWebhookSecret: async () => SEGREDO }));
+const auditoria = vi.hoisted(() => ({ linhas: [] as Array<Record<string, unknown>> }));
+vi.mock("@/lib/audit", () => ({
+  audit: async (linha: Record<string, unknown>) => {
+    auditoria.linhas.push(linha);
+  },
+}));
+vi.mock("@/lib/auth/cron-auth", () => ({ autorizaCron: () => true }));
 
 // ─── O `after()` do Next: guardado, para o caso decidir QUANDO ele roda ──────
 //
@@ -145,6 +154,7 @@ vi.mock("@/lib/channels/zernio/ingest", () => ({
 }));
 
 import { POST } from "@/app/api/v1/webhooks/channel/[token]/route";
+import { GET as cronWebhookReplay } from "@/app/api/v1/cron/webhook-replay/route";
 import {
   ESPERA_DA_ENTRADA_MS,
   JANELA_DA_ENTRADA_MS,
@@ -234,6 +244,7 @@ beforeEach(() => {
   ingestao.demoraMs = 0;
   ingestao.falhasRestantes = 0;
   ingestao.mensagens.clear();
+  auditoria.linhas.length = 0;
 });
 
 describe("a rota responde antes de processar", () => {
@@ -245,9 +256,9 @@ describe("a rota responde antes de processar", () => {
     const ms = performance.now() - t0;
 
     expect(res.status).toBe(200);
-    expect((await res.json()).data).toEqual({ status: "accepted" });
     // 500 ms é folga de CI; medido localmente, a resposta sai em poucos ms.
     expect(ms, `a resposta levou ${ms.toFixed(0)} ms`).toBeLessThan(500);
+    expect((await res.json()).data).toEqual({ status: "accepted" });
     expect(ingestao.chamadas, "a resposta esperou a ingestão").toBe(0);
     // A linha nasceu aceita e pendente: é o que o cron procura se o `after()` morrer.
     expect(arquivo()).toHaveLength(1);
@@ -431,6 +442,27 @@ describe("o cron reprocessa a entrada aceita que ficou no meio", () => {
     expect(ingestao.chamadas).toBe(0);
     expect(arquivo()[0]).toMatchObject({ status: "dead" });
     expect(avisos()).toHaveLength(0);
+  });
+
+  it("a rota do cron roda esta metade e audita só a rodada que fez algo", async () => {
+    // A linha precisa ser velha em relação ao relógio REAL: a rota usa `new Date()`.
+    linhaAceita(new Date(), 10 * 60_000);
+    const chamar = () => cronWebhookReplay(new Request("http://x/api/v1/cron/webhook-replay") as never);
+
+    const r1 = await chamar();
+    expect(r1.status).toBe(200);
+    expect((await r1.json()).data.entradas_aceitas).toMatchObject({ lidas: 1, processadas: 1 });
+    expect(ingestao.chamadas).toBe(1);
+    expect(auditoria.linhas).toHaveLength(1);
+    expect(auditoria.linhas[0]).toMatchObject({
+      action: "webhook.replay_run",
+      metadata: { entradas_aceitas: { processadas: 1 } },
+    });
+
+    // Nada mais a fazer: a rodada não audita.
+    const r2 = await chamar();
+    expect((await r2.json()).data.entradas_aceitas).toMatchObject({ lidas: 0 });
+    expect(auditoria.linhas).toHaveLength(1);
   });
 
   it("a rodada para depois do prazo, e a linha que ficou é da rodada seguinte", async () => {
