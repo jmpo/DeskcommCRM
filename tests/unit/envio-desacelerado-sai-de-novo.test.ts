@@ -49,6 +49,7 @@ import {
   ESPERA_MINIMA_MS,
   ESPERA_PADRAO_MS,
   MAX_REENVIOS,
+  TETO_DA_ESPERA_DA_FILA_MS,
   esperaDoPedido,
   reenvioDesaceleradoHandler,
   tratarReenvioDesacelerado,
@@ -211,7 +212,8 @@ function evento(payload: Record<string, unknown> = {}): EventRow {
 
 interface Estado {
   mensagem: Record<string, unknown> | null;
-  naFrente: boolean;
+  /** A `metadata` da mensagem escrita antes, ainda `queued`, na mesma conversa — `null` = não há. */
+  naFrente: Record<string, unknown> | null;
   jobDoTurno: string | null;
   /** Leitura congelada: o que os dois consumidores leram ANTES de qualquer trava. */
   leitura?: Record<string, unknown>;
@@ -237,7 +239,7 @@ function bancoFalso(estado: Estado) {
         return { data: { id: m!.id, updated_at: m!.updated_at }, error: null };
       }
       if (tabela === "messages" && filtros.conversation_id) {
-        return { data: estado.naFrente ? [{ id: "msg-0" }] : [], error: null };
+        return { data: estado.naFrente ? [{ id: "msg-0", metadata: estado.naFrente }] : [], error: null };
       }
       if (tabela === "messages") {
         const lida = estado.leitura ?? estado.mensagem;
@@ -303,7 +305,7 @@ function linha(over: Record<string, unknown> = {}): Record<string, unknown> {
 describe("o consumidor manda de novo — uma vez, na mesma linha", () => {
   let estado: Estado;
   beforeEach(() => {
-    estado = { mensagem: linha(), naFrente: false, jobDoTurno: "done" };
+    estado = { mensagem: linha(), naFrente: null, jobDoTurno: "done" };
   });
 
   it("espera o que o canal pediu, dentro da faixa", async () => {
@@ -405,8 +407,11 @@ describe("o consumidor manda de novo — uma vez, na mesma linha", () => {
     expect(enviar).not.toHaveBeenCalled();
   });
 
-  it("a de trás espera a da frente da mesma conversa — saem na ordem em que foram escritas", async () => {
-    estado.naFrente = true;
+  it.each([
+    ["ainda com o motivo", { queued_reason: "zernio_throttled" }],
+    ["travada por outra nova tentativa", { reenvios_automaticos: 1 }],
+  ])("a de trás espera a da frente (%s) — saem na ordem em que foram escritas", async (_caso, metadata) => {
+    estado.naFrente = metadata;
     const enviar = vi.fn();
     const r = await tratarReenvioDesacelerado(evento(), {
       admin: bancoFalso(estado).admin as never,
@@ -415,6 +420,28 @@ describe("o consumidor manda de novo — uma vez, na mesma linha", () => {
     });
     expect(r).toMatchObject({ status: "retry", detail: "espera_a_da_frente" });
     expect(enviar).not.toHaveBeenCalled();
+  });
+
+  it("⭐ a da frente presa por OUTRO motivo (canal sem credencial) não trava a conversa", async () => {
+    estado.naFrente = { queued_reason: "zernio_not_configured" };
+    const enviar = vi.fn(async () => ({ id: "msg-1", status: "sent" }));
+    const r = await tratarReenvioDesacelerado(evento(), {
+      admin: bancoFalso(estado).admin as never,
+      agora: () => CRIADO + ESPERA_PADRAO_MS,
+      enviar: enviar as never,
+    });
+    expect(r).toMatchObject({ status: "ok", detail: "reenvio_sent" });
+  });
+
+  it("e a espera pela da frente tem teto: passado ele, a de trás segue sozinha", async () => {
+    estado.naFrente = { queued_reason: "zernio_throttled" };
+    const enviar = vi.fn(async () => ({ id: "msg-1", status: "sent" }));
+    const r = await tratarReenvioDesacelerado(evento(), {
+      admin: bancoFalso(estado).admin as never,
+      agora: () => CRIADO + TETO_DA_ESPERA_DA_FILA_MS,
+      enviar: enviar as never,
+    });
+    expect(r).toMatchObject({ status: "ok", detail: "reenvio_sent" });
   });
 
   it.each(["automation", "system"])(

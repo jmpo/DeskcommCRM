@@ -30,7 +30,8 @@
  * - espera o que o canal pediu (`Retry-After`), entre 30 s e 5 min; sem pedido,
  *   1 min — o limite por destinatário da plataforma é de ~10 por minuto;
  * - mensagens da mesma conversa saem na ORDEM em que foram escritas: a de trás
- *   espera a da frente sair;
+ *   espera a da frente que também espera o canal — nunca uma presa por outro
+ *   motivo, e no máximo `TETO_DA_ESPERA_DA_FILA_MS`;
  * - no máximo `MAX_REENVIOS` tentativas; depois, `failed` com o motivo, e a
  *   falha segue o caminho de toda falha de envio (`message.failed`). Cada nova
  *   desaceleração emite o seu próprio pedido, então a contagem mora na linha.
@@ -60,6 +61,8 @@ export const ESPERA_DO_TURNO_MS = 30_000;
 export const MAX_REENVIOS = 4;
 /** A mensagem da frente só segura a de trás se foi escrita há pouco — uma presa há dias não trava a conversa. */
 const JANELA_DA_FILA_MS = 30 * 60_000;
+/** E a de trás não espera a da frente para sempre: passado isto desde o pedido, segue sozinha. */
+export const TETO_DA_ESPERA_DA_FILA_MS = 10 * 60_000;
 
 const TIPOS_DE_MIDIA = new Set(["image", "audio", "video", "document"]);
 
@@ -161,10 +164,22 @@ async function turnoAindaEDono(admin: SupabaseClient, organizationId: string, me
   return status === "pending" || status === "running";
 }
 
-async function haUmaNaFrente(admin: SupabaseClient, organizationId: string, m: LinhaDaMensagem): Promise<boolean> {
+/**
+ * Há, na mesma conversa, uma mensagem escrita ANTES desta que também espera o
+ * canal desacelerar (com o motivo, ou travada por outra nova tentativa)?
+ *
+ * Só essa segura a de trás. Uma `queued` por outro motivo (canal fora, sem
+ * credencial) não tem previsão de sair, e esperá-la travaria a conversa.
+ */
+async function haUmaNaFrente(
+  admin: SupabaseClient,
+  organizationId: string,
+  m: LinhaDaMensagem,
+  motivo: string,
+): Promise<boolean> {
   const { data } = await admin
     .from("messages")
-    .select("id")
+    .select("id, metadata")
     .eq("organization_id", organizationId)
     .eq("conversation_id", m.conversation_id)
     .eq("direction", "outbound")
@@ -172,8 +187,10 @@ async function haUmaNaFrente(admin: SupabaseClient, organizationId: string, m: L
     .neq("id", m.id)
     .lt("created_at", m.created_at)
     .gt("created_at", new Date(Date.parse(m.created_at) - JANELA_DA_FILA_MS).toISOString())
-    .limit(1);
-  return ((data as unknown[] | null) ?? []).length > 0;
+    .limit(20);
+  return ((data as { metadata?: Record<string, unknown> | null }[] | null) ?? []).some(
+    (r) => r.metadata?.queued_reason === motivo || typeof r.metadata?.reenvios_automaticos === "number",
+  );
 }
 
 /** Sem a trava (o motivo já saiu da linha), grava a falha — e só se ninguém mexeu nela depois. */
@@ -246,7 +263,7 @@ export async function tratarReenvioDesacelerado(
   if (m.sent_via === "ai" && (await turnoAindaEDono(admin, org, m.id))) {
     return resultado("retry", "turno_ainda_e_dono", agora + ESPERA_DO_TURNO_MS);
   }
-  if (await haUmaNaFrente(admin, org, m)) {
+  if (agora - criadoEm < TETO_DA_ESPERA_DA_FILA_MS && (await haUmaNaFrente(admin, org, m, motivo))) {
     return resultado("retry", "espera_a_da_frente", agora + ESPERA_DA_FILA_MS);
   }
 
