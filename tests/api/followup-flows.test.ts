@@ -617,7 +617,7 @@ describe("POST /api/v1/ai/followup-flows/:id/publish", () => {
         {
           node_id: "m1",
           code: "modelo_inexistente",
-          message: "Elige una plantilla de mensaje: la que estaba aquí no existe en esta cuenta.",
+          message: "Elija una plantilla de mensaje: la que estaba aquí no existe en esta cuenta.",
         },
       ]);
     });

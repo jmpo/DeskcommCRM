@@ -46,10 +46,10 @@ describe("traduzirLimiteDoPlano", () => {
 
   it("as duas frases têm espanhol", () => {
     expect(mensagemDoLimite("assentos", 5, "es")).toBe(
-      "Tu plan permite 5 personas y todas las plazas están ocupadas. Revoca el acceso de alguien en Equipo o cambia de plan en Configuración › Plan y facturación.",
+      "Su plan permite 5 personas y todas las plazas están ocupadas. Revoque el acceso de alguien en Equipo o cambie de plan en Configuración › Plan y facturación.",
     );
     expect(mensagemDoLimite("canais", 1, "es")).toBe(
-      "Tu plan permite 1 número conectado. Elimina un número en Conexiones o cambia de plan en Configuración › Plan y facturación.",
+      "Su plan permite 1 número conectado. Elimine un número en Conexiones o cambie de plan en Configuración › Plan y facturación.",
     );
   });
 

@@ -111,7 +111,7 @@ describe("caso aberto → aviso na Central", () => {
       kind: "other",
       severity: "warn",
       title: "La IA pidió ayuda al equipo",
-      body: "Abre el caso para responder. La IA sigue atendiendo al cliente mientras tanto.",
+      body: "Abra el caso para responder. La IA sigue atendiendo al cliente mientras tanto.",
       ref_kind: "agent_case",
       ref_id: CASO,
     });

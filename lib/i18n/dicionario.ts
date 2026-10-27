@@ -35,6 +35,7 @@ import type { Idioma } from "./idiomas";
 import { TEXTOS_AGENDA_CONFIGURACAO } from "./agenda-configuracao";
 import { TEXTOS_AGENDA_SERVICOS } from "./agenda-servicos";
 import { TEXTOS_ONBOARDING_ENTENDIVEL } from "./onboarding-entendivel";
+import { aplicarEspanholDeUsted } from "./espanhol-de-usted";
 
 /** `pt-BR` não aparece: é a chave. Só o que DIFERE precisa de linha. */
 type Traducoes = Record<string, Partial<Record<Exclude<Idioma, "pt-BR">, string>>>;
@@ -18208,6 +18209,11 @@ export const DICIONARIO: Traducoes = {
   "Chave da conta da instalação no provedor parceiro": { es: "Clave de la cuenta de la instalación en el proveedor asociado" },
   "Com ela, cada empresa conecta o número oficial do WhatsApp com um clique, sem ter conta no provedor. Os números ficam na conta da instalação e entram na fatura dela.": { es: "Con ella, cada empresa conecta el número oficial de WhatsApp con un clic, sin tener cuenta en el proveedor. Los números quedan en la cuenta de la instalación y entran en su factura." },
 };
+
+// Fork: o espanhol trata por «usted» (decisão de 26/10/2026). A camada mora em
+// `espanhol-de-usted.ts`, e esta chamada fica FORA do objeto de propósito: a
+// upstream acrescenta linhas antes do fecho, e a sync não pode colidir aqui.
+aplicarEspanholDeUsted(DICIONARIO);
 
 /**
  * Traduz, ou devolve o próprio texto.

@@ -11,8 +11,9 @@ import { ProfileForm } from "./_form";
  * 1. HIDRATAÇÃO: o form nascia em "pt-BR" sem receber o idioma salvo —
  *    salvar qualquer campo gravava pt-BR por cima. Sabotagem: remover
  *    `initialLocale` das props reprova o caso 1.
- * 2. VOZ: o espanhol é tuteio neutro ("Escribe", "Elige"). Reintroduzir
- *    voseo ("Escribí") reprova o caso 3.
+ * 2. VOZ: neste fork o espanhol trata por usted ("Escriba", "Elija" — a camada
+ *    `lib/i18n/espanhol-de-usted.ts`). Voltar ao tuteio ("Escribe") ou ao voseo
+ *    ("Escribí") reprova o caso 3.
  */
 
 vi.mock("@/app/actions/settings/updateProfile", () => ({
@@ -50,8 +51,8 @@ describe("ProfileForm em espanhol", () => {
     expect(screen.queryByText("Nome completo")).toBeNull();
   });
 
-  it("a voz do espanhol é tuteio neutro — voseo reprova", () => {
-    expect(traduzir("Escreva uma mensagem…", "es")).toBe("Escribe un mensaje…");
-    expect(traduzir("Escolha um modelo aprovado…", "es")).toBe("Elige una plantilla aprobada…");
+  it("a voz do espanhol é usted — tuteio e voseo reprovam", () => {
+    expect(traduzir("Escreva uma mensagem…", "es")).toBe("Escriba un mensaje…");
+    expect(traduzir("Escolha um modelo aprovado…", "es")).toBe("Elija una plantilla aprobada…");
   });
 });

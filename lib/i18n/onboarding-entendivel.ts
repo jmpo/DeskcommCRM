@@ -7,7 +7,9 @@
  * o dicionário grande. Mesmo contrato: a chave é o português; o espanhol segue
  * o tom do dicionário (segunda pessoa "tú": "Elige", "Inténtalo") — a escolha
  * do dicionário vence a do rioplatense "vos" para a tela não mudar de tom no
- * meio do wizard. O inglês das mesmas chaves está em `traducoes/en.json`.
+ * meio do wizard. Na TELA deste fork o espanhol sai de usted: a camada
+ * `espanhol-de-usted.ts` converte estas frases como as do dicionário, então
+ * aqui segue o «tú» de origem. O inglês das mesmas chaves está em `traducoes/en.json`.
  *
  * ⚠️ Este arquivo entra na cadeia do dicionário, que é lida pela seleção de
  * `pnpm cercas` (`vitest.cercas.ts`): citar um global do navegador aqui — até

@@ -143,9 +143,9 @@ test.describe("um cliente do Paraguai se cadastra e monta o atendente", () => {
     await page.locator("#password_confirm").fill(SENHA);
     await page.getByRole("button", { name: "Crear cuenta" }).click();
 
-    // A tela de "confirma tu correo" ganhou a saída que faltava: reenviar, e
+    // A tela de "confirme su correo" ganhou a saída que faltava: reenviar, e
     // o aviso de que ele pode estar no spam.
-    await expect(page.getByText("Confirma tu correo")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Confirme su correo")).toBeVisible({ timeout: 30_000 });
     const reenviar = page.getByTestId("reenviar-confirmacao");
     await expect(reenviar).toContainText(/spam/i);
     await expect(
@@ -160,7 +160,7 @@ test.describe("um cliente do Paraguai se cadastra e monta o atendente", () => {
     await page.locator("#password").fill(SENHA);
     await page.getByRole("button", { name: "Entrar", exact: true }).click();
     await expect(
-      page.getByRole("alert").filter({ hasText: /Falta confirmar tu correo/ }),
+      page.getByRole("alert").filter({ hasText: /Falta confirmar su correo/ }),
     ).toBeVisible({
       timeout: 30_000,
     });
@@ -181,14 +181,14 @@ test.describe("um cliente do Paraguai se cadastra e monta o atendente", () => {
     await page.waitForURL(/\/onboarding\/welcome/, { timeout: 60_000 });
 
     // ⭐ O wizard abre em ESPANHOL — era o defeito número 1.
-    await expect(page.getByRole("heading", { name: /Te damos la bienvenida a/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Le damos la bienvenida a/ })).toBeVisible();
     // Fala com quem CRIOU A CONTA, não com quem instalou o servidor.
     await expect(page.getByTestId("boas-vindas-da-conta")).toBeVisible();
-    await expect(page.locator("body")).not.toContainText(/instalaste el sistema|já instalou/i);
+    await expect(page.locator("body")).not.toContainText(/instalaste el sistema|instaló el sistema|já instalou/i);
     // O seletor de idioma à vista, e o passo atual por extenso no celular.
     await expect(page.getByTestId("seletor-de-idioma")).toContainText("ES");
-    await expect(page.getByTestId("passo-atual")).toContainText(/Paso 1 de \d · Tu negocio/);
-    // "Dónde atiendes" já vem em Assunção (o fuso do navegador).
+    await expect(page.getByTestId("passo-atual")).toContainText(/Paso 1 de \d · Su negocio/);
+    // "Dónde atiende" já vem em Assunção (o fuso do navegador).
     await expect(page.locator("#timezone")).toContainText("Asunción");
     await foto(page, "03-cel-bienvenida");
 
@@ -225,7 +225,7 @@ test.describe("um cliente do Paraguai se cadastra e monta o atendente", () => {
     await page.getByRole("button", { name: "Continuar" }).click();
     await page.waitForURL(/\/onboarding\/connect-whatsapp/, { timeout: 30_000 });
 
-    await expect(page.getByText("¿Cómo usas hoy ese número?")).toBeVisible();
+    await expect(page.getByText("¿Cómo usa hoy ese número?")).toBeVisible();
     // O antigo botão verde "Conectei em outro lugar" marcava o passo sem número.
     await expect(page.getByRole("button", { name: /conecté en otro lugar|Conectei/i })).toHaveCount(
       0,
@@ -306,7 +306,7 @@ test.describe("um cliente do Paraguai se cadastra e monta o atendente", () => {
 
     // O quadro pronto em espanhol (a sugestão da IA não vem: a chave é de mentira).
     await expect(
-      page.getByRole("heading", { name: "Dónde organiza a tus clientes" }),
+      page.getByRole("heading", { name: "Dónde organiza a sus clientes" }),
     ).toBeVisible();
     await expect(page.locator("#nome_do_quadro")).toHaveValue("Ventas");
     await expect(page.locator('input[aria-label="Nombre de la columna 1"]')).toHaveValue(
@@ -367,7 +367,7 @@ test.describe("um cliente do Paraguai se cadastra e monta o atendente", () => {
 
     // ⭐ A Inbox vazia diz POR QUÊ, e leva aonde resolver.
     const faixa = page.getByTestId("faixa-do-primeiro-numero");
-    await expect(faixa).toContainText("Tu WhatsApp todavía no está conectado");
+    await expect(faixa).toContainText("Su WhatsApp todavía no está conectado");
     await expect(faixa.getByRole("link", { name: "Conectar WhatsApp" })).toHaveAttribute(
       "href",
       "/app/connections",
@@ -411,10 +411,10 @@ test.describe("um cliente do Paraguai se cadastra e monta o atendente", () => {
     await page.waitForURL(/\/app\//, { timeout: 30_000 });
     await page.goto("/app/inbox");
     const faixa = page.getByTestId("faixa-do-primeiro-numero");
-    await expect(faixa).toContainText("Rocío está listo, pero todavía no atiende por tu número.");
+    await expect(faixa).toContainText("Rocío está listo, pero todavía no atiende por su número.");
     await foto(page, "13-cel-agente-listo");
     await faixa.getByRole("button", { name: "Activar ahora" }).click();
-    await expect(page.getByText("Listo: tu agente ya está atendiendo por tu número.")).toBeVisible({
+    await expect(page.getByText("Listo: su agente ya está atendiendo por su número.")).toBeVisible({
       timeout: 30_000,
     });
     await expect(page.getByTestId("faixa-do-primeiro-numero")).toHaveCount(0, { timeout: 30_000 });

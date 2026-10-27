@@ -81,7 +81,7 @@ describe("o cadastro do segundo fator não mostra o texto cru do GoTrue", () => 
     fireEvent.click(screen.getByRole("button", { name: "Iniciar configuración" }));
     const campos = await screen.findAllByLabelText(/Dígito/);
     campos.forEach((campo, i) => fireEvent.change(campo, { target: { value: String(i + 1) } }));
-    expect(await screen.findByText("No se pudo confirmar. Intenta de nuevo.")).toBeTruthy();
+    expect(await screen.findByText("No se pudo confirmar. Intente de nuevo.")).toBeTruthy();
     expect(screen.queryByText("MFA challenge failed")).toBeNull();
   });
 });
@@ -105,8 +105,8 @@ describe("a regeneração dos códigos não mostra o código do erro", () => {
   }
 
   it.each([
-    ["es", "mfa_not_enrolled", "Habilita MFA antes de generar códigos."],
-    ["es", "unauthenticated", "Tu sesión expiró. Entra de nuevo."],
+    ["es", "mfa_not_enrolled", "Habilite MFA antes de generar códigos."],
+    ["es", "unauthenticated", "Su sesión expiró. Entre de nuevo."],
     ["es", "duplicate key value violates unique constraint", "No pude guardar ese cambio ahora."],
     ["pt-BR", "mfa_not_enrolled", "Habilite MFA antes de gerar códigos."],
     ["pt-BR", "unauthenticated", "Sua sessão expirou. Entre de novo."],

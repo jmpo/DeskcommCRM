@@ -182,7 +182,7 @@ const TEXTOS_OFFLINE = {
   },
   es: {
     titulo: "Sin conexión",
-    texto: "No fue posible abrir ahora. Revisa la conexión a internet y toca Intentar de nuevo.",
+    texto: "No fue posible abrir ahora. Revise la conexión a internet y toque Intentar de nuevo.",
     botao: "Intentar de nuevo",
   },
   en: {
