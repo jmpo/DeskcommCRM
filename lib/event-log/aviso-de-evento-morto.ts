@@ -112,6 +112,51 @@ export const MENSAGEM_QUE_NAO_ENTROU = {
     "depois de conferir, marque-o como resolvido para voltar a ser avisado.",
 } as const;
 
+/**
+ * A mensagem do NÚMERO OFICIAL que o reprocessamento não conseguiu gravar — a
+ * quarta família, irmã da terceira.
+ *
+ * O canal intermediado responde ao provedor antes de processar
+ * (`lib/channels/entrada-aceita.ts`), então quem desiste dela é o cron
+ * `webhook-replay`, depois do teto de tentativas. O texto da terceira não serve:
+ * ela culpa o banco (aqui a causa pode ser outra) e manda olhar "o celular do
+ * número", que o número oficial não tem — as conversas ficam no painel do
+ * provedor.
+ *
+ * Em espanhol, no trato de "usted": é o idioma de quem opera esta instalação, e
+ * o texto é gravado como está (a Central não traduz aviso). Título próprio pela
+ * mesma razão da terceira: o dreno de handlers o exclui do seu dedupe — senão um
+ * aviso destes aberto calaria as outras tarefas que param de tentar.
+ */
+export const MENSAGEM_DO_NUMERO_OFICIAL_QUE_NAO_ENTROU = {
+  titulo: "Un mensaje del número oficial no entró al CRM",
+  consequencia:
+    "Un cliente le escribió al número oficial, pero el mensaje no se pudo guardar, ni siquiera después de varios intentos. " +
+    "No aparece en el Inbox y la IA no lo respondió: revise en el panel del proveedor del número las conversaciones de ese horario y responda desde ahí.",
+  rearme:
+    "Mientras este aviso esté abierto, otros mensajes que tampoco entren no abren un aviso nuevo: " +
+    "después de revisar, márquelo como resuelto para volver a recibir avisos.",
+} as const;
+
+/** O rótulo do detalhe técnico no aviso em espanhol (o de `DETALHE_TECNICO`, traduzido). */
+export const DETALLE_TECNICO = "Detalle técnico, para quien dé soporte:";
+
+/** O aviso da quarta família: o que aconteceu e o que fazer primeiro, o técnico no fim. */
+export function avisoDaMensagemDoNumeroOficial(evento: {
+  eventType: string;
+  tentativas: number;
+  motivo: string;
+}): { title: string; body: string } {
+  const f = MENSAGEM_DO_NUMERO_OFICIAL_QUE_NAO_ENTROU;
+  return {
+    title: f.titulo,
+    body:
+      `${f.consequencia} ${f.rearme} ` +
+      `${DETALLE_TECNICO} evento ${evento.eventType}, ${evento.tentativas} intentos; ` +
+      `motivo: ${evento.motivo.slice(0, 400)}`,
+  };
+}
+
 export const TITULO_GENERICO = "Uma tarefa automática parou de tentar";
 
 const CONSEQUENCIA_GENERICA =
