@@ -237,8 +237,8 @@ describe("pelo handler", () => {
     const [org, conversa, payload, so] = vi.mocked(enviarPushAQuemVeAConversa).mock.calls[0]!;
     expect([org, conversa, so]).toEqual([ORG, "c1", ["u2"]]);
     expect(payload).toMatchObject({
-      title: "Te mencionaron",
-      body: "Te mencionaron",
+      title: "Recibió una mención",
+      body: "Recibió una mención",
     });
   });
 });

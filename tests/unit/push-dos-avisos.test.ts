@@ -97,9 +97,9 @@ describe("aviso da Central → celular", () => {
     await webPushInboundHandler.handle(evento("central.aviso_criado", { item_id: "i2" }));
     expect(vi.mocked(enviarPushDaOrg).mock.calls[0]![1]).toEqual({
       title: "La IA pasó una conversación al equipo",
-      body: "Abre la conversación para responder al cliente.",
+      body: "Abra la conversación para responder al cliente.",
       // Frase fixa, sem dado de cliente: pode aparecer no modo "só quem mandou".
-      corpoSemPrevia: "Abre la conversación para responder al cliente.",
+      corpoSemPrevia: "Abra la conversación para responder al cliente.",
       tag: "aviso:i2",
       href: "/app/inbox/c1",
     });
@@ -128,9 +128,9 @@ describe("aviso da Central → celular", () => {
     await webPushInboundHandler.handle(evento("central.aviso_criado", { item_id: "i4" }));
     expect(vi.mocked(enviarPushDaOrg).mock.calls[0]![1]).toEqual({
       title: "La IA se quedó sin saldo en el proveedor",
-      body: "Recarga el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva.",
+      body: "Recargue el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva el saldo.",
       // Frase fixa, sem dado de cliente: pode aparecer no modo "só quem mandou".
-      corpoSemPrevia: "Recarga el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva.",
+      corpoSemPrevia: "Recargue el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva el saldo.",
       tag: "aviso:i4",
       href: "/app/ai/credentials",
     });
@@ -176,7 +176,7 @@ describe("aviso da Central → celular", () => {
     }) as never);
     await webPushInboundHandler.handle(evento("central.aviso_criado", { item_id: "i8" }));
     const payload = vi.mocked(enviarPushDaOrg).mock.calls[0]![1];
-    expect(payload.body).toBe("La IA preparó una propuesta. Revísala antes de enviar.");
+    expect(payload.body).toBe("La IA preparó una propuesta. Revísela antes de enviar.");
     // A prova: nenhum resto do texto de passagem para pessoa.
     expect(JSON.stringify(payload)).not.toMatch(/conversación|equipo|responder al cliente/i);
   });

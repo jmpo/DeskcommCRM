@@ -134,7 +134,7 @@ test("agent abre contexto, volta ainda aberto, resolve e reabre; RLS e menu ocul
   if (idioma.error) throw idioma.error;
   await page.reload();
   await expect(row(page, "Conversa própria").getByRole("link", { name: "Abrir conversación" })).toBeVisible();
-  await expect(row(page, "Referência removida")).toContainText("Este contexto no está disponible para ti");
+  await expect(row(page, "Referência removida")).toContainText("Este contexto no está disponible para usted");
   await page.setViewportSize({ width: 390, height: 844 });
   await evidence(page, info, "mobile");
 });

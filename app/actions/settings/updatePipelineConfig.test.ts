@@ -130,7 +130,7 @@ describe("updatePipelineConfig — campo que vira Contato e o gatilho por data",
     expect(r).toEqual({
       ok: false,
       error:
-        'Las reglas "A", "B", "C" y 2 más usan en el disparador por fecha un campo que marcaste como Contacto, y el disparador solo lee campos del negocio: dejarían de dispararse. Cambia el campo de las reglas o desactívalas antes.',
+        'Las reglas "A", "B", "C" y 2 más usan en el disparador por fecha un campo que usted marcó como Contacto, y el disparador solo lee campos del negocio: dejarían de dispararse. Cambie el campo de las reglas o desactívelas antes.',
     });
     expect(h.gravou).toBeNull();
   });

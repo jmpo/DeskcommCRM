@@ -60,9 +60,9 @@ test.describe.configure({ timeout: 150_000 });
 const AVISO_PT =
   "Há uma versão nova desta skill no catálogo. Se você editou esta cópia, suas alterações ficam só no Histórico de versões: ao adotar, a versão nova do catálogo passa a ser a ativa. Confira antes de adotar.";
 const AVISO_ES =
-  "Hay una versión nueva de esta skill en el catálogo. Si editaste esta copia, tus cambios quedan solo en el Historial de versiones: al adoptarla, la versión nueva del catálogo pasa a ser la activa. Revisa antes de adoptar.";
+  "Hay una versión nueva de esta skill en el catálogo. Si editó esta copia, sus cambios quedan solo en el Historial de versiones: al adoptarla, la versión nueva del catálogo pasa a ser la activa. Revise antes de adoptar.";
 const TITULO_PT = "Se você adotar a versão do catálogo, muda:";
-const TITULO_ES = "Si adoptas la versión del catálogo, cambia:";
+const TITULO_ES = "Si adopta la versión del catálogo, cambia:";
 
 /** O par de versões que o seed garante — o comparativo da tela é disto. */
 const DESCRICAO_ANTIGA = "Atende o cliente pelo WhatsApp e fecha o agendamento.";

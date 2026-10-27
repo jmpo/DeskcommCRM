@@ -222,6 +222,48 @@ describe("clique em anúncio (Clique para o WhatsApp)", () => {
   });
 });
 
+describe("pino de localização — as coordenadas vêm no webhook", () => {
+  // A FORMA medida em 27/10/2026 no log de entregas do provedor (30 dias, 50
+  // pinos): `metadata.location` no nível do EVENTO, ao lado do `referral`, com
+  // `latitude`/`longitude` numéricos — 43 só com eles, 7 também com `name` e
+  // `address`. Valores públicos aqui, nunca o pino de um cliente.
+  const pino = (location: unknown, texto = "📍 Location") =>
+    payload({ metadata: { location } }, { text: texto });
+
+  it("⭐ lê latitude e longitude de metadata.location", () => {
+    const r = parseZernioInbound(pino({ latitude: -25.2637, longitude: -57.5759 }));
+    expect(r?.location).toEqual({ latitude: -25.2637, longitude: -57.5759 });
+  });
+
+  it("lugar com nome: nome e endereço viram `nome` e `endereco`", () => {
+    const r = parseZernioInbound(
+      pino({ latitude: -25.2637, longitude: -57.5759, name: "Panteón de los Héroes", address: "Asunción" }, "📍 Panteón de los Héroes"),
+    );
+    expect(r?.location).toEqual({
+      latitude: -25.2637,
+      longitude: -57.5759,
+      nome: "Panteón de los Héroes",
+      endereco: "Asunción",
+    });
+  });
+
+  it("o eco de saída com o pino em message.metadata também é lido", () => {
+    const r = parseZernioInbound(
+      payload({ event: "message.sent" }, { direction: "outgoing", metadata: { location: { latitude: 1.5, longitude: 2.5 } } }),
+    );
+    expect(r?.location).toEqual({ latitude: 1.5, longitude: 2.5 });
+  });
+
+  it("sem pino, sem coordenadas inválidas e sem evento de desfecho: a chave nem aparece", () => {
+    expect(parseZernioInbound(payload())).not.toHaveProperty("location");
+    expect(parseZernioInbound(pino({ latitude: 0, longitude: 0 }))).not.toHaveProperty("location");
+    expect(parseZernioInbound(pino({ latitude: "x", longitude: null }))).not.toHaveProperty("location");
+    expect(
+      parseZernioInbound(payload({ event: "message.delivered", metadata: { location: { latitude: 1, longitude: 2 } } })),
+    ).not.toHaveProperty("location");
+  });
+});
+
 describe("parse — o que RECUSA", () => {
   const recusa = (p: unknown) => expect(parseZernioInbound(p)).toBeNull();
 

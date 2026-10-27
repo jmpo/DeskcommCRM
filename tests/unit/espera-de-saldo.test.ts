@@ -149,7 +149,7 @@ describe("o que vai para o banco", () => {
       "other",
       "critical",
       "La IA se quedó sin saldo en el proveedor",
-      expect.stringContaining("Recarga el saldo en la cuenta del proveedor"),
+      expect.stringContaining("Recargue el saldo en la cuenta del proveedor"),
       "ai_provider_credential",
       "cred-1",
     ]);
@@ -203,8 +203,8 @@ describe("o aviso vai ao celular", () => {
     // payload declara o corpo sem prévia: a frase é fixa, sem dado de cliente.
     expect((await pushDoAvisoDaCentral(admin, "org-1", "aviso-1"))?.payload).toEqual({
       title: "La IA se quedó sin saldo en el proveedor",
-      body: "Recarga el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva.",
-      corpoSemPrevia: "Recarga el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva.",
+      body: "Recargue el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva el saldo.",
+      corpoSemPrevia: "Recargue el saldo en la cuenta del proveedor: las respuestas salen solas cuando vuelva el saldo.",
       tag: "aviso:aviso-1",
       href: "/app/ai/credentials",
     });
