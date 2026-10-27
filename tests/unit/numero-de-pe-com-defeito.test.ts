@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -289,10 +287,7 @@ describe("o motivo que a tela de Conexões mostra (`status_reason`)", () => {
     expect(motivoParaGravar({ reachable: true, status: "FAILED", detail: null }, DETALHE_NAO_RECEBE)).toBeUndefined();
   });
 
-  it("o vigia lê o motivo da linha e o grava pela regra — sem isso a tela nunca o vê", () => {
-    const CRON = readFileSync("app/api/v1/cron/channel-health/route.ts", "utf8");
-    expect(CRON).toMatch(/status_reason, display_name/);
-    expect(CRON).toMatch(/motivoParaGravar\(saude, s\.status_reason\)/);
-    expect(CRON).toMatch(/\.update\(\{ status_reason: motivo \}\)/);
-  });
+  // A fiação no vigia (ler o motivo, gravá-lo, passar o idioma) é provada pela
+  // ROTA em `vigia-grava-o-defeito-do-numero.test.ts`: um caso por expressão
+  // regular aqui passou verde com a escrita desligada pelo sabotador.
 });
