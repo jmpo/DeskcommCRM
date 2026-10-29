@@ -1098,16 +1098,6 @@ export function CRMSidePanel({
               size="sm"
               variant="outline"
               className="h-11 px-2 text-xs lg:h-7"
-              disabled={readonly || !contactId}
-              aria-pressed={tagEditorOpen}
-              onClick={() => setTagEditorOpen((v) => !v)}
-            >
-              <Tag size={12} className="mr-1" weight="regular" aria-hidden /> {t("Tags do contato")}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-11 px-2 text-xs lg:h-7"
               disabled={readonly || !contactId || (leadDialogOpen && defaultPipeline.isLoading)}
               onClick={() => setLeadDialogOpen(true)}
             >

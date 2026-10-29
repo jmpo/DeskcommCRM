@@ -97,18 +97,15 @@ ANTES_DO_FILTRO="v1.63.0"
 # De onde vêm as tags. Num fork que não publica release, elas moram na upstream:
 # `CONFERENCIA_KIT_REMOTO=https://github.com/<dono>/DeskcommCRM.git` (e `GH_REPO`
 # para o `gh release view` acima perguntar à upstream). Padrão: `origin`.
-REMOTO_DAS_TAGS="${CONFERENCIA_KIT_REMOTO:-origin}"
+# Sin la variable, la de arriba: `origin`, o la upstream cuando el fork no publica release.
+REMOTO_DAS_TAGS="${CONFERENCIA_KIT_REMOTO:-$origem_das_tags}"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/deskcomm-update-sh.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 update_sh_da() {  # update_sh_da <tag> — caminho de uma cópia do update.sh da tag
   if ! git -C "$ROOT" rev-parse -q --verify "refs/tags/$1^{commit}" >/dev/null; then
     local profundidade=""
     [ "$(git -C "$ROOT" rev-parse --is-shallow-repository)" = true ] && profundidade="--depth=1"
-<<<<<<< HEAD
     git -C "$ROOT" fetch -q --no-tags $profundidade "$REMOTO_DAS_TAGS" "+refs/tags/$1:refs/tags/$1"
-=======
-    git -C "$ROOT" fetch -q --no-tags $profundidade "$origem_das_tags" "+refs/tags/$1:refs/tags/$1"
->>>>>>> upstream/main
   fi
   git -C "$ROOT" show "$1:hostgator-setup-kit/update.sh" > "$TMP/$1"
   printf '%s' "$TMP/$1"

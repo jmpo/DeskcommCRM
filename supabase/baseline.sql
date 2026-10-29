@@ -66270,9 +66270,12 @@ comment on column public.campaigns.provider_template_variables is
 alter table public.campaigns
   add column if not exists velocidade text not null default 'gradual';
 
+-- O vocabulário FINAL vive aqui, no bloco único da constraint: `transmissao`
+-- (migration 0712) foi acrescentado a esta lista, e o bloco da 0712 não a recria
+-- (`tests/unit/baseline-constraint-reconstruida.test.ts`).
 alter table public.campaigns drop constraint if exists campaigns_velocidade_check;
 alter table public.campaigns
-  add constraint campaigns_velocidade_check check (velocidade in ('gradual', 'rapida'));
+  add constraint campaigns_velocidade_check check (velocidade in ('gradual', 'rapida', 'transmissao'));
 
 update public.campaigns
    set velocidade = 'gradual'
