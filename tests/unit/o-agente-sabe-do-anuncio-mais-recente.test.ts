@@ -39,6 +39,7 @@ import { ingestMetaInbound } from "@/lib/channels/meta/ingest";
 import type { InboundMessageEvent } from "@/lib/channels/meta/webhook";
 import { ingestZernioInbound } from "@/lib/channels/zernio/ingest";
 import { metadataDoAnuncio, type AnuncioDaMensagem } from "@/lib/leads/atribuicao-de-anuncio";
+import { CHAVE_ANCORA_CTWA } from "@/lib/leads/prova-meta-lead-submitted";
 import { dispatchWahaEvent, type WahaEnvelope } from "@/lib/waha/ingest";
 
 // ─── Os dois anúncios da loja ───────────────────────────────────────────────
@@ -160,7 +161,11 @@ describe("ingestão — a mensagem nascida de um clique guarda o SEU anúncio", 
       // Compacto de propósito: o clique identifica uma pessoa, e o cru já mora
       // no contato. Nada disso se repete em cada mensagem — o link e a imagem
       // entram (a inbox mostra o anúncio), o clique e o resto do payload não.
-      expect(JSON.stringify(metadata)).not.toContain("ARAk_clique_B");
+      // Desde a 1.93 (upstream, «LeadSubmitted por clique CTWA recebido») o clique entra numa
+      // chave própria, a âncora do envio à Meta: é o único lugar onde ele se repete.
+      const { [CHAVE_ANCORA_CTWA]: ancora, ...resto } = (metadata ?? {}) as Record<string, unknown>;
+      expect((ancora as { ctwa_clid?: string } | undefined)?.ctwa_clid).toBe("ARAk_clique_B");
+      expect(JSON.stringify(resto)).not.toContain("ARAk_clique_B");
       expect(JSON.stringify(metadata)).not.toContain("media_type");
     });
 

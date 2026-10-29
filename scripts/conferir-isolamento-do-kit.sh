@@ -55,6 +55,12 @@
 # senão `ultima_release_estavel` do próprio kit (`/releases/latest`). Nunca a maior
 # tag: tag não é release publicada (ver o cabeçalho dessa função em _common.sh).
 # Sem resposta, REPROVA — gate que pula em silêncio não é gate.
+#
+# Num FORK sem release própria, o `gh release view` pergunta ao fork e volta
+# vazio, e as tags novas também não estão nele — o CI de todo fork reprovava
+# aqui com o baseline verde. Então, sem release no próprio repositório, a
+# pergunta vai ao repositório PAI (`gh repo view`), e a tag é buscada lá. Fork
+# com release própria continua respondendo pela sua.
 set -euo pipefail
 
 CONTAINER="${1:?uso: $0 <container> <banco>}"
@@ -63,8 +69,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KIT="$ROOT/hostgator-setup-kit"
 
 release="${CONFERENCIA_KIT_RELEASE:-}"
+origem_das_tags="origin"
 if [ -z "$release" ] && [ -n "${GH_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then
   release="$(cd "$ROOT" && gh release view --json tagName -q .tagName 2>/dev/null || true)"
+  if [ -z "$release" ]; then
+    pai="$(cd "$ROOT" && gh repo view --json parent -q '.parent | select(. != null) | .owner.login + "/" + .name' 2>/dev/null || true)"
+    if [ -n "$pai" ]; then
+      release="$(gh release view -R "$pai" --json tagName -q .tagName 2>/dev/null || true)"
+      [ -n "$release" ] && origem_das_tags="https://github.com/$pai.git"
+    fi
+  fi
 fi
 if [ -z "$release" ]; then
   release="$(cd "$ROOT" && bash -c 'source "$1/_common.sh" >/dev/null 2>&1; ultima_release_estavel' _ "$KIT" || true)"
@@ -83,7 +97,8 @@ ANTES_DO_FILTRO="v1.63.0"
 # De onde vêm as tags. Num fork que não publica release, elas moram na upstream:
 # `CONFERENCIA_KIT_REMOTO=https://github.com/<dono>/DeskcommCRM.git` (e `GH_REPO`
 # para o `gh release view` acima perguntar à upstream). Padrão: `origin`.
-REMOTO_DAS_TAGS="${CONFERENCIA_KIT_REMOTO:-origin}"
+# Sin la variable, la de arriba: `origin`, o la upstream cuando el fork no publica release.
+REMOTO_DAS_TAGS="${CONFERENCIA_KIT_REMOTO:-$origem_das_tags}"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/deskcomm-update-sh.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 update_sh_da() {  # update_sh_da <tag> — caminho de uma cópia do update.sh da tag

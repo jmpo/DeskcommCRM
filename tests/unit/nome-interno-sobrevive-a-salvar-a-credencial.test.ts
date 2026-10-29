@@ -53,6 +53,9 @@ vi.mock("@/lib/channels/connect", async (original) => ({
 vi.mock("@/lib/channels/graph-parceiro/credentials", () => ({
   canalGraphParceiroLigado: () => true,
   GRAPH_PARTNER_LABEL: "Parceiro",
+  // Fork: `savePartnerSession` apaga os modelos da conta anterior, e esse caminho importa
+  // os adaptadores — o de modelos do parceiro lê a base do Graph ao carregar o módulo.
+  graphPartnerGraphBase: () => "https://graph.exemplo.invalid",
 }));
 vi.mock("@/lib/channels/graph-parceiro/validate-credentials", () => ({
   validateGraphPartnerCredentials: h.validarEspelho,

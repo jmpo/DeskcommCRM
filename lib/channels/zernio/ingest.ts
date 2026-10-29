@@ -33,6 +33,7 @@ import { emitirTelefoneGanho } from "@/lib/contacts/telefone-ganho";
 
 import { extrairAtribuicaoMeta } from "@/lib/channels/atribuicao-de-anuncio-oficial";
 import { estamparAtribuicaoDoContato, metadataDoAnuncio } from "@/lib/leads/atribuicao-de-anuncio";
+import { ancoraCtwaDaMensagem } from "@/lib/leads/prova-meta-lead-submitted";
 import { extrairEEstamparAtribuicaoGoogle } from "@/lib/plataformas-de-anuncio/google/atribuicao";
 import { pausarIaPorAtendimentoManual } from "@/lib/escalacao/atendimento-manual";
 import {
@@ -706,6 +707,7 @@ async function insertMessage(
             : {}),
         ...anuncio,
         ...(eco ? metadataDoEco(eco) : {}),
+        ...(msg.direction === "inbound" ? ancoraCtwaDaMensagem(extrairAtribuicaoMeta(msg.referral)) : {}),
       },
       ...(msg.sentAt ? { sent_at: msg.sentAt } : {}),
     })

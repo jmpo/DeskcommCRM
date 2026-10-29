@@ -15,7 +15,7 @@ import { Eye, EyeSlash } from "@/lib/ui/icons";
 import { AvisoSemResposta, useEnvioComTeto } from "@/components/auth/teto-da-espera";
 import { ReenviarConfirmacao } from "@/components/auth/ReenviarConfirmacao";
 
-export function LoginForm({ next }: { next?: string }) {
+export function LoginForm({ next, email }: { next?: string; email?: string }) {
   const t = useT();
   const router = useRouter();
   const { pendente: isPending, semResposta, enviar } = useEnvioComTeto();
@@ -31,7 +31,7 @@ export function LoginForm({ next }: { next?: string }) {
     formState: { errors },
   } = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { email: email ?? "", password: "" },
   });
 
   const onSubmit = (values: LoginInput) => {
