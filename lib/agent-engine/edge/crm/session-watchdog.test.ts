@@ -51,7 +51,8 @@ describe("o item da trava de número novo diz que os retornos pararam", () => {
     expect(CORPO_DO_GO_LIVE).toContain("Os retornos automáticos deste número estão parados até você liberar");
     const es = textoDoGoLive("es");
     expect(es.title).toBe("Número nuevo en espera de liberación (go-live)");
-    expect(es.body).toContain("están detenidos hasta que lo liberes");
+    // Fork: el español de la tela trata por «usted» (lib/i18n/espanhol-de-usted.ts).
+    expect(es.body).toContain("están detenidos hasta que usted lo libere");
     const en = JSON.parse(readFileSync("lib/i18n/traducoes/en.json", "utf8")) as Record<string, string>;
     expect(en[TITULO_DO_GO_LIVE]).toBe("New number awaiting release (go-live)");
     expect(en[CORPO_DO_GO_LIVE]).toContain("paused until you release it");

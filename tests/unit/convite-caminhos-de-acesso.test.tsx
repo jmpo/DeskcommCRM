@@ -96,8 +96,9 @@ describe("convite acompanha os dois caminhos", () => {
       "text/html",
     );
     expect(doc.querySelectorAll("a")[0]?.textContent).toBe("Crear mi cuenta");
-    expect(doc.querySelectorAll("a")[1]?.textContent).toBe("¿Ya tienes cuenta? Iniciar sesión");
-    expect(doc.body.textContent).toContain("Usa el correo");
-    expect(doc.body.textContent).toContain("para unirte al equipo que te invitó");
+    // Fork: el español de la tela trata por «usted» (lib/i18n/espanhol-de-usted.ts).
+    expect(doc.querySelectorAll("a")[1]?.textContent).toBe("¿Ya tiene cuenta? Iniciar sesión");
+    expect(doc.body.textContent).toContain("Use el correo");
+    expect(doc.body.textContent).toContain("para unirse al equipo que lo invitó");
   });
 });
