@@ -3318,6 +3318,7 @@ export type Database = {
           reminder_bodies: NonNullable<Json>;
           reminder_body: string | null;
           reminder_channel_session_id: string | null;
+          reminder_meta_template_id: string | null;
           reminder_enabled: boolean;
           reminder_extra_offsets_minutes: number[];
           reminder_minutes_before: number;
@@ -3356,6 +3357,7 @@ export type Database = {
           reminder_bodies?: NonNullable<Json>;
           reminder_body?: string | null;
           reminder_channel_session_id?: string | null;
+          reminder_meta_template_id?: string | null;
           reminder_enabled?: boolean;
           reminder_extra_offsets_minutes?: number[];
           reminder_minutes_before?: number;
@@ -3393,6 +3395,7 @@ export type Database = {
           reminder_bodies?: NonNullable<Json>;
           reminder_body?: string | null;
           reminder_channel_session_id?: string | null;
+          reminder_meta_template_id?: string | null;
           reminder_enabled?: boolean;
           reminder_extra_offsets_minutes?: number[];
           reminder_minutes_before?: number;
@@ -3408,6 +3411,13 @@ export type Database = {
           updated_at?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "calendar_event_types_reminder_meta_template_id_fkey";
+            columns: ["reminder_meta_template_id"];
+            isOneToOne: false;
+            referencedRelation: "meta_templates";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "calendar_event_types_organization_id_fkey";
             columns: ["organization_id"];

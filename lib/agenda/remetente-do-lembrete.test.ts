@@ -76,6 +76,15 @@ describe("remetente da reserva, sem depender da ordem do banco", () => {
       ).motivo,
     ).toBe("canal_fora_da_janela_24h");
   });
+  it("fora da janela, com um número certo, diz qual é — para o modelo aprovado", () => {
+    const fechado = canal("clinica", { provider: CHANNEL_PROVIDER_META });
+    const fora = (r: ReturnType<typeof decidirRemetenteDoLembrete>) => (r.canal ? undefined : r.foraDaJanela);
+    expect(fora(decidirRemetenteDoLembrete([fechado], "clinica", agora))?.id).toBe("clinica");
+    expect(fora(decidirRemetenteDoLembrete([fechado], null, agora))?.id).toBe("clinica");
+    const outro = canal("cursos", { provider: CHANNEL_PROVIDER_META });
+    // Dois números fora da janela: nenhum é "o" remetente.
+    expect(fora(decidirRemetenteDoLembrete([fechado, outro], null, agora))).toBeUndefined();
+  });
   it("zero canais falha de maneira explícita", () => {
     expect(decidirRemetenteDoLembrete([], null, agora).motivo).toBe("sem_canal");
   });
