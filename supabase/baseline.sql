@@ -66593,3 +66593,5 @@ alter table public.calendar_event_types
 
 comment on column public.calendar_event_types.reminder_meta_template_id is
   'Modelo aprovado do número para o lembrete quando a janela de 24 h do cliente fechou (migration 9500, fork). Variáveis por posição: primeiro nome, dia e hora, título, endereço.';
+
+notify pgrst, 'reload schema';
