@@ -66585,3 +66585,11 @@ comment on column public.platform_settings.molde_de_ia_org_id is
 
 notify pgrst, 'reload schema';
 
+-- ---- o lembrete da agenda sai por modelo aprovado fora da janela de 24 h (migration 9500) ----
+-- Só coluna: fica no fim do apêndice (não cria função). Ver o cabeçalho da migration 9500.
+alter table public.calendar_event_types
+  add column if not exists reminder_meta_template_id uuid
+    references public.meta_templates(id) on delete set null;
+
+comment on column public.calendar_event_types.reminder_meta_template_id is
+  'Modelo aprovado do número para o lembrete quando a janela de 24 h do cliente fechou (migration 9500, fork). Variáveis por posição: primeiro nome, dia e hora, título, endereço.';

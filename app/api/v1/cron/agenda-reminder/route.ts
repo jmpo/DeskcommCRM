@@ -145,7 +145,12 @@ import { IDIOMA_PADRAO, normalizarIdioma, type Idioma } from "@/lib/i18n/idiomas
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { resolverRemetenteDoLembrete } from "@/lib/agenda/remetente-do-lembrete";
+import { resolverRemetenteDoLembrete, type CanalDoLembrete } from "@/lib/agenda/remetente-do-lembrete";
+import {
+  lerModeloDoLembrete,
+  valoresDoModeloDoLembrete,
+  type ModeloDoLembrete,
+} from "@/lib/agenda/lembrete-por-modelo";
 import { atualizarAvisoDeRemetente } from "@/lib/agenda/aviso-de-remetente";
 import { moldeDoDegrau } from "@/lib/agenda/lembretes";
 import { autorizaCron } from "@/lib/auth/cron-auth";
@@ -166,6 +171,8 @@ const MAIOR_ANTECEDENCIA_MS = 43_200 * 60_000;
 
 interface TipoDoCompromisso {
   reminder_channel_session_id?: string | null;
+  /** Modelo aprovado para quando a janela de 24 h do cliente fechou (`lib/agenda/lembrete-por-modelo.ts`). */
+  reminder_meta_template_id?: string | null;
   name: string;
   reminder_enabled: boolean;
   reminder_minutes_before: number;
@@ -233,6 +240,44 @@ export function aplicarMoldeDoLembrete(molde: string, pecas: Record<string, stri
   });
 }
 
+/** As peças do lembrete — as mesmas para o texto livre e para o modelo aprovado. */
+export function pecasDoLembrete(input: {
+  nomeDoContato: string | null;
+  titulo: string;
+  quando: Date;
+  timezone: string;
+  local: string | null;
+  idioma?: Idioma;
+  tipoNome?: string | null;
+}): Record<string, string> {
+  const idioma = input.idioma ?? IDIOMA_PADRAO;
+  const t = (texto: string) => traduzir(texto, idioma);
+  const etiqueta = tagDeIdioma(idioma);
+  const dia = new Intl.DateTimeFormat(etiqueta, {
+    timeZone: input.timezone,
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+  }).format(input.quando);
+  const hora = new Intl.DateTimeFormat(etiqueta, {
+    timeZone: input.timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(input.quando);
+  const nome = input.nomeDoContato?.trim() ?? "";
+  return {
+    nome,
+    primeiro_nome: nome.split(/\s+/)[0] ?? "",
+    titulo: input.titulo,
+    tipo: (input.tipoNome ?? input.titulo).trim() || input.titulo,
+    dia,
+    hora,
+    endereco: input.local?.trim() ?? "",
+    quando: `${dia} ${t("às")} ${hora}`,
+  };
+}
+
 export function montarLembrete(input: {
   nomeDoContato: string | null;
   titulo: string;
@@ -260,32 +305,8 @@ export function montarLembrete(input: {
 }): string {
   const idioma = input.idioma ?? IDIOMA_PADRAO;
   const t = (texto: string) => traduzir(texto, idioma);
-  const etiqueta = tagDeIdioma(idioma);
-
-  const dia = new Intl.DateTimeFormat(etiqueta, {
-    timeZone: input.timezone,
-    weekday: "long",
-    day: "2-digit",
-    month: "2-digit",
-  }).format(input.quando);
-  const hora = new Intl.DateTimeFormat(etiqueta, {
-    timeZone: input.timezone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).format(input.quando);
-
-  const nome = input.nomeDoContato?.trim() ?? "";
-  const pecas: Record<string, string> = {
-    nome,
-    primeiro_nome: nome.split(/\s+/)[0] ?? "",
-    titulo: input.titulo,
-    tipo: (input.tipoNome ?? input.titulo).trim() || input.titulo,
-    dia,
-    hora,
-    endereco: input.local?.trim() ?? "",
-    quando: `${dia} ${t("às")} ${hora}`,
-  };
+  const pecas = pecasDoLembrete(input);
+  const { nome, dia, hora } = pecas as { nome: string; dia: string; hora: string };
 
   const molde = input.molde?.trim();
   if (molde) return aplicarMoldeDoLembrete(molde, pecas);
@@ -537,7 +558,7 @@ async function handle(req: NextRequest): Promise<Response> {
     .from("calendar_appointments")
     .select(
       "id, organization_id, contact_id, conversation_id, title, starts_at, created_at, starts_at_marked_at, location_details, reminder_sent_offsets_minutes, reminder_sent_at, " +
-        "calendar_event_types!inner(name, reminder_channel_session_id, reminder_enabled, reminder_minutes_before, reminder_extra_offsets_minutes, reminder_template_name, reminder_body, reminder_bodies, location_details), organizations:organization_id!inner(status)",
+        "calendar_event_types!inner(name, reminder_channel_session_id, reminder_meta_template_id, reminder_enabled, reminder_minutes_before, reminder_extra_offsets_minutes, reminder_template_name, reminder_body, reminder_bodies, location_details), organizations:organization_id!inner(status)",
     )
     .eq("status", "confirmed")
     // Org parada sai no banco, ANTES do `limit`: filtrar só em memória a deixaria
@@ -573,6 +594,7 @@ async function handle(req: NextRequest): Promise<Response> {
 
   const linhas = (data ?? []) as unknown as CompromissoAVencer[];
   let enviados = 0;
+  let enviadosPorModelo = 0;
   let pulados = 0;
   const motivos: Record<string, number> = {};
   const pular = (motivo: string) => {
@@ -661,18 +683,28 @@ async function handle(req: NextRequest): Promise<Response> {
       tipo.reminder_channel_session_id ?? null,
       agora,
     );
-    await atualizarAvisoDeRemetente(admin, org, linha.id, escolha.motivo);
-    if (!escolha.canal) {
+    // Fora da janela de 24 h, com UM número certo e um modelo aprovado dele no tipo, o
+    // lembrete sai pelo modelo (`lib/agenda/lembrete-por-modelo.ts`). Sem isso, nada muda.
+    const modelo: ModeloDoLembrete | null =
+      !escolha.canal && escolha.foraDaJanela && tipo.reminder_meta_template_id
+        ? await lerModeloDoLembrete(admin, org, tipo.reminder_meta_template_id, escolha.foraDaJanela.id)
+        : null;
+    const canal: CanalDoLembrete | null = escolha.canal ?? (modelo ? (escolha.foraDaJanela ?? null) : null);
+    await atualizarAvisoDeRemetente(admin, org, linha.id, canal ? null : escolha.motivo);
+    if (!canal) {
       logger.warn("[agenda-reminder] lembrete sem remetente seguro", {
         appointmentId: linha.id,
         organizationId: org,
         motivo: escolha.motivo,
         requestId,
       });
-      pular(escolha.motivo);
+      pular(
+        escolha.motivo === "canal_fora_da_janela_24h" && tipo.reminder_meta_template_id
+          ? "modelo_do_lembrete_indisponivel"
+          : (escolha.motivo ?? "sem_canal"),
+      );
       continue;
     }
-    const canal = escolha.canal;
 
     const foraDaJanela = await adiarAteAJanelaAbrir(admin, org, canal.id);
     if (foraDaJanela) {
@@ -694,16 +726,33 @@ async function handle(req: NextRequest): Promise<Response> {
       if (modelo?.body) molde = modelo.body;
     }
 
-    const corpo = montarLembrete({
+    const dadosDoLembrete = {
       nomeDoContato: nomeDoContato(contato),
       titulo: linha.title,
       quando: new Date(linha.starts_at),
       timezone: organizacao?.timezone ?? "America/Sao_Paulo",
       local: linha.location_details ?? tipo.location_details ?? null,
       idioma: normalizarIdioma(organizacao?.locale),
-      molde,
       tipoNome: tipo.name,
-    });
+    };
+    const corpo = montarLembrete({ ...dadosDoLembrete, molde });
+
+    // Pelo modelo: os valores ANTES do carimbo — um modelo que não fecha não consome o degrau.
+    let porModelo: { valores: Record<string, string>; texto: string } | null = null;
+    if (modelo) {
+      const pecas = pecasDoLembrete(dadosDoLembrete);
+      if (!pecas.primeiro_nome) pecas.primeiro_nome = traduzir("cliente", dadosDoLembrete.idioma);
+      porModelo = valoresDoModeloDoLembrete(modelo.corpo, pecas);
+      if (!porModelo) {
+        logger.warn("[agenda-reminder] modelo do lembrete sem valores", {
+          appointmentId: linha.id,
+          modelo: modelo.name,
+          requestId,
+        });
+        pular("modelo_do_lembrete_sem_valores");
+        continue;
+      }
+    }
 
     // ─── O CARIMBO ANTES DO ENVIO (issue #2223) ────────────────────────────
     //
@@ -759,11 +808,21 @@ async function handle(req: NextRequest): Promise<Response> {
           actor: { type: "webhook_source", id: linha.id },
           requestId: `agenda-reminder:${linha.id}`,
         },
-        { conversation_id: conversaId, type: "text", body: corpo } as Parameters<
+        (modelo && porModelo
+          ? {
+              conversation_id: conversaId,
+              type: "template",
+              template_name: modelo.name,
+              template_language: modelo.language,
+              template_values: porModelo.valores,
+              body: porModelo.texto,
+            }
+          : { conversation_id: conversaId, type: "text", body: corpo }) as Parameters<
           typeof sendMessageHandler
         >[2],
       );
       enviados += 1;
+      if (modelo) enviadosPorModelo += 1;
     } catch (err) {
       // A org parou entre a leitura da rodada e o envio: não é erro, é a
       // suspensão (a porta de saída lança OrgNaoOperanteError). Nesta corrida o
@@ -791,7 +850,7 @@ async function handle(req: NextRequest): Promise<Response> {
       action: "agenda.lembrete_enviado",
       resourceType: "calendar_appointment",
       requestId,
-      metadata: { enviados, pulados, motivos },
+      metadata: { enviados, por_modelo: enviadosPorModelo, pulados, motivos },
     });
   }
 
