@@ -685,26 +685,28 @@ async function handle(req: NextRequest): Promise<Response> {
     );
     // Fora da janela de 24 h, com UM número certo e um modelo aprovado dele no tipo, o
     // lembrete sai pelo modelo (`lib/agenda/lembrete-por-modelo.ts`). Sem isso, nada muda.
+    const numeroForaDaJanela = escolha.canal ? undefined : escolha.foraDaJanela;
     const modelo: ModeloDoLembrete | null =
-      !escolha.canal && escolha.foraDaJanela && tipo.reminder_meta_template_id
-        ? await lerModeloDoLembrete(admin, org, tipo.reminder_meta_template_id, escolha.foraDaJanela.id)
+      numeroForaDaJanela && tipo.reminder_meta_template_id
+        ? await lerModeloDoLembrete(admin, org, tipo.reminder_meta_template_id, numeroForaDaJanela.id)
         : null;
-    const canal: CanalDoLembrete | null = escolha.canal ?? (modelo ? (escolha.foraDaJanela ?? null) : null);
-    await atualizarAvisoDeRemetente(admin, org, linha.id, canal ? null : escolha.motivo);
-    if (!canal) {
+    await atualizarAvisoDeRemetente(admin, org, linha.id, escolha.canal || modelo ? null : escolha.motivo);
+    if (!escolha.canal && !modelo) {
       logger.warn("[agenda-reminder] lembrete sem remetente seguro", {
         appointmentId: linha.id,
         organizationId: org,
         motivo: escolha.motivo,
         requestId,
       });
-      pular(
-        escolha.motivo === "canal_fora_da_janela_24h" && tipo.reminder_meta_template_id
-          ? "modelo_do_lembrete_indisponivel"
-          : (escolha.motivo ?? "sem_canal"),
-      );
+      if (tipo.reminder_meta_template_id && escolha.motivo === "canal_fora_da_janela_24h") {
+        pular("modelo_do_lembrete_indisponivel");
+        continue;
+      }
+      pular(escolha.motivo);
       continue;
     }
+    const canal: CanalDoLembrete | undefined = escolha.canal ?? numeroForaDaJanela;
+    if (!canal) continue; // inalcançável: com modelo há `numeroForaDaJanela`
 
     const foraDaJanela = await adiarAteAJanelaAbrir(admin, org, canal.id);
     if (foraDaJanela) {
