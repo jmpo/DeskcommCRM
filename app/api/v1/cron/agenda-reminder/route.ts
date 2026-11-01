@@ -682,6 +682,7 @@ async function handle(req: NextRequest): Promise<Response> {
       linha,
       tipo.reminder_channel_session_id ?? null,
       agora,
+      contato.phone_number,
     );
     // Fora da janela de 24 h, com UM número certo e um modelo aprovado dele no tipo, o
     // lembrete sai pelo modelo (`lib/agenda/lembrete-por-modelo.ts`). Sem isso, nada muda.
