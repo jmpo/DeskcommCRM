@@ -528,7 +528,8 @@ describe("POST /api/v1/products/import — foto por URL", () => {
 
     const texto = (await (await GET()).text()).replace("\ufeff", "");
 
-    expect(texto.split("\n")[0]).toBe("codigo,nome,marca,categoria,preco,custo,estoque,foto");
+    // O fork traz também a coluna de descrição (ao lado da de nome) antes da de foto.
+    expect(texto.split("\n")[0]).toBe("codigo,nome,marca,categoria,preco,custo,estoque,descricao,foto");
     const lido = lerPlanilha(texto);
     if ("erro" in lido) throw new Error(`o modelo devolvido não é lido pelo importador: ${lido.erro}`);
     // As linhas do modelo trazem a coluna VAZIA: importado como vem, o modelo
