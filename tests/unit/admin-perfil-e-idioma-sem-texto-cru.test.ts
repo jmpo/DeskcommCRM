@@ -79,7 +79,7 @@ describe("updateProfile", () => {
 
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error("esperava recusa");
-    expect(r.error).toBe("Tu sesión expiró. Entra de nuevo.");
+    expect(r.error).toBe("Su sesión expiró. Entre de nuevo.");
     semVazamento(r, h.erro);
 
     const log = vi.mocked(console.error).mock.calls.map((c) => String(c[0])).join("\n");
@@ -96,7 +96,7 @@ describe("updateProfile", () => {
 
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error("esperava recusa");
-    expect(r.error).toBe("No se pudo guardar. Inténtalo de nuevo.");
+    expect(r.error).toBe("No se pudo guardar. Inténtelo de nuevo.");
     semVazamento(r, h.erro);
   });
 
@@ -118,7 +118,7 @@ describe("trocarIdioma", () => {
 
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error("esperava recusa");
-    expect(r.error).toBe("No se pudo guardar. Inténtalo de nuevo.");
+    expect(r.error).toBe("No se pudo guardar. Inténtelo de nuevo.");
     semVazamento(r, h.erro);
 
     const log = vi.mocked(console.error).mock.calls.map((c) => String(c[0])).join("\n");
