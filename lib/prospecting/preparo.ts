@@ -87,7 +87,7 @@ type CandidatoDoPreparo = {
   contact_id: string | null;
 };
 
-/** O que o preparo pede de fora — trocável nos testes (o WAHA real não entra lá). */
+/** O que o preparo pede de fora — trocável nos testes (a plataforma real não entra lá). */
 export interface DependenciasDoPreparo {
   consultaWhatsapp: typeof consultaPelaConexao;
   dormir?: (ms: number) => Promise<void>;
@@ -183,8 +183,8 @@ async function trabalhar(
 
   // Passo 0 — o WhatsApp: o telefone da empresa tem WhatsApp? Vem ANTES de tudo
   // porque decide quem sai da lista — e quem sai não deve gastar verificação de
-  // site nem, sobretudo, prévia de IA. Pela conexão WAHA da campanha (ou qualquer
-  // uma conectada); sem conexão WAHA, o passo não faz nada e o resto segue como antes.
+  // site nem, sobretudo, prévia de IA. Pela conexão da campanha (ou qualquer uma
+  // conectada que saiba perguntar); sem ela, o passo não faz nada e o resto segue igual.
   let restanteDeWhatsapp = TETO_DE_WHATSAPP_POR_RODADA;
   const consultas = new Map<string, ConsultaWhatsapp | null>();
   for (const c of campanhas) {

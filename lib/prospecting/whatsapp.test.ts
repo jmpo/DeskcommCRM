@@ -7,20 +7,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * WhatsApp, 2 sem — e um dos 8 era um FIXO com WhatsApp Business. Daqui saem os
  * três compromissos que estes casos fixam:
  *   1. a resposta vem do WhatsApp, número por número — nunca do prefixo;
- *   2. "sem WhatsApp" tira a empresa da abordagem; "não deu para saber" (WAHA
+ *   2. "sem WhatsApp" tira a empresa da abordagem; "não deu para saber" (servidor
  *      fora) não tira ninguém — a rodada para e tenta de novo;
  *   3. as consultas saem espaçadas e com teto: quem consulta é o número do cliente.
  */
 const mocks = vi.hoisted(() => ({
   audit: vi.fn(),
-  check: vi.fn(),
-  client: null as null | { checkContactExists: (s: string, p: string) => Promise<{ numberExists: boolean }> },
+  numeroTemConta: vi.fn<(i: { organizationId: string; sessionRef: string; phone: string }) => Promise<boolean | null>>(),
+  provedores: ["canal-pareado"] as string[],
+  temMetodo: true,
 }));
 vi.mock("@/lib/audit", () => ({ audit: mocks.audit }));
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
-vi.mock("@/lib/waha/client", () => ({ getWahaClient: () => mocks.client }));
+// O canal é pedido pela porta do seam (`@/lib/channels`), nunca pelo nome do provider.
+vi.mock("@/lib/channels", () => ({
+  provedoresQueConferemNumero: () => mocks.provedores,
+  getAdapter: () => (mocks.temMetodo ? { numeroTemConta: mocks.numeroTemConta } : {}),
+  resolveSessionRef: (c: { ref: string }) => c.ref,
+}));
 
 import {
   consultaPelaConexao,
@@ -46,13 +52,14 @@ function banco(pendentes: Array<{ id: string; phone: string }>) {
   return { db, sqls, gravacoes: () => sqls.filter((s) => s.sql.startsWith("update prospecting_candidates")) };
 }
 
-const semPausa = vi.fn(async () => {});
+const semPausa = vi.fn(async (_ms: number) => {});
 const rodar = (db: unknown, consultar: ConsultaWhatsapp, teto = 15, deadline = Date.now() + 60_000) =>
   verificarWhatsappPendentes(db as never, ORG, "req-1", deadline, CAMP, teto, consultar, semPausa);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.client = null;
+  mocks.provedores = ["canal-pareado"];
+  mocks.temMetodo = true;
 });
 
 describe("verificarWhatsappPendentes", () => {
@@ -82,7 +89,7 @@ describe("verificarWhatsappPendentes", () => {
     expect(g[0]!.sql).toContain("status in ('new','queued')");
   });
 
-  it("WAHA fora ('não deu para saber') não descarta ninguém: para a rodada sem gravar", async () => {
+  it("servidor fora ('não deu para saber') não descarta ninguém: para a rodada sem gravar", async () => {
     const { db, gravacoes } = banco([
       { id: "a", phone: "+595981000001" },
       { id: "b", phone: "+595981000002" },
@@ -135,41 +142,42 @@ describe("verificarWhatsappPendentes", () => {
 });
 
 describe("consultaPelaConexao", () => {
-  const canal = { id: "c1", provider: "waha", waha_session_name: "sessao-685" };
-  const dbCom = (rows: unknown[]) => ({ query: vi.fn(async () => ({ rows })) });
+  const canal = { id: "c1", provider: "canal-pareado", ref: "sessao-685" };
+  const dbCom = (rows: unknown[]) => ({ query: vi.fn(async (_sql: string, _params: unknown[]) => ({ rows })) });
 
-  it("sem WAHA configurado ou sem conexão WAHA conectada, não há consulta (nada muda)", async () => {
-    expect(await consultaPelaConexao(dbCom([canal]) as never, ORG, null)).toBeNull();
-    mocks.client = { checkContactExists: mocks.check };
+  it("nenhum canal sabe perguntar, ou nenhuma conexão capaz conectada: não há consulta (nada muda)", async () => {
+    mocks.provedores = [];
+    const db = dbCom([canal]);
+    expect(await consultaPelaConexao(db as never, ORG, null)).toBeNull();
+    expect(db.query).not.toHaveBeenCalled();
+    mocks.provedores = ["canal-pareado"];
     expect(await consultaPelaConexao(dbCom([]) as never, ORG, null)).toBeNull();
+    mocks.temMetodo = false;
+    expect(await consultaPelaConexao(dbCom([canal]) as never, ORG, null)).toBeNull();
   });
 
-  it("prefere a conexão da campanha e pergunta pela sessão dela", async () => {
-    mocks.client = { checkContactExists: mocks.check };
-    mocks.check.mockResolvedValue({ numberExists: true });
+  it("prefere a conexão da campanha, filtra pelos canais capazes e pergunta pela sessão dela", async () => {
+    mocks.numeroTemConta.mockResolvedValue(true);
     const db = dbCom([canal]);
     const consultar = await consultaPelaConexao(db as never, ORG, "c1");
-    expect(db.query.mock.calls[0]![0]).toContain("provider='waha' and status='WORKING'");
-    expect(db.query.mock.calls[0]![1]).toEqual([ORG, "c1"]);
+    const [sql, params] = db.query.mock.calls[0]!;
+    expect(sql).toContain("provider = any($3::text[])");
+    expect(sql).toContain("status='WORKING'");
+    expect(params).toEqual([ORG, "c1", ["canal-pareado"]]);
     expect(await consultar!("+595981000001")).toBe(true);
-    expect(mocks.check).toHaveBeenCalledWith("sessao-685", "595981000001");
+    expect(mocks.numeroTemConta).toHaveBeenCalledWith({
+      organizationId: ORG,
+      sessionRef: "sessao-685",
+      phone: "+595981000001",
+    });
   });
 
-  it("nenhuma grafia existe → false; o transporte falhou em todas → null (não é 'sem WhatsApp')", async () => {
-    mocks.client = { checkContactExists: mocks.check };
+  it("repassa o 'não' e o 'não deu para saber' do canal; exceção do canal também é 'não deu para saber'", async () => {
     const consultar = (await consultaPelaConexao(dbCom([canal]) as never, ORG, null))!;
-    mocks.check.mockResolvedValue({ numberExists: false });
+    mocks.numeroTemConta.mockResolvedValueOnce(false).mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("http_502"));
     expect(await consultar("+595981000001")).toBe(false);
-    mocks.check.mockRejectedValue(new Error("waha_502"));
     expect(await consultar("+595981000001")).toBeNull();
-  });
-
-  it("no Brasil basta UMA das grafias do nono dígito existir", async () => {
-    mocks.client = { checkContactExists: mocks.check };
-    mocks.check.mockImplementation(async (_s: string, p: string) => ({ numberExists: p === "551199990000" }));
-    const consultar = (await consultaPelaConexao(dbCom([canal]) as never, ORG, null))!;
-    expect(await consultar("+5511999990000")).toBe(true);
-    expect(mocks.check.mock.calls.length).toBeGreaterThan(1);
+    expect(await consultar("+595981000001")).toBeNull();
   });
 });
 

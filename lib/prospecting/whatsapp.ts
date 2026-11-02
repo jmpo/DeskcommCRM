@@ -4,9 +4,9 @@
  * A busca de mapas devolve o telefone que a empresa publicou, e nada garante que
  * ele tenha WhatsApp: fixo sem WhatsApp Business, celular desativado, número de
  * outra pessoa. A prospecção escrevia a abordagem (uma chamada de modelo) e a
- * mandava assim mesmo — o envio cai no `wa_id` cru quando o `check-exists` não
- * acha o número (`lib/waha/resolve-contact-whatsapp-id.ts`) —, e a lista
- * misturava, sem distinção, quem podia ser abordado e quem nunca ia receber.
+ * mandava assim mesmo — o envio cai no endereço cru quando a plataforma não
+ * acha o número —, e a lista misturava, sem distinção, quem podia ser abordado e
+ * quem nunca ia receber.
  *
  * Medido numa instalação real (02/11/2026, 14 empresas de uma busca): 8 com
  * WhatsApp, 2 sem, 4 sem telefone — e um dos 8 era um FIXO com WhatsApp Business.
@@ -16,10 +16,11 @@
  *
  * ═══ Como ═══
  *
- * O `check-exists` do WAHA, pela sessão de uma conexão WAHA da organização (a da
- * campanha, se ela já escolheu; senão qualquer uma conectada). Ele não manda
- * mensagem nenhuma: só pergunta se o número existe no WhatsApp. Sem conexão WAHA
- * conectada, nada acontece — o veredito fica ausente e a abordagem segue como
+ * `numeroTemConta` do adapter do canal (`lib/channels/types.ts`), pela sessão de
+ * uma conexão da organização que saiba perguntar (a da campanha, se ela já
+ * escolheu; senão qualquer uma conectada — `provedoresQueConferemNumero`). Não
+ * manda mensagem nenhuma: só pergunta se o número existe no WhatsApp. Sem
+ * conexão capaz, nada acontece — o veredito fica ausente e a abordagem segue como
  * antes (o canal oficial não tem esta pergunta).
  *
  * ═══ O que limita ═══
@@ -28,7 +29,7 @@
  *   com `PAUSA_ENTRE_CONSULTAS_MS` entre um e outro: consulta em rajada é o tipo de
  *   padrão que a detecção de automação procura, e o número consultando é o do
  *   cliente;
- * - erro de transporte (WAHA fora, sessão caindo) NÃO vira "sem WhatsApp": a
+ * - erro de transporte (servidor fora, sessão caindo) NÃO vira "sem WhatsApp": a
  *   rodada para, nada é gravado, e a próxima tenta de novo. Descartar uma empresa
  *   porque o servidor piscou seria pior do que abordá-la.
  *
@@ -43,17 +44,17 @@
 import type pg from "pg";
 
 import { audit } from "@/lib/audit";
-import { phoneLookupVariants } from "@/lib/channels/phone-variants";
-import { resolveSessionRef, type ChannelSessionRef } from "@/lib/channels/session-ref";
+import {
+  getAdapter,
+  provedoresQueConferemNumero,
+  resolveSessionRef,
+  type ChannelSessionRef,
+} from "@/lib/channels";
 import { logger } from "@/lib/logger";
-import { getWahaClient } from "@/lib/waha/client";
-import type { Prospect } from "./schema";
+import type { Prospect, VereditoWhatsapp } from "./schema";
 
-/** O que fica gravado em `prospecting_candidates.data.whatsapp`. */
-export interface VereditoWhatsapp {
-  existe: boolean;
-  verificado_em: string;
-}
+export type { VereditoWhatsapp };
+
 
 /** Motivo de "Não abordado" de quem não tem WhatsApp. */
 export const MOTIVO_SEM_WHATSAPP = "Sem WhatsApp neste número.";
@@ -75,39 +76,32 @@ export function motivoSemWhatsapp(data: Pick<Prospect, "whatsapp"> | null | unde
 }
 
 /**
- * A consulta pela sessão de uma conexão WAHA CONECTADA da organização. Prefere a
- * conexão da campanha; sem ela, a mais antiga conectada. `null` quando não há
- * conexão WAHA conectada ou o WAHA não está configurado nesta instalação.
+ * A consulta pela sessão de uma conexão CONECTADA da organização cujo canal sabe
+ * perguntar (`numeroTemConta`). Prefere a conexão da campanha; sem ela, a mais
+ * antiga conectada. `null` quando não há conexão capaz conectada.
  */
 export async function consultaPelaConexao(
   db: Pick<pg.PoolClient, "query">,
   org: string,
   canalPreferido: string | null,
 ): Promise<ConsultaWhatsapp | null> {
-  const client = getWahaClient();
-  if (!client) return null;
+  const provedores = provedoresQueConferemNumero();
+  if (provedores.length === 0) return null;
   const canal = (
     await db.query<ChannelSessionRef & { id: string }>(
-      "select * from channel_sessions where organization_id=$1 and provider='waha' and status='WORKING' " +
-        "and archived_at is null order by (id::text = coalesce($2::text, '')) desc, created_at limit 1",
-      [org, canalPreferido],
+      "select * from channel_sessions where organization_id=$1 and provider = any($3::text[]) " +
+        "and status='WORKING' and archived_at is null " +
+        "order by (id::text = coalesce($2::text, '')) desc, created_at limit 1",
+      [org, canalPreferido, provedores],
     )
   ).rows[0];
   if (!canal) return null;
-  const session = resolveSessionRef(canal);
-  return async (telefone) => {
-    let falhou = false;
-    // As grafias do mesmo número (o nono dígito no Brasil): basta UMA existir.
-    for (const variante of [...new Set(phoneLookupVariants(telefone).map((v) => v.replace(/\D/g, "")))]) {
-      if (!variante) continue;
-      try {
-        if ((await client.checkContactExists(session, variante)).numberExists) return true;
-      } catch {
-        falhou = true;
-      }
-    }
-    return falhou ? null : false;
-  };
+  const adapter = getAdapter(canal.provider);
+  if (typeof adapter.numeroTemConta !== "function") return null;
+  const sessionRef = resolveSessionRef(canal);
+  // Exceção do adapter também é "não deu para saber", nunca "não tem".
+  return (telefone) =>
+    adapter.numeroTemConta!({ organizationId: org, sessionRef, phone: telefone }).catch(() => null);
 }
 
 const SQL_PENDENTES =

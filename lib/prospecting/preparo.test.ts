@@ -586,7 +586,7 @@ describe("Passo 0 — o WhatsApp vem antes do site e da prévia (whatsapp.ts)", 
     ]);
   });
 
-  it("sem conexão WAHA (consulta nula), nada é conferido e o preparo segue igual", async () => {
+  it("sem conexão capaz de conferir (consulta nula), nada é conferido e o preparo segue igual", async () => {
     const { pool, sqls } = montar({ candidatos: { [C1]: [cand("w1", { phone: "+595981000001" })] } });
     const r = await rodarCom(pool, async () => null);
     expect(r.whatsapp).toBe(0);
