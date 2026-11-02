@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { SiteEnrichment } from "@/lib/prospecting/site-classify";
 import type { PreviaSalva } from "@/lib/prospecting/previa";
+import type { VereditoWhatsapp } from "@/lib/prospecting/whatsapp";
 
 /**
  * Os dois números do RITMO da campanha, com os mesmos limites no início e no
@@ -215,6 +216,12 @@ export interface Prospect {
    * vencida, o envio escreve do zero.
    */
   previa?: PreviaSalva | null;
+  /**
+   * O telefone tem WhatsApp? Resposta do `check-exists` do WAHA
+   * (`lib/prospecting/whatsapp.ts`). Ausente = ainda não conferido (ou não há
+   * conexão WAHA para conferir); `existe: false` tira a empresa da abordagem.
+   */
+  whatsapp?: VereditoWhatsapp | null;
 }
 
 /**

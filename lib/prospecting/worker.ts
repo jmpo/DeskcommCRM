@@ -657,7 +657,13 @@ const ORGS_COM_PREPARO_PENDENTE =
   // existe um é o preparo, em TS.
   "or (coalesce(pc.search->>'avaliar_site','true') <> 'false' and coalesce(pc.search->>'gerar_previa','false') = 'true' and c.data->'previa' is null " +
   "and ((c.data->'site' is not null and not coalesce((c.data->'site'->>'provisorio')::boolean, false)) " +
-  "or (c.data->'site' is null and nullif(trim(c.data->>'website'), '') is null))))) " +
+  "or (c.data->'site' is null and nullif(trim(c.data->>'website'), '') is null))) " +
+  // (c) WhatsApp por conferir (`whatsapp.ts`): telefone sem veredito, e uma conexão WAHA
+  // conectada para perguntar. Sem a conexão a organização NÃO entra — senão voltaria
+  // toda rodada para nada.
+  "or (nullif(trim(c.data->>'phone'), '') is not null and c.data->'whatsapp' is null " +
+  "and exists (select 1 from channel_sessions s where s.organization_id=pc.organization_id " +
+  "and s.provider='waha' and s.status='WORKING' and s.archived_at is null)))) " +
   "group by pc.organization_id order by min(pc.updated_at) limit 20";
 
 /** Teto de tempo do preparo de UMA organização dentro do tick. */

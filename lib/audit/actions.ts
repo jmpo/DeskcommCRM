@@ -1421,6 +1421,11 @@ export const AUDIT_ACTIONS = [
   // sugestão, e quando". A fila guarda o usuário, mas a trilha é o rastro que a
   // organização consulta, e só ela tem o mesmo formato das outras ações de contato.
   "contact.duplicate_dismissed",
+  // A prospecção perguntou ao WhatsApp (check-exists do WAHA) se os telefones de
+  // uma campanha têm WhatsApp, e tirou da seleção quem não tem
+  // (`lib/prospecting/whatsapp.ts`). UMA linha por campanha por rodada e só com
+  // efeito; metadata só com contagens — nunca o telefone. `resource_id` = a campanha.
+  "prospecting.whatsapp_checked",
 ] as const;
 
 /** Um código de auditoria. Derivado de `AUDIT_ACTIONS` — não redigite a lista. */
