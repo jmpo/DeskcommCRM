@@ -72,6 +72,36 @@ function deveFalar(vozQuando: VozQuando, inboundType: string | null): boolean {
   return inboundType === 'audio';
 }
 
+/**
+ * O BLOCO QUE AVISA O MODELO DE QUE A RESPOSTA VAI SER OUVIDA.
+ *
+ * A síntese não reescreve nada: `textoFalavel` só tira emoji, markdown e
+ * símbolo do texto que o modelo escreveu. Se o modelo não sabe que vai ser
+ * ouvido, escreve para a TELA — e o que se lê de relance cansa no ouvido.
+ * Medido em produção (03/11/2026, número oficial): a resposta a um áudio de
+ * cliente saiu numa nota de 35 segundos, com lista ("embudo, seguimento, agente
+ * de IA…") e sigla ("API oficial de Meta"). Uma nota confortável fica entre 15 e
+ * 25 segundos — ~300 caracteres de fala.
+ *
+ * Só entra quando a voz JÁ foi resolvida para este turno (`null` = o turno sai em
+ * texto e nada muda). Link e texto longo seguem caindo para texto em
+ * `textoParaFalar`: o bloco pede o curto, a régua de lá continua sendo a garantia.
+ */
+export const BLOCO_DA_RESPOSTA_FALADA =
+  '## Esta resposta vai sair como NOTA DE VOZ\n' +
+  'O cliente vai OUVIR o que você mandar com send_message: a voz é gerada a partir do seu texto. ' +
+  'Escreva para ser ouvido, no idioma da conversa:\n' +
+  '- curto: no máximo uns 20 segundos de fala (cerca de 300 caracteres);\n' +
+  '- uma ideia por vez, com frases simples, como num áudio de WhatsApp;\n' +
+  '- sem listas, tópicos, emojis, siglas nem símbolos; números e preços escritos como se falam;\n' +
+  '- se fizer sentido, termine com UMA pergunta.\n' +
+  'Link, endereço longo ou dado para copiar não cabem em áudio: se precisar mandar, mande por escrito.';
+
+/** O bloco da resposta falada, ou `null` quando este turno sai em texto. */
+export function blocoDaRespostaFalada(voz: VozResolvidaDoTurno | null): string | null {
+  return voz ? BLOCO_DA_RESPOSTA_FALADA : null;
+}
+
 export async function resolverVozDoTurno(
   input: ResolverVozDoTurnoInput,
 ): Promise<VozResolvidaDoTurno | null> {
