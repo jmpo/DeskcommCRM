@@ -777,7 +777,10 @@ export async function uploadDeVoz(input: {
   audio: Buffer;
   mimeType: string;
 }): Promise<string> {
-  const path = `${input.tenantId}/${input.conversationId}/voz-agente-${input.jobId}-${input.seq}.mp3`;
+  // A extensão acompanha o formato: `.ogg` é a nota de voz em opus do canal
+  // oficial, e é ela que diz o formato a um retry (`mimeDoCaminhoDeVoz`).
+  const extensao = input.mimeType.toLowerCase().startsWith('audio/ogg') ? 'ogg' : 'mp3';
+  const path = `${input.tenantId}/${input.conversationId}/voz-agente-${input.jobId}-${input.seq}.${extensao}`;
   const admin = createAdminClient();
   // `upsert: true`, e não `false`: este caminho só é chamado quando
   // `resolverCaminhoDeVoz` JÁ decidiu que precisa sintetizar de novo — ou é a
@@ -4301,6 +4304,7 @@ async function executarTurnoDoAgente(
                 apiKey: voz.apiKey,
                 voiceId: voz.voiceId,
                 ...(voz.modelId ? { modelId: voz.modelId } : {}),
+                formato: voz.formato,
                 upload: (audio, mimeType) =>
                   uploadDeVoz({ tenantId, conversationId: input.conversationId, jobId: liveJob().id, seq: seqDesteEnvio, audio, mimeType }),
               },
