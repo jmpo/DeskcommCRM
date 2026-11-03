@@ -1710,6 +1710,7 @@ export const DICIONARIO: Traducoes = {
   "Nenhum dia fora da rotina daqui para a frente.": { es: "No hay días fuera de la rutina a partir de hoy." },
   "Nenhum dia fechado daqui para a frente.": { es: "No hay días cerrados a partir de hoy." },
   "aberto excepcionalmente": { es: "abierto excepcionalmente" },
+  "Fechado": { es: "Cerrado" },
   "Fechar só algumas horas": { es: "Cerrar solo unas horas" },
   "Fechar estas horas": { es: "Cerrar estas horas" },
   "fechado nessas horas": { es: "cerrado en ese horario" },
