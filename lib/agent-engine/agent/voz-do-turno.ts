@@ -19,6 +19,7 @@ import { aplicarOrcamento, LlmBudgetExceededError, type RastroDaChamada } from '
 import { chaveDeOrcamentoDaInstalacao } from '@/lib/instalacao/comportamento';
 import { logger } from '@/lib/logger';
 import type { ChannelCapabilities } from '@/lib/channels/types';
+import { formatoDaVozParaCanal, type FormatoDaVoz } from '@/lib/ai/voz/formato';
 
 export type VozQuando = 'nunca' | 'espelhar' | 'sempre';
 
@@ -28,9 +29,10 @@ export interface ResolverVozDoTurnoInput {
   vozEnabled: boolean;
   vozQuando: VozQuando;
   /**
-   * O que o canal da conversa faz com áudio. A síntese grava mp3, e só o canal
-   * que CONVERTE o entrega como nota de voz — no `opus-only` ele chegaria como
-   * anexo de música (`lib/channels/capabilities.ts`). Lá, a resposta segue em texto.
+   * O que o canal da conversa faz com áudio — e daí o FORMATO da síntese: mp3
+   * para quem converte, ogg/opus para o canal oficial, que exige opus e não
+   * converte (`lib/ai/voz/formato.ts`). Até 02/11/2026 o `opus-only` respondia
+   * sempre em texto; a ElevenLabs sintetiza em opus, então ele também fala.
    */
   voiceNote: ChannelCapabilities['voiceNote'];
   /** `messages.type` da mensagem inbound que disparou o turno — `null` quando não há (ex.: follow-up proativo). */
@@ -53,6 +55,8 @@ export interface VozResolvidaDoTurno {
   apiKey: string;
   voiceId: string;
   modelId?: string;
+  /** O formato que ESTE canal entrega como nota de voz. */
+  formato: FormatoDaVoz;
 }
 
 /** `organizations.settings->'voz'` — mesmo padrão jsonb de `settings->'llm'`. */
@@ -72,7 +76,6 @@ export async function resolverVozDoTurno(
   input: ResolverVozDoTurnoInput,
 ): Promise<VozResolvidaDoTurno | null> {
   if (!input.vozEnabled) return null;
-  if (input.voiceNote !== 'server-convert') return null;
   if (!deveFalar(input.vozQuando, input.inboundType)) return null;
 
   try {
@@ -131,6 +134,7 @@ export async function resolverVozDoTurno(
       apiKey: elevenlabs.apiKey,
       voiceId: voz.voice_id,
       modelId,
+      formato: formatoDaVozParaCanal(input.voiceNote),
     };
   } catch (err) {
     if (err instanceof LlmBudgetExceededError) {
