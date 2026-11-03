@@ -67,7 +67,7 @@ import { WahaChannelAdapter } from '../edge/channel/waha-adapter';
 // applySendOutcome é disposição de FILA (cancel/reschedule + cache de opt-out), não
 // egress de canal — o envio em si vai pelo adapter (ChannelAdapter). Ver F2-25.
 import { applySendOutcome } from '../edge/crm/send-message';
-import { resolverVozDoTurno } from './voz-do-turno';
+import { blocoDaRespostaFalada, resolverVozDoTurno } from './voz-do-turno';
 import { textoParaFalar } from '@/lib/ai/voz/texto-falavel';
 import {
   LlmBudgetExceededError,
@@ -2887,7 +2887,6 @@ async function executarTurnoDoAgente(
   // rascunho saía em terceira pessoa — "vou avisar o atendente e ele responde".
   // Vive em função de módulo (`blocoDoModoDePrevia`) para poder ser testada.
   if (preview) blocosResidentes.push(blocoDoModoDePrevia(preview.kind));
-  const system = blocosResidentes.join('\n\n');
   const openingContext = preview
     ? preview.context
     : await getLeadContext(
@@ -2932,6 +2931,15 @@ async function executarTurnoDoAgente(
                 }),
         })
       : null;
+
+  // A resposta que vai virar ÁUDIO é escrita PARA SER OUVIDA. Sem este bloco o
+  // modelo escrevia como sempre — três bolhas, lista e sigla — e a síntese lia
+  // tudo numa nota de 35 segundos (medido em produção em 03/11/2026, número
+  // oficial). Por isso o `system` só é montado DEPOIS de a voz ser resolvida, e
+  // o bloco vai NO FIM: o prefixo dos turnos em texto continua o mesmo.
+  const blocoDaVoz = blocoDaRespostaFalada(vozParaEsteTurno);
+  if (blocoDaVoz) blocosResidentes.push(blocoDaVoz);
+  const system = blocosResidentes.join('\n\n');
 
   // Seam de canal (F2-25): o envio vai SÓ pela interface ChannelAdapter — o
   // default WAHA-via-CRM envolve o sink F2-06. Instanciado por job (o pool é
